@@ -25,21 +25,21 @@ public class GraphItemUtils {
       // Extract the full key from the GraphItem
       int keyStart = str.indexOf("key=");
       if (keyStart == -1)
-        return null;
+        return Optional.empty();
 
       keyStart += 4; // Skip "key="
 
       // Find the end of the key - it should be before ", requestedCoordinates="
       int keyEnd = str.indexOf(", requestedCoordinates=", keyStart);
       if (keyEnd == -1)
-        return null;
+        return Optional.empty();
 
       String key = str.substring(keyStart, keyEnd);
 
       // Parse key: "group|name|version|attributes..."
       String[] parts = key.split("\\|");
       if (parts.length < 3)
-        return null;
+        return Optional.empty();
 
       String group = parts[0];
       String name = parts[1];
@@ -47,7 +47,7 @@ public class GraphItemUtils {
 
       // Skip project dependencies
       if (":".equals(group) || group.isEmpty() || name.startsWith(":")) {
-        return null;
+        return Optional.empty();
       }
 
       // Try to find this dependency in the libraries map
