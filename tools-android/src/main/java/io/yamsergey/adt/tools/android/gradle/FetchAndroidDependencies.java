@@ -44,6 +44,7 @@ public class FetchAndroidDependencies implements BuildAction<Result<VariantDepen
             modelBuilderParameter.setDontBuildTestFixtureRuntimeClasspath(false);
             modelBuilderParameter.setDontBuildUnitTestRuntimeClasspath(false);
             modelBuilderParameter.setDontBuildHostTestRuntimeClasspath(Map.of());
+            modelBuilderParameter.setAdditionalArtifactsInModel(true);
             modelBuilderParameter.setVariantName(buildVariant.name());
           });
 
