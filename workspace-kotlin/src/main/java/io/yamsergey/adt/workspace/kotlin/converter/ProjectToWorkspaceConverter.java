@@ -191,7 +191,7 @@ public class ProjectToWorkspaceConverter {
   private Collection<Dependency> convertDependencies(ResolvedAndroidModule projectModule, boolean testScope) {
     return projectModule.dependencies().stream()
         .filter(dep -> testScope ? isTestDependency(dep) : !isTestDependency(dep))
-        .map(this::convertDependency)
+        .map(dependency -> convertDependency(dependency, projectModule.name()))
         .collect(Collectors.toList());
   }
 
@@ -201,15 +201,19 @@ public class ProjectToWorkspaceConverter {
   private Collection<Dependency> convertDependencies(ResolvedGenericModule projectModule, boolean testScope) {
     return projectModule.dependencies().stream()
         .filter(dep -> testScope ? isTestDependency(dep) : !isTestDependency(dep))
-        .map(this::convertDependency)
+        .map(dependnecy -> convertDependency(dependnecy, projectModule.name()))
         .collect(Collectors.toList());
   }
 
   /**
    * Converts a single project dependency to workspace dependency.
    * Uses the new improved dependency structure with external vs local separation.
+   *
+   * Local dependencies require module name to create uniqe dependency id, in
+   * other case one dependency can override another (e.g. R.jar)
    */
-  private Dependency convertDependency(io.yamsergey.adt.tools.android.model.dependency.Dependency projectDep) {
+  private Dependency convertDependency(io.yamsergey.adt.tools.android.model.dependency.Dependency projectDep,
+      String moduleName) {
     return switch (projectDep) {
       case GradleJarDependency jar -> Dependency.builder()
           .type(Dependency.DependencyType.library)
@@ -225,9 +229,9 @@ public class ProjectToWorkspaceConverter {
         String depName;
         if (localJar.path().contains("android.jar")) {
           String version = extractAndroidApiVersion(localJar.path());
-          depName = "Gradle: android:android:" + version;
+          depName = String.format("Gradle: %s %s", moduleName, "android:android:" + version);
         } else {
-          depName = "Gradle: " + extractLibraryName(localJar.path());
+          depName = String.format("Gradle: %s %s", moduleName, extractLibraryName(localJar.path()));
         }
         yield Dependency.builder()
             .type(Dependency.DependencyType.library)
@@ -311,6 +315,11 @@ public class ProjectToWorkspaceConverter {
     List<Library> libraries = new ArrayList<>();
 
     for (ResolvedModule module : projectModules) {
+      var moduleName = switch (module) {
+        case ResolvedAndroidModule androidModule -> androidModule.name();
+        case ResolvedGenericModule genericModule -> genericModule.name();
+        default -> "";
+      };
       Collection<io.yamsergey.adt.tools.android.model.dependency.Dependency> dependencies = switch (module) {
         case ResolvedAndroidModule androidModule -> androidModule.dependencies();
         case ResolvedGenericModule genericModule -> genericModule.dependencies();
@@ -322,7 +331,7 @@ public class ProjectToWorkspaceConverter {
         SourceRoot root = SourceRoot.builder().path(path).build();
         if (!libraryPaths.contains(root)) {
           libraryPaths.add(root);
-          libraries.add(createLibrary(dependency));
+          libraries.add(createLibrary(dependency, moduleName));
         }
       }
     }
@@ -336,7 +345,8 @@ public class ProjectToWorkspaceConverter {
    * External dependencies get proper Maven coordinates from the dependency
    * itself.
    */
-  private Library createLibrary(io.yamsergey.adt.tools.android.model.dependency.Dependency dependency) {
+  private Library createLibrary(io.yamsergey.adt.tools.android.model.dependency.Dependency dependency,
+      String moduleName) {
     String name;
     Library.LibraryType type = determineLibraryType(dependency);
     Collection<SourceRoot> roots;
@@ -369,7 +379,7 @@ public class ProjectToWorkspaceConverter {
         // Special case for android.jar
         if (localJar.path().contains("android.jar")) {
           String version = extractAndroidApiVersion(localJar.path());
-          name = "Gradle: android:android:" + version;
+          name = String.format("Gradle: %s %s", moduleName, "android:android:" + version);
           attributes = Library.LibraryAttributes.builder()
               .groupId("android")
               .artifactId("android")
@@ -378,7 +388,7 @@ public class ProjectToWorkspaceConverter {
               .build();
         } else {
           String libraryName = extractLibraryName(localJar.path());
-          name = "Gradle: " + libraryName;
+          name = String.format("Gradle: %s %s", moduleName, libraryName);
           attributes = Library.LibraryAttributes.builder()
               .groupId("local")
               .artifactId(libraryName)
