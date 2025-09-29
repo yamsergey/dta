@@ -51,7 +51,7 @@ dependencies {
     api libs.android.builder.model
     
     // GSON for JSON serialization/debugging
-    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'com.google.code.gson:gson:2.13.2'
 
     implementation libs.sugar.lombok
     annotationProcessor libs.sugar.lombok
