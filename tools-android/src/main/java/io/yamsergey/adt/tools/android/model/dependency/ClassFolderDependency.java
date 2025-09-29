@@ -21,5 +21,5 @@ import lombok.Builder;
 public record ClassFolderDependency(
         String path,
         String description,
-        Scope scope) implements Dependency {
+        Scope scope) implements LocalDependency {
 }

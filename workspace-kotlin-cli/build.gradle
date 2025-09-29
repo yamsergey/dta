@@ -13,6 +13,12 @@ plugins {
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
+    // Google repository for Android dependencies
+    google()
+    // Gradle repository for Gradle tooling API
+    gradlePluginPortal()
+    // Official Gradle repository for Tooling API
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
 }
 
 dependencies {
@@ -21,9 +27,10 @@ dependencies {
 
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
-    // This dependency is used by the application.
-    implementation libs.guava
-    
+    // Workspace Kotlin functionality
+    implementation project(':workspace-kotlin')
+    implementation project(':tools-android')
+
     // Command line argument parsing
     implementation libs.picocli
 }
@@ -43,4 +50,26 @@ application {
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
+}
+
+// Create a fat JAR with all dependencies
+task fatJar(type: Jar) {
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    zip64 = true  // Enable zip64 for large archives
+
+    manifest {
+        attributes 'Main-Class': 'io.yamsergey.adt.workspace.kotlin.cli.App'
+    }
+
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+
+    with jar
+
+    // Exclude signing files that can cause issues
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
 }

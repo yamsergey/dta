@@ -2,6 +2,7 @@ package io.yamsergey.adt.tools.android.resolver;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -11,19 +12,22 @@ import javax.annotation.Nonnull;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.GradleProject;
 
+import com.android.build.gradle.internal.cxx.cmake.TargetDataItem.Dependencies;
 import com.android.builder.model.v2.ide.GraphItem;
 import com.android.builder.model.v2.ide.Library;
 import com.android.builder.model.v2.models.AndroidProject;
+import com.android.builder.model.v2.models.BasicAndroidProject;
 import com.android.builder.model.v2.models.VariantDependencies;
+import com.android.tools.r8.internal.su;
 
 import io.yamsergey.adt.tools.android.gradle.FetchAndroidDependencies;
+import io.yamsergey.adt.tools.android.gradle.FetchBasicAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.utils.GraphItemUtils;
 import io.yamsergey.adt.tools.android.model.SourceRoot;
 import io.yamsergey.adt.tools.android.model.SourceRoot.Language;
-import io.yamsergey.adt.tools.android.model.dependency.AarDependency;
 import io.yamsergey.adt.tools.android.model.dependency.ClassFolderDependency;
 import io.yamsergey.adt.tools.android.model.dependency.Dependency;
-import io.yamsergey.adt.tools.android.model.dependency.JarDependency;
+import io.yamsergey.adt.tools.android.model.dependency.LocalJarDependency;
 import io.yamsergey.adt.tools.android.model.variant.BuildVariant;
 import io.yamsergey.adt.tools.android.model.variant.ResolvedVariant;
 import io.yamsergey.adt.tools.sugar.Failure;
@@ -75,6 +79,7 @@ public class AndroidModuleDependencyResolver implements Resolver<ResolvedVariant
         Collection<Dependency> allDependencies = new ArrayList<>();
         allDependencies.addAll(extractDependencies(dependencies.value()));
         allDependencies.addAll(extractClassesFolderDependencies());
+        allDependencies.addAll(extractAndroidJar());
 
         yield Result.<ResolvedVariant>success()
             .value(ResolvedVariant.builder()
@@ -114,6 +119,19 @@ public class AndroidModuleDependencyResolver implements Resolver<ResolvedVariant
         .parallelStream()
         .flatMap(rootItem -> flattenGraphItemRecursively(rootItem, libraries))
         .collect(Collectors.toSet());
+  }
+
+  private Collection<Dependency> extractAndroidJar() {
+    var basicProjectResult = projectConnection.action(
+        FetchBasicAndroidProject.builder().gradleProject(gradleProject).build()).run();
+    return switch (basicProjectResult) {
+      case Success<BasicAndroidProject> success -> success.value().getBootClasspath().stream()
+          .<Dependency>map(
+              path -> LocalJarDependency.builder().path(path.getAbsolutePath()).scope(Dependency.Scope.COMPILE)
+                  .description("Boot Classpath: " + path.getName()).build())
+          .toList();
+      default -> List.of();
+    };
   }
 
   /**
@@ -163,8 +181,8 @@ public class AndroidModuleDependencyResolver implements Resolver<ResolvedVariant
         .<Dependency>map(file -> {
           String path = file.getAbsolutePath();
           if (path.endsWith(".jar")) {
-            // R.jar and other JAR files should be JarDependency
-            return JarDependency.builder()
+            // R.jar and other JAR files should be LocalJarDependency
+            return LocalJarDependency.builder()
                 .path(path)
                 .description("Android compiled artifact: " + file.getName())
                 .scope(Dependency.Scope.COMPILE)

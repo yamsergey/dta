@@ -6,9 +6,9 @@ import java.util.Optional;
 import com.android.builder.model.v2.ide.GraphItem;
 import com.android.builder.model.v2.ide.Library;
 
-import io.yamsergey.adt.tools.android.model.dependency.AarDependency;
 import io.yamsergey.adt.tools.android.model.dependency.Dependency;
-import io.yamsergey.adt.tools.android.model.dependency.JarDependency;
+import io.yamsergey.adt.tools.android.model.dependency.GradleAarDependency;
+import io.yamsergey.adt.tools.android.model.dependency.GradleJarDependency;
 
 public class GraphItemUtils {
 
@@ -57,9 +57,11 @@ public class GraphItemUtils {
         // Extract JAR files based on library type
         if (library.getAndroidLibraryData() != null) {
           // Android Library (AAR) - has multiple JAR files
-          return Optional.of(AarDependency.builder()
+          return Optional.of(GradleAarDependency.builder()
               .path(library.getArtifact().getAbsolutePath())
-              .description(String.format("Gradle: %s:%s:%s}", group, name, version))
+              .groupId(group)
+              .artifactId(name)
+              .version(version)
               .resolvedJars(library.getAndroidLibraryData().getCompileJarFiles()
                   .stream()
                   .map(file -> file.getAbsolutePath()).toList())
@@ -67,10 +69,12 @@ public class GraphItemUtils {
               .build());
         } else if (library.getArtifact() != null) {
           // Regular JAR dependency
-          return Optional.of(JarDependency.builder()
+          return Optional.of(GradleJarDependency.builder()
               .path(library.getArtifact().getAbsolutePath())
+              .groupId(group)
+              .artifactId(name)
+              .version(version)
               .scope(scope)
-              .description(String.format("Gradle: %s:%s:%s}", group, name, version))
               .build());
         }
       }

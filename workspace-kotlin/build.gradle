@@ -13,6 +13,12 @@ plugins {
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
+    // Google repository for Android dependencies
+    google()
+    // Gradle repository for Gradle tooling API
+    gradlePluginPortal()
+    // Official Gradle repository for Tooling API
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
 }
 
 dependencies {
@@ -21,11 +27,17 @@ dependencies {
 
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
-    // This dependency is exported to consumers, that is to say found on their compile classpath.
-    api libs.commons.math3
+    // Android Development Tools dependency
+    api project(':tools-android')
 
-    // This dependency is used internally, and not exposed to consumers on their own compile classpath.
-    implementation libs.guava
+    // JSON serialization
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
+
+    // Lombok for code generation
+    implementation libs.sugar.lombok
+    annotationProcessor libs.sugar.lombok
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
