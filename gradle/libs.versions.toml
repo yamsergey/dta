@@ -11,7 +11,7 @@ gradle-tooling-api = "8.10.2"
 gradle-core = "6.1.1"
 android-gradle-plugin = "8.7.1"
 lombok = "1.18.42"
-jackson = "2.17.2"
+jackson = "2.20"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
