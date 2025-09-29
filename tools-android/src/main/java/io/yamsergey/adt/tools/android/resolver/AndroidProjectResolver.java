@@ -124,6 +124,17 @@ public class AndroidProjectResolver implements Resolver<Project> {
           .build().asResult();
     }
 
+    /**
+     * TODO: In multi-module projects there could be possibility that we don't have
+     * Application project at top (e.g. Library Project).
+     * Additionally it can be that project structure in non-linear way and some
+     * modules might be organized in tree structure:
+     * - group module
+     * - Android module
+     * - Library module
+     * - Android module
+     * - etc.
+     **/
     return gradleProject.getChildren().stream().filter(subProject -> isAndroidProject(subProject))
         .filter(subProject -> {
           var projectWithType = connection
