@@ -1,7 +1,7 @@
 package io.yamsergey.adt.tools.android.resolver;
 
-import static io.yamsergey.adt.tools.android.gradle.utils.GradleProjectUtils.isAndroidProject;
 import static io.yamsergey.adt.tools.android.gradle.utils.GradleProjectUtils.establishConnection;
+import static io.yamsergey.adt.tools.android.gradle.utils.GradleProjectUtils.isAndroidProject;
 
 import java.io.File;
 import java.util.Collection;
@@ -20,15 +20,8 @@ import com.android.builder.model.v2.models.BasicAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.FetchAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.FetchBasicAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.FetchGradleProject;
-import io.yamsergey.adt.tools.android.gradle.utils.VariantUtils;
-import io.yamsergey.adt.tools.android.model.SourceRoot;
-import io.yamsergey.adt.tools.android.model.module.ResolvedAndroidModule;
-import io.yamsergey.adt.tools.android.model.module.FailedModule;
-import io.yamsergey.adt.tools.android.model.module.ResolvedModule;
-import io.yamsergey.adt.tools.android.model.module.UnknownModule;
 import io.yamsergey.adt.tools.android.model.project.Project;
 import io.yamsergey.adt.tools.android.model.variant.BuildVariant;
-import io.yamsergey.adt.tools.android.model.variant.ResolvedVariant;
 import io.yamsergey.adt.tools.sugar.Failure;
 import io.yamsergey.adt.tools.sugar.Result;
 import io.yamsergey.adt.tools.sugar.Success;
