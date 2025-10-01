@@ -12,10 +12,12 @@ import javax.annotation.Nonnull;
 import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.GradleProject;
 
+import com.android.builder.model.v2.models.AndroidDsl;
 import com.android.builder.model.v2.models.AndroidProject;
 import com.android.builder.model.v2.models.VariantDependencies;
 
 import io.yamsergey.adt.tools.android.gradle.FetchAndroidDependencies;
+import io.yamsergey.adt.tools.android.gradle.FetchAndroidDsl;
 import io.yamsergey.adt.tools.android.gradle.FetchAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.FetchBasicAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.FetchGradleProject;
@@ -90,6 +92,11 @@ public class RawProjectResolver implements Resolver<RawProject> {
               .gradleProject(gradleProject)
               .build())
           .run();
+      var androidDsl = connection
+          .action(FetchAndroidDsl.builder()
+              .gradleProject(gradleProject)
+              .build())
+          .run();
 
       var variantDependencies = switch (androidProject) {
         case Success<AndroidProject> project -> {
@@ -107,6 +114,7 @@ public class RawProjectResolver implements Resolver<RawProject> {
       return RawAndroidModule.builder()
           .project(gradleProject)
           .androidProject(androidProject)
+          .androidDsl(androidDsl)
           .basicAndroidProject(basicAndroidProject)
           .variantDependencies(variantDependencies)
           .children(children)

@@ -5,6 +5,7 @@ import static io.yamsergey.adt.tools.android.gradle.utils.GradleProjectUtils.isA
 
 import java.io.File;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Optional;
 
 import javax.annotation.Nonnull;
@@ -14,9 +15,11 @@ import org.gradle.tooling.ProjectConnection;
 import org.gradle.tooling.model.GradleProject;
 
 import com.android.builder.model.v2.ide.ProjectType;
+import com.android.builder.model.v2.models.AndroidDsl;
 import com.android.builder.model.v2.models.AndroidProject;
 import com.android.builder.model.v2.models.BasicAndroidProject;
 
+import io.yamsergey.adt.tools.android.gradle.FetchAndroidDsl;
 import io.yamsergey.adt.tools.android.gradle.FetchAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.FetchBasicAndroidProject;
 import io.yamsergey.adt.tools.android.gradle.FetchGradleProject;
@@ -55,9 +58,7 @@ public class AndroidProjectResolver implements Resolver<Project> {
     if (selectedBuildVariant == null) {
       switch (resolveBuildVariants()) {
         case Success<Collection<BuildVariant>> success -> {
-          Optional<BuildVariant> defaultVariant = success.value().stream()
-              .filter(variant -> variant.isDefault())
-              .findFirst();
+          Optional<BuildVariant> defaultVariant = selectDefaultVariant(success.value());
 
           if (defaultVariant.isEmpty()) {
             return Result.<Project>failure()
@@ -138,13 +139,27 @@ public class AndroidProjectResolver implements Resolver<Project> {
             default -> false;
           };
         })
-        .map(project -> switch (connection.action(FetchAndroidProject
-            .builder()
-            .gradleProject(project)
-            .build()).run()) {
-          case Success<AndroidProject> success -> new BuildVariantsResolver(success.value()).resolve();
-          case Failure<AndroidProject> failure -> failure.<Collection<BuildVariant>>forward();
-          default -> Result.<Collection<BuildVariant>>failure().build().asResult();
+        .map(project -> {
+          var androidProjectResult = connection.action(FetchAndroidProject
+              .builder()
+              .gradleProject(project)
+              .build()).run();
+
+          var androidDslResult = connection.action(FetchAndroidDsl
+              .builder()
+              .gradleProject(project)
+              .build()).run();
+
+          return switch (androidProjectResult) {
+            case Success<AndroidProject> success -> {
+              var dsl = androidDslResult instanceof Success<AndroidDsl> dslSuccess
+                  ? dslSuccess.value()
+                  : null;
+              yield new BuildVariantsResolver(success.value(), dsl).resolve();
+            }
+            case Failure<AndroidProject> failure -> failure.<Collection<BuildVariant>>forward();
+            default -> Result.<Collection<BuildVariant>>failure().build().asResult();
+          };
         }).findFirst().orElse(Result.<Collection<BuildVariant>>failure()
             .description(
                 String.format("Couldn't find build variants for: %s", gradleProject.getChildren()))
@@ -197,5 +212,42 @@ public class AndroidProjectResolver implements Resolver<Project> {
           .build()
           .asResult();
     }
+  }
+
+  /**
+   * Select default build variant following Android Studio's selection algorithm:
+   * 1. First, check if any variant has isDefault flag set to true (from DSL)
+   * 2. If none, prefer variants with "debug" build type, select alphabetically first
+   * 3. If no debug variants, select alphabetically first overall
+   *
+   * @param variants collection of build variants to choose from
+   * @return Optional containing the selected default variant, or empty if collection is empty
+   */
+  private Optional<BuildVariant> selectDefaultVariant(Collection<BuildVariant> variants) {
+    if (variants == null || variants.isEmpty()) {
+      return Optional.empty();
+    }
+
+    // Step 1: Check for explicitly marked default variant
+    Optional<BuildVariant> explicitDefault = variants.stream()
+        .filter(variant -> variant.isDefault() != null && variant.isDefault())
+        .findFirst();
+
+    if (explicitDefault.isPresent()) {
+      return explicitDefault;
+    }
+
+    // Step 2: Prefer debug variants, select alphabetically first among them
+    Optional<BuildVariant> debugVariant = variants.stream()
+        .filter(variant -> variant.name().toLowerCase().contains("debug"))
+        .min(Comparator.comparing(BuildVariant::name));
+
+    if (debugVariant.isPresent()) {
+      return debugVariant;
+    }
+
+    // Step 3: No debug variants, select alphabetically first overall
+    return variants.stream()
+        .min(Comparator.comparing(BuildVariant::name));
   }
 }
