@@ -31,3 +31,26 @@ subprojects {
         useJUnitPlatform()
     }
 }
+
+tasks.register('cleanLsp') {
+    group = 'cleanup'
+    description = 'Removes .settings and .project files created by jdtls'
+
+    def projectDirs = allprojects.collect { it.projectDir }
+
+    doLast {
+        projectDirs.each { dir ->
+            def settingsDir = new File(dir, '.settings')
+            def projectFile = new File(dir, '.project')
+
+            if (settingsDir.exists()) {
+                settingsDir.deleteDir()
+                println "Deleted ${settingsDir}"
+            }
+            if (projectFile.exists()) {
+                projectFile.delete()
+                println "Deleted ${projectFile}"
+            }
+        }
+    }
+}
