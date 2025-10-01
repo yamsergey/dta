@@ -6,6 +6,7 @@ import javax.annotation.Nonnull;
 
 import org.gradle.tooling.model.GradleProject;
 
+import com.android.builder.model.v2.models.AndroidDsl;
 import com.android.builder.model.v2.models.AndroidProject;
 import com.android.builder.model.v2.models.BasicAndroidProject;
 import com.android.builder.model.v2.models.VariantDependencies;
@@ -22,5 +23,6 @@ public record RawAndroidModule(
     @Nonnull Collection<RawModule> children,
     @Nonnull Result<BasicAndroidProject> basicAndroidProject,
     @Nonnull Result<AndroidProject> androidProject,
+    @Nonnull Result<AndroidDsl> androidDsl,
     @Nonnull Result<VariantDependencies> variantDependencies) implements RawModule {
 }

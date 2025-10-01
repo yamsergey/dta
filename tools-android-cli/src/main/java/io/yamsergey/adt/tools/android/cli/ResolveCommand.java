@@ -6,9 +6,11 @@ import java.util.concurrent.Callable;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 
 import io.yamsergey.adt.tools.android.cli.serialization.jackson.ParentIgnoreMixIn;
 import io.yamsergey.adt.tools.android.cli.serialization.jackson.ProjectMixIn;
+import io.yamsergey.adt.tools.android.cli.serialization.jackson.SafeSerializerModifier;
 import io.yamsergey.adt.tools.android.cli.serialization.jackson.TaskMixIn;
 import io.yamsergey.adt.tools.android.model.project.Project;
 import io.yamsergey.adt.tools.android.model.variant.BuildVariant;
@@ -106,6 +108,11 @@ public class ResolveCommand implements Callable<Integer> {
       ObjectMapper mapper = new ObjectMapper();
       mapper.enable(SerializationFeature.INDENT_OUTPUT);
       mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+
+      // Register custom serializer modifier that handles unsupported methods gracefully
+      SimpleModule module = new SimpleModule();
+      module.setSerializerModifier(new SafeSerializerModifier());
+      mapper.registerModule(module);
 
       // Globally ignore 'parent' properties to break circular references
       mapper.addMixIn(Object.class, ParentIgnoreMixIn.class);
