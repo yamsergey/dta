@@ -4,140 +4,132 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a multi-module Gradle project for Android Development Tools (ADT), providing functionality to analyze and resolve Android project structures, dependencies, and build variants. The project consists of four main modules:
-
-- **tools-android**: Core library for Android project analysis using Gradle Tooling API
-- **tools-android-cli**: Command-line interface for the tools-android library
-- **workspace-kotlin**: Kotlin workspace library (placeholder for future development)
-- **workspace-kotlin-cli**: Kotlin workspace CLI application
+Android Development Tools (ADT) - A multi-module Gradle project providing programmatic access to Android project structure and dependencies using the Gradle Tooling API. Targets Java 21 and uses Gradle 9.0.
 
 ## Build Commands
 
-### Basic Commands
 ```bash
-# Build all modules
+# Build entire project
 ./gradlew build
 
-# Run tests for all modules
+# Build specific module
+./gradlew :tools-android:build
+./gradlew :tools-android-cli:build
+
+# Run tests
 ./gradlew test
 
 # Run tests for specific module
 ./gradlew :tools-android:test
-./gradlew :tools-android-cli:test
 
-# Clean build
+# Clean build artifacts
 ./gradlew clean
 
-# Build without tests
-./gradlew assemble
-```
+# Clean LSP artifacts (.settings, .project files from jdtls)
+./gradlew cleanLsp
 
-### CLI Application Commands
-```bash
-# Build and run the Android tools CLI
-./gradlew :tools-android-cli:run --args="resolve /path/to/android/project --workspace"
-
-# Create distribution
+# Install CLI distribution
 ./gradlew :tools-android-cli:installDist
+# Executable: tools-android-cli/build/install/tools-android-cli/bin/tools-android-cli
 
-# Run built distribution
-./tools-android-cli/build/install/tools-android-cli/bin/tools-android-cli resolve --help
+# Run CLI directly
+./gradlew :tools-android-cli:run --args="resolve /path/to/android/project --workspace"
 ```
 
-### Development Commands
+## Module Architecture
+
+### tools-android (Core Library)
+Core library providing Android project analysis via Gradle Tooling API.
+
+**Package Structure:**
+- `model/` - Data models for projects, modules, dependencies, variants, and source roots
+  - `project/` - `Project`, `RawProject`
+  - `module/` - `ResolvedModule` (sealed interface), `ResolvedAndroidModule`, `ResolvedGenericModule`, `FailedModule`, `UnknownModule`, `RawModule`, `RawAndroidModule`, `RawGenericModule`
+  - `dependency/` - `Dependency` hierarchy: `ExternalDependency`, `LocalDependency`, `GradleJarDependency`, `GradleAarDependency`, `LocalJarDependency`, `ClassFolderDependency`
+  - `variant/` - `BuildVariant`, `ResolvedVariant`
+- `resolver/` - Resolution strategies and main entry points
+  - `AndroidProjectResolver` - Primary API for project analysis
+  - `RawProjectResolver` - Extract raw Gradle project data
+  - `BuildVariantsResolver` - Build variant analysis
+  - Module resolvers: `AndroidModuleResolver`, `GenericModuleResolver`, `DefaultModuleResolver`
+  - Dependency/source resolvers: `AndroidModuleDependencyResolver`, `AndroidModuleSourcesResolver`
+  - `ModuleResolutionStrategy` - Strategy pattern for module resolution
+- `gradle/` - Gradle Tooling API integration
+  - Fetchers: `FetchAndroidProject`, `FetchBasicAndroidProject`, `FetchGradleProject`, `FetchIdeaProject`, `FetchAndroidDependencies`, `FetchAndroidDsl`
+  - Utils: `GradleProjectUtils`, `VariantUtils`, `GraphItemUtils`
+- `tools.sugar/` - `Result<T>` type (sealed interface: `Success<T>`, `Failure<T>`)
+
+**Key Design Patterns:**
+- **Result Pattern**: All operations return serializable `Result<T>` (Success/Failure) for cross-process communication with Gradle daemon. Both Success and Failure carry optional descriptions for debugging.
+- **Sealed Interfaces**: `ResolvedModule` and `Result` use sealed interfaces for compile-time exhaustive pattern matching.
+- **Strategy Pattern**: `ModuleResolutionStrategy` allows customizable module resolution logic.
+
+### tools-android-cli (CLI Interface)
+Command-line interface wrapping tools-android library.
+
+**Key Files:**
+- `App.java` - Main entry point using picocli
+- `ResolveCommand.java` - Primary command implementation
+- `serialization/jackson/` - Jackson customizations for safe Gradle object serialization (`SafeSerializerModifier`, `ParentIgnoreMixIn`, `ProjectMixIn`, `TaskMixIn`)
+
+**CLI Usage:**
 ```bash
-# Run a single test class
-./gradlew :tools-android:test --tests "io.yamsergey.adt.tools.android.resolver.AndroidProjectResolverTest"
+# Analyze project structure
+tools-android-cli resolve /path/to/project --workspace
 
-# Run with debug output
-./gradlew build --debug
+# List build variants
+tools-android-cli resolve /path/to/project --variants
 
-# Show dependency tree
-./gradlew :tools-android:dependencies
+# Extract raw Gradle data (use --output, result is large)
+tools-android-cli resolve /path/to/project --raw --output data.json
+
+# Save output to file
+tools-android-cli resolve /path/to/project --workspace --output analysis.json
 ```
 
-## Git Commit Guidelines
+### workspace-kotlin (Workspace Library)
+Converts tools-android `Project` model to workspace format for IDE integration.
 
-**IMPORTANT**: When creating commits, do NOT add the Claude co-author tag. Create standard commit messages without any AI attribution.
+**Key Components:**
+- `model/` - `Workspace`, `Module`, `Dependency`, `Sdk`, `ContentRoot`, `SourceRoot`, `Library`, `KotlinSettings`
+- `converter/ProjectToWorkspaceConverter` - Converts `Project` to `Workspace`
+- `serializer/WorkspaceJsonSerializer` - JSON serialization
 
-## Architecture
+### workspace-kotlin-cli (Workspace CLI)
+CLI for generating workspace files from Android projects.
 
-### Core Architecture
-The project uses a layered architecture centered around Android project analysis:
+**Key Files:**
+- `App.java` - Main entry point
+- `GenerateCommand.java` - Workspace generation command
 
-1. **Model Layer** (`tools-android/src/main/java/io/yamsergey/adt/tools/android/model/`):
-   - `Project`: Top-level project representation with modules
-   - `ResolvedModule`: Resolved Android/generic modules with dependencies and source roots
-   - `BuildVariant`: Android build variant information
-   - `Dependency`: Various dependency types (JAR, AAR, classpath)
+## Dependencies and Technologies
 
-2. **Resolver Layer** (`tools-android/src/main/java/io/yamsergey/adt/tools/android/resolver/`):
-   - `AndroidProjectResolver`: Main entry point for project resolution
-   - `RawProjectResolver`: Raw project data resolution
-   - `BuildVariantsResolver`: Build variant analysis
-   - Module-specific resolvers for sources and dependencies
+- **Gradle Tooling API 8.10.2** - Core Gradle project access
+- **Android Gradle Plugin 8.7.1** - Android-specific models
+- **Google Guava** - Utility collections
+- **Lombok** - Code generation for models (builders, getters)
+- **Jackson** - JSON serialization (CLI modules)
+- **Picocli** - CLI framework
+- **JUnit Jupiter** - Testing framework
 
-3. **Gradle Integration** (`tools-android/src/main/java/io/yamsergey/adt/tools/android/gradle/`):
-   - Gradle Tooling API integration for accessing Android project models
-   - Fetchers for different project aspects (dependencies, variants, basic info)
+## Important Architecture Notes
 
-### CLI Layer
-The CLI layer (`tools-android-cli`) provides:
-- **ResolveCommand**: Main command for project analysis with options:
-  - `--workspace`: Output project structure as JSON
-  - `--variants`: Output build variants as JSON
-  - `--raw`: Output raw project data
-  - `--output`: Save results to file
+### Cross-Process Communication
+The library executes code in the Gradle daemon process (separate from main process), so shared logging isn't possible. This is why the `Result<T>` pattern exists - to pass execution details across process boundaries in a serializable format.
 
-### Key Dependencies
-- **Gradle Tooling API**: Core integration with Gradle projects
-- **Android Gradle Plugin**: Access to Android-specific project models
-- **PicoCLI**: Command-line interface framework
-- **Jackson**: JSON serialization for CLI output
-- **Lombok**: Code generation for models
+### Module Resolution
+Modules are resolved through a strategy pattern:
+1. `AndroidProjectResolver.resolve()` fetches all Gradle modules
+2. For each module, a `ModuleResolutionStrategy` determines how to resolve it
+3. Strategies can produce `ResolvedAndroidModule`, `ResolvedGenericModule`, `UnknownModule`, or `FailedModule`
+4. Android modules use `AndroidModuleResolver` which fetches dependencies and sources
 
-## Project Structure Patterns
-
-### Module Organization
-Each module follows standard Maven/Gradle structure:
-```
-module-name/
-├── src/main/java/io/yamsergey/adt/module/name/
-├── src/test/java/io/yamsergey/adt/module/name/
-└── build.gradle
-```
-
-### Package Structure
-- `io.yamsergey.adt.tools.android.model.*`: Data models and records
-- `io.yamsergey.adt.tools.android.resolver.*`: Resolution logic
-- `io.yamsergey.adt.tools.android.gradle.*`: Gradle API integration
-- `io.yamsergey.adt.tools.sugar.*`: Utility classes (Result, Success, Failure)
-
-### Code Patterns
-- **Records with Lombok @Builder**: Used for immutable data models
-- **Result Pattern**: Success/Failure types for error handling
-- **Gradle Tooling API**: Consistent pattern for fetching project information
-- **Builder Pattern**: Extensive use for complex object construction
+### Build Variant Handling
+Android modules require a build variant context for dependency resolution. The default is "debug". Raw project resolution requires explicitly specifying a `BuildVariant`.
 
 ## Development Notes
 
-### Java Version
-- Target: Java 21 (configured in all modules)
-- Gradle toolchain ensures consistent Java version across environments
-
-### Testing
-- Uses JUnit 5 (Jupiter) for all test modules
-- Test classes follow naming convention: `*Test.java`
-- Integration tests may require actual Android projects for validation
-
-### Dependency Resolution
-The Android tools resolve dependencies by:
-1. Using Gradle Tooling API to connect to target project
-2. Fetching Android plugin models for build variants and dependencies
-3. Resolving source roots and classpath information
-4. Building a unified project model with all modules and dependencies
-
-### Error Handling
-- Uses custom Result types (Success/Failure) for operations that may fail
-- CLI commands return appropriate exit codes (0 for success, 1 for failure)
-- JSON output includes error information when resolution fails
+- Java 21 is required (sourceCompatibility and targetCompatibility set to VERSION_21)
+- All modules apply the java plugin in root build.gradle
+- JUnit Platform is used for testing (useJUnitPlatform() configured)
+- Version is 1.0.0, group is io.yamsergey.adt
