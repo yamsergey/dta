@@ -1,15 +1,20 @@
 package io.yamsergey.adt.tools.android.cli;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
 
+import io.yamsergey.adt.tools.android.cli.serialization.jackson.CompositeSerializerModifier;
 import io.yamsergey.adt.tools.android.cli.serialization.jackson.ParentIgnoreMixIn;
 import io.yamsergey.adt.tools.android.cli.serialization.jackson.ProjectMixIn;
+import io.yamsergey.adt.tools.android.cli.serialization.jackson.PropertyFilterSerializerModifier;
 import io.yamsergey.adt.tools.android.cli.serialization.jackson.SafeSerializerModifier;
 import io.yamsergey.adt.tools.android.cli.serialization.jackson.TaskMixIn;
 import io.yamsergey.adt.tools.android.model.project.Project;
@@ -40,6 +45,12 @@ public class ResolveCommand implements Callable<Integer> {
   @Option(names = { "--output" }, description = "Filepath where output will be stored.")
   private String outputFilePath = null;
 
+  @Option(names = { "--exclude" }, split = ",", description = "Comma-separated list of fields to exclude from output (e.g., tasks,dependencies). Mutually exclusive with --include.")
+  private java.util.List<String> excludeFields = null;
+
+  @Option(names = { "--include" }, split = ",", description = "Comma-separated list of fields to include in output (e.g., name,path). Excludes everything else. Mutually exclusive with --exclude.")
+  private java.util.List<String> includeFields = null;
+
   @Override
   public Integer call() throws Exception {
 
@@ -47,6 +58,12 @@ public class ResolveCommand implements Callable<Integer> {
 
     if (!projectDir.exists() || !projectDir.isDirectory()) {
       System.err.println("Error: Project directory does not exist: " + projectPath);
+      return 1;
+    }
+
+    // Validate mutually exclusive options
+    if (excludeFields != null && includeFields != null) {
+      System.err.println("Error: --exclude and --include options are mutually exclusive. Use only one.");
       return 1;
     }
 
@@ -109,9 +126,25 @@ public class ResolveCommand implements Callable<Integer> {
       mapper.enable(SerializationFeature.INDENT_OUTPUT);
       mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
 
-      // Register custom serializer modifier that handles unsupported methods gracefully
+      // Register custom serializer modifiers
       SimpleModule module = new SimpleModule();
-      module.setSerializerModifier(new SafeSerializerModifier());
+
+      // Combine property filtering with safe serialization
+      List<BeanSerializerModifier> modifiers = new ArrayList<>();
+
+      // First apply property filtering (if configured)
+      if (includeFields != null) {
+        modifiers.add(PropertyFilterSerializerModifier.includeOnly(includeFields));
+      } else if (excludeFields != null) {
+        modifiers.add(PropertyFilterSerializerModifier.excludeFields(excludeFields));
+      }
+
+      // Then apply safe serialization to handle exceptions
+      modifiers.add(new SafeSerializerModifier());
+
+      // Use composite modifier
+      module.setSerializerModifier(new CompositeSerializerModifier(modifiers));
+
       mapper.registerModule(module);
 
       // Globally ignore 'parent' properties to break circular references

@@ -61,3 +61,7 @@ Task
 
 # - For simplicity pattern "output-.*\.json" used for any generated json files.
 output-*\.json
+
+# Test fixtures
+test-fixtures/**/local.properties
+test-fixtures/**/.idea/
