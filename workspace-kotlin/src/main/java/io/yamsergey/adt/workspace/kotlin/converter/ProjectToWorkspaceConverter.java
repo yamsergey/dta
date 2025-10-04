@@ -12,12 +12,15 @@ import javax.annotation.Nonnull;
 
 import com.android.tools.r8.internal.Li;
 
+import io.yamsergey.adt.tools.android.model.dependency.AndroidProjectDependency;
 import io.yamsergey.adt.tools.android.model.dependency.ClassFolderDependency;
 import io.yamsergey.adt.tools.android.model.dependency.ExternalDependency;
+import io.yamsergey.adt.tools.android.model.dependency.GenericProjectDependency;
 import io.yamsergey.adt.tools.android.model.dependency.GradleAarDependency;
 import io.yamsergey.adt.tools.android.model.dependency.GradleJarDependency;
 import io.yamsergey.adt.tools.android.model.dependency.LocalDependency;
 import io.yamsergey.adt.tools.android.model.dependency.LocalJarDependency;
+import io.yamsergey.adt.tools.android.model.dependency.ProjectDependency;
 import io.yamsergey.adt.tools.android.model.module.ResolvedAndroidModule;
 import io.yamsergey.adt.tools.android.model.module.ResolvedGenericModule;
 import io.yamsergey.adt.tools.android.model.module.ResolvedModule;
@@ -225,6 +228,16 @@ public class ProjectToWorkspaceConverter {
           .name("Gradle: " + aar.groupId() + ":" + aar.artifactId() + ":" + aar.version())
           .scope(convertScope(aar.scope()))
           .build();
+      case AndroidProjectDependency androidProject -> Dependency.builder()
+          .type(Dependency.DependencyType.module)
+          .name(androidProject.projectPath().substring(1)) // Remove leading ":"
+          .scope(convertScope(androidProject.scope()))
+          .build();
+      case GenericProjectDependency genericProject -> Dependency.builder()
+          .type(Dependency.DependencyType.module)
+          .name(genericProject.projectPath().substring(1) + ".main") // Remove leading ":" and add ".main"
+          .scope(convertScope(genericProject.scope()))
+          .build();
       case LocalJarDependency localJar -> {
         String depName;
         if (localJar.path().contains("android.jar")) {
@@ -251,9 +264,8 @@ public class ProjectToWorkspaceConverter {
    * Converts project content to workspace content roots for Android modules.
    */
   private Collection<ContentRoot> convertContentRoots(ResolvedAndroidModule projectModule, boolean testScope) {
-    // For now, create a single content root per module
-    // In a more sophisticated implementation, we might group by directory structure
-
+    // Include all source roots (main + test) in content roots
+    // The testScope parameter is only used to filter which roots are returned for main vs test modules
     Collection<SourceRoot> sourceRoots = projectModule.roots().stream()
         .filter(root -> testScope ? isTestSourceRoot(root) : !isTestSourceRoot(root))
         .map(this::convertSourceRoot)
@@ -293,12 +305,15 @@ public class ProjectToWorkspaceConverter {
 
   /**
    * Converts project source root to workspace source root.
+   * Determines if it's a test source and uses appropriate type.
    */
   private SourceRoot convertSourceRoot(io.yamsergey.adt.tools.android.model.SourceRoot projectRoot) {
+    boolean isTest = isTestSourceRoot(projectRoot);
+
     SourceRoot.SourceRootType type = switch (projectRoot.language()) {
-      case JAVA -> SourceRoot.SourceRootType.java;
-      case KOTLIN -> SourceRoot.SourceRootType.kotlin;
-      case OTHER -> SourceRoot.SourceRootType.resources;
+      case JAVA -> isTest ? SourceRoot.SourceRootType.testJava : SourceRoot.SourceRootType.java;
+      case KOTLIN -> isTest ? SourceRoot.SourceRootType.testKotlin : SourceRoot.SourceRootType.kotlin;
+      case OTHER -> isTest ? SourceRoot.SourceRootType.testResources : SourceRoot.SourceRootType.resources;
     };
 
     return SourceRoot.builder()
@@ -327,6 +342,11 @@ public class ProjectToWorkspaceConverter {
       };
 
       for (var dependency : dependencies) {
+        // Skip project dependencies - they are module references, not libraries
+        if (dependency instanceof ProjectDependency) {
+          continue;
+        }
+
         String path = dependency.path();
         SourceRoot root = SourceRoot.builder().path(path).build();
         if (!libraryPaths.contains(root)) {
@@ -374,6 +394,14 @@ public class ProjectToWorkspaceConverter {
             .version(aar.version())
             .baseVersion(aar.version())
             .build();
+      }
+      case AndroidProjectDependency androidProject -> {
+        // Should never reach here - filtered out before calling this method
+        throw new IllegalStateException("ProjectDependency should not be converted to Library");
+      }
+      case GenericProjectDependency genericProject -> {
+        // Should never reach here - filtered out before calling this method
+        throw new IllegalStateException("ProjectDependency should not be converted to Library");
       }
       case LocalJarDependency localJar -> {
         // Special case for android.jar
@@ -504,6 +532,8 @@ public class ProjectToWorkspaceConverter {
     return switch (dependency) {
       case GradleJarDependency jar -> Library.LibraryType.jar;
       case GradleAarDependency aar -> Library.LibraryType.jar; // AAR resolves to JAR files
+      case AndroidProjectDependency androidProject -> throw new IllegalStateException("ProjectDependency should not be converted to Library");
+      case GenericProjectDependency genericProject -> throw new IllegalStateException("ProjectDependency should not be converted to Library");
       case LocalJarDependency localJar -> Library.LibraryType.jar;
       case ClassFolderDependency classFolder -> Library.LibraryType.directory;
     };

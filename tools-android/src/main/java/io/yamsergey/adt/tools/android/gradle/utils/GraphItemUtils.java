@@ -6,7 +6,9 @@ import java.util.Optional;
 import com.android.builder.model.v2.ide.GraphItem;
 import com.android.builder.model.v2.ide.Library;
 
+import io.yamsergey.adt.tools.android.model.dependency.AndroidProjectDependency;
 import io.yamsergey.adt.tools.android.model.dependency.Dependency;
+import io.yamsergey.adt.tools.android.model.dependency.GenericProjectDependency;
 import io.yamsergey.adt.tools.android.model.dependency.GradleAarDependency;
 import io.yamsergey.adt.tools.android.model.dependency.GradleJarDependency;
 
@@ -45,9 +47,9 @@ public class GraphItemUtils {
       String name = parts[1];
       String version = parts[2];
 
-      // Skip project dependencies
+      // Handle project dependencies (key format: ":|:module-name|...")
       if (":".equals(group) || group.isEmpty() || name.startsWith(":")) {
-        return Optional.empty();
+        return resolveProjectDependency(key, parts, scope, librariesMap);
       }
 
       // Try to find this dependency in the libraries map
@@ -82,5 +84,88 @@ public class GraphItemUtils {
     } catch (Exception e) {
       return Optional.empty();
     }
+  }
+
+  /**
+   * Resolves a project dependency from the key parts and libraries map.
+   * Determines whether it's an Android or Generic project dependency based on
+   * the presence of buildType information.
+   *
+   * @param key the full key string
+   * @param parts the key split by "|"
+   * @param scope the dependency scope
+   * @param librariesMap map of libraries for additional info
+   * @return Optional of the resolved project dependency
+   */
+  private static Optional<Dependency> resolveProjectDependency(
+      String key,
+      String[] parts,
+      Dependency.Scope scope,
+      Map<String, Library> librariesMap) {
+
+    String projectPath = parts[1]; // e.g., ":kotlin-android-library-one"
+
+    // Try to find this dependency in the libraries map for detailed info
+    Library library = librariesMap.get(key);
+
+    if (library != null && library.getProjectInfo() != null) {
+      var projectInfo = library.getProjectInfo();
+      String buildType = projectInfo.getBuildType();
+      String artifactPath = library.getArtifact() != null ? library.getArtifact().getAbsolutePath() : "";
+
+      // If buildType is present, it's an Android project dependency
+      if (buildType != null && !buildType.isEmpty()) {
+        return Optional.of(AndroidProjectDependency.builder()
+            .path(artifactPath)
+            .projectPath(projectInfo.getProjectPath())
+            .buildType(buildType)
+            .capabilities(projectInfo.getCapabilities())
+            .scope(scope)
+            .build());
+      } else {
+        // Generic JVM project dependency
+        return Optional.of(GenericProjectDependency.builder()
+            .path(artifactPath)
+            .projectPath(projectInfo.getProjectPath())
+            .capabilities(projectInfo.getCapabilities())
+            .scope(scope)
+            .build());
+      }
+    }
+
+    // Fallback: determine type from key structure
+    // Android projects have buildType as 3rd part: ":|:module|debug|..."
+    // Generic projects have attributes as 3rd part: ":|:module|org.gradle.category>library|..."
+    if (parts.length > 2) {
+      String thirdPart = parts[2];
+
+      // Check if third part looks like a build type (simple string without ">" attribute marker)
+      boolean isAndroidProject = !thirdPart.contains(">");
+
+      if (isAndroidProject) {
+        return Optional.of(AndroidProjectDependency.builder()
+            .path("")
+            .projectPath(projectPath)
+            .buildType(thirdPart)
+            .capabilities(java.util.List.of())
+            .scope(scope)
+            .build());
+      } else {
+        return Optional.of(GenericProjectDependency.builder()
+            .path("")
+            .projectPath(projectPath)
+            .capabilities(java.util.List.of())
+            .scope(scope)
+            .build());
+      }
+    }
+
+    // Last resort: return as generic project dependency
+    return Optional.of(GenericProjectDependency.builder()
+        .path("")
+        .projectPath(projectPath)
+        .capabilities(java.util.List.of())
+        .scope(scope)
+        .build());
   }
 }

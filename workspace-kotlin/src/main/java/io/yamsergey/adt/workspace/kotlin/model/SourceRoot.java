@@ -19,11 +19,11 @@ public record SourceRoot(
 
   public enum SourceRootType {
     java("java-source"),
-    kotlin("kotlin-source"),
-    resources("resources"),
+    kotlin("java-source"), // Kotlin sources use same type as Java in workspace.json
+    resources("java-resource"),
     testJava("java-test"),
-    testKotlin("kotlin-test"),
-    testResources("test-resources"),
+    testKotlin("java-test"), // Kotlin test sources use same type as Java tests
+    testResources("java-test-resource"),
     sources("SOURCES"); // For library source JARs
 
     private final String value;

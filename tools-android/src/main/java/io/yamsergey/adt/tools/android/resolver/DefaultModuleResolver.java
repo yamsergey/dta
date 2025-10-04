@@ -55,15 +55,10 @@ import io.yamsergey.adt.tools.android.model.variant.BuildVariant;
  */
 public class DefaultModuleResolver implements ModuleResolutionStrategy {
 
-    private final AndroidModuleResolver androidModuleResolver;
-    private final GenericModuleResolver genericModuleResolver;
-
     /**
      * Creates a new DefaultModuleResolver with specialized resolvers for different module types.
      */
     public DefaultModuleResolver() {
-        this.androidModuleResolver = new AndroidModuleResolver();
-        this.genericModuleResolver = new GenericModuleResolver();
     }
 
     /**
@@ -125,9 +120,9 @@ public class DefaultModuleResolver implements ModuleResolutionStrategy {
             GradleProject rootProject,
             BuildVariant selectedBuildVariant) {
         if (isAndroidProject(subProject)) {
-            return androidModuleResolver.resolve(subProject, connection, rootProject, selectedBuildVariant);
+            return new AndroidModuleResolver().resolve(subProject, connection, rootProject, selectedBuildVariant);
         } else {
-            return genericModuleResolver.resolve(subProject);
+            return new GenericModuleResolver().resolve(subProject, connection);
         }
     }
 
