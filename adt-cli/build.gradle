@@ -1,0 +1,28 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
+}
+
+application {
+    mainClass = 'io.yamsergey.adt.cli.App'
+    applicationName = 'adt-cli'
+}
+
+dependencies {
+    // Core libraries
+    implementation project(':tools-android')
+    implementation project(':workspace-kotlin')
+
+    // CLI framework
+    implementation libs.picocli
+
+    // JSON serialization
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
+}

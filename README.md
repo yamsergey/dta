@@ -8,29 +8,33 @@ Download the latest release from [GitHub Releases](https://github.com/yamsergey/
 
 Extract the archive:
 ```bash
-tar -xzf workspace-kotlin-cli-vX.X.X.tar.gz
+tar -xzf adt-cli-vX.X.X.tar.gz
 ```
+
+**Requirements:** Java 21+
 
 ## Usage
 
 Generate workspace.json for Kotlin LSP:
 ```bash
-workspace-kotlin-cli/bin/workspace-kotlin-cli generate /path/to/android/project \
+adt-cli/bin/adt-cli workspace /path/to/android/project \
   --output /path/to/android/project/workspace.json
 ```
 
 Analyze Android project structure:
 ```bash
-tools-android-cli/bin/tools-android-cli resolve /path/to/android/project \
+adt-cli/bin/adt-cli resolve /path/to/android/project \
   --workspace --output project-analysis.json
 ```
 
-**Requirements:** Java 21+
+List build variants:
+```bash
+adt-cli/bin/adt-cli resolve /path/to/android/project --variants
+```
 
 ## Modules
 
-- **[workspace-kotlin-cli](workspace-kotlin-cli/)** - Generate workspace.json for Kotlin LSP
-- **[tools-android-cli](tools-android-cli/)** - Analyze Android project structure
+- **[adt-cli](adt-cli/)** - Unified CLI for project analysis and workspace generation
 - **[workspace-kotlin](workspace-kotlin/)** - Workspace converter library
 - **[tools-android](tools-android/)** - Core analysis library
 

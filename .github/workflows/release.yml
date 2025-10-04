@@ -29,56 +29,53 @@ jobs:
       - name: Build project
         run: ./gradlew build
 
-      - name: Build CLI distributions
-        run: |
-          ./gradlew :tools-android-cli:installDist
-          ./gradlew :workspace-kotlin-cli:installDist
+      - name: Build CLI distribution
+        run: ./gradlew :adt-cli:installDist
 
-      - name: Package tools-android-cli
+      - name: Package adt-cli
         run: |
-          cd tools-android-cli/build/install
-          tar -czf tools-android-cli-${{ github.ref_name }}.tar.gz tools-android-cli
-          zip -r tools-android-cli-${{ github.ref_name }}.zip tools-android-cli
-          mv tools-android-cli-${{ github.ref_name }}.tar.gz ../../../
-          mv tools-android-cli-${{ github.ref_name }}.zip ../../../
-
-      - name: Package workspace-kotlin-cli
-        run: |
-          cd workspace-kotlin-cli/build/install
-          tar -czf workspace-kotlin-cli-${{ github.ref_name }}.tar.gz workspace-kotlin-cli
-          zip -r workspace-kotlin-cli-${{ github.ref_name }}.zip workspace-kotlin-cli
-          mv workspace-kotlin-cli-${{ github.ref_name }}.tar.gz ../../../
-          mv workspace-kotlin-cli-${{ github.ref_name }}.zip ../../../
+          cd adt-cli/build/install
+          tar -czf adt-cli-${{ github.ref_name }}.tar.gz adt-cli
+          zip -r adt-cli-${{ github.ref_name }}.zip adt-cli
+          mv adt-cli-${{ github.ref_name }}.tar.gz ../../../
+          mv adt-cli-${{ github.ref_name }}.zip ../../../
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            tools-android-cli-${{ github.ref_name }}.tar.gz
-            tools-android-cli-${{ github.ref_name }}.zip
-            workspace-kotlin-cli-${{ github.ref_name }}.tar.gz
-            workspace-kotlin-cli-${{ github.ref_name }}.zip
+            adt-cli-${{ github.ref_name }}.tar.gz
+            adt-cli-${{ github.ref_name }}.zip
           body: |
             ## Android Development Tools ${{ github.ref_name }}
 
             ### Downloads
 
-            **tools-android-cli** - Command-line interface for Android project analysis
-            - Linux/macOS: `tools-android-cli-${{ github.ref_name }}.tar.gz`
-            - Windows: `tools-android-cli-${{ github.ref_name }}.zip`
-
-            **workspace-kotlin-cli** - Workspace.json generator for Kotlin LSP
-            - Linux/macOS: `workspace-kotlin-cli-${{ github.ref_name }}.tar.gz`
-            - Windows: `workspace-kotlin-cli-${{ github.ref_name }}.zip`
+            **adt-cli** - Unified CLI for Android project analysis and workspace generation
+            - Linux/macOS: `adt-cli-${{ github.ref_name }}.tar.gz` (~114MB)
+            - Windows: `adt-cli-${{ github.ref_name }}.zip` (~114MB)
 
             ### Installation
 
             ```bash
             # Extract the archive
-            tar -xzf tools-android-cli-${{ github.ref_name }}.tar.gz
+            tar -xzf adt-cli-${{ github.ref_name }}.tar.gz
+            ```
 
-            # Run the CLI
-            tools-android-cli/bin/tools-android-cli --help
+            ### Usage
+
+            ```bash
+            # Generate workspace.json for Kotlin LSP
+            adt-cli/bin/adt-cli workspace /path/to/android/project \
+              --output workspace.json
+
+            # Analyze project structure
+            adt-cli/bin/adt-cli resolve /path/to/android/project \
+              --workspace --output project-analysis.json
+
+            # List build variants
+            adt-cli/bin/adt-cli resolve /path/to/android/project \
+              --variants --output variants.json
             ```
 
             ### Requirements
