@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build project
+        run: ./gradlew build
+
+      - name: Build CLI distributions
+        run: |
+          ./gradlew :tools-android-cli:installDist
+          ./gradlew :workspace-kotlin-cli:installDist
+
+      - name: Package tools-android-cli
+        run: |
+          cd tools-android-cli/build/install
+          tar -czf tools-android-cli-${{ github.ref_name }}.tar.gz tools-android-cli
+          zip -r tools-android-cli-${{ github.ref_name }}.zip tools-android-cli
+          mv tools-android-cli-${{ github.ref_name }}.tar.gz ../../../
+          mv tools-android-cli-${{ github.ref_name }}.zip ../../../
+
+      - name: Package workspace-kotlin-cli
+        run: |
+          cd workspace-kotlin-cli/build/install
+          tar -czf workspace-kotlin-cli-${{ github.ref_name }}.tar.gz workspace-kotlin-cli
+          zip -r workspace-kotlin-cli-${{ github.ref_name }}.zip workspace-kotlin-cli
+          mv workspace-kotlin-cli-${{ github.ref_name }}.tar.gz ../../../
+          mv workspace-kotlin-cli-${{ github.ref_name }}.zip ../../../
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            tools-android-cli-${{ github.ref_name }}.tar.gz
+            tools-android-cli-${{ github.ref_name }}.zip
+            workspace-kotlin-cli-${{ github.ref_name }}.tar.gz
+            workspace-kotlin-cli-${{ github.ref_name }}.zip
+          body: |
+            ## Android Development Tools ${{ github.ref_name }}
+
+            ### Downloads
+
+            **tools-android-cli** - Command-line interface for Android project analysis
+            - Linux/macOS: `tools-android-cli-${{ github.ref_name }}.tar.gz`
+            - Windows: `tools-android-cli-${{ github.ref_name }}.zip`
+
+            **workspace-kotlin-cli** - Workspace.json generator for Kotlin LSP
+            - Linux/macOS: `workspace-kotlin-cli-${{ github.ref_name }}.tar.gz`
+            - Windows: `workspace-kotlin-cli-${{ github.ref_name }}.zip`
+
+            ### Installation
+
+            ```bash
+            # Extract the archive
+            tar -xzf tools-android-cli-${{ github.ref_name }}.tar.gz
+
+            # Run the CLI
+            tools-android-cli/bin/tools-android-cli --help
+            ```
+
+            ### Requirements
+
+            - Java 21 or higher
+            - Gradle 8.0 or higher (for analyzed projects)
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

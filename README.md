@@ -1,38 +1,37 @@
 # Android Development Tools (ADT)
 
-A suite of tools for analyzing Android project structures and dependencies using the Gradle Tooling API.
+Tools for analyzing Android projects and generating workspace.json files for Kotlin Language Server integration.
 
-## Overview
+## Installation
 
-This project provides programmatic access to Android project information, enabling analysis of project structure, build variants, dependencies, and source roots with JSON export capabilities.
+Download the latest release from [GitHub Releases](https://github.com/yamsergey/yamsergey.adt/releases).
+
+Extract the archive:
+```bash
+tar -xzf workspace-kotlin-cli-vX.X.X.tar.gz
+```
+
+## Usage
+
+Generate workspace.json for Kotlin LSP:
+```bash
+workspace-kotlin-cli/bin/workspace-kotlin-cli generate /path/to/android/project \
+  --output /path/to/android/project/workspace.json
+```
+
+Analyze Android project structure:
+```bash
+tools-android-cli/bin/tools-android-cli resolve /path/to/android/project \
+  --workspace --output project-analysis.json
+```
+
+**Requirements:** Java 21+
 
 ## Modules
 
-- **[tools-android](tools-android/)** - Core library for Android project analysis
-- **[tools-android-cli](tools-android-cli/)** - Command-line interface for project analysis
-- **workspace-kotlin** - Kotlin workspace library (future development)
-- **workspace-kotlin-cli** - Kotlin workspace CLI (future development)
-
-## Quick Start
-
-```bash
-# Build the project
-./gradlew build
-
-# Run the CLI tool
-./gradlew :tools-android-cli:run --args="resolve /path/to/android/project --workspace"
-```
-
-## Requirements
-
-- Java 21+
-- Gradle 8.0+
-
-## Use Cases
-
-- IDE integration for enhanced project understanding
-- Build tool enhancement with comprehensive project information
-- Large codebase analysis and migration assistance
-- Automated project structure documentation
+- **[workspace-kotlin-cli](workspace-kotlin-cli/)** - Generate workspace.json for Kotlin LSP
+- **[tools-android-cli](tools-android-cli/)** - Analyze Android project structure
+- **[workspace-kotlin](workspace-kotlin/)** - Workspace converter library
+- **[tools-android](tools-android/)** - Core analysis library
 
 See individual module READMEs for detailed documentation.

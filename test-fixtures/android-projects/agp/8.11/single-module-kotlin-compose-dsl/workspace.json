@@ -1,0 +1,1273 @@
+{
+  "modules" : [ {
+    "name" : "app",
+    "dependencies" : [ {
+      "type" : "library",
+      "name" : "Gradle: androidx.fragment:fragment-ktx:1.6.2",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.navigation:navigation-ui-ktx:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.annotation:annotation-jvm:1.9.1",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.cardview:cardview:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.slidingpanelayout:slidingpanelayout:1.2.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.customview:customview:1.1.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.navigation:navigation-ui:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.core:core-ktx:1.16.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.documentfile:documentfile:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.navigation:navigation-runtime-android:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.legacy:legacy-support-core-utils:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-livedata:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jetbrains:annotations:23.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.versionedparcelable:versionedparcelable:1.1.1",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.fragment:fragment:1.6.2",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.savedstate:savedstate-ktx:1.3.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.collection:collection-ktx:1.4.2",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.vectordrawable:vectordrawable-animated:1.1.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.arch.core:core-runtime:2.2.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.resourceinspection:resourceinspection-annotation:1.0.1",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.appcompat:appcompat:1.7.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.viewpager2:viewpager2:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.savedstate:savedstate-android:1.3.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: com.google.android.material:material:1.12.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.activity:activity-ktx:1.8.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.recyclerview:recyclerview:1.3.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.annotation:annotation-experimental:1.4.1",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.appcompat:appcompat-resources:1.7.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.collection:collection-jvm:1.4.2",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.navigation:navigation-common-android:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.dynamicanimation:dynamicanimation:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.databinding:viewbinding:8.10.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-viewmodel-android:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.transition:transition:1.5.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.coordinatorlayout:coordinatorlayout:1.1.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-livedata-ktx:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-runtime-android:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-runtime-ktx-android:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.core:core:1.16.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.cursoradapter:cursoradapter:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.localbroadcastmanager:localbroadcastmanager:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.core:core-viewtree:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-livedata-core:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.constraintlayout:constraintlayout:2.1.4",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.7.3",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jspecify:jspecify:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.loader:loader:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.interpolator:interpolator:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-livedata-core-ktx:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.navigation:navigation-fragment-ktx:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.7.3",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.drawerlayout:drawerlayout:1.1.1",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: org.jetbrains.kotlin:kotlin-stdlib:2.0.21",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.arch.core:core-common:2.2.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.navigation:navigation-fragment:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.activity:activity:1.8.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.vectordrawable:vectordrawable:1.1.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.viewpager:viewpager:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.print:print:1.0.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: androidx.lifecycle:lifecycle-common-jvm:2.9.0",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: classes",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: debug",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: app R",
+      "scope" : "compile"
+    }, {
+      "type" : "library",
+      "name" : "Gradle: app android:android:35",
+      "scope" : "compile"
+    } ],
+    "contentRoots" : [ {
+      "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app",
+      "excludedPatterns" : [ ],
+      "excludedUrls" : [ ],
+      "sourceRoots" : [ {
+        "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/build/generated/ap_generated_sources/debug/out",
+        "type" : "java-source"
+      }, {
+        "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/build/generated/data_binding_base_class_source_out/debug/out",
+        "type" : "java-source"
+      }, {
+        "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/src/main/java",
+        "type" : "java-source"
+      }, {
+        "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/src/main/kotlin",
+        "type" : "java-source"
+      }, {
+        "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/src/main/java",
+        "type" : "java-source"
+      } ]
+    } ],
+    "facets" : [ ]
+  } ],
+  "libraries" : [ {
+    "name" : "Gradle: androidx.fragment:fragment-ktx:1.6.2",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/b8f89410e81bc1184d9e259b8e3163f9/transformed/fragment-ktx-1.6.2/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.fragment",
+        "artifactId" : "fragment-ktx",
+        "version" : "1.6.2",
+        "baseVersion" : "1.6.2"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.navigation:navigation-ui-ktx:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/1fc73d412d453b8e7c3875a8a3ea4420/transformed/navigation-ui-ktx-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.navigation",
+        "artifactId" : "navigation-ui-ktx",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.annotation:annotation-jvm:1.9.1",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/androidx.annotation/annotation-jvm/1.9.1/b17951747e38bf3986a24431b9ba0d039958aa5f/annotation-jvm-1.9.1.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.annotation",
+        "artifactId" : "annotation-jvm",
+        "version" : "1.9.1",
+        "baseVersion" : "1.9.1"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.cardview:cardview:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/20530eb5527d57716e3d9204715c3216/transformed/cardview-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.cardview",
+        "artifactId" : "cardview",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.slidingpanelayout:slidingpanelayout:1.2.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/0c56d56891a4cf4cce04c64d751bcb95/transformed/slidingpanelayout-1.2.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.slidingpanelayout",
+        "artifactId" : "slidingpanelayout",
+        "version" : "1.2.0",
+        "baseVersion" : "1.2.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.customview:customview:1.1.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/79d43033681b711582610d21a8011195/transformed/customview-1.1.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.customview",
+        "artifactId" : "customview",
+        "version" : "1.1.0",
+        "baseVersion" : "1.1.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.navigation:navigation-ui:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/37040397f834a8593ad7f29cfd750fcd/transformed/navigation-ui-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.navigation",
+        "artifactId" : "navigation-ui",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.core:core-ktx:1.16.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/b88a752c3d05bf62bcabd48f001fb70e/transformed/core-ktx-1.16.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.core",
+        "artifactId" : "core-ktx",
+        "version" : "1.16.0",
+        "baseVersion" : "1.16.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.documentfile:documentfile:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/c5bc80a7346f9d021ab38494de281882/transformed/documentfile-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.documentfile",
+        "artifactId" : "documentfile",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.navigation:navigation-runtime-android:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/bb20c1c16b95773c184cbfda7036ed22/transformed/navigation-runtime-release/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.navigation",
+        "artifactId" : "navigation-runtime-android",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.legacy:legacy-support-core-utils:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/03e97fb3497b658e6a897ca6365c4a56/transformed/legacy-support-core-utils-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.legacy",
+        "artifactId" : "legacy-support-core-utils",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-livedata:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/a5aed756e92202d783332583135ae102/transformed/lifecycle-livedata-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-livedata",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jetbrains:annotations:23.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/23.0.0/8cc20c07506ec18e0834947b84a864bfc094484e/annotations-23.0.0.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jetbrains",
+        "artifactId" : "annotations",
+        "version" : "23.0.0",
+        "baseVersion" : "23.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.versionedparcelable:versionedparcelable:1.1.1",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/39781e02320706c00f8398696e592e7f/transformed/versionedparcelable-1.1.1/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.versionedparcelable",
+        "artifactId" : "versionedparcelable",
+        "version" : "1.1.1",
+        "baseVersion" : "1.1.1"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.fragment:fragment:1.6.2",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/d2a1de8aa3009d7372a45ee32a059d96/transformed/fragment-1.6.2/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.fragment",
+        "artifactId" : "fragment",
+        "version" : "1.6.2",
+        "baseVersion" : "1.6.2"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.savedstate:savedstate-ktx:1.3.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/320dd1e457ec693d280093e041442068/transformed/savedstate-ktx-1.3.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.savedstate",
+        "artifactId" : "savedstate-ktx",
+        "version" : "1.3.0",
+        "baseVersion" : "1.3.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.collection:collection-ktx:1.4.2",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/androidx.collection/collection-ktx/1.4.2/2ad14aed781c4a73ed4dbb421966d408a0a06686/collection-ktx-1.4.2.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.collection",
+        "artifactId" : "collection-ktx",
+        "version" : "1.4.2",
+        "baseVersion" : "1.4.2"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.vectordrawable:vectordrawable-animated:1.1.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/68b9c1269c53aca5fe0161b7b70e4132/transformed/vectordrawable-animated-1.1.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.vectordrawable",
+        "artifactId" : "vectordrawable-animated",
+        "version" : "1.1.0",
+        "baseVersion" : "1.1.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.arch.core:core-runtime:2.2.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/db536e892319b47ac95b900135de1e34/transformed/core-runtime-2.2.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.arch.core",
+        "artifactId" : "core-runtime",
+        "version" : "2.2.0",
+        "baseVersion" : "2.2.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.resourceinspection:resourceinspection-annotation:1.0.1",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/androidx.resourceinspection/resourceinspection-annotation/1.0.1/8c21f8ff5d96d5d52c948707f7e4d6ca6773feef/resourceinspection-annotation-1.0.1.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.resourceinspection",
+        "artifactId" : "resourceinspection-annotation",
+        "version" : "1.0.1",
+        "baseVersion" : "1.0.1"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.appcompat:appcompat:1.7.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/8fd164c83d599ee3670815533d4a0c5a/transformed/appcompat-1.7.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.appcompat",
+        "artifactId" : "appcompat",
+        "version" : "1.7.0",
+        "baseVersion" : "1.7.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.viewpager2:viewpager2:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/a72111a01c2f008ed0a97fb4d1107515/transformed/viewpager2-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.viewpager2",
+        "artifactId" : "viewpager2",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.savedstate:savedstate-android:1.3.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/d8fc3ed1ca6db05d84ddd4cb13540abb/transformed/savedstate-release/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.savedstate",
+        "artifactId" : "savedstate-android",
+        "version" : "1.3.0",
+        "baseVersion" : "1.3.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib-jdk7/1.8.22/4dabb8248310d833bb6a8b516024a91fd3d275c/kotlin-stdlib-jdk7-1.8.22.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jetbrains.kotlin",
+        "artifactId" : "kotlin-stdlib-jdk7",
+        "version" : "1.8.22",
+        "baseVersion" : "1.8.22"
+      }
+    }
+  }, {
+    "name" : "Gradle: com.google.android.material:material:1.12.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/dd5957326e558e229cb8cb230383359d/transformed/material-1.12.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "com.google.android.material",
+        "artifactId" : "material",
+        "version" : "1.12.0",
+        "baseVersion" : "1.12.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.activity:activity-ktx:1.8.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/0005ff01f93d2db53edcad26c4ee754e/transformed/activity-ktx-1.8.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.activity",
+        "artifactId" : "activity-ktx",
+        "version" : "1.8.0",
+        "baseVersion" : "1.8.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.recyclerview:recyclerview:1.3.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/a6753b6977a4dea9ec1b8a359c20e857/transformed/recyclerview-1.3.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.recyclerview",
+        "artifactId" : "recyclerview",
+        "version" : "1.3.0",
+        "baseVersion" : "1.3.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.annotation:annotation-experimental:1.4.1",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/f62841212320e274846eb7a811e7fb85/transformed/annotation-experimental-1.4.1/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.annotation",
+        "artifactId" : "annotation-experimental",
+        "version" : "1.4.1",
+        "baseVersion" : "1.4.1"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.appcompat:appcompat-resources:1.7.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/6cc19f5e5b2c6e6ba43df411dc93e277/transformed/appcompat-resources-1.7.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.appcompat",
+        "artifactId" : "appcompat-resources",
+        "version" : "1.7.0",
+        "baseVersion" : "1.7.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.collection:collection-jvm:1.4.2",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/androidx.collection/collection-jvm/1.4.2/bc60b5568a66d765a9fe8e266fd0c6c727e0b50b/collection-jvm-1.4.2.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.collection",
+        "artifactId" : "collection-jvm",
+        "version" : "1.4.2",
+        "baseVersion" : "1.4.2"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.navigation:navigation-common-android:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/4f64f4a90e83e79b799f8b85221030bd/transformed/navigation-common-release/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.navigation",
+        "artifactId" : "navigation-common-android",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-android/1.7.3/38d9cad3a0b03a10453b56577984bdeb48edeed5/kotlinx-coroutines-android-1.7.3.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jetbrains.kotlinx",
+        "artifactId" : "kotlinx-coroutines-android",
+        "version" : "1.7.3",
+        "baseVersion" : "1.7.3"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.dynamicanimation:dynamicanimation:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/fcca1742a0e4371afc7e93ff7581c4f9/transformed/dynamicanimation-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.dynamicanimation",
+        "artifactId" : "dynamicanimation",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.databinding:viewbinding:8.10.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/89747e807372be6ed19805077f01e52c/transformed/viewbinding-8.10.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.databinding",
+        "artifactId" : "viewbinding",
+        "version" : "8.10.0",
+        "baseVersion" : "8.10.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-viewmodel-android:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/7894fa37742d8f848c8f168e373ed901/transformed/lifecycle-viewmodel-release/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-viewmodel-android",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.transition:transition:1.5.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/f51f798ccfb9ddaf92be6c6d117a5e5a/transformed/transition-1.5.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.transition",
+        "artifactId" : "transition",
+        "version" : "1.5.0",
+        "baseVersion" : "1.5.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.coordinatorlayout:coordinatorlayout:1.1.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/5433c7f0c999300b7a6b6e68128f474f/transformed/coordinatorlayout-1.1.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.coordinatorlayout",
+        "artifactId" : "coordinatorlayout",
+        "version" : "1.1.0",
+        "baseVersion" : "1.1.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-livedata-ktx:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/e1a2b9384efe09be1ba67482c8845e8b/transformed/lifecycle-livedata-ktx-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-livedata-ktx",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-runtime-android:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/74b168a43e8718d0da5c73e753d57bb2/transformed/lifecycle-runtime-release/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-runtime-android",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-runtime-ktx-android:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/2f3f084de7e88fab434ab86245d88ab1/transformed/lifecycle-runtime-ktx/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-runtime-ktx-android",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.core:core:1.16.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/f0c5461fc8135ea1c06624784d28885d/transformed/core-1.16.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.core",
+        "artifactId" : "core",
+        "version" : "1.16.0",
+        "baseVersion" : "1.16.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.cursoradapter:cursoradapter:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/ca184fa95ccf87a39b3f13f02bc3eec2/transformed/cursoradapter-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.cursoradapter",
+        "artifactId" : "cursoradapter",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.localbroadcastmanager:localbroadcastmanager:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/f5f320b57ba1d2a9b7aee33c97be3b2e/transformed/localbroadcastmanager-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.localbroadcastmanager",
+        "artifactId" : "localbroadcastmanager",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.core:core-viewtree:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/e61daa791bae73bee4b90375b5da0867/transformed/core-viewtree-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.core",
+        "artifactId" : "core-viewtree",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-livedata-core:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/6d8e1892eb9581e87eb159ac0995223e/transformed/lifecycle-livedata-core-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-livedata-core",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.constraintlayout:constraintlayout:2.1.4",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/d8a92c631018b06b164179f7e27efe9a/transformed/constraintlayout-2.1.4/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.constraintlayout",
+        "artifactId" : "constraintlayout",
+        "version" : "2.1.4",
+        "baseVersion" : "2.1.4"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.7.3",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-core-jvm/1.7.3/2b09627576f0989a436a00a4a54b55fa5026fb86/kotlinx-coroutines-core-jvm-1.7.3.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jetbrains.kotlinx",
+        "artifactId" : "kotlinx-coroutines-core-jvm",
+        "version" : "1.7.3",
+        "baseVersion" : "1.7.3"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jspecify:jspecify:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jspecify/jspecify/1.0.0/7425a601c1c7ec76645a78d22b8c6a627edee507/jspecify-1.0.0.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jspecify",
+        "artifactId" : "jspecify",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.loader:loader:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/2d23e8c3e935c78fbf8a91a9e222b0c9/transformed/loader-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.loader",
+        "artifactId" : "loader",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.interpolator:interpolator:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/8230bcd5df2a709eb0e27007f1a7e61f/transformed/interpolator-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.interpolator",
+        "artifactId" : "interpolator",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/67f018afbb56563acaed9d00ab393e16/transformed/lifecycle-viewmodel-ktx-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-viewmodel-ktx",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-livedata-core-ktx:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/9efaaff11f0b2f13cb896141599500d0/transformed/lifecycle-livedata-core-ktx-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-livedata-core-ktx",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.navigation:navigation-fragment-ktx:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/36dc3653346b53150ae7ccbce905ffa8/transformed/navigation-fragment-ktx-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.navigation",
+        "artifactId" : "navigation-fragment-ktx",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib-jdk8/1.8.22/b25c86d47d6b962b9cf0f8c3f320c8a10eea3dd1/kotlin-stdlib-jdk8-1.8.22.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jetbrains.kotlin",
+        "artifactId" : "kotlin-stdlib-jdk8",
+        "version" : "1.8.22",
+        "baseVersion" : "1.8.22"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.7.3",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-serialization-core-jvm/1.7.3/1f226780b845ff9206474c05159245d861556249/kotlinx-serialization-core-jvm-1.7.3.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jetbrains.kotlinx",
+        "artifactId" : "kotlinx-serialization-core-jvm",
+        "version" : "1.7.3",
+        "baseVersion" : "1.7.3"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.drawerlayout:drawerlayout:1.1.1",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/81d1b6ca206f1ae81fcabed117aa9cda/transformed/drawerlayout-1.1.1/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.drawerlayout",
+        "artifactId" : "drawerlayout",
+        "version" : "1.1.1",
+        "baseVersion" : "1.1.1"
+      }
+    }
+  }, {
+    "name" : "Gradle: org.jetbrains.kotlin:kotlin-stdlib:2.0.21",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.0.21/618b539767b4899b4660a83006e052b63f1db551/kotlin-stdlib-2.0.21.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "org.jetbrains.kotlin",
+        "artifactId" : "kotlin-stdlib",
+        "version" : "2.0.21",
+        "baseVersion" : "2.0.21"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.arch.core:core-common:2.2.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/androidx.arch.core/core-common/2.2.0/5e1b8b81dfd5f52c56a8d53b18ca759c19a301f3/core-common-2.2.0.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.arch.core",
+        "artifactId" : "core-common",
+        "version" : "2.2.0",
+        "baseVersion" : "2.2.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.navigation:navigation-fragment:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/13ebfad5950e9bfebc38fbcb086972c1/transformed/navigation-fragment-2.9.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.navigation",
+        "artifactId" : "navigation-fragment",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.activity:activity:1.8.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/82023adc5b9978debd86647c85badbcf/transformed/activity-1.8.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.activity",
+        "artifactId" : "activity",
+        "version" : "1.8.0",
+        "baseVersion" : "1.8.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.vectordrawable:vectordrawable:1.1.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/0e2c11c776717d86544b31b8495d4c1b/transformed/vectordrawable-1.1.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.vectordrawable",
+        "artifactId" : "vectordrawable",
+        "version" : "1.1.0",
+        "baseVersion" : "1.1.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/a01e88eafae97fa57f63a5337b9bc01c/transformed/lifecycle-viewmodel-savedstate-release/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-viewmodel-savedstate-android",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.viewpager:viewpager:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/afa99943d33c3a2f09f1cc369a53084a/transformed/viewpager-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.viewpager",
+        "artifactId" : "viewpager",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.print:print:1.0.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/8.11.1/transforms/d95c389475e90d80f62cabef0ff8a0f2/transformed/print-1.0.0/jars/classes.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.print",
+        "artifactId" : "print",
+        "version" : "1.0.0",
+        "baseVersion" : "1.0.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: androidx.lifecycle:lifecycle-common-jvm:2.9.0",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-common-jvm/2.9.0/ab739bccdb3541983385af169565c7c035d897e7/lifecycle-common-jvm-2.9.0.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "androidx.lifecycle",
+        "artifactId" : "lifecycle-common-jvm",
+        "version" : "2.9.0",
+        "baseVersion" : "2.9.0"
+      }
+    }
+  }, {
+    "name" : "Gradle: classes",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "local",
+        "artifactId" : "classes",
+        "version" : "unknown",
+        "baseVersion" : "unknown"
+      }
+    }
+  }, {
+    "name" : "Gradle: debug",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/build/tmp/kotlin-classes/debug"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "local",
+        "artifactId" : "debug",
+        "version" : "unknown",
+        "baseVersion" : "unknown"
+      }
+    }
+  }, {
+    "name" : "Gradle: app R",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/work/sources/yamsergey.adt.ls.v2/test-fixtures/android-projects/agp/8.11/single-module-kotlin-compose-dsl/app/build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/processDebugResources/R.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "local",
+        "artifactId" : "R",
+        "version" : "unknown",
+        "baseVersion" : "unknown"
+      }
+    }
+  }, {
+    "name" : "Gradle: app android:android:35",
+    "type" : "java-imported",
+    "roots" : [ {
+      "path" : "/data/data/com.termux/files/home/Android/sdk/platforms/android-35/android.jar"
+    } ],
+    "properties" : {
+      "attributes" : {
+        "groupId" : "android",
+        "artifactId" : "android",
+        "version" : "35",
+        "baseVersion" : "35"
+      }
+    }
+  } ],
+  "sdks" : [ ],
+  "kotlinSettings" : [ ]
+}
