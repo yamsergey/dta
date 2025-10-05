@@ -1,5 +1,7 @@
 # Android Development Tools (ADT)
 
+[![](https://jitpack.io/v/yamsergey/yamsergey.adt.svg)](https://jitpack.io/#yamsergey/yamsergey.adt)
+
 Tools for analyzing Android projects and generating workspace.json files for Kotlin Language Server integration.
 
 ## Installation
