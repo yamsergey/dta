@@ -57,6 +57,13 @@ jobs:
 
             ### Installation
 
+            #### Homebrew (macOS/Linux)
+            ```bash
+            brew tap yamsergey/adt
+            brew install adt-cli
+            ```
+
+            #### Manual Installation
             ```bash
             # Extract the archive
             tar -xzf adt-cli-${{ github.ref_name }}.tar.gz
@@ -66,15 +73,15 @@ jobs:
 
             ```bash
             # Generate workspace.json for Kotlin LSP
-            adt-cli/bin/adt-cli workspace /path/to/android/project \
+            adt-cli workspace /path/to/android/project \
               --output workspace.json
 
             # Analyze project structure
-            adt-cli/bin/adt-cli resolve /path/to/android/project \
+            adt-cli resolve /path/to/android/project \
               --workspace --output project-analysis.json
 
             # List build variants
-            adt-cli/bin/adt-cli resolve /path/to/android/project \
+            adt-cli resolve /path/to/android/project \
               --variants --output variants.json
             ```
 
@@ -85,3 +92,43 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calculate SHA256
+        id: sha
+        run: |
+          SHA256=$(shasum -a 256 adt-cli-${{ github.ref_name }}.tar.gz | awk '{print $1}')
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew Formula
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/yamsergey/homebrew-adt.git
+          cd homebrew-adt
+
+          cat > Formula/adt-cli.rb << 'EOF'
+          class AdtCli < Formula
+            desc "Android Development Tools - CLI for Android project analysis and workspace generation"
+            homepage "https://github.com/yamsergey/yamsergey.adt"
+            url "https://github.com/yamsergey/yamsergey.adt/releases/download/${{ github.ref_name }}/adt-cli-${{ github.ref_name }}.tar.gz"
+            sha256 "${{ steps.sha.outputs.sha256 }}"
+            license "Apache-2.0"
+            version "${{ github.ref_name }}"
+
+            depends_on "openjdk@21"
+
+            def install
+              libexec.install Dir["*"]
+              bin.install_symlink libexec/"bin/adt-cli"
+            end
+
+            test do
+              assert_match "adt-cli", shell_output("#{bin}/adt-cli --version")
+            end
+          end
+          EOF
+
+          git add Formula/adt-cli.rb
+          git commit -m "Update adt-cli to ${{ github.ref_name }}"
+          git push
