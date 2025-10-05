@@ -14,6 +14,28 @@ This library provides the conversion layer between the tools-android project ana
 - **Source Root Detection**: Identify and categorize source roots (java-source, java-test, etc.)
 - **JSON Serialization**: Serialize workspace to JSON format
 
+## Installation
+
+### Via JitPack
+
+Add JitPack repository to your build file:
+
+```gradle
+repositories {
+    maven { url 'https://jitpack.io' }
+}
+```
+
+Add the dependency:
+
+```gradle
+dependencies {
+    implementation 'com.github.yamsergey.yamsergey.adt:workspace-kotlin:1.0.0'
+}
+```
+
+**Note:** Replace `1.0.0` with the desired version tag from [releases](https://github.com/yamsergey/yamsergey.adt/releases).
+
 ## Architecture
 
 ### Model Layer (`model/`)

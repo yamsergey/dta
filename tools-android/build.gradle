@@ -8,6 +8,7 @@
 plugins {
     // Apply the java-library plugin for API and implementation separation.
     id 'java-library'
+    id 'maven-publish'
 }
 
 repositories {
@@ -67,4 +68,42 @@ java {
 tasks.named('test') {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+
+            groupId = 'io.yamsergey.adt'
+            artifactId = 'tools-android'
+            version = '1.0.0'
+
+            pom {
+                name = 'Android Development Tools - Core Library'
+                description = 'Core library for Android project analysis using Gradle Tooling API'
+                url = 'https://github.com/yamsergey/yamsergey.adt'
+
+                licenses {
+                    license {
+                        name = 'GNU General Public License v3.0'
+                        url = 'https://www.gnu.org/licenses/gpl-3.0.en.html'
+                    }
+                }
+
+                developers {
+                    developer {
+                        id = 'yamsergey'
+                        name = 'Sergey Yamshchikov'
+                    }
+                }
+
+                scm {
+                    connection = 'scm:git:git://github.com/yamsergey/yamsergey.adt.git'
+                    developerConnection = 'scm:git:ssh://github.com/yamsergey/yamsergey.adt.git'
+                    url = 'https://github.com/yamsergey/yamsergey.adt'
+                }
+            }
+        }
+    }
 }

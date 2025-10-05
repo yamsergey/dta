@@ -8,7 +8,7 @@ Download the latest release from [GitHub Releases](https://github.com/yamsergey/
 
 Extract the archive:
 ```bash
-tar -xzf adt-cli-vX.X.X.tar.gz
+tar -xzf adt-cli-1.0.0.tar.gz
 ```
 
 **Requirements:** Java 21+

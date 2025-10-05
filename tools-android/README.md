@@ -14,6 +14,28 @@ This library provides programmatic access to Android project information, enabli
 - **Source Root Detection**: Identify source directories and their types
 - **Result Pattern**: Type-safe Success/Failure results for error handling
 
+## Installation
+
+### Via JitPack
+
+Add JitPack repository to your build file:
+
+```gradle
+repositories {
+    maven { url 'https://jitpack.io' }
+}
+```
+
+Add the dependency:
+
+```gradle
+dependencies {
+    implementation 'com.github.yamsergey.yamsergey.adt:tools-android:1.0.0'
+}
+```
+
+**Note:** Replace `1.0.0` with the desired version tag from [releases](https://github.com/yamsergey/yamsergey.adt/releases).
+
 ## Architecture
 
 ### Core Components
