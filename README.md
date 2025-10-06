@@ -6,25 +6,33 @@ Tools for analyzing Android projects and generating workspace.json files for Kot
 
 ## Installation
 
-### Homebrew
+### ATD CLI
+
+Command line tool that utilise ADT libraries for specific tasks (e.g. `workspace.json` generation, android project gradle metatdata review, etc.)
+
+#### Homebrew
 
 ```bash
 brew tap yamsergey/adt
 brew install adt-cli
 ```
 
-### APT
+#### APT
 
 TODO: In progress
 
 Download the latest release from [GitHub Releases](https://github.com/yamsergey/yamsergey.adt/releases).
 
-### From sources
+#### From sources
 
 Extract the archive:
 ```bash
 tar -xzf adt-cli-1.0.0.tar.gz
 ```
+
+### Jar libraries
+
+All libraries piblished via jitpack, for details take a look at appropriate library README.md.
 
 **Requirements:** Java 21+
 
