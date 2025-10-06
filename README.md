@@ -6,7 +6,20 @@ Tools for analyzing Android projects and generating workspace.json files for Kot
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew tap yamsergey/adt
+brew install adt-cli
+```
+
+### APT
+
+TODO: In progress
+
 Download the latest release from [GitHub Releases](https://github.com/yamsergey/yamsergey.adt/releases).
+
+### From sources
 
 Extract the archive:
 ```bash
