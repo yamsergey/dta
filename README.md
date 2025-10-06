@@ -21,9 +21,9 @@ brew install adt-cli
 
 TODO: In progress
 
-Download the latest release from [GitHub Releases](https://github.com/yamsergey/yamsergey.adt/releases).
-
 #### From sources
+
+Download the latest release from [GitHub Releases](https://github.com/yamsergey/yamsergey.adt/releases).
 
 Extract the archive:
 ```bash
