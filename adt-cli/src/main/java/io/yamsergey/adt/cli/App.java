@@ -1,5 +1,6 @@
 package io.yamsergey.adt.cli;
 
+import io.yamsergey.adt.cli.drawable.DrawableCommand;
 import io.yamsergey.adt.cli.resolve.ResolveCommand;
 import io.yamsergey.adt.cli.workspace.WorkspaceCommand;
 import picocli.CommandLine;
@@ -11,7 +12,8 @@ import picocli.CommandLine.Command;
          description = "Android Development Tools - Project analysis and workspace generation",
          subcommands = {
     ResolveCommand.class,
-    WorkspaceCommand.class
+    WorkspaceCommand.class,
+    DrawableCommand.class
 })
 public class App implements Runnable {
 
