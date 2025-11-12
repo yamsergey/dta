@@ -54,6 +54,10 @@ dependencies {
     // GSON for JSON serialization/debugging
     implementation 'com.google.code.gson:gson:2.13.2'
 
+    // Apache Batik for vector drawable to PNG conversion
+    api libs.batik.transcoder
+    api libs.batik.codec
+
     implementation libs.sugar.lombok
     annotationProcessor libs.sugar.lombok
 }

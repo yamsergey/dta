@@ -12,6 +12,7 @@ gradle-core = "6.1.1"
 android-gradle-plugin = "8.11.1"
 lombok = "1.18.42"
 jackson = "2.19.0"
+batik = "1.18"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -36,6 +37,8 @@ sugar-lombok = { module = "org.projectlombok:lombok", version.ref = "lombok"}
 jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
 jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
+batik-transcoder = { module = "org.apache.xmlgraphics:batik-transcoder", version.ref = "batik" }
+batik-codec = { module = "org.apache.xmlgraphics:batik-codec", version.ref = "batik" }
 
 [plugins]
 # Add plugins here as needed

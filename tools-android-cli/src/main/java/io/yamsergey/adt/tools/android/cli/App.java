@@ -4,7 +4,8 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 @Command(name = "android-tools", mixinStandardHelpOptions = true, version = "android-tools 1.0", description = "Android development tools CLI", subcommands = {
-    ResolveCommand.class
+    ResolveCommand.class,
+    DrawableCommand.class
 })
 public class App implements Runnable {
 
