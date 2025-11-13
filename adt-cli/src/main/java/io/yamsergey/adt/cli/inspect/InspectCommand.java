@@ -23,7 +23,8 @@ import picocli.CommandLine.Command;
          description = "Inspect Android devices and applications.",
          subcommands = {
              LayoutCommand.class,
-             ScreenshotCommand.class
+             ScreenshotCommand.class,
+             LogcatCommand.class
          })
 public class InspectCommand implements Runnable {
 

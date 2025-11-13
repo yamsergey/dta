@@ -99,12 +99,16 @@ adt-cli inspect layout --format json -o hierarchy.json
 # Capture screenshot
 adt-cli inspect screenshot -o screenshot.png
 
-# Capture screenshot with auto-generated filename
-adt-cli inspect screenshot
+# Capture logcat logs
+adt-cli inspect logcat --lines 1000 -o logcat.txt
+
+# Capture only errors and warnings
+adt-cli inspect logcat --priority W -o errors.txt
 
 # Dump from specific device
 adt-cli inspect layout -d emulator-5554 --format json
 adt-cli inspect screenshot -d emulator-5554 -o screen.png
+adt-cli inspect logcat -d emulator-5554 --lines 500 -o logcat.txt
 
 # Use compressed format (faster, less detail)
 adt-cli inspect layout --compressed -o hierarchy.xml

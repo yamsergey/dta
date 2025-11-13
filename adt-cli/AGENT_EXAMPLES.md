@@ -394,3 +394,304 @@ def create_bug_report(issue_description):
 4. **Store metadata**: Include device info, app version, test scenario
 5. **Combine with ADB**: Use layout data to drive UI automation via ADB input commands
 
+
+## Logcat Analysis
+
+### Example 1: Capture and analyze errors
+
+```bash
+# Capture only errors
+adt-cli inspect logcat --priority E --lines 100 -o errors.txt
+
+# Analyze with grep
+adt-cli inspect logcat --priority E | grep -i "exception\|error\|crash"
+```
+
+### Example 2: Monitor specific component
+
+```bash
+# Capture logs from ActivityManager only
+adt-cli inspect logcat --tag "ActivityManager:I *:S" --lines 500 -o activity.txt
+
+# Monitor app-specific logs
+adt-cli inspect logcat --tag "MyApp:D *:S" -o myapp.txt
+```
+
+### Example 3: Fresh log capture
+
+```bash
+# Clear logs, perform action, capture new logs
+adt-cli inspect logcat --clear
+# ... perform test action ...
+sleep 2
+adt-cli inspect logcat --lines 100 -o test-logs.txt
+```
+
+### Python: Automated log analysis
+
+```python
+import subprocess
+import re
+
+def capture_errors():
+    """Capture and analyze error logs."""
+    result = subprocess.run(
+        ['adt-cli', 'inspect', 'logcat', '--priority', 'E', '--lines', '500'],
+        capture_output=True,
+        text=True
+    )
+    
+    logs = result.stdout
+    
+    # Parse errors
+    errors = []
+    for line in logs.split('\n'):
+        if 'E/' in line or 'F/' in line:
+            errors.append(line)
+    
+    # Find exceptions
+    exceptions = []
+    for line in logs.split('\n'):
+        if 'Exception' in line or 'Error' in line:
+            exceptions.append(line)
+    
+    return {
+        'total_errors': len(errors),
+        'exceptions': exceptions,
+        'raw_logs': logs
+    }
+
+def monitor_app_logs(package_name, duration_seconds=10):
+    """Monitor logs for specific app."""
+    import time
+    
+    # Clear logs
+    subprocess.run(['adt-cli', 'inspect', 'logcat', '--clear'])
+    
+    # Wait for activity
+    time.sleep(duration_seconds)
+    
+    # Capture logs
+    result = subprocess.run(
+        ['adt-cli', 'inspect', 'logcat', '--lines', '1000'],
+        capture_output=True,
+        text=True
+    )
+    
+    # Filter by package
+    app_logs = [line for line in result.stdout.split('\n') 
+                if package_name in line]
+    
+    return app_logs
+
+# Usage
+errors = capture_errors()
+print(f"Found {errors['total_errors']} errors")
+print(f"Found {len(errors['exceptions'])} exceptions")
+
+app_logs = monitor_app_logs('com.example.myapp', duration_seconds=5)
+print(f"Captured {len(app_logs)} app-specific log lines")
+```
+
+### Shell: Complete diagnostic capture
+
+```bash
+#!/bin/bash
+# Comprehensive diagnostic capture
+
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+DIAG_DIR="diagnostics/${TIMESTAMP}"
+mkdir -p "${DIAG_DIR}"
+
+echo "Capturing diagnostics..."
+
+# Capture screenshot
+adt-cli inspect screenshot -o "${DIAG_DIR}/screenshot.png"
+
+# Capture layout
+adt-cli inspect layout --format json -o "${DIAG_DIR}/layout.json"
+
+# Capture all logs
+adt-cli inspect logcat --lines 5000 -o "${DIAG_DIR}/logcat-all.txt"
+
+# Capture errors only
+adt-cli inspect logcat --priority E --lines 1000 -o "${DIAG_DIR}/logcat-errors.txt"
+
+# Capture warnings and above
+adt-cli inspect logcat --priority W --lines 2000 -o "${DIAG_DIR}/logcat-warnings.txt"
+
+# Count errors
+ERROR_COUNT=$(grep -c " E/" "${DIAG_DIR}/logcat-errors.txt" || echo "0")
+WARNING_COUNT=$(grep -c " W/" "${DIAG_DIR}/logcat-warnings.txt" || echo "0")
+
+echo "Diagnostics saved to: ${DIAG_DIR}"
+echo "Errors: ${ERROR_COUNT}"
+echo "Warnings: ${WARNING_COUNT}"
+
+# Create summary
+cat > "${DIAG_DIR}/summary.txt" << SUMMARY
+Diagnostic Capture Summary
+==========================
+Timestamp: ${TIMESTAMP}
+Errors: ${ERROR_COUNT}
+Warnings: ${WARNING_COUNT}
+
+Files:
+- screenshot.png: Visual state
+- layout.json: UI structure
+- logcat-all.txt: All logs (last 5000 lines)
+- logcat-errors.txt: Errors only (last 1000 lines)
+- logcat-warnings.txt: Warnings and above (last 2000 lines)
+SUMMARY
+
+cat "${DIAG_DIR}/summary.txt"
+```
+
+### JavaScript: Real-time log monitoring
+
+```javascript
+const { spawn } = require('child_process');
+const fs = require('fs');
+
+function monitorLogs(options = {}) {
+  const {
+    priority = 'I',
+    onLog = (line) => console.log(line),
+    outputFile = null
+  } = options;
+  
+  // Clear logs first
+  const { execSync } = require('child_process');
+  execSync('adt-cli inspect logcat --clear');
+  
+  // Start monitoring
+  const logcat = spawn('adt-cli', [
+    'inspect', 'logcat',
+    '--priority', priority
+  ]);
+  
+  let buffer = '';
+  
+  logcat.stdout.on('data', (data) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // Keep incomplete line
+    
+    lines.forEach(line => {
+      if (line.trim()) {
+        onLog(line);
+        if (outputFile) {
+          fs.appendFileSync(outputFile, line + '\n');
+        }
+      }
+    });
+  });
+  
+  return {
+    stop: () => logcat.kill()
+  };
+}
+
+// Usage
+const monitor = monitorLogs({
+  priority: 'W',
+  onLog: (line) => {
+    if (line.includes('Exception') || line.includes('Error')) {
+      console.error('ERROR:', line);
+    }
+  },
+  outputFile: 'monitoring.log'
+});
+
+// Stop after 30 seconds
+setTimeout(() => {
+  monitor.stop();
+  console.log('Monitoring stopped');
+}, 30000);
+```
+
+## Complete Inspection Workflow
+
+### Comprehensive test capture
+
+```bash
+#!/bin/bash
+# Complete inspection workflow for bug reporting
+
+TEST_NAME="$1"
+if [ -z "$TEST_NAME" ]; then
+    echo "Usage: $0 <test-name>"
+    exit 1
+fi
+
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+REPORT_DIR="test-reports/${TEST_NAME}-${TIMESTAMP}"
+mkdir -p "${REPORT_DIR}"
+
+echo "Starting comprehensive inspection for: ${TEST_NAME}"
+
+# 1. Clear logs
+echo "Clearing logs..."
+adt-cli inspect logcat --clear
+
+# 2. Capture initial state
+echo "Capturing initial state..."
+adt-cli inspect screenshot -o "${REPORT_DIR}/01-initial-screen.png"
+adt-cli inspect layout --format json -o "${REPORT_DIR}/01-initial-layout.json"
+
+# 3. Perform test action (placeholder - add your test steps)
+echo "Performing test action..."
+# ... your test steps here ...
+sleep 2
+
+# 4. Capture final state
+echo "Capturing final state..."
+adt-cli inspect screenshot -o "${REPORT_DIR}/02-final-screen.png"
+adt-cli inspect layout --format json -o "${REPORT_DIR}/02-final-layout.json"
+
+# 5. Capture logs
+echo "Capturing logs..."
+adt-cli inspect logcat --lines 2000 -o "${REPORT_DIR}/logcat-all.txt"
+adt-cli inspect logcat --priority W --lines 500 -o "${REPORT_DIR}/logcat-warnings.txt"
+adt-cli inspect logcat --priority E --lines 200 -o "${REPORT_DIR}/logcat-errors.txt"
+
+# 6. Analyze
+ERROR_COUNT=$(grep -c " E/" "${REPORT_DIR}/logcat-errors.txt" 2>/dev/null || echo "0")
+WARNING_COUNT=$(grep -c " W/" "${REPORT_DIR}/logcat-warnings.txt" 2>/dev/null || echo "0")
+
+# 7. Create report
+cat > "${REPORT_DIR}/REPORT.md" << REPORT
+# Test Report: ${TEST_NAME}
+
+**Timestamp:** ${TIMESTAMP}  
+**Status:** $([ "$ERROR_COUNT" -eq 0 ] && echo "✅ PASS" || echo "❌ FAIL")
+
+## Summary
+- Errors: ${ERROR_COUNT}
+- Warnings: ${WARNING_COUNT}
+
+## Artifacts
+- \`01-initial-screen.png\` - Initial screenshot
+- \`01-initial-layout.json\` - Initial UI layout
+- \`02-final-screen.png\` - Final screenshot
+- \`02-final-layout.json\` - Final UI layout
+- \`logcat-all.txt\` - Complete logs (2000 lines)
+- \`logcat-warnings.txt\` - Warnings and above (500 lines)
+- \`logcat-errors.txt\` - Errors only (200 lines)
+
+## Next Steps
+$([ "$ERROR_COUNT" -gt 0 ] && echo "- Review errors in logcat-errors.txt" || echo "- No errors found")
+$([ "$WARNING_COUNT" -gt 0 ] && echo "- Review warnings in logcat-warnings.txt" || echo "")
+
+REPORT
+
+echo ""
+echo "============================================"
+echo "Test report created: ${REPORT_DIR}"
+echo "Errors: ${ERROR_COUNT}"
+echo "Warnings: ${WARNING_COUNT}"
+echo "============================================"
+echo ""
+cat "${REPORT_DIR}/REPORT.md"
+```
+

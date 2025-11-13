@@ -78,6 +78,71 @@ adt-cli inspect screenshot --adb-path /custom/path/to/adb -o screen.png
 
 **Requirements:**
 - Android SDK with ADB installed and in PATH (or use `--adb-path`)
+
+#### `inspect logcat` - Capture device logs
+
+Capture logcat logs from a connected Android device or emulator. Supports filtering by priority, tags, and line limits.
+
+```bash
+adt-cli inspect logcat [OPTIONS]
+```
+
+**Options:**
+- `--output, -o FILE`: Output file path (if not specified, prints to stdout)
+- `--lines, -n COUNT`: Maximum number of lines to capture (default: all available)
+- `--priority, -p LEVEL`: Minimum priority level: V (Verbose), D (Debug), I (Info), W (Warning), E (Error), F (Fatal)
+- `--tag, -t FILTER`: Tag filter (e.g., "ActivityManager:I *:S" for only ActivityManager at Info level)
+- `--clear`: Clear logs before capturing
+- `--format, -f FORMAT`: Log format: brief, process, tag, thread, raw, time, threadtime (default), long
+- `--device, -d SERIAL`: Device serial number (if not specified, uses first available device)
+- `--timeout SECONDS`: Timeout in seconds for ADB commands (default: 30)
+- `--adb-path PATH`: Path to ADB executable (if not specified, uses 'adb' from PATH)
+
+**Examples:**
+
+```bash
+# Capture all logs to stdout
+adt-cli inspect logcat
+
+# Capture last 1000 lines to file
+adt-cli inspect logcat --lines 1000 -o logcat.txt
+
+# Capture only errors and warnings
+adt-cli inspect logcat --priority W -o errors.txt
+
+# Capture only errors
+adt-cli inspect logcat --priority E -o errors-only.txt
+
+# Clear logs first, then capture
+adt-cli inspect logcat --clear --lines 500 -o fresh-logs.txt
+
+# Filter by tag (only ActivityManager)
+adt-cli inspect logcat --tag "ActivityManager:I *:S" -o activity.txt
+
+# Capture from specific device
+adt-cli inspect logcat -d emulator-5554 --lines 500 -o device-logs.txt
+
+# Different format (brief)
+adt-cli inspect logcat --format brief --lines 100
+```
+
+**Output:**
+- Text file with timestamped log entries
+- Default format: threadtime (includes timestamp, PID, TID, priority, tag, message)
+- Line count reported on success
+
+**Priority Levels:**
+- `V` - Verbose (all logs)
+- `D` - Debug and above
+- `I` - Info and above
+- `W` - Warning and above (recommended for error analysis)
+- `E` - Error and above
+- `F` - Fatal only
+
+**Requirements:**
+- Android SDK with ADB installed and in PATH (or use `--adb-path`)
+- Connected Android device or running emulator
+
 - Connected Android device or running emulator
 - Device must be in unlocked state with screen on
 
