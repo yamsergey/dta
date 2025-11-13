@@ -29,11 +29,11 @@ Android Development Tools (ADT) - A multi-module Gradle project providing progra
 ./gradlew cleanLsp
 
 # Install CLI distribution
-./gradlew :tools-android-cli:installDist
-# Executable: tools-android-cli/build/install/tools-android-cli/bin/tools-android-cli
+./gradlew :adt-cli:installDist
+# Executable: adt-cli/build/install/adt-cli/bin/adt-cli
 
 # Run CLI directly
-./gradlew :tools-android-cli:run --args="resolve /path/to/android/project --workspace"
+./gradlew :adt-cli:run --args="resolve /path/to/android/project --workspace"
 ```
 
 ## Module Architecture
@@ -57,6 +57,9 @@ Core library providing Android project analysis via Gradle Tooling API.
 - `gradle/` - Gradle Tooling API integration
   - Fetchers: `FetchAndroidProject`, `FetchBasicAndroidProject`, `FetchGradleProject`, `FetchIdeaProject`, `FetchAndroidDependencies`, `FetchAndroidDsl`
   - Utils: `GradleProjectUtils`, `VariantUtils`, `GraphItemUtils`
+- `inspect/` - Device and application inspection
+  - `ViewHierarchyDumper` - Dumps UI hierarchy from connected Android devices using ADB
+  - `ViewHierarchy` - Data model for captured view hierarchy
 - `tools.sugar/` - `Result<T>` type (sealed interface: `Success<T>`, `Failure<T>`)
 
 **Key Design Patterns:**
@@ -64,27 +67,50 @@ Core library providing Android project analysis via Gradle Tooling API.
 - **Sealed Interfaces**: `ResolvedModule` and `Result` use sealed interfaces for compile-time exhaustive pattern matching.
 - **Strategy Pattern**: `ModuleResolutionStrategy` allows customizable module resolution logic.
 
-### tools-android-cli (CLI Interface)
+### adt-cli (CLI Interface)
 Command-line interface wrapping tools-android library.
 
 **Key Files:**
 - `App.java` - Main entry point using picocli
-- `ResolveCommand.java` - Primary command implementation
+- `resolve/ResolveCommand.java` - Project analysis command
+- `workspace/WorkspaceCommand.java` - Workspace generation command
+- `drawable/DrawableCommand.java` - Vector drawable to PNG conversion
+- `inspect/InspectCommand.java` - Device inspection command (parent)
+- `inspect/LayoutCommand.java` - UI layout hierarchy dumping subcommand
 - `serialization/jackson/` - Jackson customizations for safe Gradle object serialization (`SafeSerializerModifier`, `ParentIgnoreMixIn`, `ProjectMixIn`, `TaskMixIn`)
 
 **CLI Usage:**
 ```bash
 # Analyze project structure
-tools-android-cli resolve /path/to/project --workspace
+adt-cli resolve /path/to/project --workspace
 
 # List build variants
-tools-android-cli resolve /path/to/project --variants
+adt-cli resolve /path/to/project --variants
 
 # Extract raw Gradle data (use --output, result is large)
-tools-android-cli resolve /path/to/project --raw --output data.json
+adt-cli resolve /path/to/project --raw --output data.json
 
 # Save output to file
-tools-android-cli resolve /path/to/project --workspace --output analysis.json
+adt-cli resolve /path/to/project --workspace --output analysis.json
+
+# Dump UI layout hierarchy as JSON (agent-friendly)
+adt-cli inspect layout --format json -o hierarchy.json
+
+# Capture screenshot
+adt-cli inspect screenshot -o screenshot.png
+
+# Capture screenshot with auto-generated filename
+adt-cli inspect screenshot
+
+# Dump from specific device
+adt-cli inspect layout -d emulator-5554 --format json
+adt-cli inspect screenshot -d emulator-5554 -o screen.png
+
+# Use compressed format (faster, less detail)
+adt-cli inspect layout --compressed -o hierarchy.xml
+
+# Print JSON to stdout for piping
+adt-cli inspect layout --format json
 ```
 
 ### workspace-kotlin (Workspace Library)
