@@ -1,5 +1,6 @@
 package io.yamsergey.adt.cli.inspect;
 
+import io.yamsergey.adt.tools.android.inspect.compose.ComposeNodeFilter;
 import io.yamsergey.adt.tools.android.inspect.compose.SidekickClient;
 import io.yamsergey.adt.tools.sugar.Failure;
 import io.yamsergey.adt.tools.sugar.Result;
@@ -79,6 +80,35 @@ public class ComposeCommand implements Callable<Integer> {
             description = "Timeout in seconds for operations (default: 30).")
     private int timeoutSeconds;
 
+    // Filter options
+    @Option(names = {"--composable"},
+            description = "Filter by composable name (e.g., 'Button', 'Text'). Substring match or 'regex:pattern'.")
+    private String composableFilter;
+
+    @Option(names = {"--text"},
+            description = "Filter by text content. Substring match or 'regex:pattern'.")
+    private String textFilter;
+
+    @Option(names = {"--role"},
+            description = "Filter by semantic role (e.g., 'Button', 'Image', 'Checkbox').")
+    private String roleFilter;
+
+    @Option(names = {"--test-tag"},
+            description = "Filter by test tag.")
+    private String testTagFilter;
+
+    @Option(names = {"--with-text"},
+            description = "Only return nodes that have non-empty text content.")
+    private boolean withTextOnly;
+
+    @Option(names = {"--with-role"},
+            description = "Only return nodes that have a role (interactive elements).")
+    private boolean withRoleOnly;
+
+    @Option(names = {"--include-parents"},
+            description = "Include parent chain for each matching node.")
+    private boolean includeParents;
+
     @Override
     public Integer call() throws Exception {
         // Build the client
@@ -133,8 +163,32 @@ public class ComposeCommand implements Callable<Integer> {
 
             String outputContent = ((Success<String>) dataResult).value();
 
-            // Pretty-print the JSON
-            outputContent = prettyPrintJson(outputContent);
+            // Build filter if any filter options specified
+            ComposeNodeFilter filter = ComposeNodeFilter.builder()
+                    .composablePattern(composableFilter)
+                    .textPattern(textFilter)
+                    .rolePattern(roleFilter)
+                    .testTagPattern(testTagFilter)
+                    .withTextOnly(withTextOnly)
+                    .withRoleOnly(withRoleOnly)
+                    .includeParents(includeParents)
+                    .build();
+
+            // Apply filter if any filters are specified
+            if (filter.hasFilters()) {
+                try {
+                    outputContent = filter.filter(outputContent);
+                    // Count results (simple count of "node" occurrences)
+                    int count = outputContent.split("\"node\"").length - 1;
+                    System.err.println("Filter matched " + count + " node(s)");
+                } catch (Exception e) {
+                    System.err.println("Warning: Filter failed, returning unfiltered output: " + e.getMessage());
+                    outputContent = prettyPrintJson(outputContent);
+                }
+            } else {
+                // Pretty-print the JSON
+                outputContent = prettyPrintJson(outputContent);
+            }
 
             // Output to file or stdout
             if (outputPath != null && !outputPath.isEmpty()) {

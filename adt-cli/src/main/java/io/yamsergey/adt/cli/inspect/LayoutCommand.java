@@ -6,6 +6,7 @@ import io.yamsergey.adt.tools.android.inspect.ViewHierarchy;
 import io.yamsergey.adt.tools.android.inspect.ViewHierarchyDumper;
 import io.yamsergey.adt.tools.android.inspect.ViewHierarchyParser;
 import io.yamsergey.adt.tools.android.inspect.ViewNode;
+import io.yamsergey.adt.tools.android.inspect.ViewNodeFilter;
 import io.yamsergey.adt.tools.sugar.Failure;
 import io.yamsergey.adt.tools.sugar.Result;
 import io.yamsergey.adt.tools.sugar.Success;
@@ -14,6 +15,7 @@ import picocli.CommandLine.Option;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
@@ -76,6 +78,35 @@ public class LayoutCommand implements Callable<Integer> {
             description = "Pretty-print JSON output (default: true).")
     private boolean pretty = true;
 
+    // Filter options
+    @Option(names = {"--text"},
+            description = "Filter nodes by text content (substring match, or 'regex:pattern' for regex).")
+    private String textFilter;
+
+    @Option(names = {"--class"},
+            description = "Filter nodes by class name (substring match, or 'regex:pattern' for regex).")
+    private String classFilter;
+
+    @Option(names = {"--resource-id"},
+            description = "Filter nodes by resource ID (substring match, or 'regex:pattern' for regex).")
+    private String resourceIdFilter;
+
+    @Option(names = {"--content-desc"},
+            description = "Filter nodes by content description (substring match, or 'regex:pattern' for regex).")
+    private String contentDescFilter;
+
+    @Option(names = {"--clickable"},
+            description = "Only return clickable nodes.")
+    private boolean clickableOnly;
+
+    @Option(names = {"--with-text"},
+            description = "Only return nodes that have non-empty text content.")
+    private boolean withTextOnly;
+
+    @Option(names = {"--include-parents"},
+            description = "Include parent chain for each matching node (useful for Compose apps).")
+    private boolean includeParents;
+
     @Override
     public Integer call() throws Exception {
         // Validate format
@@ -118,6 +149,17 @@ public class LayoutCommand implements Callable<Integer> {
                 ViewHierarchy hierarchy = success.value();
                 String xmlContent = hierarchy.getXmlContent();
 
+                // Build filter if any filter options specified
+                ViewNodeFilter filter = ViewNodeFilter.builder()
+                        .textPattern(textFilter)
+                        .classPattern(classFilter)
+                        .resourceIdPattern(resourceIdFilter)
+                        .contentDescPattern(contentDescFilter)
+                        .clickableOnly(clickableOnly)
+                        .withTextOnly(withTextOnly)
+                        .includeParents(includeParents)
+                        .build();
+
                 // Convert to requested format
                 String outputContent;
                 if (format.equalsIgnoreCase("json")) {
@@ -135,8 +177,19 @@ public class LayoutCommand implements Callable<Integer> {
                     if (pretty) {
                         mapper.enable(SerializationFeature.INDENT_OUTPUT);
                     }
-                    outputContent = mapper.writeValueAsString(rootNode);
+
+                    // Apply filter if any filters are specified
+                    if (filter.hasFilters()) {
+                        List<ViewNodeFilter.FilteredNode> filteredNodes = filter.filter(rootNode);
+                        System.err.println("Filter matched " + filteredNodes.size() + " node(s)");
+                        outputContent = mapper.writeValueAsString(filteredNodes);
+                    } else {
+                        outputContent = mapper.writeValueAsString(rootNode);
+                    }
                 } else {
+                    if (filter.hasFilters()) {
+                        System.err.println("Warning: Filters are only supported with JSON format. Use --format json to enable filtering.");
+                    }
                     outputContent = xmlContent;
                 }
 

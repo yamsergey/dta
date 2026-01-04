@@ -51,8 +51,10 @@ dependencies {
     api libs.android.gradle.api
     api libs.android.builder.model
     
-    // GSON for JSON serialization/debugging
-    implementation 'com.google.code.gson:gson:2.13.2'
+    // Jackson for JSON serialization
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
 
     // Apache Batik for vector drawable to PNG conversion
     api libs.batik.transcoder
