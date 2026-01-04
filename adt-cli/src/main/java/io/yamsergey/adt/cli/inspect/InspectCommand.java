@@ -24,7 +24,8 @@ import picocli.CommandLine.Command;
          subcommands = {
              LayoutCommand.class,
              ScreenshotCommand.class,
-             LogcatCommand.class
+             LogcatCommand.class,
+             ComposeCommand.class
          })
 public class InspectCommand implements Runnable {
 

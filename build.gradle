@@ -11,22 +11,27 @@ allprojects {
 }
 
 subprojects {
+    // Skip Android library modules - they have their own configuration
+    if (project.name == 'adt-sidekick') {
+        return
+    }
+
     apply plugin: 'java'
-    
+
     java {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    
+
     repositories {
         mavenCentral()
     }
-    
+
     dependencies {
         testImplementation platform(libs.junit.bom)
         testImplementation libs.junit.jupiter
     }
-    
+
     test {
         useJUnitPlatform()
     }

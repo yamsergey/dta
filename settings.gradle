@@ -5,6 +5,14 @@
  * For more detailed information on multi-project builds, please refer to https://docs.gradle.org/9.0.0/userguide/multi_project_builds.html in the Gradle documentation.
  */
 
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
 rootProject.name = 'yamsergey-adt'
 
 include 'workspace-kotlin'
@@ -12,3 +20,4 @@ include 'workspace-kotlin-cli'
 include 'tools-android'
 include 'tools-android-cli'
 include 'adt-cli'
+include 'adt-sidekick'
