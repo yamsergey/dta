@@ -130,6 +130,24 @@ public class SidekickClient {
     }
 
     /**
+     * Gets the unified Compose tree combining layout and semantics.
+     *
+     * <p>This provides a cleaner, source-like representation with:
+     * <ul>
+     *   <li>Composable type names (Button, Text, Column, etc.)</li>
+     *   <li>Full class names for debugging</li>
+     *   <li>Absolute bounds (left, top, right, bottom)</li>
+     *   <li>Semantic properties inline (text, role, testTag)</li>
+     *   <li>Screen context (activity name, root composable)</li>
+     * </ul>
+     *
+     * @return Result containing unified tree JSON on success
+     */
+    public Result<String> getComposeTree() {
+        return httpGet("/compose/tree");
+    }
+
+    /**
      * Makes an HTTP GET request to the sidekick server.
      *
      * @param path the endpoint path (e.g., "/health")

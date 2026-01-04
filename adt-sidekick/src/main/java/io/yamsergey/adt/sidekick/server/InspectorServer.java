@@ -175,6 +175,9 @@ public class InspectorServer {
             case "/compose/semantics":
                 handleComposeSemantics(out);
                 break;
+            case "/compose/tree":
+                handleComposeTree(out);
+                break;
             default:
                 sendError(out, 404, "Not Found");
         }
@@ -192,7 +195,8 @@ public class InspectorServer {
         response.put("endpoints", new String[]{
                 "/health",
                 "/compose/hierarchy",
-                "/compose/semantics"
+                "/compose/semantics",
+                "/compose/tree"
         });
 
         sendJson(out, 200, response);
@@ -242,6 +246,31 @@ public class InspectorServer {
 
         } catch (Exception e) {
             Log.e(TAG, "Error capturing semantics", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /compose/tree - Unified Compose tree with layout and semantics merged.
+     */
+    private void handleComposeTree(OutputStream out) throws IOException {
+        try {
+            Object tree = runOnMainThread(() -> ComposeInspector.captureUnifiedTree());
+
+            if (tree == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "No Compose views found");
+                error.put("hint", "Make sure the app has Compose UI visible");
+                sendJson(out, 404, error);
+                return;
+            }
+
+            sendJson(out, 200, tree);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error capturing tree", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);

@@ -90,6 +90,460 @@ public class ComposeInspector {
     }
 
     /**
+     * Captures a unified tree combining layout hierarchy with semantic information.
+     * This provides a clean, source-like representation of the Compose UI.
+     *
+     * @return Map representing the unified tree, or null if no Compose views found
+     */
+    public static Map<String, Object> captureUnifiedTree() {
+        ensureInitialized();
+
+        Activity activity = getCurrentActivity();
+        if (activity == null) {
+            Log.w(TAG, "No current activity found");
+            return null;
+        }
+
+        List<Object> composeViews = findComposeViews();
+        if (composeViews.isEmpty()) {
+            Log.w(TAG, "No Compose views found");
+            return null;
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("type", "compose_tree");
+        result.put("timestamp", System.currentTimeMillis());
+
+        // Screen info
+        Map<String, Object> screen = new HashMap<>();
+        screen.put("activity", activity.getClass().getSimpleName());
+
+        // Get the first compose view's root for screen composable name
+        Object firstComposeView = composeViews.get(0);
+        Object rootLayoutNode = getRootLayoutNode(firstComposeView);
+        if (rootLayoutNode != null) {
+            String rootComposable = extractRootComposableName(rootLayoutNode);
+            if (rootComposable != null) {
+                screen.put("composable", rootComposable);
+            }
+        }
+        result.put("screen", screen);
+
+        // Build LayoutNode -> Semantics mapping using SemanticsNode.layoutNode reference
+        // Key: LayoutNode identity hashcode, Value: {semanticsId, text, role, ...}
+        Map<Integer, Map<String, Object>> layoutNodeToSemantics = new HashMap<>();
+        collectSemanticsWithLayoutNode(firstComposeView, layoutNodeToSemantics);
+
+        // Capture unified tree
+        if (rootLayoutNode != null) {
+            result.put("root", captureUnifiedNode(rootLayoutNode, 0, 0, 0, layoutNodeToSemantics));
+        }
+
+        return result;
+    }
+
+    /**
+     * Collects semantics by traversing SemanticsNode tree and mapping each to its LayoutNode.
+     * Uses SemanticsNode.layoutNode to link semantics back to layout.
+     */
+    private static void collectSemanticsWithLayoutNode(Object composeView, Map<Integer, Map<String, Object>> layoutNodeToSemantics) {
+        try {
+            Method getSemanticsOwner = androidComposeViewClass.getDeclaredMethod("getSemanticsOwner");
+            getSemanticsOwner.setAccessible(true);
+            Object semanticsOwner = getSemanticsOwner.invoke(composeView);
+
+            if (semanticsOwner != null) {
+                // Use unmerged semantics so each node has its own semantics (not bubbled up to parent)
+                Method getRootNode = null;
+                try {
+                    getRootNode = semanticsOwner.getClass().getDeclaredMethod("getUnmergedRootSemanticsNode");
+                } catch (NoSuchMethodException e) {
+                    // Fallback to merged if unmerged not available
+                    getRootNode = semanticsOwner.getClass().getDeclaredMethod("getRootSemanticsNode");
+                }
+                getRootNode.setAccessible(true);
+                Object rootNode = getRootNode.invoke(semanticsOwner);
+
+                if (rootNode != null) {
+                    collectSemanticsWithLayoutNodeRecursive(rootNode, layoutNodeToSemantics);
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error collecting semantics with layoutNode", e);
+        }
+    }
+
+    private static void collectSemanticsWithLayoutNodeRecursive(Object semanticsNode, Map<Integer, Map<String, Object>> map) {
+        if (semanticsNode == null) return;
+
+        try {
+            Map<String, Object> entry = new HashMap<>();
+
+            // Get semantics ID
+            Method getId = semanticsNode.getClass().getDeclaredMethod("getId");
+            int semanticsId = (int) getId.invoke(semanticsNode);
+            entry.put("semanticsId", semanticsId);
+
+            // Get semantic properties
+            Method getConfig = semanticsNode.getClass().getMethod("getConfig");
+            Object config = getConfig.invoke(semanticsNode);
+            if (config != null) {
+                extractSemanticsProperties(config, entry);
+            }
+
+            // Only process if we have meaningful content
+            if (entry.containsKey("text") || entry.containsKey("role") ||
+                entry.containsKey("contentDescription") || entry.containsKey("testTag")) {
+
+                // Get the associated LayoutNode - try multiple method names
+                Object layoutNode = null;
+                for (String methodName : new String[]{"getLayoutNode", "layoutNode", "getLayoutInfo"}) {
+                    try {
+                        Method getLayoutNode = semanticsNode.getClass().getDeclaredMethod(methodName);
+                        getLayoutNode.setAccessible(true);
+                        layoutNode = getLayoutNode.invoke(semanticsNode);
+                        if (layoutNode != null) break;
+                    } catch (NoSuchMethodException e) {
+                        // Try next method name
+                    }
+                }
+
+                // If no direct method, try getting layoutInfo.layoutNode
+                if (layoutNode == null) {
+                    try {
+                        Method getLayoutInfo = semanticsNode.getClass().getDeclaredMethod("getLayoutInfo");
+                        getLayoutInfo.setAccessible(true);
+                        Object layoutInfo = getLayoutInfo.invoke(semanticsNode);
+                        if (layoutInfo != null) {
+                            Method getNode = layoutInfo.getClass().getDeclaredMethod("getLayoutNode");
+                            getNode.setAccessible(true);
+                            layoutNode = getNode.invoke(layoutInfo);
+                        }
+                    } catch (Exception e) {
+                        // Try alternative
+                    }
+                }
+
+                if (layoutNode != null) {
+                    // Use System.identityHashCode as key for LayoutNode identity
+                    int layoutNodeId = System.identityHashCode(layoutNode);
+                    map.put(layoutNodeId, entry);
+                }
+            }
+
+            // Recurse children
+            Method getChildren = semanticsNode.getClass().getDeclaredMethod("getChildren");
+            Object children = getChildren.invoke(semanticsNode);
+            if (children instanceof Iterable) {
+                for (Object child : (Iterable<?>) children) {
+                    collectSemanticsWithLayoutNodeRecursive(child, map);
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in collectSemanticsWithLayoutNodeRecursive: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Extracts the root composable name from the first meaningful LayoutNode.
+     * Skips internal Compose wrappers like Root, Box, Subcomposition.
+     */
+    private static String extractRootComposableName(Object layoutNode) {
+        return findMeaningfulComposableName(layoutNode, 0);
+    }
+
+    private static String findMeaningfulComposableName(Object node, int depth) {
+        if (node == null || depth > 10) return null;
+
+        String className = getMeasurePolicyClassName(node);
+        String name = parseComposableFromClassName(className);
+
+        // Skip internal wrappers
+        if (name != null && !isInternalWrapper(name)) {
+            return name;
+        }
+
+        // Search children
+        List<Object> children = getLayoutNodeChildren(node);
+        for (Object child : children) {
+            String childName = findMeaningfulComposableName(child, depth + 1);
+            if (childName != null) {
+                return childName;
+            }
+        }
+
+        return null;
+    }
+
+    private static boolean isInternalWrapper(String name) {
+        return name == null ||
+               name.equals("Root") ||
+               name.equals("Box") ||
+               name.equals("Subcomposition") ||
+               name.equals("Layout") ||
+               name.equals("LayoutNodeSubcompositionsState");
+    }
+
+    /**
+     * Captures a unified node combining layout and semantic information.
+     *
+     * @param layoutNode The LayoutNode to capture
+     * @param parentX Parent's absolute X position
+     * @param parentY Parent's absolute Y position
+     * @param depth Current depth in the tree
+     * @param layoutNodeToSemantics Mapping from LayoutNode identity to semantics data
+     * @return Map representing the unified node
+     */
+    private static Map<String, Object> captureUnifiedNode(Object layoutNode, int parentX, int parentY,
+                                                           int depth, Map<Integer, Map<String, Object>> layoutNodeToSemantics) {
+        if (layoutNode == null || depth > 50) {
+            return null;
+        }
+
+        try {
+            Map<String, Object> node = new HashMap<>();
+            Class<?> nodeClass = layoutNode.getClass();
+
+            // Get className from MeasurePolicy (used internally for composable detection)
+            String className = getMeasurePolicyClassName(layoutNode);
+
+            // Get dimensions
+            int width = 0, height = 0;
+            try {
+                Method getWidth = nodeClass.getDeclaredMethod("getWidth");
+                Method getHeight = nodeClass.getDeclaredMethod("getHeight");
+                getWidth.setAccessible(true);
+                getHeight.setAccessible(true);
+                width = (int) getWidth.invoke(layoutNode);
+                height = (int) getHeight.invoke(layoutNode);
+            } catch (Exception e) {
+                // Dimensions not available
+            }
+
+            // Get bounds by accumulating relative positions from parents
+            // This matches how the layout tree is structured
+            int[] relativePos = getRelativePosition(layoutNode);
+            int left = parentX;
+            int top = parentY;
+            if (relativePos != null) {
+                left = parentX + relativePos[0];
+                top = parentY + relativePos[1];
+            }
+            int right = left + width;
+            int bottom = top + height;
+
+            Map<String, Object> bounds = new HashMap<>();
+            bounds.put("left", left);
+            bounds.put("top", top);
+            bounds.put("right", right);
+            bounds.put("bottom", bottom);
+            node.put("bounds", bounds);
+
+            // Look up semantics using LayoutNode identity
+            int layoutNodeId = System.identityHashCode(layoutNode);
+            Map<String, Object> matchedSemantics = layoutNodeToSemantics.get(layoutNodeId);
+
+            if (matchedSemantics != null) {
+                // Include semantics ID for accessibility tracking
+                if (matchedSemantics.containsKey("semanticsId")) {
+                    node.put("semanticsId", matchedSemantics.get("semanticsId"));
+                }
+                if (matchedSemantics.containsKey("text")) {
+                    node.put("text", matchedSemantics.get("text"));
+                }
+                if (matchedSemantics.containsKey("role")) {
+                    node.put("role", matchedSemantics.get("role"));
+                }
+                if (matchedSemantics.containsKey("testTag")) {
+                    node.put("testTag", matchedSemantics.get("testTag"));
+                }
+                if (matchedSemantics.containsKey("contentDescription")) {
+                    node.put("contentDescription", matchedSemantics.get("contentDescription"));
+                }
+            }
+
+            // Get composable display name - use role if available
+            String composable = detectComposableType(layoutNode, className);
+            if (matchedSemantics != null && matchedSemantics.containsKey("role")) {
+                String role = matchedSemantics.get("role").toString();
+                if (role.contains("Button")) composable = "Button";
+                else if (role.contains("Checkbox")) composable = "Checkbox";
+                else if (role.contains("Switch")) composable = "Switch";
+                else if (role.contains("Tab")) composable = "Tab";
+            }
+            node.put("composable", composable);
+
+            // Recurse children
+            List<Object> children = getLayoutNodeChildren(layoutNode);
+            if (!children.isEmpty()) {
+                List<Map<String, Object>> childNodes = new ArrayList<>();
+                for (Object child : children) {
+                    Map<String, Object> childNode = captureUnifiedNode(child, left, top, depth + 1, layoutNodeToSemantics);
+                    if (childNode != null) {
+                        childNodes.add(childNode);
+                    }
+                }
+                if (!childNodes.isEmpty()) {
+                    node.put("children", childNodes);
+                }
+            }
+
+            return node;
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error capturing unified node", e);
+            return null;
+        }
+    }
+
+    /**
+     * Gets the full class name from the MeasurePolicy.
+     */
+    private static String getMeasurePolicyClassName(Object layoutNode) {
+        try {
+            Method getMeasurePolicy = layoutNode.getClass().getDeclaredMethod("getMeasurePolicy");
+            getMeasurePolicy.setAccessible(true);
+            Object policy = getMeasurePolicy.invoke(layoutNode);
+            if (policy != null) {
+                return policy.getClass().getName();
+            }
+        } catch (Exception e) {
+            // Not available
+        }
+        return null;
+    }
+
+    /**
+     * Detects the composable type from various sources.
+     */
+    private static String detectComposableType(Object layoutNode, String className) {
+        // Priority 1: Check semantic role
+        Map<String, Object> semantics = extractNodeSemantics(layoutNode);
+        if (semantics.containsKey("role")) {
+            String role = semantics.get("role").toString();
+            // Map Role enum values to composable names
+            if (role.contains("Button")) return "Button";
+            if (role.contains("Checkbox")) return "Checkbox";
+            if (role.contains("RadioButton")) return "RadioButton";
+            if (role.contains("Switch")) return "Switch";
+            if (role.contains("Tab")) return "Tab";
+            if (role.contains("Image")) return "Image";
+            if (role.contains("DropdownList")) return "DropdownMenu";
+        }
+
+        // Priority 2: Parse from className
+        if (className != null) {
+            String name = parseComposableFromClassName(className);
+            if (name != null) {
+                return name;
+            }
+        }
+
+        // Priority 3: Has text but no role -> Text
+        if (semantics.containsKey("text") && !semantics.containsKey("role")) {
+            return "Text";
+        }
+
+        // Priority 4: Try existing getComposableName logic
+        String name = getComposableName(layoutNode);
+        if (name != null) {
+            return name;
+        }
+
+        // Fallback
+        return "Layout";
+    }
+
+    /**
+     * Parses a composable name from a class name.
+     * E.g., "androidx.compose.material3.ButtonKt$Button$1" -> "Button"
+     */
+    private static String parseComposableFromClassName(String className) {
+        if (className == null) return null;
+
+        // Common MeasurePolicy patterns -> clean composable names
+        if (className.contains("ColumnMeasurePolicy")) {
+            return "Column";
+        }
+        if (className.contains("RowMeasurePolicy")) {
+            return "Row";
+        }
+        if (className.contains("BoxMeasurePolicy")) {
+            return "Box";
+        }
+        if (className.contains("EmptyMeasurePolicy")) {
+            return "Text";  // Text uses EmptyMeasurePolicy
+        }
+        if (className.contains("SpacerMeasurePolicy")) {
+            return "Spacer";
+        }
+        if (className.contains("RootMeasurePolicy")) {
+            return "Root";
+        }
+        if (className.contains("LazyListMeasurePolicy") || className.contains("LazyColumnKt")) {
+            return "LazyColumn";
+        }
+        if (className.contains("LazyRowKt")) {
+            return "LazyRow";
+        }
+        if (className.contains("SurfaceKt") || className.contains("Surface$")) {
+            return "Surface";
+        }
+        if (className.contains("CardKt") || className.contains("Card$")) {
+            return "Card";
+        }
+        if (className.contains("ScaffoldKt")) {
+            return "Scaffold";
+        }
+        if (className.contains("IconKt") || className.contains("Icon$")) {
+            return "Icon";
+        }
+        if (className.contains("ImageKt") || className.contains("Image$")) {
+            return "Image";
+        }
+        if (className.contains("SubcompositionsState") || className.contains("Subcomposition")) {
+            return "Subcomposition";
+        }
+
+        // Extract from Kt$ pattern: "ButtonKt$Button$1" -> "Button"
+        int ktIndex = className.indexOf("Kt$");
+        if (ktIndex > 0) {
+            String afterKt = className.substring(ktIndex + 3);
+            int dollarIndex = afterKt.indexOf("$");
+            if (dollarIndex > 0) {
+                return afterKt.substring(0, dollarIndex);
+            }
+            return afterKt;
+        }
+
+        // Extract from package: last part before $ or last part of package
+        int lastDot = className.lastIndexOf(".");
+        if (lastDot > 0) {
+            String simpleName = className.substring(lastDot + 1);
+            // Remove MeasurePolicy suffix
+            if (simpleName.endsWith("MeasurePolicy")) {
+                simpleName = simpleName.substring(0, simpleName.length() - 13);
+                if (!simpleName.isEmpty()) {
+                    return simpleName;
+                }
+            }
+            // Remove Kt suffix and trailing numbers/lambdas
+            if (simpleName.endsWith("Kt")) {
+                simpleName = simpleName.substring(0, simpleName.length() - 2);
+            }
+            int dollar = simpleName.indexOf("$");
+            if (dollar > 0) {
+                simpleName = simpleName.substring(0, dollar);
+            }
+            if (!simpleName.isEmpty() && !simpleName.equals("Layout")) {
+                return simpleName;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Initializes reflection caches.
      */
     private static void ensureInitialized() {
@@ -309,9 +763,80 @@ public class ComposeInspector {
     }
 
     /**
-     * Gets the position of a LayoutNode.
+     * Gets the bounds of a LayoutNode in window coordinates (LTRB).
+     * This matches the coordinate space used by semantics getBoundsInRoot().
      */
-    private static int[] getNodePosition(Object layoutNode) {
+    private static int[] getBoundsInRoot(Object layoutNode) {
+        try {
+            Class<?> nodeClass = layoutNode.getClass();
+            Method getCoordinates = nodeClass.getMethod("getCoordinates");
+            Object coords = getCoordinates.invoke(layoutNode);
+
+            if (coords == null) {
+                return null;
+            }
+
+            // Try positionInWindow first (matches semantics coordinates better)
+            float posX = Float.NaN, posY = Float.NaN;
+            for (Method m : coords.getClass().getMethods()) {
+                String methodName = m.getName();
+                if (methodName.contains("positionInWindow") && m.getParameterCount() == 0) {
+                    m.setAccessible(true);
+                    Object result = m.invoke(coords);
+                    if (result instanceof Long) {
+                        long packed = (Long) result;
+                        posX = Float.intBitsToFloat((int) (packed >>> 32));
+                        posY = Float.intBitsToFloat((int) (packed & 0xFFFFFFFFL));
+                    }
+                    break;
+                }
+            }
+
+            // Fallback to positionInRoot if positionInWindow not available
+            if (Float.isNaN(posX) || Float.isNaN(posY)) {
+                for (Method m : coords.getClass().getMethods()) {
+                    String methodName = m.getName();
+                    if (methodName.contains("positionInRoot") && m.getParameterCount() == 0) {
+                        m.setAccessible(true);
+                        Object result = m.invoke(coords);
+                        if (result instanceof Long) {
+                            long packed = (Long) result;
+                            posX = Float.intBitsToFloat((int) (packed >>> 32));
+                            posY = Float.intBitsToFloat((int) (packed & 0xFFFFFFFFL));
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Get size from the LayoutNode itself
+            if (!Float.isNaN(posX) && !Float.isNaN(posY)) {
+                Method getWidth = nodeClass.getDeclaredMethod("getWidth");
+                Method getHeight = nodeClass.getDeclaredMethod("getHeight");
+                getWidth.setAccessible(true);
+                getHeight.setAccessible(true);
+                int width = (int) getWidth.invoke(layoutNode);
+                int height = (int) getHeight.invoke(layoutNode);
+
+                return new int[] {
+                    Math.round(posX),
+                    Math.round(posY),
+                    Math.round(posX) + width,
+                    Math.round(posY) + height
+                };
+            }
+        } catch (Exception e) {
+            // Bounds extraction failed
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets the absolute position of a LayoutNode in root coordinates.
+     * Returns null if absolute position is not available.
+     */
+    private static int[] getAbsolutePosition(Object layoutNode) {
         Class<?> nodeClass = layoutNode.getClass();
 
         try {
@@ -341,27 +866,28 @@ public class ComposeInspector {
                     break;
                 }
             }
+        } catch (Exception e) {
+            // Position extraction via coordinates failed
+        }
 
-            // Fallback to positionInWindow
-            for (Method m : coords.getClass().getMethods()) {
-                String methodName = m.getName();
-                if (methodName.contains("positionInWindow") && m.getParameterCount() == 0) {
-                    m.setAccessible(true);
-                    Object result = m.invoke(coords);
+        return null;
+    }
 
-                    if (result instanceof Long) {
-                        long packed = (Long) result;
-                        float x = Float.intBitsToFloat((int) (packed >>> 32));
-                        float y = Float.intBitsToFloat((int) (packed & 0xFFFFFFFFL));
-                        if (!Float.isNaN(x) && !Float.isNaN(y)) {
-                            return new int[]{Math.round(x), Math.round(y)};
-                        }
-                    }
-                    break;
-                }
+    /**
+     * Gets the relative position of a LayoutNode within its parent.
+     */
+    private static int[] getRelativePosition(Object layoutNode) {
+        Class<?> nodeClass = layoutNode.getClass();
+
+        try {
+            Method getCoordinates = nodeClass.getMethod("getCoordinates");
+            Object coords = getCoordinates.invoke(layoutNode);
+
+            if (coords == null) {
+                return null;
             }
 
-            // Last resort: getPosition (local position within parent)
+            // Try getPosition (local position within parent)
             for (Method m : coords.getClass().getMethods()) {
                 String methodName = m.getName();
                 if (methodName.startsWith("getPosition") && m.getParameterCount() == 0) {
@@ -407,6 +933,18 @@ public class ComposeInspector {
         }
 
         return null;
+    }
+
+    /**
+     * Gets the position of a LayoutNode (for hierarchy capture).
+     * Tries absolute position first, falls back to relative.
+     */
+    private static int[] getNodePosition(Object layoutNode) {
+        int[] absolute = getAbsolutePosition(layoutNode);
+        if (absolute != null) {
+            return absolute;
+        }
+        return getRelativePosition(layoutNode);
     }
 
     /**

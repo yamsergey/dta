@@ -21,22 +21,23 @@ import java.util.concurrent.Callable;
  *
  * <p>Example usage:</p>
  * <pre>
- * # Basic usage - outputs to stdout
+ * # Basic usage - unified tree (recommended)
+ * adt-cli inspect compose io.yamsergey.example.compose.layout.example --tree
+ *
+ * # Raw hierarchy (layout nodes only)
  * adt-cli inspect compose io.yamsergey.example.compose.layout.example
  *
  * # Save to file
  * adt-cli inspect compose io.yamsergey.example.compose.layout.example \
- *     -o compose-hierarchy.json
+ *     --tree -o compose-tree.json
  *
  * # Get semantics tree instead of layout
  * adt-cli inspect compose io.yamsergey.example.compose.layout.example \
- *     --semantics \
- *     -o semantics.json
+ *     --semantics -o semantics.json
  *
  * # Specify device
  * adt-cli inspect compose io.yamsergey.example.compose.layout.example \
- *     -d emulator-5554 \
- *     -o hierarchy.json
+ *     -d emulator-5554 --tree -o tree.json
  * </pre>
  */
 @Command(name = "compose",
@@ -66,8 +67,12 @@ public class ComposeCommand implements Callable<Integer> {
     private String adbPath;
 
     @Option(names = {"--semantics"},
-            description = "Capture semantics tree instead of layout hierarchy.")
+            description = "Capture semantics tree (accessibility-focused).")
     private boolean captureSemantics;
+
+    @Option(names = {"--tree"},
+            description = "Capture unified tree with composable names, bounds, and semantic info (recommended).")
+    private boolean captureTree;
 
     @Option(names = {"--timeout"},
             defaultValue = "30",
@@ -108,10 +113,14 @@ public class ComposeCommand implements Callable<Integer> {
                 return 1;
             }
 
-            // Get the hierarchy or semantics
-            System.err.println("Capturing " + (captureSemantics ? "semantics" : "hierarchy") + "...");
+            // Determine capture mode
+            String captureMode = captureTree ? "tree" : (captureSemantics ? "semantics" : "hierarchy");
+            System.err.println("Capturing " + captureMode + "...");
+
             Result<String> dataResult;
-            if (captureSemantics) {
+            if (captureTree) {
+                dataResult = client.getComposeTree();
+            } else if (captureSemantics) {
                 dataResult = client.getComposeSemantics();
             } else {
                 dataResult = client.getComposeHierarchy();
@@ -141,7 +150,7 @@ public class ComposeCommand implements Callable<Integer> {
                 }
 
                 Files.writeString(outputFile.toPath(), outputContent);
-                System.err.println("Success: Compose " + (captureSemantics ? "semantics" : "hierarchy") + " captured");
+                System.err.println("Success: Compose " + captureMode + " captured");
                 System.err.println("Output: " + outputFile.getAbsolutePath());
             } else {
                 // Print to stdout
