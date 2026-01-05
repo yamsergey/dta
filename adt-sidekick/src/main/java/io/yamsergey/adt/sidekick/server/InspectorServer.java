@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.yamsergey.adt.sidekick.compose.ComposeInspector;
+import io.yamsergey.adt.sidekick.network.NetworkInspector;
+import io.yamsergey.adt.sidekick.network.NetworkRequest;
 
 /**
  * Simple HTTP server for ADT Sidekick inspection endpoints.
@@ -147,13 +149,13 @@ public class InspectorServer {
                 // Skip headers
             }
 
-            // Route request
-            if (!"GET".equals(method)) {
+            // Route request (support GET and DELETE)
+            if (!"GET".equals(method) && !"DELETE".equals(method)) {
                 sendError(out, 405, "Method Not Allowed");
                 return;
             }
 
-            routeRequest(path, out);
+            routeRequest(method, path, out);
 
         } catch (Exception e) {
             Log.e(TAG, "Error handling client", e);
@@ -163,7 +165,14 @@ public class InspectorServer {
     /**
      * Routes the request to the appropriate handler.
      */
-    private void routeRequest(String path, OutputStream out) throws IOException {
+    private void routeRequest(String method, String path, OutputStream out) throws IOException {
+        // Handle network request detail: /network/requests/{id}
+        if (path.startsWith("/network/requests/") && path.length() > 18) {
+            String requestId = path.substring(18);
+            handleNetworkRequestById(requestId, out);
+            return;
+        }
+
         switch (path) {
             case "/":
             case "/health":
@@ -178,6 +187,19 @@ public class InspectorServer {
             case "/compose/tree":
                 handleComposeTree(out);
                 break;
+            case "/network/requests":
+                handleNetworkRequests(out);
+                break;
+            case "/network/clear":
+                if ("DELETE".equals(method)) {
+                    handleNetworkClear(out);
+                } else {
+                    sendError(out, 405, "Method Not Allowed");
+                }
+                break;
+            case "/network/stats":
+                handleNetworkStats(out);
+                break;
             default:
                 sendError(out, 404, "Not Found");
         }
@@ -190,13 +212,17 @@ public class InspectorServer {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("name", "ADT Sidekick");
-        response.put("version", "1.0.0");
+        response.put("version", "1.1.0");
         response.put("port", port);
         response.put("endpoints", new String[]{
                 "/health",
                 "/compose/hierarchy",
                 "/compose/semantics",
-                "/compose/tree"
+                "/compose/tree",
+                "/network/requests",
+                "/network/requests/{id}",
+                "/network/clear",
+                "/network/stats"
         });
 
         sendJson(out, 200, response);
@@ -276,6 +302,177 @@ public class InspectorServer {
             sendJson(out, 500, error);
         }
     }
+
+    // =========================================================================
+    // Network Endpoints
+    // =========================================================================
+
+    /**
+     * GET /network/requests - List all captured network requests.
+     */
+    private void handleNetworkRequests(OutputStream out) throws IOException {
+        try {
+            java.util.List<NetworkRequest> requests = NetworkInspector.getRequests();
+
+            java.util.List<Map<String, Object>> requestList = new java.util.ArrayList<>();
+            for (NetworkRequest request : requests) {
+                requestList.add(networkRequestToMap(request, false));
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("count", requests.size());
+            response.put("requests", requestList);
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting network requests", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /network/requests/{id} - Get a single network request by ID.
+     */
+    private void handleNetworkRequestById(String requestId, OutputStream out) throws IOException {
+        try {
+            NetworkRequest request = NetworkInspector.getRequest(requestId);
+
+            if (request == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Request not found");
+                error.put("id", requestId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            Map<String, Object> response = networkRequestToMap(request, true);
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting network request", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * DELETE /network/clear - Clear all captured network requests.
+     */
+    private void handleNetworkClear(OutputStream out) throws IOException {
+        try {
+            int count = NetworkInspector.getRequestCount();
+            NetworkInspector.clearRequests();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("cleared", count);
+            response.put("message", "Cleared " + count + " requests");
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error clearing network requests", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /network/stats - Get network statistics.
+     */
+    private void handleNetworkStats(OutputStream out) throws IOException {
+        try {
+            java.util.List<NetworkRequest> requests = NetworkInspector.getRequests();
+
+            int total = requests.size();
+            int pending = 0, completed = 0, failed = 0;
+            long totalDuration = 0;
+            long totalResponseSize = 0;
+
+            for (NetworkRequest request : requests) {
+                switch (request.getStatus()) {
+                    case PENDING:
+                    case IN_PROGRESS:
+                        pending++;
+                        break;
+                    case COMPLETED:
+                        completed++;
+                        totalDuration += request.getDuration();
+                        totalResponseSize += request.getResponseBodySize();
+                        break;
+                    case FAILED:
+                    case CANCELLED:
+                        failed++;
+                        break;
+                }
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("total", total);
+            response.put("pending", pending);
+            response.put("completed", completed);
+            response.put("failed", failed);
+            response.put("totalResponseSize", totalResponseSize);
+            response.put("averageDuration", completed > 0 ? totalDuration / completed : 0);
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting network stats", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * Converts a NetworkRequest to a Map for JSON serialization.
+     *
+     * @param request     the request to convert
+     * @param includeBody whether to include request/response bodies
+     */
+    private Map<String, Object> networkRequestToMap(NetworkRequest request, boolean includeBody) {
+        Map<String, Object> map = new HashMap<>();
+
+        map.put("id", request.getId());
+        map.put("url", request.getUrl());
+        map.put("method", request.getMethod());
+        map.put("status", request.getStatus().name());
+        map.put("startTime", request.getStartTime());
+        map.put("endTime", request.getEndTime());
+        map.put("duration", request.getDuration());
+        map.put("responseCode", request.getResponseCode());
+        map.put("responseMessage", request.getResponseMessage());
+        map.put("responseBodySize", request.getResponseBodySize());
+        map.put("protocol", request.getProtocol());
+        map.put("source", request.getSource());
+
+        if (request.getError() != null) {
+            map.put("error", request.getError());
+        }
+
+        // Always include headers
+        map.put("requestHeaders", request.getRequestHeaders());
+        map.put("responseHeaders", request.getResponseHeaders());
+        map.put("requestContentType", request.getRequestContentType());
+        map.put("responseContentType", request.getResponseContentType());
+
+        // Only include bodies in detail view
+        if (includeBody) {
+            map.put("requestBody", request.getRequestBody());
+            map.put("responseBody", request.getResponseBody());
+        }
+
+        return map;
+    }
+
+    // =========================================================================
+    // Utility Methods
+    // =========================================================================
 
     /**
      * Runs a callable on the main thread and waits for result.
