@@ -4,6 +4,9 @@
 # Ignore Gradle build output directory
 build
 
+# CMake build directory (Android NDK)
+.cxx/
+
 # Ignore IDE/LSP configuration files
 .project
 .settings/
@@ -58,6 +61,9 @@ nvim.socket
 
 # - Unclear what is it, but pop ups time by time
 Task
+
+# Plan files
+PLAN*.md
 
 # - For simplicity pattern "output-.*\.json" used for any generated json files.
 output-*\.json
