@@ -36,7 +36,9 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Transforms DEX bytecode to inject hook callbacks using dexlib2.
@@ -285,12 +287,11 @@ public class DexTransformer {
     }
 
     /**
-     * Transforms a method to add hook callbacks at entry.
+     * Transforms a method to add hook callbacks at entry and exit.
      *
-     * <p>When we add extra registers to a method, we're effectively inserting them
-     * at the beginning of the register space. This shifts all parameter register
-     * references up by the number of added registers. We must rewrite all instructions
-     * to use the new register numbers.</p>
+     * <p>Uses a two-pass approach:
+     * 1. First pass: calculate offset mapping for all insertions
+     * 2. Second pass: build instructions with adjusted branch targets</p>
      */
     private static Method transformMethod(ClassDef classDef, Method method, MethodHook hook) {
         MethodImplementation impl = method.getImplementation();
@@ -314,102 +315,108 @@ public class DexTransformer {
             paramRegCount++; // 'this' reference
         }
 
-        // In the original method:
-        // - Local registers: v0 to v(originalRegCount - paramRegCount - 1)
-        // - Parameter registers: v(originalRegCount - paramRegCount) to v(originalRegCount - 1)
         int originalParamStart = originalRegCount - paramRegCount;
-
-        // We need 4 extra registers for our hook call
-        // These go at the END of local registers (before params in the new layout)
         int extraRegs = 4;
         int newRegCount = originalRegCount + extraRegs;
         int newParamStart = newRegCount - paramRegCount;
 
-        // Build the list of new instructions
-        List<Instruction> newInstructions = new ArrayList<>();
-
-        // Get hook ID
         String hookId = getHookId(hook, classDef, method);
 
-        // Use registers in the new extra space (between old locals and new params)
-        int hookIdReg = originalParamStart;  // First new register
+        // Registers for hook calls (in the new extra space)
+        int hookIdReg = originalParamStart;
         int thisObjReg = originalParamStart + 1;
         int argsReg = originalParamStart + 2;
-        // Register at originalParamStart + 3 is spare
+        int nullReg = originalParamStart + 3;
 
-        // Instruction 1: const-string hookIdReg, "hookId"
+        // Build onEnter prologue
+        List<Instruction> newInstructions = new ArrayList<>();
+
         newInstructions.add(new ImmutableInstruction21c(
-                Opcode.CONST_STRING,
-                hookIdReg,
-                new ImmutableStringReference(hookId)
-        ));
+                Opcode.CONST_STRING, hookIdReg,
+                new ImmutableStringReference(hookId)));
 
-        // Instruction 2: Get 'this' reference or null for static
         if (isStatic) {
-            newInstructions.add(new ImmutableInstruction21s(
-                    Opcode.CONST_16,
-                    thisObjReg,
-                    0
-            ));
+            newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, thisObjReg, 0));
         } else {
-            // 'this' is at p0, which is at newParamStart in the new layout
-            newInstructions.add(new ImmutableInstruction12x(
-                    Opcode.MOVE_OBJECT,
-                    thisObjReg,
-                    newParamStart
-            ));
+            newInstructions.add(new ImmutableInstruction12x(Opcode.MOVE_OBJECT, thisObjReg, newParamStart));
         }
 
-        // Instruction 3: const/16 argsReg, 0x0 (null args for now)
-        newInstructions.add(new ImmutableInstruction21s(
-                Opcode.CONST_16,
-                argsReg,
-                0
-        ));
+        newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, argsReg, 0));
 
-        // Instruction 4: invoke-static HookDispatcher.onEnter(hookId, this, args)
         newInstructions.add(new ImmutableInstruction35c(
-                Opcode.INVOKE_STATIC,
-                3,
+                Opcode.INVOKE_STATIC, 3,
                 hookIdReg, thisObjReg, argsReg, 0, 0,
-                new ImmutableMethodReference(
-                        DISPATCHER_TYPE,
-                        ON_ENTER_NAME,
-                        ON_ENTER_PARAMS,
-                        ON_ENTER_RETURN
-                )
-        ));
+                new ImmutableMethodReference(DISPATCHER_TYPE, ON_ENTER_NAME, ON_ENTER_PARAMS, ON_ENTER_RETURN)));
 
-        // Calculate the size of prepended instructions (in code units)
-        int prependSize = 0;
+        int prologueSize = 0;
         for (Instruction insn : newInstructions) {
-            prependSize += insn.getCodeUnits();
+            prologueSize += insn.getCodeUnits();
         }
 
-        // Now add the original instructions with shifted register numbers
-        // Any register >= originalParamStart needs to be shifted by extraRegs
+        // FIRST PASS: Build offset map (original offset -> shift amount at that point)
+        // Each return causes 5 extra code units to be inserted before it
+        final int EXIT_INSERT_SIZE = 5; // const/16 (2) + invoke-static (3)
+        Map<Integer, Integer> cumulativeShiftAtOffset = new HashMap<>();
+        int currentOrigOffset = 0;
+        int cumulativeShift = 0;
+
         for (Instruction insn : impl.getInstructions()) {
-            Instruction shifted = shiftRegisters(insn, originalParamStart, extraRegs);
+            cumulativeShiftAtOffset.put(currentOrigOffset, cumulativeShift);
+            Opcode opcode = insn.getOpcode();
+            if (opcode == Opcode.RETURN_VOID || opcode == Opcode.RETURN ||
+                opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
+                cumulativeShift += EXIT_INSERT_SIZE;
+            }
+            currentOrigOffset += insn.getCodeUnits();
+        }
+        cumulativeShiftAtOffset.put(currentOrigOffset, cumulativeShift); // End of method
+
+        // SECOND PASS: Build instructions with onExit insertions and adjusted branches
+        currentOrigOffset = 0;
+        for (Instruction insn : impl.getInstructions()) {
+            Opcode opcode = insn.getOpcode();
+
+            // Insert onExit before return instructions
+            if (opcode == Opcode.RETURN_VOID || opcode == Opcode.RETURN ||
+                opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
+
+                newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, nullReg, 0));
+                newInstructions.add(new ImmutableInstruction35c(
+                        Opcode.INVOKE_STATIC, 3,
+                        hookIdReg, thisObjReg, nullReg, 0, 0,
+                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+            }
+
+            // Shift registers and adjust branch offsets
+            Instruction shifted = shiftRegistersAndAdjustBranches(
+                    insn, originalParamStart, extraRegs,
+                    currentOrigOffset, cumulativeShiftAtOffset);
             newInstructions.add(shifted);
+
+            currentOrigOffset += insn.getCodeUnits();
         }
 
-        // Handle try blocks - need to adjust code addresses by prepended instruction size
+        // Adjust try blocks
         List<ImmutableTryBlock> newTryBlocks = new ArrayList<>();
         for (var tryBlock : impl.getTryBlocks()) {
+            int origStart = tryBlock.getStartCodeAddress();
+            int origEnd = origStart + tryBlock.getCodeUnitCount();
+
+            int shiftAtStart = cumulativeShiftAtOffset.getOrDefault(origStart, 0);
+            int shiftAtEnd = cumulativeShiftAtOffset.getOrDefault(origEnd, cumulativeShift);
+
+            int newStart = prologueSize + origStart + shiftAtStart;
+            int newLength = tryBlock.getCodeUnitCount() + (shiftAtEnd - shiftAtStart);
+
             List<ImmutableExceptionHandler> newHandlers = new ArrayList<>();
             for (var handler : tryBlock.getExceptionHandlers()) {
-                // Shift handler address by prepend size
+                int handlerAddr = handler.getHandlerCodeAddress();
+                int shiftAtHandler = cumulativeShiftAtOffset.getOrDefault(handlerAddr, 0);
                 newHandlers.add(new ImmutableExceptionHandler(
                         handler.getExceptionType(),
-                        handler.getHandlerCodeAddress() + prependSize
-                ));
+                        prologueSize + handlerAddr + shiftAtHandler));
             }
-            // Shift try block start address by prepend size
-            newTryBlocks.add(new ImmutableTryBlock(
-                    tryBlock.getStartCodeAddress() + prependSize,
-                    tryBlock.getCodeUnitCount(),
-                    newHandlers
-            ));
+            newTryBlocks.add(new ImmutableTryBlock(newStart, newLength, newHandlers));
         }
 
         return new ImmutableMethod(
@@ -424,9 +431,68 @@ public class DexTransformer {
                         newRegCount,
                         newInstructions,
                         newTryBlocks,
-                        Collections.emptyList()  // Clear debug items
+                        Collections.emptyList()
                 )
         );
+    }
+
+    /**
+     * Shifts registers and adjusts branch offsets for an instruction.
+     * Branch targets are adjusted based on the cumulative shift at the target offset.
+     */
+    private static Instruction shiftRegistersAndAdjustBranches(
+            Instruction insn, int paramStart, int shiftAmount,
+            int currentOrigOffset, Map<Integer, Integer> cumulativeShiftAtOffset) {
+
+        Opcode opcode = insn.getOpcode();
+
+        // Handle branch instructions - need to adjust offsets
+        if (insn instanceof Instruction10t) {
+            Instruction10t i = (Instruction10t) insn;
+            int targetOrigOffset = currentOrigOffset + i.getCodeOffset();
+            int shiftAtCurrent = cumulativeShiftAtOffset.getOrDefault(currentOrigOffset, 0);
+            int shiftAtTarget = cumulativeShiftAtOffset.getOrDefault(targetOrigOffset, 0);
+            int newOffset = i.getCodeOffset() + (shiftAtTarget - shiftAtCurrent);
+            return new ImmutableInstruction10t(opcode, newOffset);
+        }
+        if (insn instanceof Instruction20t) {
+            Instruction20t i = (Instruction20t) insn;
+            int targetOrigOffset = currentOrigOffset + i.getCodeOffset();
+            int shiftAtCurrent = cumulativeShiftAtOffset.getOrDefault(currentOrigOffset, 0);
+            int shiftAtTarget = cumulativeShiftAtOffset.getOrDefault(targetOrigOffset, 0);
+            int newOffset = i.getCodeOffset() + (shiftAtTarget - shiftAtCurrent);
+            return new ImmutableInstruction20t(opcode, newOffset);
+        }
+        if (insn instanceof Instruction30t) {
+            Instruction30t i = (Instruction30t) insn;
+            int targetOrigOffset = currentOrigOffset + i.getCodeOffset();
+            int shiftAtCurrent = cumulativeShiftAtOffset.getOrDefault(currentOrigOffset, 0);
+            int shiftAtTarget = cumulativeShiftAtOffset.getOrDefault(targetOrigOffset, 0);
+            int newOffset = i.getCodeOffset() + (shiftAtTarget - shiftAtCurrent);
+            return new ImmutableInstruction30t(opcode, newOffset);
+        }
+        if (insn instanceof Instruction21t) {
+            Instruction21t i = (Instruction21t) insn;
+            int targetOrigOffset = currentOrigOffset + i.getCodeOffset();
+            int shiftAtCurrent = cumulativeShiftAtOffset.getOrDefault(currentOrigOffset, 0);
+            int shiftAtTarget = cumulativeShiftAtOffset.getOrDefault(targetOrigOffset, 0);
+            int newOffset = i.getCodeOffset() + (shiftAtTarget - shiftAtCurrent);
+            return new ImmutableInstruction21t(opcode,
+                    shift(i.getRegisterA(), paramStart, shiftAmount), newOffset);
+        }
+        if (insn instanceof Instruction22t) {
+            Instruction22t i = (Instruction22t) insn;
+            int targetOrigOffset = currentOrigOffset + i.getCodeOffset();
+            int shiftAtCurrent = cumulativeShiftAtOffset.getOrDefault(currentOrigOffset, 0);
+            int shiftAtTarget = cumulativeShiftAtOffset.getOrDefault(targetOrigOffset, 0);
+            int newOffset = i.getCodeOffset() + (shiftAtTarget - shiftAtCurrent);
+            return new ImmutableInstruction22t(opcode,
+                    shift(i.getRegisterA(), paramStart, shiftAmount),
+                    shift(i.getRegisterB(), paramStart, shiftAmount), newOffset);
+        }
+
+        // For non-branch instructions, just shift registers
+        return shiftRegisters(insn, paramStart, shiftAmount);
     }
 
     /**

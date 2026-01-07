@@ -1,0 +1,51 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
+}
+
+dependencies {
+    // Spring Boot
+    implementation libs.spring.boot.starter.web
+    implementation libs.spring.boot.starter.security
+
+    // MessagePack for reading binary events
+    implementation libs.msgpack.core
+
+    // JSON
+    implementation libs.jackson.databind
+
+    // Internal dependencies
+    implementation project(':tools-android')
+
+    // Testing
+    testImplementation libs.spring.boot.starter.test
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// Disable bootJar as this is a library, not a standalone app
+// The CLI will start the server programmatically
+bootJar {
+    enabled = false
+}
+
+jar {
+    enabled = true
+}

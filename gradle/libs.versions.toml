@@ -13,6 +13,8 @@ android-gradle-plugin = "8.11.1"
 lombok = "1.18.42"
 jackson = "2.19.0"
 batik = "1.18"
+spring-boot = "3.4.1"
+msgpack = "0.9.8"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -39,6 +41,10 @@ jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", ver
 jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
 batik-transcoder = { module = "org.apache.xmlgraphics:batik-transcoder", version.ref = "batik" }
 batik-codec = { module = "org.apache.xmlgraphics:batik-codec", version.ref = "batik" }
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web", version.ref = "spring-boot" }
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security", version.ref = "spring-boot" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test", version.ref = "spring-boot" }
+msgpack-core = { module = "org.msgpack:msgpack-core", version.ref = "msgpack" }
 
 [plugins]
 # Add plugins here as needed
