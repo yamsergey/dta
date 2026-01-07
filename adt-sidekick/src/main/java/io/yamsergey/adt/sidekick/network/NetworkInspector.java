@@ -14,129 +14,153 @@ import io.yamsergey.adt.sidekick.events.adapters.HttpEventAdapter;
 import io.yamsergey.adt.sidekick.jvmti.MethodHook;
 
 /**
- * Network Inspector for capturing and monitoring network traffic.
+ * Network Inspector for capturing and monitoring HTTP traffic.
  *
- * <p>This inspector provides multiple ways to capture network requests:</p>
+ * <p>This inspector captures HTTP transactions using {@link HttpTransaction} objects
+ * which contain complete request and response details.</p>
  *
- * <h3>1. OkHttp Interceptor (Recommended)</h3>
+ * <h3>1. JVMTI Hooks (Automatic)</h3>
+ * <p>When adt-sidekick is included as a dependency, OkHttp requests are
+ * automatically intercepted via JVMTI bytecode transformation.</p>
+ *
+ * <h3>2. OkHttp Interceptor (Manual)</h3>
  * <pre>{@code
  * OkHttpClient client = new OkHttpClient.Builder()
  *     .addInterceptor(NetworkInspector.createOkHttpInterceptor())
  *     .build();
  * }</pre>
  *
- * <h3>2. Manual Recording</h3>
+ * <h3>3. Manual Recording</h3>
  * <pre>{@code
- * NetworkRequest request = NetworkInspector.startRequest("https://api.example.com", "GET");
- * // ... perform request ...
- * request.setResponseCode(200).setResponseBody(body).markCompleted();
- * }</pre>
+ * HttpTransaction tx = NetworkInspector.startTransaction(
+ *     HttpRequest.builder()
+ *         .url("https://api.example.com")
+ *         .method("GET")
+ *         .build());
  *
- * <h3>3. Custom Hooks (Advanced)</h3>
- * <pre>{@code
- * NetworkInspector.registerHook(new MethodHook() {
- *     public String getTargetClass() { return "my.custom.HttpClient"; }
- *     public String getTargetMethod() { return "execute"; }
- *     // ...
- * });
+ * // ... perform request ...
+ *
+ * tx.setResponse(HttpResponse.builder()
+ *     .statusCode(200)
+ *     .body(responseBody)
+ *     .build());
+ * tx.markCompleted();
+ * NetworkInspector.onTransactionCompleted(tx);
  * }</pre>
  */
 public final class NetworkInspector {
 
     private static final String TAG = "NetworkInspector";
-    private static final int MAX_REQUESTS = 1000;
-    private static final int MAX_BODY_SIZE = 512 * 1024; // 512 KB
+    private static final int MAX_TRANSACTIONS = 1000;
+    private static final int DEFAULT_MAX_BODY_SIZE = 512 * 1024; // 512 KB
 
     // Storage
-    private static final List<NetworkRequest> requests = new CopyOnWriteArrayList<>();
-    private static final Map<String, NetworkRequest> requestsById = new ConcurrentHashMap<>();
+    private static final List<HttpTransaction> transactions = new CopyOnWriteArrayList<>();
+    private static final Map<String, HttpTransaction> transactionsById = new ConcurrentHashMap<>();
     private static final List<MethodHook> customHooks = new CopyOnWriteArrayList<>();
 
     // Listeners
-    private static final List<NetworkListener> listeners = new CopyOnWriteArrayList<>();
+    private static final List<TransactionListener> listeners = new CopyOnWriteArrayList<>();
 
     // Settings
     private static volatile boolean enabled = true;
     private static volatile boolean captureRequestBody = true;
     private static volatile boolean captureResponseBody = true;
-    private static volatile int maxBodySize = MAX_BODY_SIZE;
+    private static volatile int maxInlineBodySize = DEFAULT_MAX_BODY_SIZE;
 
     // Prevent instantiation
     private NetworkInspector() {}
 
     // =========================================================================
-    // Request Management
+    // Transaction Management
     // =========================================================================
 
     /**
-     * Starts tracking a new network request.
+     * Starts tracking a new HTTP transaction.
      *
-     * @param url    the request URL
-     * @param method the HTTP method (GET, POST, etc.)
-     * @return the new request object for further updates
+     * @param request the HTTP request
+     * @return the new transaction object for further updates
      */
-    public static NetworkRequest startRequest(String url, String method) {
-        if (!enabled) {
-            return new NetworkRequest(url, method); // Return dummy
-        }
-
-        NetworkRequest request = new NetworkRequest(url, method);
-        request.markInProgress();
-
-        addRequest(request);
-
-        Log.d(TAG, "Started request: " + request.getId() + " " + method + " " + url);
-        notifyRequestStarted(request);
-
-        return request;
+    public static HttpTransaction startTransaction(HttpRequest request) {
+        return startTransaction(request, null);
     }
 
     /**
-     * Records a completed request.
+     * Starts tracking a new HTTP transaction with a source identifier.
      *
-     * @param request the request to record
+     * @param request the HTTP request
+     * @param source  the source library (e.g., "OkHttp", "HttpURLConnection")
+     * @return the new transaction object for further updates
      */
-    public static void recordRequest(NetworkRequest request) {
-        if (!enabled || request == null) {
+    public static HttpTransaction startTransaction(HttpRequest request, String source) {
+        if (!enabled) {
+            // Return a transaction that won't be tracked
+            return HttpTransaction.create()
+                    .request(request)
+                    .source(source)
+                    .build();
+        }
+
+        HttpTransaction tx = HttpTransaction.create()
+                .request(request)
+                .source(source)
+                .build();
+        tx.markInProgress();
+
+        addTransaction(tx);
+
+        Log.d(TAG, "Started transaction: " + tx.getId() + " " + request.getMethod() + " " + request.getUrl());
+        notifyTransactionStarted(tx);
+
+        return tx;
+    }
+
+    /**
+     * Records a completed transaction.
+     *
+     * @param transaction the transaction to record
+     */
+    public static void recordTransaction(HttpTransaction transaction) {
+        if (!enabled || transaction == null) {
             return;
         }
 
-        addRequest(request);
-        notifyRequestCompleted(request);
+        addTransaction(transaction);
+        notifyTransactionCompleted(transaction);
     }
 
     /**
-     * Gets a request by ID.
+     * Gets a transaction by ID.
      *
-     * @param id the request ID
-     * @return the request, or null if not found
+     * @param id the transaction ID
+     * @return the transaction, or null if not found
      */
-    public static NetworkRequest getRequest(String id) {
-        return requestsById.get(id);
+    public static HttpTransaction getTransaction(String id) {
+        return transactionsById.get(id);
     }
 
     /**
-     * Gets all captured requests.
+     * Gets all captured transactions.
      *
-     * @return unmodifiable list of requests (newest first)
+     * @return unmodifiable list of transactions (newest first)
      */
-    public static List<NetworkRequest> getRequests() {
-        List<NetworkRequest> result = new ArrayList<>(requests);
+    public static List<HttpTransaction> getTransactions() {
+        List<HttpTransaction> result = new ArrayList<>(transactions);
         Collections.reverse(result);
         return Collections.unmodifiableList(result);
     }
 
     /**
-     * Gets requests filtered by status.
+     * Gets transactions filtered by status.
      *
      * @param status the status to filter by
-     * @return list of matching requests
+     * @return list of matching transactions
      */
-    public static List<NetworkRequest> getRequestsByStatus(NetworkRequest.Status status) {
-        List<NetworkRequest> result = new ArrayList<>();
-        for (NetworkRequest request : requests) {
-            if (request.getStatus() == status) {
-                result.add(request);
+    public static List<HttpTransaction> getTransactionsByStatus(HttpTransaction.Status status) {
+        List<HttpTransaction> result = new ArrayList<>();
+        for (HttpTransaction tx : transactions) {
+            if (tx.getStatus() == status) {
+                result.add(tx);
             }
         }
         Collections.reverse(result);
@@ -144,19 +168,19 @@ public final class NetworkInspector {
     }
 
     /**
-     * Clears all captured requests.
+     * Clears all captured transactions.
      */
-    public static void clearRequests() {
-        requests.clear();
-        requestsById.clear();
-        Log.d(TAG, "Cleared all requests");
+    public static void clearTransactions() {
+        transactions.clear();
+        transactionsById.clear();
+        Log.d(TAG, "Cleared all transactions");
     }
 
     /**
-     * Gets the count of captured requests.
+     * Gets the count of captured transactions.
      */
-    public static int getRequestCount() {
-        return requests.size();
+    public static int getTransactionCount() {
+        return transactions.size();
     }
 
     // =========================================================================
@@ -165,9 +189,6 @@ public final class NetworkInspector {
 
     /**
      * Registers a custom hook for intercepting network calls.
-     *
-     * <p>Custom hooks can be used to intercept calls to libraries not
-     * supported by the built-in interceptors.</p>
      *
      * @param hook the hook to register
      */
@@ -190,18 +211,10 @@ public final class NetworkInspector {
     /**
      * Creates an OkHttp interceptor for network inspection.
      *
-     * <p>Add this interceptor to your OkHttpClient:</p>
-     * <pre>{@code
-     * OkHttpClient client = new OkHttpClient.Builder()
-     *     .addInterceptor(NetworkInspector.createOkHttpInterceptor())
-     *     .build();
-     * }</pre>
-     *
      * @return an OkHttp Interceptor instance, or null if OkHttp is not available
      */
     public static Object createOkHttpInterceptor() {
         try {
-            // Check if OkHttp is available
             Class.forName("okhttp3.Interceptor");
             return new OkHttpNetworkInterceptor();
         } catch (ClassNotFoundException e) {
@@ -215,16 +228,16 @@ public final class NetworkInspector {
     // =========================================================================
 
     /**
-     * Adds a listener for network events.
+     * Adds a listener for transaction events.
      */
-    public static void addListener(NetworkListener listener) {
+    public static void addListener(TransactionListener listener) {
         listeners.add(listener);
     }
 
     /**
-     * Removes a network listener.
+     * Removes a transaction listener.
      */
-    public static void removeListener(NetworkListener listener) {
+    public static void removeListener(TransactionListener listener) {
         listeners.remove(listener);
     }
 
@@ -232,124 +245,103 @@ public final class NetworkInspector {
     // Settings
     // =========================================================================
 
-    /**
-     * Enables or disables network inspection.
-     */
     public static void setEnabled(boolean enabled) {
         NetworkInspector.enabled = enabled;
     }
 
-    /**
-     * Returns whether network inspection is enabled.
-     */
     public static boolean isEnabled() {
         return enabled;
     }
 
-    /**
-     * Sets whether to capture request bodies.
-     */
     public static void setCaptureRequestBody(boolean capture) {
         captureRequestBody = capture;
     }
 
-    /**
-     * Returns whether request bodies are captured.
-     */
     public static boolean isCaptureRequestBody() {
         return captureRequestBody;
     }
 
-    /**
-     * Sets whether to capture response bodies.
-     */
     public static void setCaptureResponseBody(boolean capture) {
         captureResponseBody = capture;
     }
 
-    /**
-     * Returns whether response bodies are captured.
-     */
     public static boolean isCaptureResponseBody() {
         return captureResponseBody;
     }
 
     /**
-     * Sets the maximum body size to capture (in bytes).
+     * Sets the maximum body size to store inline (in bytes).
+     * Bodies larger than this are stored to disk with a reference.
      */
-    public static void setMaxBodySize(int size) {
-        maxBodySize = size;
+    public static void setMaxInlineBodySize(int size) {
+        maxInlineBodySize = size;
     }
 
-    /**
-     * Gets the maximum body size to capture.
-     */
-    public static int getMaxBodySize() {
-        return maxBodySize;
+    public static int getMaxInlineBodySize() {
+        return maxInlineBodySize;
     }
 
     // =========================================================================
     // Internal Methods
     // =========================================================================
 
-    private static void addRequest(NetworkRequest request) {
-        // Limit the number of stored requests
-        while (requests.size() >= MAX_REQUESTS) {
-            NetworkRequest oldest = requests.remove(0);
-            requestsById.remove(oldest.getId());
+    private static void addTransaction(HttpTransaction tx) {
+        // Limit the number of stored transactions
+        while (transactions.size() >= MAX_TRANSACTIONS) {
+            HttpTransaction oldest = transactions.remove(0);
+            transactionsById.remove(oldest.getId());
         }
 
-        requests.add(request);
-        requestsById.put(request.getId(), request);
+        transactions.add(tx);
+        transactionsById.put(tx.getId(), tx);
     }
 
-    private static void notifyRequestStarted(NetworkRequest request) {
-        for (NetworkListener listener : listeners) {
+    private static void notifyTransactionStarted(HttpTransaction tx) {
+        for (TransactionListener listener : listeners) {
             try {
-                listener.onRequestStarted(request);
+                listener.onTransactionStarted(tx);
             } catch (Exception e) {
                 Log.e(TAG, "Error in listener", e);
             }
         }
 
-        // Workaround: Record to EventStore on request start since onExit injection
-        // is not yet working. Events will show IN_PROGRESS status without response data.
-        recordToEventStore(request);
+        // Record to EventStore
+        recordToEventStore(tx);
     }
 
     /**
-     * Called when a request is marked as completed.
+     * Called when a transaction is marked as completed.
      * This triggers listeners and records to EventStore.
      */
-    static void onRequestCompleted(NetworkRequest request) {
-        if (!enabled || request == null) {
+    public static void onTransactionCompleted(HttpTransaction tx) {
+        if (!enabled || tx == null) {
             return;
         }
 
-        for (NetworkListener listener : listeners) {
+        for (TransactionListener listener : listeners) {
             try {
-                listener.onRequestCompleted(request);
+                listener.onTransactionCompleted(tx);
             } catch (Exception e) {
                 Log.e(TAG, "Error in listener", e);
             }
         }
 
         // Record to binary EventStore
-        recordToEventStore(request);
+        recordToEventStore(tx);
     }
 
-    private static void notifyRequestCompleted(NetworkRequest request) {
-        onRequestCompleted(request);
+    private static void notifyTransactionCompleted(HttpTransaction tx) {
+        onTransactionCompleted(tx);
     }
 
     /**
-     * Records a completed request to the binary EventStore.
+     * Records a transaction to the binary EventStore.
      */
-    private static void recordToEventStore(NetworkRequest request) {
+    private static void recordToEventStore(HttpTransaction tx) {
         try {
             EventStore store = EventStore.getInstanceOrNull();
             if (store != null) {
-                store.record(HttpEventAdapter.getInstance(), request);
+                store.record(HttpEventAdapter.getInstance(), tx);
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to record to EventStore", e);
@@ -357,10 +349,34 @@ public final class NetworkInspector {
     }
 
     /**
-     * Listener interface for network events.
+     * Listener interface for transaction events.
      */
-    public interface NetworkListener {
-        void onRequestStarted(NetworkRequest request);
-        void onRequestCompleted(NetworkRequest request);
+    public interface TransactionListener {
+        void onTransactionStarted(HttpTransaction transaction);
+        void onTransactionCompleted(HttpTransaction transaction);
+    }
+
+    // =========================================================================
+    // Legacy Compatibility (deprecated)
+    // =========================================================================
+
+    /**
+     * @deprecated Use {@link #startTransaction(HttpRequest)} instead
+     */
+    @Deprecated
+    public static NetworkRequest startRequest(String url, String method) {
+        // Create legacy NetworkRequest for backwards compatibility
+        NetworkRequest request = new NetworkRequest(url, method);
+        request.markInProgress();
+        return request;
+    }
+
+    /**
+     * @deprecated Use {@link #getTransaction(String)} instead
+     */
+    @Deprecated
+    public static NetworkRequest getRequest(String id) {
+        // Legacy support - try to find in old storage
+        return null;
     }
 }

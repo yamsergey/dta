@@ -130,8 +130,6 @@ public class NetworkRequest {
         this.status = Status.COMPLETED;
         this.endTime = System.currentTimeMillis();
         this.duration = endTime - startTime;
-        // Notify NetworkInspector to record this request
-        NetworkInspector.onRequestCompleted(this);
         return this;
     }
 
