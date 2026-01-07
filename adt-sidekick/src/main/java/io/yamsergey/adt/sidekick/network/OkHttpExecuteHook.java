@@ -60,19 +60,20 @@ public class OkHttpExecuteHook implements MethodHook {
     @Override
     public Object onExit(Object thisObj, Object result) {
         try {
-            if (result != null) {
-                int code = getResponseCode(result);
-                String requestId = getStoredRequestId(thisObj);
+            String requestId = getStoredRequestId(thisObj);
+            Log.i(TAG, "<<< onExit called (result=" + result + ", requestId=" + requestId + ")");
 
-                Log.i(TAG, "<<< " + code + " (request: " + requestId + ")");
-
-                // Update NetworkInspector
-                if (requestId != null) {
-                    NetworkRequest netRequest = NetworkInspector.getRequest(requestId);
-                    if (netRequest != null) {
+            // Even if result is null (we pass null from bytecode), still mark as completed
+            if (requestId != null) {
+                NetworkRequest netRequest = NetworkInspector.getRequest(requestId);
+                if (netRequest != null) {
+                    if (result != null) {
+                        int code = getResponseCode(result);
+                        Log.i(TAG, "<<< Response code: " + code);
                         netRequest.setResponseCode(code);
-                        netRequest.markCompleted();
                     }
+                    netRequest.markCompleted();
+                    Log.i(TAG, "<<< Request marked completed: " + requestId);
                 }
             }
         } catch (Throwable t) {

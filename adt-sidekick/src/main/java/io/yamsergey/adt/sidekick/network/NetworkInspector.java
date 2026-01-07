@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import io.yamsergey.adt.sidekick.events.EventStore;
+import io.yamsergey.adt.sidekick.events.adapters.HttpEventAdapter;
 import io.yamsergey.adt.sidekick.jvmti.MethodHook;
 
 /**
@@ -309,15 +311,48 @@ public final class NetworkInspector {
                 Log.e(TAG, "Error in listener", e);
             }
         }
+
+        // Workaround: Record to EventStore on request start since onExit injection
+        // is not yet working. Events will show IN_PROGRESS status without response data.
+        recordToEventStore(request);
     }
 
-    private static void notifyRequestCompleted(NetworkRequest request) {
+    /**
+     * Called when a request is marked as completed.
+     * This triggers listeners and records to EventStore.
+     */
+    static void onRequestCompleted(NetworkRequest request) {
+        if (!enabled || request == null) {
+            return;
+        }
+
         for (NetworkListener listener : listeners) {
             try {
                 listener.onRequestCompleted(request);
             } catch (Exception e) {
                 Log.e(TAG, "Error in listener", e);
             }
+        }
+
+        // Record to binary EventStore
+        recordToEventStore(request);
+    }
+
+    private static void notifyRequestCompleted(NetworkRequest request) {
+        onRequestCompleted(request);
+    }
+
+    /**
+     * Records a completed request to the binary EventStore.
+     */
+    private static void recordToEventStore(NetworkRequest request) {
+        try {
+            EventStore store = EventStore.getInstanceOrNull();
+            if (store != null) {
+                store.record(HttpEventAdapter.getInstance(), request);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to record to EventStore", e);
         }
     }
 

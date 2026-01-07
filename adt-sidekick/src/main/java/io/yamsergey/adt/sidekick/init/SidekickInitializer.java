@@ -11,6 +11,7 @@ import androidx.startup.Initializer;
 import java.util.Collections;
 import java.util.List;
 
+import io.yamsergey.adt.sidekick.events.EventStore;
 import io.yamsergey.adt.sidekick.jvmti.JvmtiAgent;
 import io.yamsergey.adt.sidekick.network.OkHttpExecuteHook;
 import io.yamsergey.adt.sidekick.server.InspectorServer;
@@ -41,6 +42,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
     @Override
     public InspectorServer create(@NonNull Context context) {
         Log.i(TAG, "Initializing ADT Sidekick...");
+
+        // Initialize EventStore for binary event capture
+        initializeEventStore(context);
 
         // Initialize JVMTI agent for method hooking (API 28+)
         initializeJvmtiAgent(context);
@@ -115,6 +119,18 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to register network hooks", e);
+        }
+    }
+
+    /**
+     * Initializes the EventStore for binary event capture.
+     */
+    private void initializeEventStore(@NonNull Context context) {
+        try {
+            EventStore store = EventStore.getInstance(context);
+            Log.i(TAG, "EventStore initialized: " + store.getRecordCount() + " existing events");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to initialize EventStore", e);
         }
     }
 

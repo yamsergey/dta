@@ -63,6 +63,9 @@ dependencies {
     // JSON serialization
     implementation("com.google.code.gson:gson:2.10.1")
 
+    // MessagePack for efficient binary event serialization
+    implementation("org.msgpack:msgpack-core:0.9.8")
+
     // DEX bytecode manipulation for runtime hooks
     implementation("com.android.tools.smali:smali-dexlib2:3.0.7")
 
