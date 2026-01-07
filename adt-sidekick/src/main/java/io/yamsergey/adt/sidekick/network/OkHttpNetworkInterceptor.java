@@ -20,7 +20,7 @@ import okio.BufferedSource;
  * OkHttp Interceptor that captures network requests for inspection.
  *
  * <p>This interceptor captures request and response data and records it
- * with the NetworkInspector.</p>
+ * with the NetworkInspector using {@link HttpTransaction}.</p>
  *
  * <h3>Usage</h3>
  * <pre>{@code
@@ -48,32 +48,29 @@ public class OkHttpNetworkInterceptor implements Interceptor {
         }
 
         Request request = chain.request();
-        NetworkRequest networkRequest = createNetworkRequest(request);
+        HttpTransaction transaction = createTransaction(request);
 
         Response response;
         try {
             response = chain.proceed(request);
         } catch (Exception e) {
-            networkRequest.markFailed(e.getMessage());
+            transaction.markFailed(e.getMessage());
+            NetworkInspector.onTransactionCompleted(transaction);
             throw e;
         }
 
-        return processResponse(response, networkRequest);
+        return processResponse(response, transaction);
     }
 
-    private NetworkRequest createNetworkRequest(Request request) {
-        NetworkRequest networkRequest = NetworkInspector.startRequest(
-                request.url().toString(),
-                request.method()
-        );
-
-        networkRequest.setSource("OkHttp");
-        networkRequest.setProtocol("HTTP/1.1"); // Will be updated from response
+    private HttpTransaction createTransaction(Request request) {
+        HttpRequest.Builder requestBuilder = HttpRequest.builder()
+                .url(request.url().toString())
+                .method(request.method());
 
         // Capture request headers
         Headers headers = request.headers();
         for (int i = 0; i < headers.size(); i++) {
-            networkRequest.addRequestHeader(headers.name(i), headers.value(i));
+            requestBuilder.addHeader(headers.name(i), headers.value(i));
         }
 
         // Capture request body
@@ -83,13 +80,16 @@ public class OkHttpNetworkInterceptor implements Interceptor {
                 try {
                     MediaType contentType = requestBody.contentType();
                     if (contentType != null) {
-                        networkRequest.setRequestContentType(contentType.toString());
+                        requestBuilder.contentType(contentType.toString());
                     }
 
-                    if (isTextContent(contentType) && requestBody.contentLength() <= NetworkInspector.getMaxBodySize()) {
+                    long contentLength = requestBody.contentLength();
+                    requestBuilder.bodySize(contentLength);
+
+                    if (isTextContent(contentType) && contentLength <= NetworkInspector.getMaxInlineBodySize()) {
                         Buffer buffer = new Buffer();
                         requestBody.writeTo(buffer);
-                        networkRequest.setRequestBody(buffer.readString(getCharset(contentType)));
+                        requestBuilder.body(buffer.readString(getCharset(contentType)));
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to capture request body", e);
@@ -97,18 +97,19 @@ public class OkHttpNetworkInterceptor implements Interceptor {
             }
         }
 
-        return networkRequest;
+        return NetworkInspector.startTransaction(requestBuilder.build(), "OkHttp");
     }
 
-    private Response processResponse(Response response, NetworkRequest networkRequest) throws IOException {
-        networkRequest.setResponseCode(response.code());
-        networkRequest.setResponseMessage(response.message());
-        networkRequest.setProtocol(response.protocol().toString());
+    private Response processResponse(Response response, HttpTransaction transaction) throws IOException {
+        HttpResponse.Builder responseBuilder = HttpResponse.builder()
+                .statusCode(response.code())
+                .statusMessage(response.message())
+                .protocol(response.protocol().toString());
 
         // Capture response headers
         Headers headers = response.headers();
         for (int i = 0; i < headers.size(); i++) {
-            networkRequest.addResponseHeader(headers.name(i), headers.value(i));
+            responseBuilder.addHeader(headers.name(i), headers.value(i));
         }
 
         // Capture response body
@@ -116,27 +117,36 @@ public class OkHttpNetworkInterceptor implements Interceptor {
         if (responseBody != null && NetworkInspector.isCaptureResponseBody()) {
             MediaType contentType = responseBody.contentType();
             if (contentType != null) {
-                networkRequest.setResponseContentType(contentType.toString());
+                responseBuilder.contentType(contentType.toString());
             }
 
             long contentLength = responseBody.contentLength();
-            networkRequest.setResponseBodySize(contentLength);
+            responseBuilder.bodySize(contentLength);
 
             if (isTextContent(contentType) &&
-                    (contentLength == -1 || contentLength <= NetworkInspector.getMaxBodySize())) {
+                    (contentLength == -1 || contentLength <= NetworkInspector.getMaxInlineBodySize())) {
                 try {
                     BufferedSource source = responseBody.source();
                     source.request(Long.MAX_VALUE); // Buffer the entire body
                     Buffer buffer = source.getBuffer();
 
                     long size = buffer.size();
-                    networkRequest.setResponseBodySize(size);
+                    responseBuilder.bodySize(size);
 
-                    if (size <= NetworkInspector.getMaxBodySize()) {
+                    if (size <= NetworkInspector.getMaxInlineBodySize()) {
                         String body = buffer.clone().readString(getCharset(contentType));
-                        networkRequest.setResponseBody(body);
+                        responseBuilder.body(body);
                     } else {
-                        networkRequest.setResponseBody("[Body too large: " + size + " bytes]");
+                        // Store large body to disk
+                        String body = buffer.clone().readString(getCharset(contentType));
+                        BodyStorage storage = BodyStorage.getInstance();
+                        if (storage != null) {
+                            BodyReference ref = storage.store(transaction.getId(), "response", body,
+                                    contentType != null ? contentType.toString() : null);
+                            if (ref != null) {
+                                responseBuilder.bodyRef(ref);
+                            }
+                        }
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to capture response body", e);
@@ -144,8 +154,10 @@ public class OkHttpNetworkInterceptor implements Interceptor {
             }
         }
 
-        networkRequest.markCompleted();
-        Log.d(TAG, "Completed: " + networkRequest);
+        transaction.setResponse(responseBuilder.build());
+        transaction.markCompleted();
+        NetworkInspector.onTransactionCompleted(transaction);
+        Log.d(TAG, "Completed: " + transaction.getId() + " " + response.code());
 
         return response;
     }

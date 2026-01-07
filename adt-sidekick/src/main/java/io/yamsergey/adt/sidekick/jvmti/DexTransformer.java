@@ -354,8 +354,10 @@ public class DexTransformer {
         }
 
         // FIRST PASS: Build offset map (original offset -> shift amount at that point)
-        // Each return causes 5 extra code units to be inserted before it
-        final int EXIT_INSERT_SIZE = 5; // const/16 (2) + invoke-static (3)
+        // RETURN_VOID: const/16 (2) + invoke-static (3) = 5 code units
+        // Other returns: just invoke-static (3) = 3 code units (return value is in existing register)
+        final int EXIT_VOID_SIZE = 5;
+        final int EXIT_NONVOID_SIZE = 3;
         Map<Integer, Integer> cumulativeShiftAtOffset = new HashMap<>();
         int currentOrigOffset = 0;
         int cumulativeShift = 0;
@@ -363,9 +365,10 @@ public class DexTransformer {
         for (Instruction insn : impl.getInstructions()) {
             cumulativeShiftAtOffset.put(currentOrigOffset, cumulativeShift);
             Opcode opcode = insn.getOpcode();
-            if (opcode == Opcode.RETURN_VOID || opcode == Opcode.RETURN ||
-                opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
-                cumulativeShift += EXIT_INSERT_SIZE;
+            if (opcode == Opcode.RETURN_VOID) {
+                cumulativeShift += EXIT_VOID_SIZE;
+            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
+                cumulativeShift += EXIT_NONVOID_SIZE;
             }
             currentOrigOffset += insn.getCodeUnits();
         }
@@ -377,13 +380,20 @@ public class DexTransformer {
             Opcode opcode = insn.getOpcode();
 
             // Insert onExit before return instructions
-            if (opcode == Opcode.RETURN_VOID || opcode == Opcode.RETURN ||
-                opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
-
+            if (opcode == Opcode.RETURN_VOID) {
+                // For void return, pass null as result
                 newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, nullReg, 0));
                 newInstructions.add(new ImmutableInstruction35c(
                         Opcode.INVOKE_STATIC, 3,
                         hookIdReg, thisObjReg, nullReg, 0, 0,
+                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
+                // For non-void return, pass the actual return value from the instruction's register
+                Instruction11x returnInsn = (Instruction11x) insn;
+                int returnReg = shift(returnInsn.getRegisterA(), originalParamStart, extraRegs);
+                newInstructions.add(new ImmutableInstruction35c(
+                        Opcode.INVOKE_STATIC, 3,
+                        hookIdReg, thisObjReg, returnReg, 0, 0,
                         new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
             }
 

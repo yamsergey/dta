@@ -1,16 +1,25 @@
 package io.yamsergey.adt.sidekick.events.adapters;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import io.yamsergey.adt.sidekick.events.EventAdapter;
 import io.yamsergey.adt.sidekick.events.EventType;
-import io.yamsergey.adt.sidekick.network.NetworkRequest;
+import io.yamsergey.adt.sidekick.network.BodyReference;
+import io.yamsergey.adt.sidekick.network.HttpHeader;
+import io.yamsergey.adt.sidekick.network.HttpRequest;
+import io.yamsergey.adt.sidekick.network.HttpResponse;
+import io.yamsergey.adt.sidekick.network.HttpTransaction;
 
 /**
- * Adapter for converting NetworkRequest objects to HTTP event records.
+ * Adapter for converting HttpTransaction objects to HTTP event records.
+ *
+ * <p>Serializes the complete HTTP transaction including request, response,
+ * timing, and metadata to a format suitable for binary storage and transmission.</p>
  */
-public class HttpEventAdapter implements EventAdapter<NetworkRequest> {
+public class HttpEventAdapter implements EventAdapter<HttpTransaction> {
 
     private static final HttpEventAdapter INSTANCE = new HttpEventAdapter();
 
@@ -29,64 +38,127 @@ public class HttpEventAdapter implements EventAdapter<NetworkRequest> {
     }
 
     @Override
-    public Map<String, Object> toPayload(NetworkRequest request) {
+    public Map<String, Object> toPayload(HttpTransaction transaction) {
         Map<String, Object> payload = new HashMap<>();
 
-        // Request ID
-        payload.put("id", request.getId());
+        // Transaction metadata
+        payload.put("id", transaction.getId());
+        payload.put("status", transaction.getStatus().name());
+        payload.put("startTime", transaction.getStartTime());
+        payload.put("endTime", transaction.getEndTime());
+        payload.put("duration", transaction.getDuration());
 
-        // Request info
-        payload.put("method", request.getMethod());
-        payload.put("url", request.getUrl());
-
-        // Timing
-        payload.put("startTime", request.getStartTime());
-        payload.put("endTime", request.getEndTime());
-        payload.put("duration", request.getDuration());
-
-        // Request details
-        Map<String, String> reqHeaders = request.getRequestHeaders();
-        if (reqHeaders != null && !reqHeaders.isEmpty()) {
-            payload.put("requestHeaders", new HashMap<>(reqHeaders));
+        if (transaction.getError() != null) {
+            payload.put("error", transaction.getError());
         }
-        if (request.getRequestBody() != null) {
-            payload.put("requestBody", request.getRequestBody());
-        }
-        if (request.getRequestContentType() != null) {
-            payload.put("requestContentType", request.getRequestContentType());
+        if (transaction.getSource() != null) {
+            payload.put("source", transaction.getSource());
         }
 
-        // Response details
-        payload.put("responseCode", request.getResponseCode());
-        if (request.getResponseMessage() != null) {
-            payload.put("responseMessage", request.getResponseMessage());
-        }
-        Map<String, String> respHeaders = request.getResponseHeaders();
-        if (respHeaders != null && !respHeaders.isEmpty()) {
-            payload.put("responseHeaders", new HashMap<>(respHeaders));
-        }
-        if (request.getResponseBody() != null) {
-            payload.put("responseBody", request.getResponseBody());
-        }
-        if (request.getResponseContentType() != null) {
-            payload.put("responseContentType", request.getResponseContentType());
-        }
-        payload.put("responseBodySize", request.getResponseBodySize());
-
-        // Status
-        payload.put("status", request.getStatus().name());
-        if (request.getError() != null) {
-            payload.put("error", request.getError());
+        // Request
+        HttpRequest request = transaction.getRequest();
+        if (request != null) {
+            payload.put("request", serializeRequest(request));
         }
 
-        // Metadata
-        if (request.getProtocol() != null) {
-            payload.put("protocol", request.getProtocol());
-        }
-        if (request.getSource() != null) {
-            payload.put("source", request.getSource());
+        // Response
+        HttpResponse response = transaction.getResponse();
+        if (response != null) {
+            payload.put("response", serializeResponse(response));
         }
 
         return payload;
+    }
+
+    private Map<String, Object> serializeRequest(HttpRequest request) {
+        Map<String, Object> data = new HashMap<>();
+
+        data.put("url", request.getUrl());
+        data.put("method", request.getMethod());
+
+        List<HttpHeader> headers = request.getHeaders();
+        if (headers != null && !headers.isEmpty()) {
+            data.put("headers", serializeHeaders(headers));
+        }
+
+        // Body: either inline or reference
+        if (request.hasExternalBody()) {
+            data.put("bodyRef", serializeBodyRef(request.getBodyRef()));
+        } else if (request.getBody() != null) {
+            data.put("body", request.getBody());
+        }
+
+        if (request.getBodySize() >= 0) {
+            data.put("bodySize", request.getBodySize());
+        }
+        if (request.getContentType() != null) {
+            data.put("contentType", request.getContentType());
+        }
+
+        return data;
+    }
+
+    private Map<String, Object> serializeResponse(HttpResponse response) {
+        Map<String, Object> data = new HashMap<>();
+
+        data.put("statusCode", response.getStatusCode());
+        if (response.getStatusMessage() != null) {
+            data.put("statusMessage", response.getStatusMessage());
+        }
+        if (response.getProtocol() != null) {
+            data.put("protocol", response.getProtocol());
+        }
+
+        List<HttpHeader> headers = response.getHeaders();
+        if (headers != null && !headers.isEmpty()) {
+            data.put("headers", serializeHeaders(headers));
+        }
+
+        // Body: either inline or reference
+        if (response.hasExternalBody()) {
+            data.put("bodyRef", serializeBodyRef(response.getBodyRef()));
+        } else if (response.getBody() != null) {
+            data.put("body", response.getBody());
+        }
+
+        if (response.getBodySize() >= 0) {
+            data.put("bodySize", response.getBodySize());
+        }
+        if (response.getContentType() != null) {
+            data.put("contentType", response.getContentType());
+        }
+
+        return data;
+    }
+
+    private Map<String, Object> serializeBodyRef(BodyReference ref) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("path", ref.getPath());
+        data.put("size", ref.getSize());
+        if (ref.getContentType() != null) {
+            data.put("contentType", ref.getContentType());
+        }
+        if (ref.getPreview() != null) {
+            data.put("preview", ref.getPreview());
+        }
+        if (ref.getHash() != null) {
+            data.put("hash", ref.getHash());
+        }
+        return data;
+    }
+
+    /**
+     * Serializes headers as a list of [name, value] arrays.
+     * This format preserves multiple values for the same header name.
+     */
+    private List<List<String>> serializeHeaders(List<HttpHeader> headers) {
+        List<List<String>> result = new ArrayList<>();
+        for (HttpHeader header : headers) {
+            List<String> pair = new ArrayList<>(2);
+            pair.add(header.getName());
+            pair.add(header.getValue());
+            result.add(pair);
+        }
+        return result;
     }
 }
