@@ -28,6 +28,7 @@ public class HealthController {
         response.put("packageName", DebugServerApplication.getPackageName());
         response.put("eventCount", eventService.getEventCount());
         response.put("lastPullTime", eventService.getLastPullTime());
+        response.put("streamingConnected", eventService.isStreamingConnected());
         return response;
     }
 }

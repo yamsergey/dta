@@ -19,14 +19,20 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 /**
  * Service for managing debug events.
  *
- * <p>Periodically pulls events from the device using ADB and caches them
- * for serving via the REST API.</p>
+ * <p>Uses a hybrid approach for receiving events:</p>
+ * <ul>
+ *   <li><b>Streaming (real-time):</b> SSE connection for immediate updates</li>
+ *   <li><b>Polling (fallback):</b> Periodic file pull for reliability</li>
+ * </ul>
  */
 @Service
 @EnableScheduling
@@ -39,9 +45,18 @@ public class EventService {
     private String packageName;
 
     private final List<DebugEvent> events = new CopyOnWriteArrayList<>();
+    private final Set<String> seenEventIds = ConcurrentHashMap.newKeySet();
+    // Map transaction ID (data.id) -> event for merging request/response
+    private final Map<String, DebugEvent> eventsByTransactionId = new ConcurrentHashMap<>();
     private final BinaryEventReader reader = new BinaryEventReader();
+    private final StreamService streamService;
+
     private Path tempEventFile;
     private long lastPullTime = 0;
+
+    public EventService(StreamService streamService) {
+        this.streamService = streamService;
+    }
 
     @PostConstruct
     public void init() throws IOException {
@@ -51,13 +66,132 @@ public class EventService {
 
         tempEventFile = Files.createTempFile("adt-events-", ".bin");
         tempEventFile.toFile().deleteOnExit();
-        log.info("EventService initialized for package '{}', temp file: {}", packageName, tempEventFile);
+
+        // Setup streaming with event consumer
+        streamService.setEventConsumer(this::onStreamedEvent);
+        streamService.start();
+
+        log.info("EventService initialized for package '{}' (streaming + polling)", packageName);
     }
 
     /**
-     * Periodically pulls events from the device.
+     * Handles events received via SSE streaming.
+     * Merges events with the same transaction ID (data.id).
      */
-    @Scheduled(fixedRate = 1000) // Every second
+    private void onStreamedEvent(DebugEvent event) {
+        if (event == null || event.getId() == null) {
+            return;
+        }
+
+        addOrMergeEvent(event);
+    }
+
+    /**
+     * Adds a new event or merges it with an existing one based on transaction ID.
+     */
+    @SuppressWarnings("unchecked")
+    private void addOrMergeEvent(DebugEvent event) {
+        // Get transaction ID from data.id (different from event.id)
+        String transactionId = getTransactionId(event);
+
+        if (transactionId != null) {
+            DebugEvent existing = eventsByTransactionId.get(transactionId);
+            if (existing != null) {
+                // Merge new data into existing event
+                mergeEventData(existing, event);
+                log.debug("Merged event for transaction: {}", transactionId);
+                return;
+            }
+            // New transaction - track it
+            eventsByTransactionId.put(transactionId, event);
+        }
+
+        // Add as new event if not seen before
+        if (seenEventIds.add(event.getId())) {
+            events.add(event);
+            log.debug("Event added: {} (total: {})", event.getId(), events.size());
+        }
+    }
+
+    /**
+     * Gets the transaction ID from event data.
+     */
+    private String getTransactionId(DebugEvent event) {
+        Map<String, Object> data = event.getData();
+        if (data == null) return null;
+        Object id = data.get("id");
+        return id != null ? String.valueOf(id) : null;
+    }
+
+    /**
+     * Merges data from a new event into an existing event.
+     * Updates status, response fields, duration, etc.
+     */
+    @SuppressWarnings("unchecked")
+    private void mergeEventData(DebugEvent existing, DebugEvent update) {
+        Map<String, Object> existingData = existing.getData();
+        Map<String, Object> updateData = update.getData();
+
+        if (existingData == null || updateData == null) return;
+
+        // Update fields that may have changed (response data, status, duration)
+        for (String key : updateData.keySet()) {
+            Object newValue = updateData.get(key);
+            Object oldValue = existingData.get(key);
+
+            // Prefer non-null, non-zero, non-empty values
+            if (shouldUpdateValue(oldValue, newValue)) {
+                existingData.put(key, newValue);
+            }
+        }
+
+        // Update timestamp if the new event is newer
+        if (update.getTimestamp() > existing.getTimestamp()) {
+            existing.setTimestamp(update.getTimestamp());
+        }
+    }
+
+    /**
+     * Determines if a value should be updated.
+     */
+    private boolean shouldUpdateValue(Object oldValue, Object newValue) {
+        if (newValue == null) return false;
+        if (oldValue == null) return true;
+
+        // Prefer non-zero numbers
+        if (newValue instanceof Number && oldValue instanceof Number) {
+            double newNum = ((Number) newValue).doubleValue();
+            double oldNum = ((Number) oldValue).doubleValue();
+            return newNum != 0 && (oldNum == 0 || newNum > oldNum);
+        }
+
+        // Prefer non-empty strings
+        if (newValue instanceof String && oldValue instanceof String) {
+            String newStr = (String) newValue;
+            String oldStr = (String) oldValue;
+            // Update status fields and non-empty strings
+            return !newStr.isEmpty() && (oldStr.isEmpty() ||
+                   (newStr.equals("COMPLETED") || newStr.equals("FAILED")));
+        }
+
+        // For maps/lists, prefer non-empty
+        if (newValue instanceof Map && ((Map<?,?>) newValue).isEmpty()) return false;
+        if (newValue instanceof List && ((List<?>) newValue).isEmpty()) return false;
+
+        return true;
+    }
+
+    /**
+     * Returns whether the streaming connection is active.
+     */
+    public boolean isStreamingConnected() {
+        return streamService.isConnected();
+    }
+
+    /**
+     * Periodically pulls events from the device (fallback when streaming is unavailable).
+     */
+    @Scheduled(fixedRate = 2000) // Every 2 seconds (reduced frequency since streaming handles real-time)
     public void pullEvents() {
         if (packageName == null || packageName.isEmpty()) {
             return;
@@ -69,12 +203,16 @@ public class EventService {
 
             if (pulled) {
                 List<DebugEvent> newEvents = reader.readEvents(tempEventFile.toFile());
-                if (newEvents.size() > events.size()) {
-                    // Add new events
-                    for (int i = events.size(); i < newEvents.size(); i++) {
-                        events.add(newEvents.get(i));
-                    }
-                    log.debug("Pulled {} new events (total: {})", newEvents.size() - events.size(), events.size());
+                int before = events.size();
+
+                for (DebugEvent event : newEvents) {
+                    // Use merge logic to handle start/complete events
+                    addOrMergeEvent(event);
+                }
+
+                int added = events.size() - before;
+                if (added > 0) {
+                    log.debug("Pulled {} new events (total: {})", added, events.size());
                 }
                 lastPullTime = System.currentTimeMillis();
             }
@@ -121,6 +259,8 @@ public class EventService {
      */
     public void clearEvents() {
         events.clear();
+        seenEventIds.clear();
+        eventsByTransactionId.clear();
 
         if (packageName != null && !packageName.isEmpty()) {
             try {
