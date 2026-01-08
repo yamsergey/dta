@@ -304,8 +304,7 @@ public final class NetworkInspector {
                 Log.e(TAG, "Error in listener", e);
             }
         }
-
-        // Record to EventStore
+        // Record to EventStore (server will merge with completion event)
         recordToEventStore(tx);
     }
 

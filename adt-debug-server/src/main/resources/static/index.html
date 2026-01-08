@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ADT Debug Server</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            line-height: 1.5;
+        }
+        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 24px; margin-bottom: 8px; }
+        h2 { font-size: 18px; margin-bottom: 8px; }
+        h3 { color: #888; font-size: 12px; text-transform: uppercase; margin-bottom: 8px; }
+        .subtitle { color: #888; margin-bottom: 24px; }
+        .card { background: #222; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .card p { color: #888; margin-bottom: 12px; }
+        code { background: #333; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        .btn {
+            display: inline-block; padding: 8px 16px; background: #4caf50; color: #fff;
+            text-decoration: none; border-radius: 4px; border: none; cursor: pointer; font-size: 14px;
+        }
+        .btn:hover { background: #45a049; }
+        .btn-secondary { background: #444; }
+        .btn-secondary:hover { background: #555; }
+        .status-grid { display: flex; gap: 24px; }
+        .status-label { color: #666; font-size: 12px; display: block; }
+        .status-value { font-size: 20px; font-weight: bold; }
+        .status-value.connected { color: #4caf50; }
+        .status-value.disconnected { color: #f44336; }
+
+        /* Navigation */
+        .nav { display: flex; gap: 8px; margin-bottom: 16px; }
+        .nav-link { color: #4caf50; text-decoration: none; padding: 4px 8px; border-radius: 4px; }
+        .nav-link:hover { background: #333; }
+        .nav-link.active { background: #333; }
+
+        /* Network list */
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .toolbar-left { display: flex; align-items: center; gap: 16px; }
+        .live-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4caf50; animation: pulse 2s infinite; }
+        .live-dot.paused { background: #666; animation: none; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        .header-row { display: flex; padding: 8px 12px; border-bottom: 1px solid #444; color: #666; font-size: 11px; text-transform: uppercase; }
+        .header-row span { cursor: pointer; user-select: none; }
+        .header-row span:hover { color: #888; }
+
+        .request-row {
+            display: flex; padding: 12px; border-bottom: 1px solid #333;
+            cursor: pointer; text-decoration: none; color: inherit; align-items: center;
+            transition: background 0.2s;
+        }
+        .request-row:hover { background: #2a2a2a; }
+        .request-row.new { animation: highlight 2s ease-out; }
+        @keyframes highlight { from { background: #3a3a1a; } to { background: transparent; } }
+
+        .col-time { width: 90px; color: #666; font-size: 12px; font-family: monospace; }
+        .col-method { width: 55px; font-weight: bold; font-size: 12px; }
+        .col-method.GET { color: #4caf50; }
+        .col-method.POST { color: #ff9800; }
+        .col-method.PUT { color: #2196f3; }
+        .col-method.DELETE { color: #f44336; }
+        .col-method.PATCH { color: #9c27b0; }
+        .col-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ccc; }
+        .col-status { width: 50px; text-align: center; }
+        .col-status.s2xx { color: #4caf50; }
+        .col-status.s3xx { color: #ff9800; }
+        .col-status.s4xx, .col-status.s5xx { color: #f44336; }
+        .col-duration { width: 70px; text-align: right; color: #888; font-size: 12px; }
+
+        .empty { text-align: center; padding: 40px; color: #666; }
+        .count-text { color: #666; font-size: 12px; margin-top: 16px; }
+
+        /* Detail view */
+        .meta { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+        .meta-item .meta-label { color: #666; font-size: 11px; }
+        .meta-item .meta-value { font-size: 16px; }
+        .tabs { display: flex; border-bottom: 1px solid #333; margin-bottom: 16px; }
+        .tab {
+            padding: 8px 16px; cursor: pointer; color: #888;
+            border: none; background: none; font-size: 14px;
+        }
+        .tab:hover { color: #aaa; }
+        .tab.active { color: #fff; border-bottom: 2px solid #4caf50; }
+        .section { margin-bottom: 24px; }
+        .header-item { display: flex; padding: 4px 0; border-bottom: 1px solid #333; font-size: 13px; }
+        .header-name { width: 200px; color: #888; }
+        .header-value { flex: 1; word-break: break-all; }
+        .body-content {
+            background: #1a1a1a; padding: 12px; border-radius: 4px;
+            font-family: monospace; font-size: 12px; white-space: pre-wrap;
+            word-break: break-all; max-height: 400px; overflow: auto;
+        }
+
+        /* Body actions */
+        .body-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .body-actions { display: flex; gap: 8px; }
+        .btn-small {
+            padding: 4px 8px; font-size: 12px; background: #333; color: #ccc;
+            border: none; border-radius: 4px; cursor: pointer;
+        }
+        .btn-small:hover { background: #444; }
+        .btn-small.success { background: #2e7d32; color: #fff; }
+
+        /* Toast notification */
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; padding: 12px 20px;
+            background: #333; color: #fff; border-radius: 4px; font-size: 14px;
+            opacity: 0; transition: opacity 0.3s; z-index: 1000;
+        }
+        .toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <!-- Home View -->
+            <template v-if="view === 'home'">
+                <h1>ADT Debug Server</h1>
+                <p class="subtitle">Package: {{ packageName }}</p>
+
+                <div class="card">
+                    <h2>Status</h2>
+                    <div class="status-grid">
+                        <div>
+                            <span class="status-label">Events</span>
+                            <span class="status-value">{{ eventCount }}</span>
+                        </div>
+                        <div>
+                            <span class="status-label">Streaming</span>
+                            <span class="status-value" :class="streamingConnected ? 'connected' : 'disconnected'">
+                                {{ streamingConnected ? 'Connected' : 'Disconnected' }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Network</h2>
+                    <p>Monitor HTTP requests and responses</p>
+                    <button class="btn" @click="view = 'network'">View Network Traffic</button>
+                </div>
+
+                <div class="card">
+                    <h2>API Endpoints</h2>
+                    <ul style="margin-left: 20px; color: #888;">
+                        <li><code>/network</code> - List network events</li>
+                        <li><code>/network/{id}</code> - Event details</li>
+                        <li><code>/network/stats</code> - Statistics</li>
+                        <li><code>/health</code> - Health check</li>
+                    </ul>
+                </div>
+            </template>
+
+            <!-- Network List View -->
+            <template v-else-if="view === 'network'">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <h1>Network Traffic</h1>
+                        <div class="live-indicator">
+                            <span class="live-dot" :class="{ paused: !isLive }"></span>
+                            <span>{{ isLive ? 'Live' : 'Paused' }}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <button class="btn btn-secondary" @click="view = 'home'">Home</button>
+                        <button class="btn btn-secondary" @click="isLive = !isLive">
+                            {{ isLive ? 'Pause' : 'Resume' }}
+                        </button>
+                        <button class="btn btn-secondary" @click="clearRequests">Clear</button>
+                        <button class="btn btn-secondary" @click="exportAllTransactions">Export All</button>
+                    </div>
+                </div>
+
+                <div class="card" style="padding: 0;">
+                    <div class="header-row">
+                        <span class="col-time" @click="toggleSort('timestamp')">
+                            Time {{ sortField === 'timestamp' ? (sortAsc ? '\u25B2' : '\u25BC') : '' }}
+                        </span>
+                        <span class="col-method">Method</span>
+                        <span class="col-url" @click="toggleSort('url')">
+                            URL {{ sortField === 'url' ? (sortAsc ? '\u25B2' : '\u25BC') : '' }}
+                        </span>
+                        <span class="col-status" @click="toggleSort('responseCode')">
+                            Status {{ sortField === 'responseCode' ? (sortAsc ? '\u25B2' : '\u25BC') : '' }}
+                        </span>
+                        <span class="col-duration" @click="toggleSort('duration')">
+                            Duration {{ sortField === 'duration' ? (sortAsc ? '\u25B2' : '\u25BC') : '' }}
+                        </span>
+                    </div>
+
+                    <div v-if="sortedRequests.length === 0" class="empty">
+                        No network requests captured yet
+                    </div>
+                    <div v-else>
+                        <div v-for="req in sortedRequests" :key="req.id"
+                             class="request-row" :class="{ new: req.isNew }"
+                             @click="showDetail(req.id)">
+                            <span class="col-time">{{ formatTime(req.timestamp) }}</span>
+                            <span class="col-method" :class="getMethod(req)">{{ getMethod(req) }}</span>
+                            <span class="col-url">{{ getUrl(req) }}</span>
+                            <span class="col-status" :class="getStatusClass(req)">
+                                {{ getStatusCode(req) || '-' }}
+                            </span>
+                            <span class="col-duration">{{ getDuration(req) }}ms</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="count-text">{{ requests.length }} requests</p>
+            </template>
+
+            <!-- Detail View -->
+            <template v-else-if="view === 'detail' && selectedRequest">
+                <div style="margin-bottom: 16px;">
+                    <a href="#" @click.prevent="view = 'network'" style="color: #4caf50;">&larr; Back to list</a>
+                </div>
+
+                <div class="card">
+                    <h2 style="margin-bottom: 8px;">
+                        <span :style="{ color: getMethod(selectedRequest) === 'GET' ? '#4caf50' : '#ff9800' }">
+                            {{ getMethod(selectedRequest) }}
+                        </span>
+                        <span :style="{ color: getStatusCode(selectedRequest) >= 200 && getStatusCode(selectedRequest) < 300 ? '#4caf50' : '#f44336' }">
+                            {{ getStatusCode(selectedRequest) || '-' }}
+                        </span>
+                    </h2>
+                    <p style="word-break: break-all; color: #ccc;">{{ getUrl(selectedRequest) }}</p>
+
+                    <div class="meta">
+                        <div class="meta-item">
+                            <div class="meta-label">Duration</div>
+                            <div class="meta-value">{{ getDuration(selectedRequest) }}ms</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Status</div>
+                            <div class="meta-value">{{ selectedRequest.data?.status || 'UNKNOWN' }}</div>
+                        </div>
+                        <div class="meta-item" style="margin-left: auto;">
+                            <button class="btn btn-secondary" @click="exportTransaction(selectedRequest)">Export JSON</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab" :class="{ active: activeTab === 'request' }" @click="activeTab = 'request'">
+                        Request
+                    </button>
+                    <button class="tab" :class="{ active: activeTab === 'response' }" @click="activeTab = 'response'">
+                        Response
+                    </button>
+                </div>
+
+                <!-- Request Tab -->
+                <div v-show="activeTab === 'request'">
+                    <div class="section">
+                        <h3>Headers</h3>
+                        <template v-if="getHeaders(selectedRequest, 'request').length > 0">
+                            <div v-for="(header, idx) in getHeaders(selectedRequest, 'request')" :key="idx" class="header-item">
+                                <span class="header-name">{{ header.name }}</span>
+                                <span class="header-value">{{ header.value }}</span>
+                            </div>
+                        </template>
+                        <p v-else style="color: #666;">No headers captured</p>
+                    </div>
+                    <div v-if="getBody(selectedRequest, 'request')" class="section">
+                        <div class="body-header">
+                            <h3>Body</h3>
+                            <div class="body-actions">
+                                <button class="btn-small" @click="copyBody('request')">Copy</button>
+                                <button class="btn-small" @click="downloadBody('request')">Download</button>
+                            </div>
+                        </div>
+                        <div class="body-content">{{ getBody(selectedRequest, 'request') }}</div>
+                    </div>
+                </div>
+
+                <!-- Response Tab -->
+                <div v-show="activeTab === 'response'">
+                    <div class="section">
+                        <h3>Headers</h3>
+                        <template v-if="getHeaders(selectedRequest, 'response').length > 0">
+                            <div v-for="(header, idx) in getHeaders(selectedRequest, 'response')" :key="idx" class="header-item">
+                                <span class="header-name">{{ header.name }}</span>
+                                <span class="header-value">{{ header.value }}</span>
+                            </div>
+                        </template>
+                        <p v-else style="color: #666;">No headers captured</p>
+                    </div>
+                    <div v-if="getBody(selectedRequest, 'response')" class="section">
+                        <div class="body-header">
+                            <h3>Body</h3>
+                            <div class="body-actions">
+                                <button class="btn-small" @click="copyBody('response')">Copy</button>
+                                <button class="btn-small" @click="downloadBody('response')">Download</button>
+                            </div>
+                        </div>
+                        <div class="body-content">{{ getBody(selectedRequest, 'response') }}</div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Toast notification -->
+            <div class="toast" :class="{ show: toastVisible }">{{ toastMessage }}</div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
+
+        createApp({
+            setup() {
+                // State
+                const view = ref('home');
+                const packageName = ref('');
+                const eventCount = ref(0);
+                const streamingConnected = ref(false);
+                const requests = ref([]);
+                const requestMap = ref(new Map());
+                const selectedRequest = ref(null);
+                const isLive = ref(true);
+                const sortField = ref('timestamp');
+                const sortAsc = ref(false);
+                const activeTab = ref('request');
+                const latestTimestamp = ref(0);
+                const toastMessage = ref('');
+                const toastVisible = ref(false);
+
+                let pollInterval = null;
+                let statusInterval = null;
+                let toastTimeout = null;
+
+                // Computed
+                const sortedRequests = computed(() => {
+                    const sorted = [...requests.value];
+                    sorted.sort((a, b) => {
+                        let aVal, bVal;
+                        if (sortField.value === 'timestamp') {
+                            aVal = a.timestamp;
+                            bVal = b.timestamp;
+                        } else if (sortField.value === 'url') {
+                            aVal = getUrl(a);
+                            bVal = getUrl(b);
+                        } else if (sortField.value === 'responseCode') {
+                            aVal = getStatusCode(a) || 0;
+                            bVal = getStatusCode(b) || 0;
+                        } else if (sortField.value === 'duration') {
+                            aVal = getDuration(a);
+                            bVal = getDuration(b);
+                        }
+                        if (aVal < bVal) return sortAsc.value ? -1 : 1;
+                        if (aVal > bVal) return sortAsc.value ? 1 : -1;
+                        return 0;
+                    });
+                    return sorted;
+                });
+
+                // Methods
+                function formatTime(timestamp) {
+                    const date = new Date(timestamp);
+                    return date.toLocaleTimeString('en-US', {
+                        hour12: false,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        fractionalSecondDigits: 3
+                    });
+                }
+
+                function getMethod(req) {
+                    if (!req || !req.data) return '?';
+                    return req.data.method || req.data.request?.method || '?';
+                }
+
+                function getUrl(req) {
+                    if (!req || !req.data) return 'Unknown';
+                    return req.data.url || req.data.request?.url || 'Unknown';
+                }
+
+                function getStatusCode(req) {
+                    if (!req || !req.data) return 0;
+                    return req.data.responseCode || req.data.response?.statusCode || 0;
+                }
+
+                function getDuration(req) {
+                    if (!req || !req.data) return 0;
+                    return req.data.duration || 0;
+                }
+
+                function getStatusClass(req) {
+                    const code = getStatusCode(req);
+                    if (code >= 200 && code < 300) return 's2xx';
+                    if (code >= 300 && code < 400) return 's3xx';
+                    if (code >= 400 && code < 500) return 's4xx';
+                    return 's5xx';
+                }
+
+                function getHeaders(req, type) {
+                    if (!req || !req.data) return [];
+                    const data = req.data;
+
+                    // Try nested structure (SSE streaming format)
+                    const nested = data[type];
+                    if (nested && nested.headers) {
+                        if (Array.isArray(nested.headers)) {
+                            return nested.headers.map(h => ({
+                                name: Array.isArray(h) ? h[0] : h.name,
+                                value: Array.isArray(h) ? h[1] : h.value
+                            }));
+                        }
+                    }
+
+                    // Try flat structure (binary file format)
+                    const key = type + 'Headers';
+                    const headers = data[key];
+                    if (headers && typeof headers === 'object') {
+                        return Object.entries(headers).map(([name, value]) => ({ name, value }));
+                    }
+
+                    return [];
+                }
+
+                function getBody(req, type) {
+                    if (!req || !req.data) return null;
+                    const data = req.data;
+
+                    // Try nested structure
+                    const nested = data[type];
+                    if (nested && nested.body) {
+                        return nested.body;
+                    }
+
+                    // Try flat structure
+                    const key = type + 'Body';
+                    return data[key] || null;
+                }
+
+                function toggleSort(field) {
+                    if (sortField.value === field) {
+                        sortAsc.value = !sortAsc.value;
+                    } else {
+                        sortField.value = field;
+                        sortAsc.value = false;
+                    }
+                }
+
+                function showDetail(id) {
+                    selectedRequest.value = requestMap.value.get(id);
+                    activeTab.value = 'request';
+                    view.value = 'detail';
+                }
+
+                function clearRequests() {
+                    requests.value = [];
+                    requestMap.value.clear();
+                    latestTimestamp.value = Date.now();
+                }
+
+                function showToast(message) {
+                    toastMessage.value = message;
+                    toastVisible.value = true;
+                    if (toastTimeout) clearTimeout(toastTimeout);
+                    toastTimeout = setTimeout(() => {
+                        toastVisible.value = false;
+                    }, 2000);
+                }
+
+                async function copyBody(type) {
+                    const body = getBody(selectedRequest.value, type);
+                    if (body) {
+                        try {
+                            await navigator.clipboard.writeText(body);
+                            showToast('Copied to clipboard');
+                        } catch (e) {
+                            showToast('Failed to copy');
+                        }
+                    }
+                }
+
+                function downloadBody(type) {
+                    const body = getBody(selectedRequest.value, type);
+                    if (!body) return;
+
+                    const method = getMethod(selectedRequest.value);
+                    const url = new URL(getUrl(selectedRequest.value));
+                    const filename = `${method.toLowerCase()}_${url.pathname.replace(/\//g, '_')}_${type}_body.txt`;
+
+                    downloadFile(body, filename, 'text/plain');
+                    showToast('Download started');
+                }
+
+                function exportTransaction(req) {
+                    const method = getMethod(req);
+                    const url = new URL(getUrl(req));
+                    const filename = `${method.toLowerCase()}_${url.pathname.replace(/\//g, '_')}_${req.id}.json`;
+
+                    const json = JSON.stringify(req, null, 2);
+                    downloadFile(json, filename, 'application/json');
+                    showToast('Export started');
+                }
+
+                function exportAllTransactions() {
+                    if (requests.value.length === 0) {
+                        showToast('No transactions to export');
+                        return;
+                    }
+
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const filename = `network_transactions_${timestamp}.json`;
+
+                    const json = JSON.stringify(requests.value, null, 2);
+                    downloadFile(json, filename, 'application/json');
+                    showToast(`Exported ${requests.value.length} transactions`);
+                }
+
+                function downloadFile(content, filename, mimeType) {
+                    const blob = new Blob([content], { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
+
+                async function fetchStatus() {
+                    try {
+                        const res = await fetch('/api/status', { credentials: 'same-origin' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            packageName.value = data.packageName || '';
+                            eventCount.value = data.eventCount || 0;
+                            streamingConnected.value = data.streamingConnected || false;
+                        }
+                    } catch (e) {
+                        console.log('Status fetch error:', e);
+                    }
+                }
+
+                async function fetchRequests() {
+                    try {
+                        const res = await fetch('/api/network', { credentials: 'same-origin' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            processRequests(data, true);
+                        }
+                    } catch (e) {
+                        console.log('Requests fetch error:', e);
+                    }
+                }
+
+                async function checkForUpdates() {
+                    if (!isLive.value) return;
+                    try {
+                        const res = await fetch(`/api/network?since=${latestTimestamp.value}`, {
+                            credentials: 'same-origin'
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            processRequests(data, false);
+                        }
+                    } catch (e) {
+                        console.log('Update fetch error:', e);
+                    }
+                }
+
+                function processRequests(data, initial) {
+                    if (!Array.isArray(data)) return;
+
+                    for (const event of data) {
+                        if (event.timestamp > latestTimestamp.value) {
+                            latestTimestamp.value = event.timestamp;
+                        }
+
+                        const existing = requestMap.value.get(event.id);
+                        if (existing) {
+                            // Update existing request
+                            Object.assign(existing, event);
+                        } else {
+                            // Add new request
+                            const req = { ...event, isNew: !initial };
+                            requests.value.push(req);
+                            requestMap.value.set(event.id, req);
+
+                            // Remove "new" highlight after animation
+                            if (!initial) {
+                                setTimeout(() => { req.isNew = false; }, 2000);
+                            }
+                        }
+                    }
+                }
+
+                // Lifecycle
+                onMounted(async () => {
+                    await fetchStatus();
+                    await fetchRequests();
+
+                    // Poll for updates
+                    pollInterval = setInterval(checkForUpdates, 1000);
+                    statusInterval = setInterval(fetchStatus, 5000);
+                });
+
+                onUnmounted(() => {
+                    if (pollInterval) clearInterval(pollInterval);
+                    if (statusInterval) clearInterval(statusInterval);
+                });
+
+                return {
+                    view,
+                    packageName,
+                    eventCount,
+                    streamingConnected,
+                    requests,
+                    sortedRequests,
+                    selectedRequest,
+                    isLive,
+                    sortField,
+                    sortAsc,
+                    activeTab,
+                    toastMessage,
+                    toastVisible,
+                    formatTime,
+                    getMethod,
+                    getUrl,
+                    getStatusCode,
+                    getDuration,
+                    getStatusClass,
+                    getHeaders,
+                    getBody,
+                    toggleSort,
+                    showDetail,
+                    clearRequests,
+                    copyBody,
+                    downloadBody,
+                    exportTransaction,
+                    exportAllTransactions
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

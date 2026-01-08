@@ -16,6 +16,8 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,6 +48,10 @@ public class InspectorServer {
     private final Handler mainHandler;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    // SSE streaming clients
+    private final Set<OutputStream> sseClients = ConcurrentHashMap.newKeySet();
+    private final NetworkInspector.TransactionListener transactionListener;
+
     private ServerSocket serverSocket;
     private int port;
 
@@ -53,6 +59,20 @@ public class InspectorServer {
         this.gson = new GsonBuilder().setPrettyPrinting().create();
         this.executor = Executors.newCachedThreadPool();
         this.mainHandler = new Handler(Looper.getMainLooper());
+
+        // Create listener for broadcasting events to SSE clients
+        // Both events are sent; the server merges them by transaction ID
+        this.transactionListener = new NetworkInspector.TransactionListener() {
+            @Override
+            public void onTransactionStarted(HttpTransaction transaction) {
+                broadcastEvent("transaction_started", transaction);
+            }
+
+            @Override
+            public void onTransactionCompleted(HttpTransaction transaction) {
+                broadcastEvent("transaction_completed", transaction);
+            }
+        };
     }
 
     public static InspectorServer getInstance() {
@@ -79,6 +99,9 @@ public class InspectorServer {
         this.serverSocket = new ServerSocket(port);
         this.running.set(true);
 
+        // Register for transaction events
+        NetworkInspector.addListener(transactionListener);
+
         executor.submit(this::acceptLoop);
         Log.i(TAG, "Server started on port " + port);
     }
@@ -88,6 +111,18 @@ public class InspectorServer {
      */
     public void stop() {
         running.set(false);
+
+        // Unregister listener
+        NetworkInspector.removeListener(transactionListener);
+
+        // Close all SSE clients
+        for (OutputStream client : sseClients) {
+            try {
+                client.close();
+            } catch (IOException ignored) {}
+        }
+        sseClients.clear();
+
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {
                 serverSocket.close();
@@ -124,13 +159,15 @@ public class InspectorServer {
      * Handles a single client connection.
      */
     private void handleClient(Socket client) {
-        try (client;
-             BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
-             OutputStream out = client.getOutputStream()) {
+        boolean isStreamingRequest = false;
+        try {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
+            OutputStream out = client.getOutputStream();
 
             // Read HTTP request line
             String requestLine = reader.readLine();
             if (requestLine == null) {
+                client.close();
                 return;
             }
 
@@ -140,6 +177,7 @@ public class InspectorServer {
             String[] parts = requestLine.split(" ");
             if (parts.length < 2) {
                 sendError(out, 400, "Bad Request");
+                client.close();
                 return;
             }
 
@@ -155,13 +193,25 @@ public class InspectorServer {
             // Route request (support GET and DELETE)
             if (!"GET".equals(method) && !"DELETE".equals(method)) {
                 sendError(out, 405, "Method Not Allowed");
+                client.close();
                 return;
             }
 
+            // Check if this is a streaming request (SSE)
+            isStreamingRequest = "/events/stream".equals(path);
+
             routeRequest(method, path, out);
+
+            // Only close if not a streaming request
+            if (!isStreamingRequest) {
+                client.close();
+            }
 
         } catch (Exception e) {
             Log.e(TAG, "Error handling client", e);
+            try {
+                client.close();
+            } catch (IOException ignored) {}
         }
     }
 
@@ -216,6 +266,9 @@ public class InspectorServer {
             case "/network/stats":
                 handleNetworkStats(out);
                 break;
+            case "/events/stream":
+                handleEventStream(out);
+                return; // Don't close connection - SSE keeps it open
             default:
                 sendError(out, 404, "Not Found");
         }
@@ -228,10 +281,12 @@ public class InspectorServer {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("name", "ADT Sidekick");
-        response.put("version", "1.1.0");
+        response.put("version", "1.2.0");
         response.put("port", port);
+        response.put("sseClients", sseClients.size());
         response.put("endpoints", new String[]{
                 "/health",
+                "/events/stream",
                 "/compose/hierarchy",
                 "/compose/semantics",
                 "/compose/tree",
@@ -445,6 +500,101 @@ public class InspectorServer {
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
+        }
+    }
+
+    // =========================================================================
+    // SSE Streaming
+    // =========================================================================
+
+    /**
+     * GET /events/stream - Server-Sent Events stream for real-time transaction updates.
+     *
+     * <p>Clients connect to this endpoint to receive real-time notifications
+     * when network transactions start or complete.</p>
+     */
+    private void handleEventStream(OutputStream out) throws IOException {
+        Log.i(TAG, "SSE client connected");
+
+        // Send SSE headers
+        StringBuilder headers = new StringBuilder();
+        headers.append("HTTP/1.1 200 OK\r\n");
+        headers.append("Content-Type: text/event-stream\r\n");
+        headers.append("Cache-Control: no-cache\r\n");
+        headers.append("Connection: keep-alive\r\n");
+        headers.append("Access-Control-Allow-Origin: *\r\n");
+        headers.append("\r\n");
+
+        out.write(headers.toString().getBytes(StandardCharsets.UTF_8));
+        out.flush();
+
+        // Send initial connected event
+        sendSseEvent(out, "connected", Map.of(
+                "message", "Connected to event stream",
+                "serverTime", System.currentTimeMillis()
+        ));
+
+        // Register this client for events
+        sseClients.add(out);
+
+        // Keep connection alive with heartbeats
+        try {
+            while (running.get() && sseClients.contains(out)) {
+                Thread.sleep(15000); // 15 second heartbeat
+                sendSseComment(out, "heartbeat");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (IOException e) {
+            // Client disconnected
+        } finally {
+            sseClients.remove(out);
+            Log.i(TAG, "SSE client disconnected");
+        }
+    }
+
+    /**
+     * Broadcasts an event to all connected SSE clients.
+     */
+    private void broadcastEvent(String eventType, HttpTransaction tx) {
+        if (sseClients.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> data = transactionToMap(tx, false);
+        data.put("eventType", eventType);
+
+        for (OutputStream client : sseClients) {
+            try {
+                sendSseEvent(client, eventType, data);
+            } catch (IOException e) {
+                // Client disconnected, will be cleaned up
+                sseClients.remove(client);
+            }
+        }
+    }
+
+    /**
+     * Sends an SSE event to a client.
+     */
+    private void sendSseEvent(OutputStream out, String event, Object data) throws IOException {
+        String json = gson.toJson(data);
+        // SSE format: event: <type>\ndata: <json>\n\n
+        String sseMessage = "event: " + event + "\ndata: " + json + "\n\n";
+        synchronized (out) {
+            out.write(sseMessage.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+        }
+    }
+
+    /**
+     * Sends an SSE comment (for keepalive).
+     */
+    private void sendSseComment(OutputStream out, String comment) throws IOException {
+        String sseComment = ": " + comment + "\n\n";
+        synchronized (out) {
+            out.write(sseComment.getBytes(StandardCharsets.UTF_8));
+            out.flush();
         }
     }
 
