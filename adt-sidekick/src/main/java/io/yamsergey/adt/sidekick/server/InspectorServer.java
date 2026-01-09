@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.yamsergey.adt.sidekick.compose.ComposeInspector;
+import io.yamsergey.adt.sidekick.compose.ComposeHitTester;
 import io.yamsergey.adt.sidekick.network.HttpHeader;
 import io.yamsergey.adt.sidekick.network.HttpRequest;
 import io.yamsergey.adt.sidekick.network.HttpResponse;
@@ -233,6 +234,30 @@ public class InspectorServer {
             return;
         }
 
+        // Handle compose hit-test: /compose/select?x=N&y=N
+        if (path.startsWith("/compose/select")) {
+            handleComposeSelect(path, out);
+            return;
+        }
+
+        // Handle compose hit-test all layers: /compose/select-all?x=N&y=N
+        if (path.startsWith("/compose/select-all")) {
+            handleComposeSelectAll(path, out);
+            return;
+        }
+
+        // Handle compose find by ID: /compose/element/{id}
+        if (path.startsWith("/compose/element/") && path.length() > 17) {
+            String elementId = path.substring(17);
+            // Strip query params if present
+            int queryIndex = elementId.indexOf('?');
+            if (queryIndex > 0) {
+                elementId = elementId.substring(0, queryIndex);
+            }
+            handleComposeElementById(elementId, out);
+            return;
+        }
+
         switch (path) {
             case "/":
                 handleHomeUI(out);
@@ -252,6 +277,9 @@ public class InspectorServer {
                 break;
             case "/compose/tree":
                 handleComposeTree(out);
+                break;
+            case "/compose/screenshot":
+                handleComposeScreenshot(out);
                 break;
             case "/network/requests":
                 handleNetworkRequests(out);
@@ -290,6 +318,10 @@ public class InspectorServer {
                 "/compose/hierarchy",
                 "/compose/semantics",
                 "/compose/tree",
+                "/compose/screenshot",
+                "/compose/select?x=N&y=N",
+                "/compose/select-all?x=N&y=N",
+                "/compose/element/{id}",
                 "/network/requests",
                 "/network/requests/{id}",
                 "/network/clear",
@@ -372,6 +404,233 @@ public class InspectorServer {
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
         }
+    }
+
+    /**
+     * GET /compose/screenshot - Capture a screenshot of the current screen.
+     */
+    private void handleComposeScreenshot(OutputStream out) throws IOException {
+        try {
+            byte[] screenshot = runOnMainThread(() -> {
+                android.app.Activity activity = getCurrentActivity();
+                if (activity == null) {
+                    return null;
+                }
+                return ComposeHitTester.captureScreenshot(activity.getWindow());
+            });
+
+            if (screenshot == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Failed to capture screenshot");
+                error.put("hint", "Make sure the app has a visible activity");
+                sendJson(out, 500, error);
+                return;
+            }
+
+            sendPng(out, screenshot);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error capturing screenshot", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /compose/select?x=N&y=N - Find the element at given coordinates.
+     */
+    private void handleComposeSelect(String path, OutputStream out) throws IOException {
+        try {
+            // Parse query parameters
+            Map<String, String> params = parseQueryParams(path);
+            String xStr = params.get("x");
+            String yStr = params.get("y");
+
+            if (xStr == null || yStr == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Missing required parameters");
+                error.put("usage", "/compose/select?x=150&y=300");
+                sendJson(out, 400, error);
+                return;
+            }
+
+            int x = Integer.parseInt(xStr);
+            int y = Integer.parseInt(yStr);
+
+            ComposeHitTester.HitResult result = runOnMainThread(() ->
+                ComposeHitTester.hitTest(x, y)
+            );
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("x", x);
+            response.put("y", y);
+            response.put("found", result.found);
+
+            if (result.found) {
+                response.put("element", result.element);
+                response.put("ancestors", result.ancestors);
+            }
+
+            sendJson(out, 200, response);
+
+        } catch (NumberFormatException e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Invalid coordinates - must be integers");
+            sendJson(out, 400, error);
+        } catch (Exception e) {
+            Log.e(TAG, "Error in hit test", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /compose/select-all?x=N&y=N - Find all elements at given coordinates (all layers).
+     */
+    private void handleComposeSelectAll(String path, OutputStream out) throws IOException {
+        try {
+            Map<String, String> params = parseQueryParams(path);
+            String xStr = params.get("x");
+            String yStr = params.get("y");
+
+            if (xStr == null || yStr == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Missing required parameters");
+                error.put("usage", "/compose/select-all?x=150&y=300");
+                sendJson(out, 400, error);
+                return;
+            }
+
+            int x = Integer.parseInt(xStr);
+            int y = Integer.parseInt(yStr);
+
+            java.util.List<Map<String, Object>> elements = runOnMainThread(() ->
+                ComposeHitTester.hitTestAll(x, y)
+            );
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("x", x);
+            response.put("y", y);
+            response.put("count", elements.size());
+            response.put("elements", elements);
+
+            sendJson(out, 200, response);
+
+        } catch (NumberFormatException e) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Invalid coordinates - must be integers");
+            sendJson(out, 400, error);
+        } catch (Exception e) {
+            Log.e(TAG, "Error in hit test all", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /compose/element/{id} - Find element by ID.
+     */
+    private void handleComposeElementById(String elementId, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> element = runOnMainThread(() ->
+                ComposeHitTester.findById(elementId)
+            );
+
+            if (element == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Element not found");
+                error.put("id", elementId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            sendJson(out, 200, element);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error finding element", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * Parses query parameters from a URL path.
+     */
+    private Map<String, String> parseQueryParams(String path) {
+        Map<String, String> params = new HashMap<>();
+        int queryIndex = path.indexOf('?');
+        if (queryIndex < 0) {
+            return params;
+        }
+
+        String queryString = path.substring(queryIndex + 1);
+        String[] pairs = queryString.split("&");
+        for (String pair : pairs) {
+            int eqIndex = pair.indexOf('=');
+            if (eqIndex > 0) {
+                String key = pair.substring(0, eqIndex);
+                String value = pair.substring(eqIndex + 1);
+                params.put(key, value);
+            }
+        }
+        return params;
+    }
+
+    /**
+     * Gets the current foreground Activity.
+     */
+    private android.app.Activity getCurrentActivity() {
+        try {
+            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
+            java.lang.reflect.Method currentMethod = activityThreadClass.getDeclaredMethod("currentActivityThread");
+            Object activityThread = currentMethod.invoke(null);
+
+            java.lang.reflect.Field activitiesField = activityThreadClass.getDeclaredField("mActivities");
+            activitiesField.setAccessible(true);
+            Object activitiesMap = activitiesField.get(activityThread);
+
+            if (activitiesMap instanceof Map) {
+                for (Object activityRecord : ((Map<?, ?>) activitiesMap).values()) {
+                    java.lang.reflect.Field activityField = activityRecord.getClass().getDeclaredField("activity");
+                    activityField.setAccessible(true);
+                    android.app.Activity activity = (android.app.Activity) activityField.get(activityRecord);
+
+                    if (activity != null) {
+                        java.lang.reflect.Field pausedField = activityRecord.getClass().getDeclaredField("paused");
+                        pausedField.setAccessible(true);
+                        boolean paused = pausedField.getBoolean(activityRecord);
+
+                        if (!paused) {
+                            return activity;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting current activity", e);
+        }
+        return null;
+    }
+
+    /**
+     * Sends a PNG image response.
+     */
+    private void sendPng(OutputStream out, byte[] pngData) throws IOException {
+        StringBuilder response = new StringBuilder();
+        response.append("HTTP/1.1 200 OK\r\n");
+        response.append("Content-Type: image/png\r\n");
+        response.append("Content-Length: ").append(pngData.length).append("\r\n");
+        response.append("Cache-Control: no-cache\r\n");
+        response.append("Connection: close\r\n");
+        response.append("\r\n");
+
+        out.write(response.toString().getBytes(StandardCharsets.UTF_8));
+        out.write(pngData);
+        out.flush();
     }
 
     // =========================================================================
