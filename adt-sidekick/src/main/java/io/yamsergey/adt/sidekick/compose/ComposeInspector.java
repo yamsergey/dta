@@ -624,6 +624,49 @@ public class ComposeInspector {
         "ProvideContentColorTextStyle.kt"
     ));
 
+    // Composables to skip entirely in the tree (promote their children to parent)
+    // These are internal wrappers that add no value to the user-facing tree
+    private static final java.util.Set<String> SKIP_COMPOSABLES = new java.util.HashSet<>(java.util.Arrays.asList(
+        // Animation internal wrappers
+        "AnimatedEnterExitImpl", "AnimatedContentScope",
+        // State/composition holders
+        "LocalOwnersProvider", "LazySaveableStateHolderProvider",
+        "LazyLayoutPinnableItem", "SaveableStateProvider",
+        // Navigation internals
+        "NavBackStackEntryProvider",
+        // Content styling wrappers
+        "ProvideContentColorTextStyle", "ProvideTextStyle",
+        // Lazy layout internals
+        "LazyLayoutItemContentFactory", "LazyListItemProvider"
+    ));
+
+    // Mapping of parent composables to child composables that should be collapsed
+    // When a parent has only these children, collapse them and promote grandchildren
+    private static final java.util.Map<String, java.util.Set<String>> COLLAPSE_CHILDREN;
+    static {
+        COLLAPSE_CHILDREN = new java.util.HashMap<>();
+        // Button's internal Row should be hidden - promote its children (Text) directly
+        COLLAPSE_CHILDREN.put("Button", new java.util.HashSet<>(java.util.Arrays.asList("Row")));
+        // Card's internal Surface/Box should be hidden
+        COLLAPSE_CHILDREN.put("Card", new java.util.HashSet<>(java.util.Arrays.asList("Surface", "Box")));
+        // Surface's internal Box should be hidden
+        COLLAPSE_CHILDREN.put("Surface", new java.util.HashSet<>(java.util.Arrays.asList("Box")));
+    }
+
+    /**
+     * Normalizes composable names for cleaner display.
+     * Maps internal names to user-friendly names.
+     */
+    private static String normalizeComposableName(String name) {
+        if (name == null) return null;
+        switch (name) {
+            case "BasicText": return "Text";
+            case "BasicTextField": return "TextField";
+            case "LazyLayout": return "LazyColumn"; // Common case - could also be LazyRow
+            default: return name;
+        }
+    }
+
     /**
      * Checks if a composable name represents a user-level composable.
      * Filters out internal Compose runtime and foundation infrastructure.
@@ -1300,11 +1343,24 @@ public class ComposeInspector {
                 composable = detectComposableType(layoutNode, className);
             }
 
-            node.put("composable", composable);
+            // Normalize composable name for cleaner display (BasicText -> Text, etc.)
+            String displayComposable = normalizeComposableName(composable);
+            node.put("composable", displayComposable);
 
             // Add source file and line number if available from CompositionData
+            // For library composables, add (inline) annotation; for user code, show source file without .kt
             if (sourceFile != null) {
-                node.put("sourceFile", sourceFile);
+                boolean isLibrary = LIBRARY_SOURCE_FILES.contains(sourceFile);
+                if (!isLibrary) {
+                    // User code - show file name without .kt extension
+                    String cleanSourceFile = sourceFile.endsWith(".kt")
+                        ? sourceFile.substring(0, sourceFile.length() - 3)
+                        : sourceFile;
+                    node.put("sourceFile", cleanSourceFile);
+                } else {
+                    // Library code - mark as inline (like Android Studio does)
+                    node.put("inline", true);
+                }
             }
             if (lineNumber > 0) {
                 node.put("lineNumber", lineNumber);
@@ -1312,8 +1368,8 @@ public class ComposeInspector {
 
             // Add class name - use the final composable name (after semantic role override)
             // This ensures className matches composable for consistency
-            if (composable != null) {
-                node.put("className", composable);
+            if (displayComposable != null) {
+                node.put("className", displayComposable);
             } else if (className != null) {
                 // Fallback to MeasurePolicy class info when no composable detected
                 ClassInfo classInfo = extractClassInfo(className);
@@ -1323,24 +1379,45 @@ public class ComposeInspector {
                 if (classInfo.packageName != null) {
                     node.put("packageName", classInfo.packageName);
                 }
-                // Only use MeasurePolicy source file if we don't have one from CompositionData
-                if (sourceFile == null && classInfo.sourceFile != null) {
-                    node.put("sourceFile", classInfo.sourceFile);
-                }
             }
 
             // Generate stable ID for this node
             node.put("id", generateNodeId(layoutNode, depth));
 
             // Recurse children - pass current (already clipped) bounds as parent bounds for clipping
+            // Apply skip/collapse logic based on Android Studio's presentation style
             int[] currentBounds = new int[] { left, top, right, bottom };
             List<Object> children = getLayoutNodeChildren(layoutNode);
             if (!children.isEmpty()) {
                 List<Map<String, Object>> childNodes = new ArrayList<>();
+                java.util.Set<String> childrenToCollapse = COLLAPSE_CHILDREN.get(displayComposable);
+
                 for (Object child : children) {
                     Map<String, Object> childNode = captureUnifiedNode(child, viewOffsetX, viewOffsetY, depth + 1, semanticsById, composableInfoMap, currentBounds);
                     if (childNode != null) {
-                        childNodes.add(childNode);
+                        String childComposable = (String) childNode.get("composable");
+
+                        // Check if this child should be skipped (promote its children)
+                        if (childComposable != null && SKIP_COMPOSABLES.contains(childComposable)) {
+                            // Skip this node, add its children instead
+                            @SuppressWarnings("unchecked")
+                            List<Map<String, Object>> grandchildren = (List<Map<String, Object>>) childNode.get("children");
+                            if (grandchildren != null) {
+                                childNodes.addAll(grandchildren);
+                            }
+                        }
+                        // Check if this child should be collapsed (parent dictates)
+                        else if (childrenToCollapse != null && childComposable != null && childrenToCollapse.contains(childComposable)) {
+                            // Collapse this child, promote its children
+                            @SuppressWarnings("unchecked")
+                            List<Map<String, Object>> grandchildren = (List<Map<String, Object>>) childNode.get("children");
+                            if (grandchildren != null) {
+                                childNodes.addAll(grandchildren);
+                            }
+                        }
+                        else {
+                            childNodes.add(childNode);
+                        }
                     }
                 }
                 if (!childNodes.isEmpty()) {
