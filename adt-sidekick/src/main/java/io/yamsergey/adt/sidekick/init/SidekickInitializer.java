@@ -11,6 +11,7 @@ import androidx.startup.Initializer;
 import java.util.Collections;
 import java.util.List;
 
+import io.yamsergey.adt.sidekick.compose.ComposeInspector;
 import io.yamsergey.adt.sidekick.events.EventStore;
 import io.yamsergey.adt.sidekick.jvmti.JvmtiAgent;
 import io.yamsergey.adt.sidekick.network.OkHttpExecuteHook;
@@ -42,6 +43,10 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
     @Override
     public InspectorServer create(@NonNull Context context) {
         Log.i(TAG, "Initializing ADT Sidekick...");
+
+        // Enable Compose inspection mode FIRST - must happen before any Compose UI is created
+        // This enables CompositionData population for accurate composable names
+        enableComposeInspection();
 
         // Initialize EventStore for binary event capture
         initializeEventStore(context);
@@ -119,6 +124,26 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to register network hooks", e);
+        }
+    }
+
+    /**
+     * Enables Compose inspection mode to populate CompositionData for accurate composable names.
+     *
+     * <p>This sets {@code isDebugInspectorInfoEnabled = true} in the Compose runtime,
+     * which causes the {@code inspection_slot_table_set} tag to be populated on ComposeViews.
+     * This must be called BEFORE any Compose UI is created.</p>
+     */
+    private void enableComposeInspection() {
+        try {
+            boolean enabled = ComposeInspector.enableInspection();
+            if (enabled) {
+                Log.i(TAG, "Compose inspection mode enabled");
+            } else {
+                Log.w(TAG, "Compose inspection mode could not be enabled (Compose may not be available yet)");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to enable Compose inspection mode", e);
         }
     }
 

@@ -116,6 +116,152 @@
             opacity: 0; transition: opacity 0.3s; z-index: 1000;
         }
         .toast.show { opacity: 1; }
+
+        /* Layout Inspector */
+        .inspector-layout {
+            display: flex;
+            gap: 16px;
+            height: calc(100vh - 140px);
+        }
+        .inspector-left {
+            flex: 0 0 50%;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .inspector-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .screenshot-container {
+            position: relative;
+            background: #111;
+            border-radius: 8px;
+            overflow: hidden;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .screenshot-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .screenshot-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .element-box {
+            position: absolute;
+            border: 2px solid #4caf50;
+            background: rgba(76, 175, 80, 0.1);
+            pointer-events: none;
+            transition: all 0.15s;
+        }
+        .element-box.hover {
+            border-color: #2196f3;
+            background: rgba(33, 150, 243, 0.1);
+        }
+        .element-box.multi {
+            border-color: #ff9800;
+            background: rgba(255, 152, 0, 0.1);
+        }
+        .hover-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 100;
+            pointer-events: none;
+        }
+        .tree-panel {
+            flex: 1;
+            overflow: auto;
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 8px;
+        }
+        .tree-node {
+            padding: 4px 8px;
+            margin: 2px 0;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tree-node:hover { background: #2a2a2a; }
+        .tree-node.selected { background: #1e3a1e; border: 1px solid #4caf50; }
+        .tree-node.hovered { background: #1e2a3a; }
+        .tree-node.multi-selected { background: #3a2a1e; border: 1px solid #ff9800; }
+        .tree-toggle {
+            width: 16px;
+            text-align: center;
+            color: #666;
+            cursor: pointer;
+        }
+        .tree-name { color: #ce9178; }
+        .tree-text { color: #6a9955; font-size: 11px; margin-left: 4px; }
+        .tree-children { margin-left: 16px; }
+
+        .element-detail {
+            background: #1e1e1e;
+            border-radius: 8px;
+            padding: 16px;
+            max-height: 300px;
+            overflow: auto;
+        }
+        .detail-row {
+            display: flex;
+            padding: 4px 0;
+            font-size: 13px;
+        }
+        .detail-label { width: 120px; color: #888; }
+        .detail-value { flex: 1; word-break: break-all; }
+        .detail-value.code { font-family: monospace; color: #ce9178; }
+        .detail-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .ancestors {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .ancestor-chip {
+            background: #333;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            color: #888;
+        }
+        .ancestor-chip:last-child { color: #4caf50; background: #1e3a1e; }
+        .multi-select-bar {
+            background: #2a2a1e;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -146,6 +292,12 @@
                     <h2>Network</h2>
                     <p>Monitor HTTP requests and responses</p>
                     <button class="btn" @click="view = 'network'">View Network Traffic</button>
+                </div>
+
+                <div class="card">
+                    <h2>Layout Inspector</h2>
+                    <p>Visually inspect Compose UI hierarchy</p>
+                    <button class="btn" @click="openLayoutInspector">Open Layout Inspector</button>
                 </div>
 
                 <div class="card">
@@ -307,15 +459,261 @@
                 </div>
             </template>
 
+            <!-- Layout Inspector View -->
+            <template v-else-if="view === 'inspector'">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <h1>Layout Inspector</h1>
+                    </div>
+                    <div>
+                        <button class="btn btn-secondary" @click="view = 'home'">Home</button>
+                        <button class="btn btn-secondary" @click="refreshScreenshot">Refresh</button>
+                        <button class="btn btn-secondary" v-if="multiSelectedElements.length > 0"
+                                @click="clearMultiSelect">Clear Selection ({{ multiSelectedElements.length }})</button>
+                        <button class="btn btn-secondary" v-if="selectedElement || multiSelectedElements.length > 0"
+                                @click="exportSelectedElements">Export</button>
+                    </div>
+                </div>
+
+                <div v-if="inspectorError" class="card" style="color: #f44336;">
+                    {{ inspectorError }}
+                </div>
+
+                <div v-else class="inspector-layout">
+                    <!-- Left: Screenshot -->
+                    <div class="inspector-left">
+                        <div class="screenshot-container"
+                             @click="onScreenshotClick"
+                             @mousemove="onScreenshotHover"
+                             @mouseleave="onScreenshotLeave"
+                             ref="screenshotContainer">
+                            <img v-if="screenshotUrl" :src="screenshotUrl" ref="screenshotImg"
+                                 @load="onScreenshotLoad" draggable="false">
+                            <div v-else style="color: #666;">Loading screenshot...</div>
+
+                            <!-- Overlay for bounding boxes -->
+                            <!-- viewBox uses screen dimensions since bounds from localToScreen are in screen coordinates -->
+                            <svg v-if="screenshotLoaded" class="screenshot-overlay"
+                                 :view-box.camel="'0 0 ' + overlayViewBoxWidth + ' ' + overlayViewBoxHeight"
+                                 :style="overlayStyle">
+                                <!-- Hover box - subtract window offset to convert screen coords to window coords -->
+                                <rect v-if="hoveredElement && !isSelected(hoveredElement)"
+                                      :x="hoveredElement.bounds.left - windowOffsetX"
+                                      :y="hoveredElement.bounds.top - windowOffsetY"
+                                      :width="hoveredElement.bounds.right - hoveredElement.bounds.left"
+                                      :height="hoveredElement.bounds.bottom - hoveredElement.bounds.top"
+                                      fill="rgba(33, 150, 243, 0.15)"
+                                      stroke="#2196f3"
+                                      stroke-width="2"/>
+                                <!-- Selected box -->
+                                <rect v-if="selectedElement"
+                                      :x="selectedElement.bounds.left - windowOffsetX"
+                                      :y="selectedElement.bounds.top - windowOffsetY"
+                                      :width="selectedElement.bounds.right - selectedElement.bounds.left"
+                                      :height="selectedElement.bounds.bottom - selectedElement.bounds.top"
+                                      fill="rgba(76, 175, 80, 0.15)"
+                                      stroke="#4caf50"
+                                      stroke-width="3"/>
+                                <!-- Multi-selected boxes -->
+                                <rect v-for="el in multiSelectedElements" :key="el.id"
+                                      :x="el.bounds.left - windowOffsetX"
+                                      :y="el.bounds.top - windowOffsetY"
+                                      :width="el.bounds.right - el.bounds.left"
+                                      :height="el.bounds.bottom - el.bounds.top"
+                                      fill="rgba(255, 152, 0, 0.15)"
+                                      stroke="#ff9800"
+                                      stroke-width="2"/>
+                            </svg>
+
+                            <!-- Hover tooltip -->
+                            <div v-if="hoveredElement && hoverTooltipPos" class="hover-tooltip"
+                                 :style="{ left: hoverTooltipPos.x + 'px', top: hoverTooltipPos.y + 'px' }">
+                                {{ hoveredElement.composable }}
+                                <span v-if="hoveredElement.text" style="color: #6a9955;"> "{{ truncate(hoveredElement.text, 20) }}"</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Tree + Details -->
+                    <div class="inspector-right">
+                        <!-- Multi-select bar -->
+                        <div v-if="multiSelectedElements.length > 0" class="multi-select-bar">
+                            <span>{{ multiSelectedElements.length }} elements selected (Shift+click to add more)</span>
+                            <button class="btn-small" @click="clearMultiSelect">Clear</button>
+                        </div>
+
+                        <!-- Tree View -->
+                        <div class="tree-panel" style="margin-bottom: 16px;">
+                            <div v-if="composeTree">
+                                <tree-node :node="composeTree.root"
+                                           :selected-id="selectedElement?.id"
+                                           :hovered-id="hoveredElement?.id"
+                                           :multi-selected-ids="multiSelectedIds"
+                                           @select="onTreeSelect"
+                                           @hover="onTreeHover"/>
+                            </div>
+                            <div v-else style="color: #666; padding: 16px;">Loading tree...</div>
+                        </div>
+
+                        <!-- Element Details -->
+                        <div v-if="selectedElement" class="element-detail">
+                            <div class="detail-title">
+                                <span>{{ selectedElement.composable }}</span>
+                                <button class="btn-small" @click="exportSelectedElements">Export JSON</button>
+                            </div>
+                            <div v-if="selectedAncestors.length > 0" class="ancestors">
+                                <span v-for="(a, i) in selectedAncestors" :key="i" class="ancestor-chip">{{ a }}</span>
+                                <span class="ancestor-chip">{{ selectedElement.composable }}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Bounds</span>
+                                <span class="detail-value code">
+                                    [{{ selectedElement.bounds.left }}, {{ selectedElement.bounds.top }},
+                                    {{ selectedElement.bounds.right }}, {{ selectedElement.bounds.bottom }}]
+                                </span>
+                            </div>
+                            <div v-if="selectedElement.className" class="detail-row">
+                                <span class="detail-label">Class</span>
+                                <span class="detail-value code">{{ selectedElement.className }}</span>
+                            </div>
+                            <div v-if="selectedElement.packageName" class="detail-row">
+                                <span class="detail-label">Package</span>
+                                <span class="detail-value code">{{ selectedElement.packageName }}</span>
+                            </div>
+                            <div v-if="selectedElement.sourceFile" class="detail-row">
+                                <span class="detail-label">Source</span>
+                                <span class="detail-value code">{{ selectedElement.sourceFile }}</span>
+                            </div>
+                            <div v-if="selectedElement.text" class="detail-row">
+                                <span class="detail-label">Text</span>
+                                <span class="detail-value">"{{ selectedElement.text }}"</span>
+                            </div>
+                            <div v-if="selectedElement.role" class="detail-row">
+                                <span class="detail-label">Role</span>
+                                <span class="detail-value">{{ selectedElement.role }}</span>
+                            </div>
+                            <div v-if="selectedElement.testTag" class="detail-row">
+                                <span class="detail-label">Test Tag</span>
+                                <span class="detail-value code">{{ selectedElement.testTag }}</span>
+                            </div>
+                            <div v-if="selectedElement.contentDescription" class="detail-row">
+                                <span class="detail-label">Content Desc</span>
+                                <span class="detail-value">{{ selectedElement.contentDescription }}</span>
+                            </div>
+                            <div v-if="selectedElement.semanticsId" class="detail-row">
+                                <span class="detail-label">Semantics ID</span>
+                                <span class="detail-value">{{ selectedElement.semanticsId }}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">ID</span>
+                                <span class="detail-value code">{{ selectedElement.id }}</span>
+                            </div>
+                        </div>
+                        <div v-else class="element-detail" style="color: #666; text-align: center;">
+                            Click on the screenshot or tree to select an element
+                        </div>
+                    </div>
+                </div>
+            </template>
+
             <!-- Toast notification -->
             <div class="toast" :class="{ show: toastVisible }">{{ toastMessage }}</div>
         </div>
     </div>
 
     <script>
-        const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
+        const { createApp, ref, computed, onMounted, onUnmounted, watch, h } = Vue;
 
-        createApp({
+        // Tree Node Component
+        const TreeNode = {
+            name: 'TreeNode',
+            props: ['node', 'selectedId', 'hoveredId', 'multiSelectedIds', 'depth'],
+            emits: ['select', 'hover'],
+            setup(props, { emit }) {
+                const expanded = ref(true);
+                const hasChildren = computed(() => props.node?.children?.length > 0);
+                const isSelected = computed(() => props.node?.id === props.selectedId);
+                const isHovered = computed(() => props.node?.id === props.hoveredId && !isSelected.value);
+                const isMultiSelected = computed(() => props.multiSelectedIds?.includes(props.node?.id));
+
+                function toggle(e) {
+                    e.stopPropagation();
+                    expanded.value = !expanded.value;
+                }
+
+                function onSelect(e) {
+                    emit('select', props.node, e.shiftKey);
+                }
+
+                function onHover() {
+                    emit('hover', props.node);
+                }
+
+                function onLeave() {
+                    emit('hover', null);
+                }
+
+                function truncateText(text, len) {
+                    if (!text) return '';
+                    return text.length > len ? text.substring(0, len) + '...' : text;
+                }
+
+                return () => {
+                    if (!props.node) return null;
+                    const depth = props.depth || 0;
+
+                    const nodeClasses = ['tree-node'];
+                    if (isSelected.value) nodeClasses.push('selected');
+                    if (isHovered.value) nodeClasses.push('hovered');
+                    if (isMultiSelected.value) nodeClasses.push('multi-selected');
+
+                    const children = [];
+
+                    // Toggle icon
+                    children.push(h('span', {
+                        class: 'tree-toggle',
+                        onClick: toggle
+                    }, hasChildren.value ? (expanded.value ? '▼' : '▶') : ' '));
+
+                    // Composable name
+                    children.push(h('span', { class: 'tree-name' }, props.node.composable || 'Unknown'));
+
+                    // Text preview
+                    if (props.node.text) {
+                        children.push(h('span', { class: 'tree-text' }, '"' + truncateText(props.node.text, 15) + '"'));
+                    }
+
+                    const elements = [
+                        h('div', {
+                            class: nodeClasses.join(' '),
+                            onClick: onSelect,
+                            onMouseenter: onHover,
+                            onMouseleave: onLeave
+                        }, children)
+                    ];
+
+                    // Render children
+                    if (hasChildren.value && expanded.value) {
+                        const childElements = props.node.children.map(child =>
+                            h(TreeNode, {
+                                node: child,
+                                selectedId: props.selectedId,
+                                hoveredId: props.hoveredId,
+                                multiSelectedIds: props.multiSelectedIds,
+                                depth: depth + 1,
+                                onSelect: (n, shift) => emit('select', n, shift),
+                                onHover: (n) => emit('hover', n)
+                            })
+                        );
+                        elements.push(h('div', { class: 'tree-children' }, childElements));
+                    }
+
+                    return h('div', elements);
+                };
+            }
+        };
+
+        const app = createApp({
             setup() {
                 // State
                 const view = ref('home');
@@ -332,6 +730,77 @@
                 const latestTimestamp = ref(0);
                 const toastMessage = ref('');
                 const toastVisible = ref(false);
+
+                // Layout Inspector state
+                const screenshotUrl = ref(null);
+                const screenshotLoaded = ref(false);
+                const screenshotNaturalWidth = ref(0);
+                const screenshotNaturalHeight = ref(0);
+                const composeTree = ref(null);
+                const selectedElement = ref(null);
+                const selectedAncestors = ref([]);
+                const hoveredElement = ref(null);
+                const hoverTooltipPos = ref(null);
+                const multiSelectedElements = ref([]);
+                const inspectorError = ref(null);
+                // Use proxy endpoints (same origin) to avoid CORS issues
+                const apiBaseUrl = ref('/api/compose');
+                const screenshotContainer = ref(null);
+                const screenshotImg = ref(null);
+
+                const multiSelectedIds = computed(() => multiSelectedElements.value.map(e => e.id));
+
+                // ViewBox should match the screenshot's natural dimensions
+                // This ensures bounds coordinates map correctly to the overlay
+                const overlayViewBoxWidth = computed(() => {
+                    return screenshotNaturalWidth.value || composeTree.value?.screen?.screenWidth || 1080;
+                });
+                const overlayViewBoxHeight = computed(() => {
+                    return screenshotNaturalHeight.value || composeTree.value?.screen?.screenHeight || 2400;
+                });
+
+                // Window offset - bounds from localToScreen are absolute screen coords,
+                // but screenshot is captured from window which may be offset (e.g., status bar)
+                const windowOffsetX = computed(() => {
+                    return composeTree.value?.screen?.windowOffsetX || 0;
+                });
+                const windowOffsetY = computed(() => {
+                    return composeTree.value?.screen?.windowOffsetY || 0;
+                });
+
+                // Calculate the actual rendered image area within the img element
+                // accounting for object-fit: contain which scales and centers the image
+                function getRenderedImageRect(img) {
+                    const containerW = img.clientWidth;
+                    const containerH = img.clientHeight;
+                    const imgW = img.naturalWidth;
+                    const imgH = img.naturalHeight;
+
+                    // object-fit: contain scales uniformly to fit within container
+                    const scale = Math.min(containerW / imgW, containerH / imgH);
+                    const renderedW = imgW * scale;
+                    const renderedH = imgH * scale;
+                    // Content is centered within the element
+                    const renderedX = (containerW - renderedW) / 2;
+                    const renderedY = (containerH - renderedH) / 2;
+
+                    return { x: renderedX, y: renderedY, width: renderedW, height: renderedH };
+                }
+
+                const overlayStyle = computed(() => {
+                    if (!screenshotImg.value || !screenshotLoaded.value) return {};
+                    const img = screenshotImg.value;
+
+                    // Get the actual rendered image area (accounting for object-fit: contain)
+                    const rect = getRenderedImageRect(img);
+
+                    return {
+                        width: rect.width + 'px',
+                        height: rect.height + 'px',
+                        left: (img.offsetLeft + rect.x) + 'px',
+                        top: (img.offsetTop + rect.y) + 'px'
+                    };
+                });
 
                 let pollInterval = null;
                 let statusInterval = null;
@@ -599,6 +1068,221 @@
                     }
                 }
 
+                // =====================================================
+                // Layout Inspector Methods
+                // =====================================================
+
+                async function openLayoutInspector() {
+                    view.value = 'inspector';
+                    inspectorError.value = null;
+                    await refreshScreenshot();
+                }
+
+                async function refreshScreenshot() {
+                    screenshotLoaded.value = false;
+                    try {
+                        // Fetch screenshot via proxy
+                        const screenshotRes = await fetch(apiBaseUrl.value + '/screenshot', {
+                            credentials: 'same-origin'
+                        });
+                        if (!screenshotRes.ok) {
+                            throw new Error('Failed to capture screenshot');
+                        }
+                        const blob = await screenshotRes.blob();
+                        screenshotUrl.value = URL.createObjectURL(blob);
+
+                        // Fetch compose tree via proxy
+                        const treeRes = await fetch(apiBaseUrl.value + '/tree', {
+                            credentials: 'same-origin'
+                        });
+                        if (treeRes.ok) {
+                            composeTree.value = await treeRes.json();
+                        }
+
+                        inspectorError.value = null;
+                    } catch (e) {
+                        inspectorError.value = 'Failed to connect to agent. Make sure the app with ADT Sidekick is running and ADB port forwarding is enabled (adb forward tcp:8642 tcp:8642). Error: ' + e.message;
+                        console.error('Inspector error:', e);
+                    }
+                }
+
+                function onScreenshotLoad() {
+                    const img = screenshotImg.value;
+                    if (img) {
+                        screenshotNaturalWidth.value = img.naturalWidth;
+                        screenshotNaturalHeight.value = img.naturalHeight;
+                        screenshotLoaded.value = true;
+                    }
+                }
+
+                async function onScreenshotClick(e) {
+                    if (!screenshotLoaded.value || !screenshotImg.value) return;
+
+                    const coords = getScreenCoordinates(e);
+                    if (!coords) return;
+
+                    try {
+                        const res = await fetch(
+                            `${apiBaseUrl.value}/select?x=${coords.x}&y=${coords.y}`,
+                            { credentials: 'same-origin' }
+                        );
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.found) {
+                                if (e.shiftKey) {
+                                    // Multi-select
+                                    toggleMultiSelect(data.element);
+                                } else {
+                                    // Single select
+                                    selectedElement.value = data.element;
+                                    selectedAncestors.value = data.ancestors || [];
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Hit test error:', err);
+                    }
+                }
+
+                async function onScreenshotHover(e) {
+                    if (!screenshotLoaded.value || !screenshotImg.value) return;
+
+                    const coords = getScreenCoordinates(e);
+                    if (!coords) {
+                        hoveredElement.value = null;
+                        hoverTooltipPos.value = null;
+                        return;
+                    }
+
+                    // Debounce - only fetch if significantly moved
+                    const container = screenshotContainer.value;
+                    const rect = container.getBoundingClientRect();
+                    hoverTooltipPos.value = {
+                        x: e.clientX - rect.left + 15,
+                        y: e.clientY - rect.top + 15
+                    };
+
+                    // Find element from tree (local, no API call for hover)
+                    if (composeTree.value?.root) {
+                        hoveredElement.value = findElementAtPoint(composeTree.value.root, coords.x, coords.y);
+                    }
+                }
+
+                function onScreenshotLeave() {
+                    hoveredElement.value = null;
+                    hoverTooltipPos.value = null;
+                }
+
+                function getScreenCoordinates(e) {
+                    const img = screenshotImg.value;
+                    if (!img) return null;
+
+                    const rect = img.getBoundingClientRect();
+                    const scaleX = img.naturalWidth / img.clientWidth;
+                    const scaleY = img.naturalHeight / img.clientHeight;
+
+                    const x = Math.round((e.clientX - rect.left) * scaleX);
+                    const y = Math.round((e.clientY - rect.top) * scaleY);
+
+                    if (x < 0 || y < 0 || x > img.naturalWidth || y > img.naturalHeight) {
+                        return null;
+                    }
+
+                    return { x, y };
+                }
+
+                function findElementAtPoint(node, x, y) {
+                    if (!node?.bounds) return null;
+
+                    const b = node.bounds;
+                    if (x < b.left || x > b.right || y < b.top || y > b.bottom) {
+                        return null;
+                    }
+
+                    // Check children (deepest first)
+                    if (node.children) {
+                        for (let i = node.children.length - 1; i >= 0; i--) {
+                            const found = findElementAtPoint(node.children[i], x, y);
+                            if (found) return found;
+                        }
+                    }
+
+                    return node;
+                }
+
+                function onTreeSelect(node, shiftKey) {
+                    if (shiftKey) {
+                        toggleMultiSelect(node);
+                    } else {
+                        selectedElement.value = node;
+                        selectedAncestors.value = findAncestors(composeTree.value?.root, node.id) || [];
+                    }
+                }
+
+                function onTreeHover(node) {
+                    hoveredElement.value = node;
+                }
+
+                function findAncestors(node, targetId, path = []) {
+                    if (!node) return null;
+                    if (node.id === targetId) return path;
+
+                    if (node.children) {
+                        for (const child of node.children) {
+                            const result = findAncestors(child, targetId, [...path, node.composable]);
+                            if (result) return result;
+                        }
+                    }
+                    return null;
+                }
+
+                function isSelected(element) {
+                    if (!element) return false;
+                    return element.id === selectedElement.value?.id ||
+                           multiSelectedIds.value.includes(element.id);
+                }
+
+                function toggleMultiSelect(element) {
+                    const idx = multiSelectedElements.value.findIndex(e => e.id === element.id);
+                    if (idx >= 0) {
+                        multiSelectedElements.value.splice(idx, 1);
+                    } else {
+                        multiSelectedElements.value.push(element);
+                    }
+                }
+
+                function clearMultiSelect() {
+                    multiSelectedElements.value = [];
+                }
+
+                function exportSelectedElements() {
+                    const elements = [];
+                    if (selectedElement.value) {
+                        elements.push(selectedElement.value);
+                    }
+                    elements.push(...multiSelectedElements.value);
+
+                    if (elements.length === 0) {
+                        showToast('No elements selected');
+                        return;
+                    }
+
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const filename = elements.length === 1
+                        ? `element_${elements[0].composable}_${timestamp}.json`
+                        : `elements_${elements.length}_${timestamp}.json`;
+
+                    const data = elements.length === 1 ? elements[0] : elements;
+                    const json = JSON.stringify(data, null, 2);
+                    downloadFile(json, filename, 'application/json');
+                    showToast(`Exported ${elements.length} element(s)`);
+                }
+
+                function truncate(text, len) {
+                    if (!text) return '';
+                    return text.length > len ? text.substring(0, len) + '...' : text;
+                }
+
                 // Lifecycle
                 onMounted(async () => {
                     await fetchStatus();
@@ -642,10 +1326,46 @@
                     copyBody,
                     downloadBody,
                     exportTransaction,
-                    exportAllTransactions
+                    exportAllTransactions,
+                    // Layout Inspector
+                    screenshotUrl,
+                    screenshotLoaded,
+                    screenshotNaturalWidth,
+                    screenshotNaturalHeight,
+                    composeTree,
+                    selectedElement,
+                    selectedAncestors,
+                    hoveredElement,
+                    hoverTooltipPos,
+                    multiSelectedElements,
+                    multiSelectedIds,
+                    inspectorError,
+                    overlayStyle,
+                    overlayViewBoxWidth,
+                    overlayViewBoxHeight,
+                    windowOffsetX,
+                    windowOffsetY,
+                    screenshotContainer,
+                    screenshotImg,
+                    openLayoutInspector,
+                    refreshScreenshot,
+                    onScreenshotLoad,
+                    onScreenshotClick,
+                    onScreenshotHover,
+                    onScreenshotLeave,
+                    onTreeSelect,
+                    onTreeHover,
+                    isSelected,
+                    clearMultiSelect,
+                    exportSelectedElements,
+                    truncate
                 };
             }
-        }).mount('#app');
+        });
+
+        // Register TreeNode component
+        app.component('tree-node', TreeNode);
+        app.mount('#app');
     </script>
 </body>
 </html>
