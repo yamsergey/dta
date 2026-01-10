@@ -32,6 +32,9 @@ import io.yamsergey.adt.sidekick.network.HttpRequest;
 import io.yamsergey.adt.sidekick.network.HttpResponse;
 import io.yamsergey.adt.sidekick.network.HttpTransaction;
 import io.yamsergey.adt.sidekick.network.NetworkInspector;
+import io.yamsergey.adt.sidekick.network.WebSocketConnection;
+import io.yamsergey.adt.sidekick.network.WebSocketInspector;
+import io.yamsergey.adt.sidekick.network.WebSocketMessage;
 
 /**
  * Simple HTTP server for ADT Sidekick inspection endpoints.
@@ -227,6 +230,13 @@ public class InspectorServer {
             return;
         }
 
+        // Handle WebSocket connection detail: /websocket/connections/{id}
+        if (path.startsWith("/websocket/connections/") && path.length() > 23) {
+            String connectionId = path.substring(23);
+            handleWebSocketConnectionById(connectionId, out);
+            return;
+        }
+
         // Handle UI network detail: /ui/network/{id}
         if (path.startsWith("/ui/network/") && path.length() > 12) {
             String requestId = path.substring(12);
@@ -294,6 +304,16 @@ public class InspectorServer {
             case "/network/stats":
                 handleNetworkStats(out);
                 break;
+            case "/websocket/connections":
+                handleWebSocketConnections(out);
+                break;
+            case "/websocket/clear":
+                if ("DELETE".equals(method)) {
+                    handleWebSocketClear(out);
+                } else {
+                    sendError(out, 405, "Method Not Allowed");
+                }
+                break;
             case "/events/stream":
                 handleEventStream(out);
                 return; // Don't close connection - SSE keeps it open
@@ -325,7 +345,10 @@ public class InspectorServer {
                 "/network/requests",
                 "/network/requests/{id}",
                 "/network/clear",
-                "/network/stats"
+                "/network/stats",
+                "/websocket/connections",
+                "/websocket/connections/{id}",
+                "/websocket/clear"
         });
 
         sendJson(out, 200, response);
@@ -760,6 +783,143 @@ public class InspectorServer {
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
         }
+    }
+
+    // =========================================================================
+    // WebSocket Endpoints
+    // =========================================================================
+
+    /**
+     * GET /websocket/connections - List all captured WebSocket connections.
+     */
+    private void handleWebSocketConnections(OutputStream out) throws IOException {
+        try {
+            java.util.List<WebSocketConnection> connections = WebSocketInspector.getConnections();
+
+            java.util.List<Map<String, Object>> connectionList = new java.util.ArrayList<>();
+            for (WebSocketConnection conn : connections) {
+                connectionList.add(connectionToMap(conn, false));
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("count", connections.size());
+            response.put("connections", connectionList);
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting websocket connections", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /websocket/connections/{id} - Get a single WebSocket connection by ID.
+     */
+    private void handleWebSocketConnectionById(String connectionId, OutputStream out) throws IOException {
+        try {
+            WebSocketConnection conn = WebSocketInspector.getConnection(connectionId);
+
+            if (conn == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Connection not found");
+                error.put("id", connectionId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            Map<String, Object> response = connectionToMap(conn, true);
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting websocket connection", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * DELETE /websocket/clear - Clear all captured WebSocket connections.
+     */
+    private void handleWebSocketClear(OutputStream out) throws IOException {
+        try {
+            int count = WebSocketInspector.getConnectionCount();
+            WebSocketInspector.clearConnections();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("cleared", count);
+            response.put("message", "Cleared " + count + " connections");
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error clearing websocket connections", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * Converts a WebSocketConnection to a Map for JSON serialization.
+     *
+     * @param conn           the connection to convert
+     * @param includeDetails whether to include messages (for detail view)
+     */
+    private Map<String, Object> connectionToMap(WebSocketConnection conn, boolean includeDetails) {
+        Map<String, Object> map = new HashMap<>();
+
+        map.put("id", conn.getId());
+        map.put("url", conn.getUrl());
+        map.put("source", conn.getSource());
+        map.put("status", conn.getStatus().name());
+        map.put("connectedAt", conn.getConnectedAt());
+        map.put("closedAt", conn.getClosedAt());
+        map.put("closeCode", conn.getCloseCode());
+        map.put("closeReason", conn.getCloseReason());
+        map.put("messageCount", conn.getMessageCount());
+
+        if (includeDetails) {
+            // Include messages
+            java.util.List<WebSocketMessage> messages = conn.getMessages();
+            java.util.List<Map<String, Object>> messageList = new java.util.ArrayList<>();
+
+            for (WebSocketMessage msg : messages) {
+                messageList.add(messageToMap(msg));
+            }
+
+            map.put("messages", messageList);
+        }
+
+        return map;
+    }
+
+    /**
+     * Converts a WebSocketMessage to a Map for JSON serialization.
+     */
+    private Map<String, Object> messageToMap(WebSocketMessage msg) {
+        Map<String, Object> map = new HashMap<>();
+
+        map.put("id", msg.getId());
+        map.put("connectionId", msg.getConnectionId());
+        map.put("timestamp", msg.getTimestamp());
+        map.put("direction", msg.getDirection().name());
+        map.put("type", msg.getType().name());
+        map.put("payloadSize", msg.getPayloadSize());
+
+        // Include payload based on type
+        if (msg.getType() == WebSocketMessage.MessageType.TEXT) {
+            map.put("textPayload", msg.getTextPayload());
+        } else if (msg.getType() == WebSocketMessage.MessageType.BINARY && msg.getBinaryPayload() != null) {
+            // Convert binary to base64 for JSON
+            map.put("binaryPayload", android.util.Base64.encodeToString(
+                    msg.getBinaryPayload(), android.util.Base64.NO_WRAP));
+        }
+
+        return map;
     }
 
     // =========================================================================

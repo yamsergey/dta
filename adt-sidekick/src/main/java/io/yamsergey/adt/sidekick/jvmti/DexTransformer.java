@@ -322,11 +322,22 @@ public class DexTransformer {
 
         String hookId = getHookId(hook, classDef, method);
 
+        // Count actual parameters (excluding 'this')
+        List<? extends MethodParameter> params = method.getParameters();
+        int actualParamCount = params.size();
+
+        // We need extra registers: hookId, thisObj, argsArray, null, + 1 for array index
+        int extraRegsNeeded = 5;
+        extraRegs = extraRegsNeeded;
+        newRegCount = originalRegCount + extraRegs;
+        newParamStart = newRegCount - paramRegCount;
+
         // Registers for hook calls (in the new extra space)
         int hookIdReg = originalParamStart;
         int thisObjReg = originalParamStart + 1;
         int argsReg = originalParamStart + 2;
         int nullReg = originalParamStart + 3;
+        int tempReg = originalParamStart + 4;
 
         // Build onEnter prologue
         List<Instruction> newInstructions = new ArrayList<>();
@@ -341,7 +352,43 @@ public class DexTransformer {
             newInstructions.add(new ImmutableInstruction12x(Opcode.MOVE_OBJECT, thisObjReg, newParamStart));
         }
 
-        newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, argsReg, 0));
+        // Build args array if there are parameters
+        if (actualParamCount > 0) {
+            // Create new Object[paramCount]
+            newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, tempReg, actualParamCount));
+            newInstructions.add(new ImmutableInstruction22c(
+                    Opcode.NEW_ARRAY, argsReg, tempReg,
+                    new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference("[Ljava/lang/Object;")));
+
+            // Fill array with parameters
+            int paramIdx = 0;
+            int paramReg = isStatic ? newParamStart : newParamStart + 1;
+            for (MethodParameter param : params) {
+                String paramType = param.getType();
+
+                // Set array index
+                newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, tempReg, paramIdx));
+
+                // For object types, directly store; for primitives, we'd need boxing (skip for now)
+                if (paramType.startsWith("L") || paramType.startsWith("[")) {
+                    // Object type - store directly
+                    newInstructions.add(new ImmutableInstruction23x(
+                            Opcode.APUT_OBJECT, paramReg, argsReg, tempReg));
+                }
+                // Skip primitive types for now (they require boxing which adds complexity)
+
+                // Move to next parameter register
+                if (paramType.equals("J") || paramType.equals("D")) {
+                    paramReg += 2; // long and double take 2 registers
+                } else {
+                    paramReg += 1;
+                }
+                paramIdx++;
+            }
+        } else {
+            // No parameters - pass null
+            newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, argsReg, 0));
+        }
 
         newInstructions.add(new ImmutableInstruction35c(
                 Opcode.INVOKE_STATIC, 3,
@@ -355,9 +402,11 @@ public class DexTransformer {
 
         // FIRST PASS: Build offset map (original offset -> shift amount at that point)
         // RETURN_VOID: const/16 (2) + invoke-static (3) = 5 code units
-        // Other returns: just invoke-static (3) = 3 code units (return value is in existing register)
+        // RETURN_OBJECT: just invoke-static (3) = 3 code units (return value is in existing register)
+        // RETURN/RETURN_WIDE (primitives): const/16 (2) + invoke-static (3) = 5 code units (pass null for primitive)
         final int EXIT_VOID_SIZE = 5;
-        final int EXIT_NONVOID_SIZE = 3;
+        final int EXIT_OBJECT_SIZE = 3;
+        final int EXIT_PRIMITIVE_SIZE = 5;
         Map<Integer, Integer> cumulativeShiftAtOffset = new HashMap<>();
         int currentOrigOffset = 0;
         int cumulativeShift = 0;
@@ -367,8 +416,10 @@ public class DexTransformer {
             Opcode opcode = insn.getOpcode();
             if (opcode == Opcode.RETURN_VOID) {
                 cumulativeShift += EXIT_VOID_SIZE;
-            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
-                cumulativeShift += EXIT_NONVOID_SIZE;
+            } else if (opcode == Opcode.RETURN_OBJECT) {
+                cumulativeShift += EXIT_OBJECT_SIZE;
+            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_WIDE) {
+                cumulativeShift += EXIT_PRIMITIVE_SIZE;
             }
             currentOrigOffset += insn.getCodeUnits();
         }
@@ -387,13 +438,21 @@ public class DexTransformer {
                         Opcode.INVOKE_STATIC, 3,
                         hookIdReg, thisObjReg, nullReg, 0, 0,
                         new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
-            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_OBJECT || opcode == Opcode.RETURN_WIDE) {
-                // For non-void return, pass the actual return value from the instruction's register
+            } else if (opcode == Opcode.RETURN_OBJECT) {
+                // For object return, pass the actual return value
                 Instruction11x returnInsn = (Instruction11x) insn;
                 int returnReg = shift(returnInsn.getRegisterA(), originalParamStart, extraRegs);
                 newInstructions.add(new ImmutableInstruction35c(
                         Opcode.INVOKE_STATIC, 3,
                         hookIdReg, thisObjReg, returnReg, 0, 0,
+                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_WIDE) {
+                // For primitive return (int, boolean, long, double, etc.), pass null
+                // Primitive values can't be passed as Object without boxing, so we skip the return value
+                newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, nullReg, 0));
+                newInstructions.add(new ImmutableInstruction35c(
+                        Opcode.INVOKE_STATIC, 3,
+                        hookIdReg, thisObjReg, nullReg, 0, 0,
                         new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
             }
 

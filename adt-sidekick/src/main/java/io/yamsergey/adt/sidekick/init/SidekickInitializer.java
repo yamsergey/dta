@@ -11,10 +11,11 @@ import androidx.startup.Initializer;
 import java.util.Collections;
 import java.util.List;
 
+import io.yamsergey.adt.sidekick.Sidekick;
 import io.yamsergey.adt.sidekick.compose.ComposeInspector;
 import io.yamsergey.adt.sidekick.events.EventStore;
 import io.yamsergey.adt.sidekick.jvmti.JvmtiAgent;
-import io.yamsergey.adt.sidekick.network.OkHttpExecuteHook;
+import io.yamsergey.adt.sidekick.network.adapter.NetworkInterceptorManager;
 import io.yamsergey.adt.sidekick.server.InspectorServer;
 
 /**
@@ -23,15 +24,32 @@ import io.yamsergey.adt.sidekick.server.InspectorServer;
  * <p>This initializer is triggered when the app starts, launching a local HTTP server
  * that provides inspection endpoints for various Android components.</p>
  *
- * <p>Available endpoints:</p>
+ * <h3>Configuration</h3>
+ * <p>Configure Sidekick before initialization using {@link io.yamsergey.adt.sidekick.Sidekick#configure}:</p>
+ * <pre>{@code
+ * Sidekick.configure(SidekickConfig.builder()
+ *     .disableUrlConnection()
+ *     .addAdapter(new MyCustomAdapter())
+ *     .build());
+ * }</pre>
+ *
+ * <h3>Available endpoints:</h3>
  * <ul>
  *   <li>GET /health - Health check</li>
  *   <li>GET /compose/hierarchy - Compose UI hierarchy</li>
  *   <li>GET /compose/semantics - Compose semantics tree</li>
  *   <li>GET /compose/tree - Unified Compose tree</li>
- *   <li>GET /network/requests - Captured network requests</li>
+ *   <li>GET /network/requests - Captured HTTP requests</li>
  *   <li>GET /network/requests/{id} - Single request details</li>
  *   <li>DELETE /network/clear - Clear captured requests</li>
+ *   <li>GET /websocket/connections - WebSocket connections</li>
+ *   <li>GET /websocket/connections/{id} - Single connection details</li>
+ * </ul>
+ *
+ * <h3>Supported Network Libraries:</h3>
+ * <ul>
+ *   <li><b>HTTP:</b> OkHttp, URLConnection</li>
+ *   <li><b>WebSocket:</b> OkHttp WebSocket, Java-WebSocket, nv-websocket-client</li>
  * </ul>
  */
 public class SidekickInitializer implements Initializer<InspectorServer> {
@@ -106,22 +124,19 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
 
     /**
      * Registers JVMTI hooks for network interception.
+     *
+     * <p>Uses the NetworkInterceptorManager to register all enabled adapters
+     * (OkHttp, URLConnection, WebSocket libraries) based on SidekickConfig.</p>
      */
     private void registerNetworkHooks() {
         try {
-            // Register OkHttp execute hook
-            String hookId = JvmtiAgent.registerHook(new OkHttpExecuteHook());
-            Log.i(TAG, "Registered OkHttp hook: " + hookId);
+            // Apply user configuration before initializing adapters
+            Sidekick.applyConfiguration();
 
-            // Try to retransform OkHttp RealCall if already loaded
-            try {
-                Class<?> realCallClass = Class.forName("okhttp3.internal.connection.RealCall");
-                JvmtiAgent.retransformClass(realCallClass);
-                Log.i(TAG, "Retransformed RealCall class");
-            } catch (ClassNotFoundException e) {
-                // OkHttp not loaded yet - that's fine, hook will apply when loaded
-                Log.d(TAG, "RealCall not loaded yet, hook will apply on first load");
-            }
+            // Initialize the network interceptor manager (registers all enabled adapters)
+            NetworkInterceptorManager.initialize();
+
+            Log.i(TAG, "Network hooks registered via NetworkInterceptorManager");
         } catch (Exception e) {
             Log.e(TAG, "Failed to register network hooks", e);
         }
