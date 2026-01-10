@@ -262,6 +262,65 @@
             align-items: center;
             font-size: 13px;
         }
+
+        /* WebSocket styles */
+        .ws-status { font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: bold; }
+        .ws-status.CONNECTING { background: #ff9800; color: #000; }
+        .ws-status.OPEN { background: #4caf50; color: #fff; }
+        .ws-status.CLOSING { background: #ff5722; color: #fff; }
+        .ws-status.CLOSED { background: #666; color: #fff; }
+
+        .ws-source { font-size: 11px; padding: 2px 8px; border-radius: 12px; background: #333; color: #aaa; }
+
+        .ws-connection-row {
+            display: flex; padding: 12px; border-bottom: 1px solid #333;
+            cursor: pointer; text-decoration: none; color: inherit; align-items: center;
+            gap: 12px; transition: background 0.2s;
+        }
+        .ws-connection-row:hover { background: #2a2a2a; }
+        .ws-connection-row.new { animation: highlight 2s ease-out; }
+
+        .col-ws-status { width: 90px; }
+        .col-ws-source { width: 100px; }
+        .col-ws-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ccc; }
+        .col-ws-time { width: 90px; color: #666; font-size: 12px; font-family: monospace; text-align: right; }
+
+        .ws-message {
+            display: flex;
+            padding: 8px 12px;
+            border-bottom: 1px solid #333;
+            gap: 12px;
+            font-size: 13px;
+        }
+        .ws-message.sent { background: #1e2a1e; }
+        .ws-message.received { background: #1e1e2a; }
+
+        .ws-direction {
+            width: 24px;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .ws-direction.sent { color: #4caf50; }
+        .ws-direction.received { color: #2196f3; }
+
+        .ws-msg-time { width: 90px; color: #666; font-size: 12px; font-family: monospace; }
+        .ws-msg-type { width: 50px; font-size: 11px; color: #888; }
+        .ws-msg-payload { flex: 1; word-break: break-all; white-space: pre-wrap; font-family: monospace; }
+        .ws-msg-size { width: 60px; text-align: right; color: #666; font-size: 12px; }
+
+        .ws-detail-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .ws-detail-url {
+            word-break: break-all;
+            color: #ccc;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -291,7 +350,13 @@
                 <div class="card">
                     <h2>Network</h2>
                     <p>Monitor HTTP requests and responses</p>
-                    <button class="btn" @click="view = 'network'">View Network Traffic</button>
+                    <button class="btn" @click="view = 'network'">View HTTP Traffic</button>
+                </div>
+
+                <div class="card">
+                    <h2>WebSocket</h2>
+                    <p>Monitor WebSocket connections and messages</p>
+                    <button class="btn" @click="openWebSocketInspector">View WebSocket Traffic</button>
                 </div>
 
                 <div class="card">
@@ -616,6 +681,117 @@
                 </div>
             </template>
 
+            <!-- WebSocket List View -->
+            <template v-else-if="view === 'websocket'">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <h1>WebSocket Connections</h1>
+                        <div class="live-indicator">
+                            <span class="live-dot" :class="{ paused: !wsIsLive }"></span>
+                            <span>{{ wsIsLive ? 'Live' : 'Paused' }}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <button class="btn btn-secondary" @click="view = 'home'">Home</button>
+                        <button class="btn btn-secondary" @click="wsIsLive = !wsIsLive">
+                            {{ wsIsLive ? 'Pause' : 'Resume' }}
+                        </button>
+                        <button class="btn btn-secondary" @click="refreshWebSocketConnections">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="card" style="padding: 0;">
+                    <div class="header-row">
+                        <span class="col-ws-status">Status</span>
+                        <span class="col-ws-source">Source</span>
+                        <span class="col-ws-url">URL</span>
+                        <span class="col-ws-time">Connected</span>
+                    </div>
+
+                    <div v-if="wsConnections.length === 0" class="empty">
+                        No WebSocket connections captured yet
+                    </div>
+                    <div v-else>
+                        <div v-for="conn in wsConnections" :key="conn.id"
+                             class="ws-connection-row"
+                             @click="showWsDetail(conn.id)">
+                            <span class="col-ws-status">
+                                <span class="ws-status" :class="conn.status">{{ conn.status }}</span>
+                            </span>
+                            <span class="col-ws-source">
+                                <span class="ws-source">{{ conn.source }}</span>
+                            </span>
+                            <span class="col-ws-url">{{ conn.url }}</span>
+                            <span class="col-ws-time">{{ formatTime(conn.connectedAt) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="count-text">{{ wsConnections.length }} connections</p>
+            </template>
+
+            <!-- WebSocket Detail View -->
+            <template v-else-if="view === 'websocket-detail' && selectedWsConnection">
+                <div style="margin-bottom: 16px;">
+                    <a href="#" @click.prevent="view = 'websocket'" style="color: #4caf50;">&larr; Back to connections</a>
+                </div>
+
+                <div class="card">
+                    <div class="ws-detail-header">
+                        <span class="ws-status" :class="selectedWsConnection.status">{{ selectedWsConnection.status }}</span>
+                        <span class="ws-source">{{ selectedWsConnection.source }}</span>
+                    </div>
+                    <p class="ws-detail-url">{{ selectedWsConnection.url }}</p>
+
+                    <div class="meta">
+                        <div class="meta-item">
+                            <div class="meta-label">Connected At</div>
+                            <div class="meta-value">{{ formatDateTime(selectedWsConnection.connectedAt) }}</div>
+                        </div>
+                        <div class="meta-item" v-if="selectedWsConnection.closedAt">
+                            <div class="meta-label">Closed At</div>
+                            <div class="meta-value">{{ formatDateTime(selectedWsConnection.closedAt) }}</div>
+                        </div>
+                        <div class="meta-item" v-if="selectedWsConnection.closeCode">
+                            <div class="meta-label">Close Code</div>
+                            <div class="meta-value">{{ selectedWsConnection.closeCode }}</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Messages</div>
+                            <div class="meta-value">{{ wsMessages.length }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 style="margin: 16px 0 8px;">Messages</h2>
+
+                <div class="card" style="padding: 0;">
+                    <div class="header-row">
+                        <span style="width: 24px;"></span>
+                        <span class="ws-msg-time">Time</span>
+                        <span class="ws-msg-type">Type</span>
+                        <span style="flex: 1;">Payload</span>
+                        <span class="ws-msg-size">Size</span>
+                    </div>
+
+                    <div v-if="wsMessages.length === 0" class="empty">
+                        No messages captured
+                    </div>
+                    <div v-else>
+                        <div v-for="(msg, idx) in wsMessages" :key="idx"
+                             class="ws-message" :class="msg.direction.toLowerCase()">
+                            <span class="ws-direction" :class="msg.direction.toLowerCase()">
+                                {{ msg.direction === 'SENT' ? '↑' : '↓' }}
+                            </span>
+                            <span class="ws-msg-time">{{ formatTime(msg.timestamp) }}</span>
+                            <span class="ws-msg-type">{{ msg.type }}</span>
+                            <span class="ws-msg-payload">{{ truncatePayload(msg.textPayload || '[binary]', 200) }}</span>
+                            <span class="ws-msg-size">{{ formatSize(msg.payloadSize) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
             <!-- Toast notification -->
             <div class="toast" :class="{ show: toastVisible }">{{ toastMessage }}</div>
         </div>
@@ -731,6 +907,12 @@
                 const toastMessage = ref('');
                 const toastVisible = ref(false);
 
+                // WebSocket Inspector state
+                const wsConnections = ref([]);
+                const selectedWsConnection = ref(null);
+                const wsMessages = ref([]);
+                const wsIsLive = ref(true);
+
                 // Layout Inspector state
                 const screenshotUrl = ref(null);
                 const screenshotLoaded = ref(false);
@@ -804,6 +986,7 @@
 
                 let pollInterval = null;
                 let statusInterval = null;
+                let wsPollInterval = null;
                 let toastTimeout = null;
 
                 // Computed
@@ -1283,6 +1466,103 @@
                     return text.length > len ? text.substring(0, len) + '...' : text;
                 }
 
+                // =====================================================
+                // WebSocket Inspector Methods
+                // =====================================================
+
+                async function openWebSocketInspector() {
+                    view.value = 'websocket';
+                    await refreshWebSocketConnections();
+                    // Start polling for WebSocket updates
+                    if (!wsPollInterval) {
+                        wsPollInterval = setInterval(checkForWsUpdates, 2000);
+                    }
+                }
+
+                async function refreshWebSocketConnections() {
+                    try {
+                        const res = await fetch('/api/websocket/connections', {
+                            credentials: 'same-origin'
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            wsConnections.value = data.connections || [];
+                        }
+                    } catch (e) {
+                        console.error('WebSocket connections fetch error:', e);
+                    }
+                }
+
+                async function checkForWsUpdates() {
+                    if (!wsIsLive.value) return;
+                    if (view.value !== 'websocket' && view.value !== 'websocket-detail') return;
+                    await refreshWebSocketConnections();
+
+                    // If viewing detail, also refresh messages
+                    if (view.value === 'websocket-detail' && selectedWsConnection.value) {
+                        await fetchWsMessages(selectedWsConnection.value.id);
+                    }
+                }
+
+                async function showWsDetail(connectionId) {
+                    try {
+                        const res = await fetch(`/api/websocket/connections/${connectionId}`, {
+                            credentials: 'same-origin'
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            selectedWsConnection.value = data;
+                            // Messages are included in the connection details
+                            wsMessages.value = data.messages || [];
+                            view.value = 'websocket-detail';
+                        }
+                    } catch (e) {
+                        console.error('WebSocket connection fetch error:', e);
+                    }
+                }
+
+                async function fetchWsMessages(connectionId) {
+                    // Messages are included in connection details, refetch connection
+                    try {
+                        const res = await fetch(`/api/websocket/connections/${connectionId}`, {
+                            credentials: 'same-origin'
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            selectedWsConnection.value = data;
+                            wsMessages.value = data.messages || [];
+                        }
+                    } catch (e) {
+                        console.error('WebSocket messages fetch error:', e);
+                    }
+                }
+
+                function formatDateTime(timestamp) {
+                    if (!timestamp) return '-';
+                    const date = new Date(timestamp);
+                    return date.toLocaleString('en-US', {
+                        hour12: false,
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                }
+
+                function formatSize(bytes) {
+                    if (!bytes && bytes !== 0) return '-';
+                    if (bytes < 1024) return bytes + 'B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
+                    return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
+                }
+
+                function truncatePayload(text, len) {
+                    if (!text) return '';
+                    return text.length > len ? text.substring(0, len) + '...' : text;
+                }
+
                 // Lifecycle
                 onMounted(async () => {
                     await fetchStatus();
@@ -1296,6 +1576,7 @@
                 onUnmounted(() => {
                     if (pollInterval) clearInterval(pollInterval);
                     if (statusInterval) clearInterval(statusInterval);
+                    if (wsPollInterval) clearInterval(wsPollInterval);
                 });
 
                 return {
@@ -1358,7 +1639,18 @@
                     isSelected,
                     clearMultiSelect,
                     exportSelectedElements,
-                    truncate
+                    truncate,
+                    // WebSocket Inspector
+                    wsConnections,
+                    selectedWsConnection,
+                    wsMessages,
+                    wsIsLive,
+                    openWebSocketInspector,
+                    refreshWebSocketConnections,
+                    showWsDetail,
+                    formatDateTime,
+                    formatSize,
+                    truncatePayload
                 };
             }
         });

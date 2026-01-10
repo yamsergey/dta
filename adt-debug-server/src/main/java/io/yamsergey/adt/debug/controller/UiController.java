@@ -155,6 +155,35 @@ public class UiController {
         return proxyGetRequest(AGENT_BASE_URL + "/compose/element/" + id, "application/json");
     }
 
+    // ========== WebSocket Inspector Proxy Endpoints ==========
+
+    /**
+     * Proxies the WebSocket connections list request to the sidekick agent.
+     */
+    @GetMapping(value = "/api/websocket/connections", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public ResponseEntity<String> getWebSocketConnections() {
+        return proxyGetRequest(AGENT_BASE_URL + "/websocket/connections", "application/json");
+    }
+
+    /**
+     * Proxies a single WebSocket connection details request to the sidekick agent.
+     */
+    @GetMapping(value = "/api/websocket/connections/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public ResponseEntity<String> getWebSocketConnection(@PathVariable String id) {
+        return proxyGetRequest(AGENT_BASE_URL + "/websocket/connections/" + id, "application/json");
+    }
+
+    /**
+     * Proxies WebSocket messages request to the sidekick agent.
+     */
+    @GetMapping(value = "/api/websocket/connections/{id}/messages", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public ResponseEntity<String> getWebSocketMessages(@PathVariable String id) {
+        return proxyGetRequest(AGENT_BASE_URL + "/websocket/connections/" + id + "/messages", "application/json");
+    }
+
     /**
      * Generic proxy helper for GET requests returning text/JSON.
      */
