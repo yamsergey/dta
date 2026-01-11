@@ -1,0 +1,49 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
+}
+
+application {
+    mainClass = 'io.yamsergey.adt.mcp.server.McpServer'
+    applicationName = 'adt-mcp'
+}
+
+dependencies {
+    // MCP Java SDK
+    implementation 'io.modelcontextprotocol.sdk:mcp:0.10.0'
+
+    // Logging
+    implementation 'org.slf4j:slf4j-simple:2.0.16'
+
+    // Core ADT libraries
+    implementation project(':tools-android')
+    implementation project(':workspace-kotlin')
+
+    // JSON serialization (also required by MCP SDK)
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
+
+    // Lombok for models
+    compileOnly libs.sugar.lombok
+    annotationProcessor libs.sugar.lombok
+
+    // Testing
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
