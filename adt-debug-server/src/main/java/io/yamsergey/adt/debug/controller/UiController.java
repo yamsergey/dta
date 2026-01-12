@@ -3,6 +3,7 @@ package io.yamsergey.adt.debug.controller;
 import io.yamsergey.adt.debug.DebugServerApplication;
 import io.yamsergey.adt.debug.model.DebugEvent;
 import io.yamsergey.adt.debug.service.EventService;
+import io.yamsergey.adt.debug.session.SessionService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -29,9 +30,22 @@ import java.util.Map;
 public class UiController {
 
     private final EventService eventService;
+    private final SessionService sessionService;
 
-    public UiController(EventService eventService) {
+    // Fallback URL when no session is active - uses StreamService's forwarded port
+    private static final String DEFAULT_SIDEKICK_URL = "http://localhost:18642";
+
+    public UiController(EventService eventService, SessionService sessionService) {
         this.eventService = eventService;
+        this.sessionService = sessionService;
+    }
+
+    /**
+     * Gets the sidekick URL for the active session, or falls back to default.
+     */
+    private String getSidekickUrl() {
+        String url = sessionService.getActiveSidekickUrl();
+        return url != null ? url : DEFAULT_SIDEKICK_URL;
     }
 
     /**
@@ -57,37 +71,47 @@ public class UiController {
     }
 
     /**
-     * Returns network events, optionally filtered by timestamp.
-     * @param since only return events with timestamp > since (0 = return all)
+     * Proxies the network requests list to the sidekick agent.
+     * This fetches live data directly from the sidekick and extracts the requests array.
      */
     @GetMapping(value = "/api/network", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
-    public List<DebugEvent> getNetworkEvents(@RequestParam(defaultValue = "0") long since) {
-        List<DebugEvent> events = eventService.getEventsByType("http");
-
-        // Filter to only events newer than 'since'
-        if (since > 0) {
-            events.removeIf(e -> e.getTimestamp() <= since);
+    public ResponseEntity<String> getNetworkRequests() {
+        ResponseEntity<String> response = proxyGetRequest(getSidekickUrl() + "/network/requests", "application/json");
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            try {
+                // Extract the "requests" array from the response
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(response.getBody());
+                if (root.has("requests")) {
+                    return ResponseEntity.ok(root.get("requests").toString());
+                }
+            } catch (Exception e) {
+                // Fall through to return original response
+            }
         }
-
-        // Sort by timestamp descending (newest first)
-        events.sort(Comparator.comparingLong(DebugEvent::getTimestamp).reversed());
-
-        return events;
+        return response;
     }
 
     /**
-     * Returns a single network event by ID.
+     * Returns a single network request by ID from the sidekick.
      */
     @GetMapping(value = "/api/network/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
-    public DebugEvent getNetworkEvent(@PathVariable String id) {
-        return eventService.getEvent(id);
+    public ResponseEntity<String> getNetworkRequest(@PathVariable String id) {
+        return proxyGetRequest(getSidekickUrl() + "/network/requests/" + id, "application/json");
+    }
+
+    /**
+     * Proxies network stats from the sidekick agent.
+     */
+    @GetMapping(value = "/api/network/stats", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public ResponseEntity<String> getNetworkStats() {
+        return proxyGetRequest(getSidekickUrl() + "/network/stats", "application/json");
     }
 
     // ========== Compose Inspector Proxy Endpoints ==========
-
-    private static final String AGENT_BASE_URL = "http://localhost:8642";
 
     /**
      * Proxies the compose tree request to the sidekick agent.
@@ -95,7 +119,7 @@ public class UiController {
     @GetMapping(value = "/api/compose/tree", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public ResponseEntity<String> getComposeTree() {
-        return proxyGetRequest(AGENT_BASE_URL + "/compose/tree", "application/json");
+        return proxyGetRequest(getSidekickUrl() + "/compose/tree", "application/json");
     }
 
     /**
@@ -105,7 +129,7 @@ public class UiController {
     @ResponseBody
     public ResponseEntity<byte[]> getComposeScreenshot() {
         try {
-            URL url = new URL(AGENT_BASE_URL + "/compose/screenshot");
+            URL url = new URL(getSidekickUrl() + "/compose/screenshot");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(5000);
@@ -134,7 +158,7 @@ public class UiController {
     @GetMapping(value = "/api/compose/select", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public ResponseEntity<String> selectComposeElement(@RequestParam int x, @RequestParam int y) {
-        return proxyGetRequest(AGENT_BASE_URL + "/compose/select?x=" + x + "&y=" + y, "application/json");
+        return proxyGetRequest(getSidekickUrl() + "/compose/select?x=" + x + "&y=" + y, "application/json");
     }
 
     /**
@@ -143,7 +167,7 @@ public class UiController {
     @GetMapping(value = "/api/compose/select-all", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public ResponseEntity<String> selectAllComposeElements(@RequestParam int x, @RequestParam int y) {
-        return proxyGetRequest(AGENT_BASE_URL + "/compose/select-all?x=" + x + "&y=" + y, "application/json");
+        return proxyGetRequest(getSidekickUrl() + "/compose/select-all?x=" + x + "&y=" + y, "application/json");
     }
 
     /**
@@ -152,7 +176,7 @@ public class UiController {
     @GetMapping(value = "/api/compose/element/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public ResponseEntity<String> getComposeElement(@PathVariable String id) {
-        return proxyGetRequest(AGENT_BASE_URL + "/compose/element/" + id, "application/json");
+        return proxyGetRequest(getSidekickUrl() + "/compose/element/" + id, "application/json");
     }
 
     // ========== WebSocket Inspector Proxy Endpoints ==========
@@ -163,7 +187,7 @@ public class UiController {
     @GetMapping(value = "/api/websocket/connections", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public ResponseEntity<String> getWebSocketConnections() {
-        return proxyGetRequest(AGENT_BASE_URL + "/websocket/connections", "application/json");
+        return proxyGetRequest(getSidekickUrl() + "/websocket/connections", "application/json");
     }
 
     /**
@@ -172,7 +196,7 @@ public class UiController {
     @GetMapping(value = "/api/websocket/connections/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public ResponseEntity<String> getWebSocketConnection(@PathVariable String id) {
-        return proxyGetRequest(AGENT_BASE_URL + "/websocket/connections/" + id, "application/json");
+        return proxyGetRequest(getSidekickUrl() + "/websocket/connections/" + id, "application/json");
     }
 
     /**
@@ -181,7 +205,7 @@ public class UiController {
     @GetMapping(value = "/api/websocket/connections/{id}/messages", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
     public ResponseEntity<String> getWebSocketMessages(@PathVariable String id) {
-        return proxyGetRequest(AGENT_BASE_URL + "/websocket/connections/" + id + "/messages", "application/json");
+        return proxyGetRequest(getSidekickUrl() + "/websocket/connections/" + id + "/messages", "application/json");
     }
 
     /**

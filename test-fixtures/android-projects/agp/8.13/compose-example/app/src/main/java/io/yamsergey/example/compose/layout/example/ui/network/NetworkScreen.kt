@@ -1,0 +1,616 @@
+package io.yamsergey.example.compose.layout.example.ui.network
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+
+/**
+ * Data class representing a post from JSONPlaceholder API.
+ */
+data class Post(
+    val userId: Int,
+    val id: Int,
+    val title: String,
+    val body: String
+)
+
+/**
+ * Data class representing a user from JSONPlaceholder API.
+ */
+data class User(
+    val id: Int,
+    val name: String,
+    val username: String,
+    val email: String,
+    val phone: String,
+    val website: String
+)
+
+/**
+ * Data class representing a todo from JSONPlaceholder API.
+ */
+data class Todo(
+    val userId: Int,
+    val id: Int,
+    val title: String,
+    val completed: Boolean
+)
+
+sealed class NetworkState<out T> {
+    data object Loading : NetworkState<Nothing>()
+    data class Success<T>(val data: T) : NetworkState<T>()
+    data class Error(val message: String) : NetworkState<Nothing>()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NetworkScreen(
+    onNavigateBack: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var postsState by remember { mutableStateOf<NetworkState<List<Post>>>(NetworkState.Loading) }
+    var usersState by remember { mutableStateOf<NetworkState<List<User>>>(NetworkState.Loading) }
+    var todosState by remember { mutableStateOf<NetworkState<List<Todo>>>(NetworkState.Loading) }
+    var urlConnState by remember { mutableStateOf<NetworkState<List<Post>>>(NetworkState.Loading) }
+
+    val client = remember { OkHttpClient() }
+    val gson = remember { Gson() }
+
+    // Fetch data based on selected tab
+    LaunchedEffect(selectedTab) {
+        when (selectedTab) {
+            0 -> if (postsState is NetworkState.Loading) {
+                scope.launch {
+                    postsState = fetchPosts(client, gson)
+                }
+            }
+            1 -> if (usersState is NetworkState.Loading) {
+                scope.launch {
+                    usersState = fetchUsers(client, gson)
+                }
+            }
+            2 -> if (todosState is NetworkState.Loading) {
+                scope.launch {
+                    todosState = fetchTodos(client, gson)
+                }
+            }
+            3 -> if (urlConnState is NetworkState.Loading) {
+                scope.launch {
+                    urlConnState = fetchPostsWithUrlConnection(gson)
+                }
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Network Demo") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            // Tab Row
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Posts") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Users") }
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    text = { Text("Todos") }
+                )
+                Tab(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    text = { Text("URLConn") }
+                )
+            }
+
+            // Content based on selected tab
+            when (selectedTab) {
+                0 -> PostsContent(
+                    state = postsState,
+                    onRefresh = {
+                        postsState = NetworkState.Loading
+                        scope.launch { postsState = fetchPosts(client, gson) }
+                    },
+                    client = client,
+                    gson = gson
+                )
+                1 -> UsersContent(
+                    state = usersState,
+                    onRefresh = {
+                        usersState = NetworkState.Loading
+                        scope.launch { usersState = fetchUsers(client, gson) }
+                    }
+                )
+                2 -> TodosContent(
+                    state = todosState,
+                    onRefresh = {
+                        todosState = NetworkState.Loading
+                        scope.launch { todosState = fetchTodos(client, gson) }
+                    }
+                )
+                3 -> UrlConnectionContent(
+                    state = urlConnState,
+                    onRefresh = {
+                        urlConnState = NetworkState.Loading
+                        scope.launch { urlConnState = fetchPostsWithUrlConnection(gson) }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PostsContent(
+    state: NetworkState<List<Post>>,
+    onRefresh: () -> Unit,
+    client: OkHttpClient,
+    gson: Gson
+) {
+    when (state) {
+        is NetworkState.Loading -> LoadingContent()
+        is NetworkState.Error -> ErrorContent(state.message, onRefresh)
+        is NetworkState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    RefreshButton(onRefresh)
+                }
+                item {
+                    CreatePostButton(client, gson)
+                }
+                items(state.data) { post ->
+                    PostCard(post)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UsersContent(
+    state: NetworkState<List<User>>,
+    onRefresh: () -> Unit
+) {
+    when (state) {
+        is NetworkState.Loading -> LoadingContent()
+        is NetworkState.Error -> ErrorContent(state.message, onRefresh)
+        is NetworkState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    RefreshButton(onRefresh)
+                }
+                items(state.data) { user ->
+                    UserCard(user)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodosContent(
+    state: NetworkState<List<Todo>>,
+    onRefresh: () -> Unit
+) {
+    when (state) {
+        is NetworkState.Loading -> LoadingContent()
+        is NetworkState.Error -> ErrorContent(state.message, onRefresh)
+        is NetworkState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    RefreshButton(onRefresh)
+                }
+                items(state.data.take(20)) { todo ->
+                    TodoCard(todo)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UrlConnectionContent(
+    state: NetworkState<List<Post>>,
+    onRefresh: () -> Unit
+) {
+    when (state) {
+        is NetworkState.Loading -> LoadingContent()
+        is NetworkState.Error -> ErrorContent(state.message, onRefresh)
+        is NetworkState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "URLConnection Test",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Data fetched using java.net.HttpURLConnection instead of OkHttp.",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                item {
+                    RefreshButton(onRefresh)
+                }
+                items(state.data.take(10)) { post ->
+                    PostCard(post)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingContent() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Loading...")
+        }
+    }
+}
+
+@Composable
+private fun ErrorContent(message: String, onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "Error: $message",
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onRetry) {
+                Text("Retry")
+            }
+        }
+    }
+}
+
+@Composable
+private fun RefreshButton(onRefresh: () -> Unit) {
+    Button(
+        onClick = onRefresh,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Refresh Data")
+    }
+}
+
+@Composable
+private fun CreatePostButton(client: OkHttpClient, gson: Gson) {
+    val scope = rememberCoroutineScope()
+    var isLoading by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<String?>(null) }
+
+    Column {
+        Button(
+            onClick = {
+                isLoading = true
+                result = null
+                scope.launch {
+                    result = createPost(client, gson)
+                    isLoading = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text("Create New Post (POST)")
+        }
+        result?.let {
+            Text(
+                text = it,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PostCard(post: Post) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = post.title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = post.body,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Post #${post.id} by User #${post.userId}",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
+@Composable
+private fun UserCard(user: User) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = user.name,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+            Text(
+                text = "@${user.username}",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = "Email: ${user.email}", fontSize = 14.sp)
+            Text(text = "Phone: ${user.phone}", fontSize = 14.sp)
+            Text(text = "Website: ${user.website}", fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun TodoCard(todo: Todo) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = todo.completed,
+                onCheckedChange = null // Read-only
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = todo.title,
+                fontSize = 14.sp,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+// Network functions
+private suspend fun fetchPosts(client: OkHttpClient, gson: Gson): NetworkState<List<Post>> {
+    return withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("https://jsonplaceholder.typicode.com/posts")
+                .header("Accept", "application/json")
+                .header("X-Request-ID", "test-get-123")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: "[]"
+                    val type = object : TypeToken<List<Post>>() {}.type
+                    val posts: List<Post> = gson.fromJson(body, type)
+                    NetworkState.Success(posts)
+                } else {
+                    NetworkState.Error("HTTP ${response.code}: ${response.message}")
+                }
+            }
+        } catch (e: Exception) {
+            NetworkState.Error(e.message ?: "Unknown error")
+        }
+    }
+}
+
+private suspend fun fetchUsers(client: OkHttpClient, gson: Gson): NetworkState<List<User>> {
+    return withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("https://jsonplaceholder.typicode.com/users")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: "[]"
+                    val type = object : TypeToken<List<User>>() {}.type
+                    val users: List<User> = gson.fromJson(body, type)
+                    NetworkState.Success(users)
+                } else {
+                    NetworkState.Error("HTTP ${response.code}: ${response.message}")
+                }
+            }
+        } catch (e: Exception) {
+            NetworkState.Error(e.message ?: "Unknown error")
+        }
+    }
+}
+
+private suspend fun fetchTodos(client: OkHttpClient, gson: Gson): NetworkState<List<Todo>> {
+    return withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("https://jsonplaceholder.typicode.com/todos")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: "[]"
+                    val type = object : TypeToken<List<Todo>>() {}.type
+                    val todos: List<Todo> = gson.fromJson(body, type)
+                    NetworkState.Success(todos)
+                } else {
+                    NetworkState.Error("HTTP ${response.code}: ${response.message}")
+                }
+            }
+        } catch (e: Exception) {
+            NetworkState.Error(e.message ?: "Unknown error")
+        }
+    }
+}
+
+private suspend fun createPost(client: OkHttpClient, gson: Gson): String {
+    return withContext(Dispatchers.IO) {
+        try {
+            val newPost = mapOf(
+                "title" to "Test Post from ADT Sidekick",
+                "body" to "This is a test post to verify POST request capture with headers and body.",
+                "userId" to 1
+            )
+            val jsonBody = gson.toJson(newPost)
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val requestBody = jsonBody.toRequestBody(mediaType)
+
+            val request = Request.Builder()
+                .url("https://jsonplaceholder.typicode.com/posts")
+                .header("Content-Type", "application/json")
+                .header("X-Custom-Header", "test-value-123")
+                .header("Authorization", "Bearer fake-token-for-testing")
+                .post(requestBody)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string() ?: "{}"
+                    "Created! Response: $responseBody"
+                } else {
+                    "Error: HTTP ${response.code}"
+                }
+            }
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+}
+
+/**
+ * Fetches posts using java.net.HttpURLConnection instead of OkHttp.
+ * This tests the URLConnection adapter in ADT Sidekick.
+ */
+private suspend fun fetchPostsWithUrlConnection(gson: Gson): NetworkState<List<Post>> {
+    return withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
+        try {
+            val url = URL("https://jsonplaceholder.typicode.com/posts")
+            connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("X-Client", "URLConnection-Test")
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+
+            val responseCode = connection.responseCode
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val response = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    response.append(line)
+                }
+                reader.close()
+
+                val type = object : TypeToken<List<Post>>() {}.type
+                val posts: List<Post> = gson.fromJson(response.toString(), type)
+                NetworkState.Success(posts)
+            } else {
+                NetworkState.Error("HTTP $responseCode: ${connection.responseMessage}")
+            }
+        } catch (e: Exception) {
+            NetworkState.Error(e.message ?: "Unknown error")
+        } finally {
+            connection?.disconnect()
+        }
+    }
+}

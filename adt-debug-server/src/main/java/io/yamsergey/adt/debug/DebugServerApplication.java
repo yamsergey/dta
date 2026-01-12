@@ -13,8 +13,13 @@ import java.util.Map;
 /**
  * Spring Boot application for the ADT Debug Server.
  *
- * <p>This server reads binary events from Android devices via ADB and
- * exposes them through a REST API with token-based authentication.</p>
+ * <p>Supports two modes:
+ * <ul>
+ *   <li><b>Standalone mode</b>: Connect to a single app specified via command line.
+ *       Usage: {@code java -jar debug-server.jar --port=8080 --device=emulator-5554 --package=com.example}</li>
+ *   <li><b>MCP coordination mode</b>: Sessions registered by MCP servers via API.
+ *       Usage: {@code java -jar debug-server.jar --mcp --port=8080}</li>
+ * </ul>
  */
 @SpringBootApplication
 public class DebugServerApplication {
@@ -25,6 +30,7 @@ public class DebugServerApplication {
     private static String staticAccessToken;
     private static String staticDeviceSerial;
     private static String staticPackageName;
+    private static boolean staticMcpMode;
 
     public static String getAccessToken() {
         return staticAccessToken;
@@ -38,8 +44,12 @@ public class DebugServerApplication {
         return staticPackageName;
     }
 
+    public static boolean isMcpMode() {
+        return staticMcpMode;
+    }
+
     /**
-     * Starts the debug server on the specified port with the given configuration.
+     * Starts the debug server in standalone mode with the given configuration.
      *
      * @param port         the port to listen on
      * @param accessToken  the access token for authentication
@@ -48,6 +58,27 @@ public class DebugServerApplication {
      */
     public static void start(int port, String accessToken,
                              String deviceSerial, String packageName) {
+        start(port, accessToken, deviceSerial, packageName, false);
+    }
+
+    /**
+     * Starts the debug server in MCP coordination mode.
+     *
+     * <p>In this mode, sessions are registered via the REST API by MCP servers.
+     * No device/package is required at startup.
+     *
+     * @param port        the port to listen on
+     * @param accessToken the access token for authentication (null to disable auth)
+     */
+    public static void startMcpMode(int port, String accessToken) {
+        start(port, accessToken, null, null, true);
+    }
+
+    /**
+     * Internal start method supporting both modes.
+     */
+    private static void start(int port, String accessToken,
+                              String deviceSerial, String packageName, boolean mcpMode) {
         // Reset logback to avoid conflicts with other modules' logback.xml
         resetLogging();
 
@@ -55,12 +86,14 @@ public class DebugServerApplication {
         staticAccessToken = accessToken;
         staticDeviceSerial = deviceSerial != null ? deviceSerial : "";
         staticPackageName = packageName != null ? packageName : "";
+        staticMcpMode = mcpMode;
 
         Map<String, Object> props = new HashMap<>();
         props.put("server.port", port);
-        props.put("debug.access-token", accessToken);
+        props.put("debug.access-token", accessToken != null ? accessToken : "");
         props.put("debug.device-serial", deviceSerial != null ? deviceSerial : "");
         props.put("debug.package-name", packageName != null ? packageName : "");
+        props.put("debug.mcp-mode", mcpMode);
 
         // Disable banner and reduce startup noise
         props.put("spring.main.banner-mode", "off");
@@ -96,7 +129,69 @@ public class DebugServerApplication {
     }
 
     public static void main(String[] args) {
-        SpringApplication.run(DebugServerApplication.class, args);
+        // Parse command line arguments
+        int port = 8080;
+        String accessToken = null;
+        String device = null;
+        String packageName = null;
+        boolean mcpMode = false;
+        boolean noAuth = false;
+
+        for (String arg : args) {
+            if (arg.startsWith("--port=")) {
+                port = Integer.parseInt(arg.substring(7));
+            } else if (arg.startsWith("--token=")) {
+                accessToken = arg.substring(8);
+            } else if (arg.startsWith("--device=")) {
+                device = arg.substring(9);
+            } else if (arg.startsWith("--package=")) {
+                packageName = arg.substring(10);
+            } else if (arg.equals("--mcp")) {
+                mcpMode = true;
+            } else if (arg.equals("--no-auth")) {
+                noAuth = true;
+            } else if (arg.equals("--help") || arg.equals("-h")) {
+                printUsage();
+                return;
+            }
+        }
+
+        // In MCP mode, auth is disabled by default (can override with --token)
+        if (mcpMode && accessToken == null && !noAuth) {
+            // MCP mode without explicit token = no auth
+            noAuth = true;
+        }
+
+        // Generate token if auth is enabled and no token provided
+        if (!noAuth && accessToken == null) {
+            accessToken = generateToken();
+            System.out.println("Generated access token: " + accessToken);
+        }
+
+        if (mcpMode) {
+            System.out.println("Starting debug server in MCP coordination mode on port " + port);
+            startMcpMode(port, noAuth ? null : accessToken);
+        } else {
+            System.out.println("Starting debug server in standalone mode on port " + port);
+            start(port, accessToken, device, packageName);
+        }
+    }
+
+    private static void printUsage() {
+        System.out.println("ADT Debug Server");
+        System.out.println();
+        System.out.println("Usage:");
+        System.out.println("  Standalone mode: debug-server --port=8080 --device=emulator-5554 --package=com.example");
+        System.out.println("  MCP mode:        debug-server --mcp --port=8080");
+        System.out.println();
+        System.out.println("Options:");
+        System.out.println("  --port=PORT      Server port (default: 8080)");
+        System.out.println("  --device=SERIAL  Device serial number (standalone mode)");
+        System.out.println("  --package=PKG    Package name (standalone mode)");
+        System.out.println("  --mcp            Enable MCP coordination mode");
+        System.out.println("  --token=TOKEN    Access token for authentication");
+        System.out.println("  --no-auth        Disable authentication");
+        System.out.println("  --help, -h       Show this help message");
     }
 
     /**

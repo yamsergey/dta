@@ -283,10 +283,52 @@ public class SessionManager {
         }
     }
 
+    // ========== Debug Server Management ==========
+
+    private Process debugServerProcess;
+    private String debugServerUrl;
+
+    /**
+     * Checks if the debug server is running.
+     */
+    public boolean isDebugServerRunning() {
+        return debugServerProcess != null && debugServerProcess.isAlive();
+    }
+
+    /**
+     * Gets the debug server URL.
+     */
+    public String getDebugServerUrl() {
+        return debugServerUrl;
+    }
+
+    /**
+     * Sets the debug server process and URL.
+     */
+    public void setDebugServerProcess(Process process, String url) {
+        this.debugServerProcess = process;
+        this.debugServerUrl = url;
+    }
+
+    /**
+     * Stops the debug server process.
+     */
+    public void stopDebugServer() {
+        if (debugServerProcess != null) {
+            debugServerProcess.destroyForcibly();
+            debugServerProcess = null;
+            debugServerUrl = null;
+        }
+    }
+
     /**
      * Cleans up all sessions on shutdown.
      */
     public void cleanup() {
+        // Stop debug server if running
+        stopDebugServer();
+
+        // Remove port forwards
         for (AppSession session : sessions.values()) {
             removePortForward(session.getDevice(), session.getLocalPort());
         }

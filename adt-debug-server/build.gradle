@@ -40,12 +40,14 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
-// Disable bootJar as this is a library, not a standalone app
-// The CLI will start the server programmatically
+// Enable bootJar for standalone execution (MCP mode)
 bootJar {
-    enabled = false
+    enabled = true
+    archiveClassifier = ''
 }
 
+// Plain jar for library use
 jar {
     enabled = true
+    archiveClassifier = 'plain'
 }
