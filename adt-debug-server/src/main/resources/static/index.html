@@ -326,10 +326,23 @@
 <body>
     <div id="app">
         <div class="container">
+            <!-- Session indicator (MCP mode) -->
+            <div v-if="mcpMode && sessions.length > 0" style="margin-bottom: 16px; padding: 8px 12px; background: #2a2a2a; border-radius: 4px; display: flex; align-items: center; gap: 12px;">
+                <span style="color: #888; font-size: 12px;">Session:</span>
+                <select v-if="sessions.length > 1" @change="switchSession($event.target.value)" :value="activeSessionId"
+                        style="background: #333; border: 1px solid #444; color: #fff; padding: 4px 8px; border-radius: 4px;">
+                    <option v-for="s in sessions" :key="s.id" :value="s.id">{{ s.packageName }} ({{ s.device }})</option>
+                </select>
+                <span v-else style="color: #4caf50;">{{ sessions[0]?.packageName }}</span>
+                <span style="color: #666; font-size: 11px; margin-left: auto;">MCP Mode</span>
+            </div>
+
             <!-- Home View -->
             <template v-if="view === 'home'">
                 <h1>ADT Debug Server</h1>
-                <p class="subtitle">Package: {{ packageName }}</p>
+                <p class="subtitle" v-if="!mcpMode">Package: {{ packageName }}</p>
+                <p class="subtitle" v-else-if="sessions.length > 0">Package: {{ sessions.find(s => s.id === activeSessionId)?.packageName || 'None' }}</p>
+                <p class="subtitle" v-else>No sessions connected. Waiting for MCP...</p>
 
                 <div class="card">
                     <h2>Status</h2>
@@ -420,7 +433,7 @@
                         <div v-for="req in sortedRequests" :key="req.id"
                              class="request-row" :class="{ new: req.isNew }"
                              @click="showDetail(req.id)">
-                            <span class="col-time">{{ formatTime(req.timestamp) }}</span>
+                            <span class="col-time">{{ formatTime(req.startTime || req.timestamp) }}</span>
                             <span class="col-method" :class="getMethod(req)">{{ getMethod(req) }}</span>
                             <span class="col-url">{{ getUrl(req) }}</span>
                             <span class="col-status" :class="getStatusClass(req)">
@@ -458,7 +471,7 @@
                         </div>
                         <div class="meta-item">
                             <div class="meta-label">Status</div>
-                            <div class="meta-value">{{ selectedRequest.data?.status || 'UNKNOWN' }}</div>
+                            <div class="meta-value">{{ selectedRequest.status || selectedRequest.data?.status || 'UNKNOWN' }}</div>
                         </div>
                         <div class="meta-item" style="margin-left: auto;">
                             <button class="btn btn-secondary" @click="exportTransaction(selectedRequest)">Export JSON</button>
@@ -1027,23 +1040,24 @@
                 }
 
                 function getMethod(req) {
-                    if (!req || !req.data) return '?';
-                    return req.data.method || req.data.request?.method || '?';
+                    if (!req) return '?';
+                    // Support both sidekick format (direct) and old EventService format (nested in data)
+                    return req.method || req.data?.method || req.data?.request?.method || '?';
                 }
 
                 function getUrl(req) {
-                    if (!req || !req.data) return 'Unknown';
-                    return req.data.url || req.data.request?.url || 'Unknown';
+                    if (!req) return 'Unknown';
+                    return req.url || req.data?.url || req.data?.request?.url || 'Unknown';
                 }
 
                 function getStatusCode(req) {
-                    if (!req || !req.data) return 0;
-                    return req.data.responseCode || req.data.response?.statusCode || 0;
+                    if (!req) return 0;
+                    return req.responseCode || req.data?.responseCode || req.data?.response?.statusCode || 0;
                 }
 
                 function getDuration(req) {
-                    if (!req || !req.data) return 0;
-                    return req.data.duration || 0;
+                    if (!req) return 0;
+                    return req.duration || req.data?.duration || 0;
                 }
 
                 function getStatusClass(req) {
@@ -1055,13 +1069,27 @@
                 }
 
                 function getHeaders(req, type) {
-                    if (!req || !req.data) return [];
-                    const data = req.data;
+                    if (!req) return [];
 
-                    // Try nested structure (SSE streaming format)
-                    const nested = data[type];
-                    if (nested && nested.headers) {
-                        if (Array.isArray(nested.headers)) {
+                    // Support sidekick format (direct on req): req.requestHeaders / req.responseHeaders
+                    const headerKey = type + 'Headers';
+                    let headers = req[headerKey];
+
+                    if (headers && typeof headers === 'object' && !Array.isArray(headers)) {
+                        return Object.entries(headers).map(([name, value]) => ({ name, value }));
+                    }
+
+                    // Support old EventService format (nested in req.data)
+                    const data = req.data;
+                    if (data) {
+                        headers = data[headerKey];
+                        if (headers && typeof headers === 'object' && !Array.isArray(headers)) {
+                            return Object.entries(headers).map(([name, value]) => ({ name, value }));
+                        }
+
+                        // Try nested structure (SSE streaming format)
+                        const nested = data[type];
+                        if (nested && nested.headers && Array.isArray(nested.headers)) {
                             return nested.headers.map(h => ({
                                 name: Array.isArray(h) ? h[0] : h.name,
                                 value: Array.isArray(h) ? h[1] : h.value
@@ -1069,29 +1097,27 @@
                         }
                     }
 
-                    // Try flat structure (binary file format)
-                    const key = type + 'Headers';
-                    const headers = data[key];
-                    if (headers && typeof headers === 'object') {
-                        return Object.entries(headers).map(([name, value]) => ({ name, value }));
-                    }
-
                     return [];
                 }
 
                 function getBody(req, type) {
-                    if (!req || !req.data) return null;
-                    const data = req.data;
+                    if (!req) return null;
 
-                    // Try nested structure
-                    const nested = data[type];
-                    if (nested && nested.body) {
-                        return nested.body;
+                    // Support sidekick format (direct on req): req.requestBody / req.responseBody
+                    const bodyKey = type + 'Body';
+                    if (req[bodyKey]) return req[bodyKey];
+
+                    // Support old EventService format (nested in req.data)
+                    const data = req.data;
+                    if (data) {
+                        if (data[bodyKey]) return data[bodyKey];
+
+                        // Try nested structure
+                        const nested = data[type];
+                        if (nested && nested.body) return nested.body;
                     }
 
-                    // Try flat structure
-                    const key = type + 'Body';
-                    return data[key] || null;
+                    return null;
                 }
 
                 function toggleSort(field) {
@@ -1103,10 +1129,44 @@
                     }
                 }
 
-                function showDetail(id) {
-                    selectedRequest.value = requestMap.value.get(id);
+                async function showDetail(id) {
+                    // Fetch full details from sidekick
+                    try {
+                        const res = await fetch(`/api/network/${id}`, { credentials: 'same-origin' });
+                        if (res.ok) {
+                            const detail = await res.json();
+                            // Merge with existing data and update the map
+                            const existing = requestMap.value.get(id) || {};
+                            selectedRequest.value = { ...existing, ...detail };
+                            requestMap.value.set(id, selectedRequest.value);
+                        } else {
+                            // Fallback to cached data
+                            selectedRequest.value = requestMap.value.get(id);
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch request details:', e);
+                        selectedRequest.value = requestMap.value.get(id);
+                    }
+
+                    // Sync selected network request to backend (for MCP to query)
+                    syncNetworkSelection(selectedRequest.value);
+
                     activeTab.value = 'request';
                     view.value = 'detail';
+                }
+
+                // Sync network request selection to backend
+                async function syncNetworkSelection(request) {
+                    try {
+                        await fetch('/api/sessions/active/selected-network', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ request })
+                        });
+                    } catch (e) {
+                        console.debug('Failed to sync network selection:', e);
+                    }
                 }
 
                 function clearRequests() {
@@ -1229,8 +1289,10 @@
                     if (!Array.isArray(data)) return;
 
                     for (const event of data) {
-                        if (event.timestamp > latestTimestamp.value) {
-                            latestTimestamp.value = event.timestamp;
+                        // Use startTime from sidekick format
+                        const ts = event.startTime || event.timestamp || 0;
+                        if (ts > latestTimestamp.value) {
+                            latestTimestamp.value = ts;
                         }
 
                         const existing = requestMap.value.get(event.id);
@@ -1579,6 +1641,56 @@
                     if (wsPollInterval) clearInterval(wsPollInterval);
                 });
 
+                // Session state (for MCP coordination mode)
+                const sessions = ref([]);
+                const activeSessionId = ref(null);
+                const mcpMode = ref(false);
+
+                // Sync selected element to backend (for MCP to query)
+                watch(selectedElement, async (newElement) => {
+                    try {
+                        await fetch('/api/sessions/active/selected', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ element: newElement })
+                        });
+                    } catch (err) {
+                        // Silently ignore - selection sync is optional
+                    }
+                });
+
+                // Fetch sessions (for MCP mode)
+                async function fetchSessions() {
+                    try {
+                        const res = await fetch('/api/sessions');
+                        const data = await res.json();
+                        sessions.value = data.sessions || [];
+                        activeSessionId.value = data.activeSessionId;
+                        mcpMode.value = data.mcpMode || false;
+                    } catch (err) {
+                        // Ignore
+                    }
+                }
+
+                // Switch active session
+                async function switchSession(sessionId) {
+                    try {
+                        await fetch(`/api/sessions/${sessionId}/activate`, { method: 'POST' });
+                        activeSessionId.value = sessionId;
+                        // Refresh layout inspector data
+                        if (view.value === 'layout') {
+                            await loadComposeTree();
+                            await loadScreenshot();
+                        }
+                    } catch (err) {
+                        showToast('Failed to switch session');
+                    }
+                }
+
+                // Check for sessions periodically in MCP mode
+                setInterval(fetchSessions, 5000);
+                fetchSessions();
+
                 return {
                     view,
                     packageName,
@@ -1650,7 +1762,12 @@
                     showWsDetail,
                     formatDateTime,
                     formatSize,
-                    truncatePayload
+                    truncatePayload,
+                    // Session management (MCP mode)
+                    sessions,
+                    activeSessionId,
+                    mcpMode,
+                    switchSession
                 };
             }
         });

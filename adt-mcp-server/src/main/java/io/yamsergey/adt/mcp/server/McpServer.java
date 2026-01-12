@@ -8,6 +8,7 @@ import io.modelcontextprotocol.spec.McpSchema;
 import io.yamsergey.adt.mcp.session.SessionManager;
 import io.yamsergey.adt.mcp.tools.AdtTool;
 import io.yamsergey.adt.mcp.tools.app.*;
+import io.yamsergey.adt.mcp.tools.debug.*;
 import io.yamsergey.adt.mcp.tools.device.*;
 import io.yamsergey.adt.mcp.tools.session.*;
 import org.slf4j.Logger;
@@ -78,6 +79,12 @@ public class McpServer {
         toolList.add(new NetworkRequestTool());
         toolList.add(new WebSocketConnectionsTool());
         toolList.add(new WebSocketConnectionTool());
+
+        // Debug server tools
+        toolList.add(new StartDebugServerTool());
+        toolList.add(new StopDebugServerTool());
+        toolList.add(new GetSelectedElementTool());
+        toolList.add(new GetSelectedNetworkRequestTool(sessionManager));
 
         return toolList;
     }

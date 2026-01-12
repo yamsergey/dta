@@ -42,7 +42,9 @@ public class AttachAppTool extends AdtTool {
 
     @Override
     public String getDescription() {
-        return "Connects to a debuggable Android app for inspection. Call this FIRST before compose_tree or network_requests. " +
+        return "Connects to a debuggable Android app for inspection. Call this FIRST before compose_tree, network_requests, " +
+               "or using the debug server web UI. Sets up ADB port forwarding to the sidekick agent in the app. " +
+               "If debug server is running, automatically syncs the session for visual inspection. " +
                "By default connects to running app (fast). If connection fails, retry with restart=true to force app restart. " +
                "The app must include the sidekick SDK in its debug build.";
     }
@@ -140,7 +142,40 @@ public class AttachAppTool extends AdtTool {
                     "Try restart=true if the app is in a bad state.");
         }
 
+        // Sync to debug server if running
+        syncToDebugServer(session, appSession);
+
         return sessionResult;
+    }
+
+    /**
+     * Syncs the session to the debug server if it's running.
+     */
+    private void syncToDebugServer(SessionManager session, AppSession appSession) {
+        if (!session.isDebugServerRunning()) {
+            return;
+        }
+
+        try {
+            java.net.URL url = new java.net.URL(session.getDebugServerUrl() + "/api/sessions");
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+
+            String json = String.format(
+                    "{\"device\":\"%s\",\"packageName\":\"%s\",\"sidekickUrl\":\"%s\"}",
+                    appSession.getDevice(),
+                    appSession.getPackageName(),
+                    appSession.getSidekickUrl()
+            );
+
+            conn.getOutputStream().write(json.getBytes());
+            conn.getResponseCode(); // Execute request
+            conn.disconnect();
+        } catch (Exception e) {
+            // Ignore sync errors - debug server integration is optional
+        }
     }
 
     /**

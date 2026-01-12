@@ -34,15 +34,26 @@ public class SecurityConfig {
         // Get token from static holder (set before context starts)
         String accessToken = DebugServerApplication.getAccessToken();
 
+        // If no token is set (MCP mode with --no-auth), permit all requests
+        boolean noAuth = accessToken == null || accessToken.isEmpty();
+
         http
             .csrf(AbstractHttpConfigurer::disable)
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/health").permitAll()  // Health check is public
-                .requestMatchers("/index.html", "/", "/api/**").authenticated()  // UI and API require auth
-                .anyRequest().authenticated()
-            )
-            .addFilterBefore(new TokenAuthFilter(accessToken), UsernamePasswordAuthenticationFilter.class);
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+
+        if (noAuth) {
+            // No authentication required
+            http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+        } else {
+            // Token-based authentication
+            http
+                .authorizeHttpRequests(auth -> auth
+                    .requestMatchers("/health").permitAll()  // Health check is public
+                    .requestMatchers("/index.html", "/", "/api/**").authenticated()  // UI and API require auth
+                    .anyRequest().authenticated()
+                )
+                .addFilterBefore(new TokenAuthFilter(accessToken), UsernamePasswordAuthenticationFilter.class);
+        }
 
         return http.build();
     }
