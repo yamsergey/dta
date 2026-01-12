@@ -10,6 +10,7 @@ import io.yamsergey.adt.mcp.tools.AdtTool;
 import io.yamsergey.adt.mcp.tools.app.*;
 import io.yamsergey.adt.mcp.tools.debug.*;
 import io.yamsergey.adt.mcp.tools.device.*;
+import io.yamsergey.adt.mcp.tools.dump.*;
 import io.yamsergey.adt.mcp.tools.session.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,6 +86,11 @@ public class McpServer {
         toolList.add(new StopDebugServerTool());
         toolList.add(new GetSelectedElementTool());
         toolList.add(new GetSelectedNetworkRequestTool(sessionManager));
+
+        // Dump tools (save data to files)
+        toolList.add(new DumpLayoutTool());
+        toolList.add(new DumpNetworkTool());
+        toolList.add(new DumpWebSocketTool());
 
         return toolList;
     }
