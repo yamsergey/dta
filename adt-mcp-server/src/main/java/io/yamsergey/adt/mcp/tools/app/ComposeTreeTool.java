@@ -1,5 +1,9 @@
 package io.yamsergey.adt.mcp.tools.app;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.yamsergey.adt.mcp.session.AppSession;
 import io.yamsergey.adt.mcp.session.SessionManager;
 import io.yamsergey.adt.mcp.tools.AdtTool;
@@ -11,6 +15,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -36,10 +41,10 @@ public class ComposeTreeTool extends AdtTool {
 
     @Override
     public String getDescription() {
-        return "PRIMARY TOOL for understanding Android UI. Returns the Compose hierarchy with " +
-               "composable names, bounds (coordinates), text content, and semantics IDs. " +
-               "Use this FIRST to understand layout, find tap coordinates, or analyze UI structure. " +
-               "Much more useful than screenshot for programmatic interaction. Requires attach_app first.";
+        return "Get Compose UI hierarchy. Use with FILTERS (text, text_exact, type) to find specific " +
+               "elements - returns matching elements with paths and bounds for tapping. " +
+               "For FULL tree analysis, use dump_layout instead to save to file and avoid context pollution. " +
+               "Without filters, returns entire tree (can be large). Requires attach_app first.";
     }
 
     @Override
@@ -55,6 +60,18 @@ public class ComposeTreeTool extends AdtTool {
                         "device": {
                             "type": "string",
                             "description": "Device serial number. If not specified, uses first available device."
+                        },
+                        "text": {
+                            "type": "string",
+                            "description": "Filter: return only elements containing this text (case-insensitive). Returns matches with their hierarchy paths."
+                        },
+                        "text_exact": {
+                            "type": "string",
+                            "description": "Filter: return only elements with exactly this text. Returns matches with their hierarchy paths."
+                        },
+                        "type": {
+                            "type": "string",
+                            "description": "Filter: return only elements of this composable type (e.g., 'Button', 'Text', 'TextField'). Returns matches with their hierarchy paths."
                         }
                     }
                 }
@@ -65,6 +82,9 @@ public class ComposeTreeTool extends AdtTool {
     public Result<?> execute(Map<String, Object> args, SessionManager session) {
         String packageName = getStringParam(args, "package");
         String device = getStringParam(args, "device");
+        String textFilter = getStringParam(args, "text");
+        String textExactFilter = getStringParam(args, "text_exact");
+        String typeFilter = getStringParam(args, "type");
 
         // Get session
         Result<AppSession> sessionResult = resolveSession(session, device, packageName);
@@ -74,7 +94,22 @@ public class ComposeTreeTool extends AdtTool {
         AppSession appSession = ((Success<AppSession>) sessionResult).value();
 
         // Fetch compose tree from sidekick
-        return fetchComposeTree(appSession);
+        Result<String> treeResult = fetchComposeTree(appSession);
+        if (treeResult instanceof Failure<String> f) {
+            return f;
+        }
+        String tree = ((Success<String>) treeResult).value();
+
+        // Apply filters if any are specified
+        boolean hasFilter = textFilter != null || textExactFilter != null || typeFilter != null;
+        if (hasFilter) {
+            return filterTree(tree, textFilter, textExactFilter, typeFilter, appSession.getPackageName());
+        }
+
+        return new Success<>(tree,
+                String.format("Compose tree for %s. The tree shows the UI hierarchy with " +
+                              "composable names, bounds, and semantics IDs. Use tap with coordinates " +
+                              "to interact with elements.", appSession.getPackageName()));
     }
 
     /**
@@ -173,5 +208,142 @@ public class ComposeTreeTool extends AdtTool {
             return new Failure<>(e,
                     "Failed to fetch compose tree: " + e.getMessage());
         }
+    }
+
+    /**
+     * Filters the compose tree and returns matching elements with their paths.
+     */
+    private Result<?> filterTree(String treeJson, String textFilter, String textExactFilter,
+                                  String typeFilter, String packageName) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(treeJson);
+
+            List<ObjectNode> matches = new ArrayList<>();
+            searchTree(root.path("root"), "", matches, textFilter, textExactFilter, typeFilter, mapper);
+
+            // Build result
+            ObjectNode result = mapper.createObjectNode();
+            result.put("count", matches.size());
+            result.put("package", packageName);
+
+            // Add filter info
+            ObjectNode filters = mapper.createObjectNode();
+            if (textFilter != null) filters.put("text", textFilter);
+            if (textExactFilter != null) filters.put("text_exact", textExactFilter);
+            if (typeFilter != null) filters.put("type", typeFilter);
+            result.set("filters", filters);
+
+            ArrayNode matchesArray = mapper.createArrayNode();
+            for (ObjectNode match : matches) {
+                matchesArray.add(match);
+            }
+            result.set("matches", matchesArray);
+
+            String description = matches.isEmpty()
+                    ? "No elements found matching the filter criteria."
+                    : String.format("Found %d matching element(s). Use the bounds to tap on elements.", matches.size());
+
+            return new Success<>(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result), description);
+
+        } catch (Exception e) {
+            return new Failure<>(e, "Failed to filter compose tree: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Recursively searches the tree for matching elements.
+     */
+    private void searchTree(JsonNode node, String path, List<ObjectNode> matches,
+                            String textFilter, String textExactFilter, String typeFilter,
+                            ObjectMapper mapper) {
+        if (node == null || node.isMissingNode()) {
+            return;
+        }
+
+        String composable = node.path("composable").asText("");
+        String currentPath = path.isEmpty() ? composable : path + " > " + composable;
+
+        // Check if this node matches the filters
+        boolean isMatch = checkMatch(node, textFilter, textExactFilter, typeFilter);
+
+        if (isMatch) {
+            ObjectNode match = mapper.createObjectNode();
+            match.put("path", currentPath);
+            match.put("composable", composable);
+
+            // Include text if present
+            if (node.has("text")) {
+                match.put("text", node.path("text").asText());
+            }
+
+            // Include bounds if present
+            if (node.has("bounds")) {
+                match.set("bounds", node.path("bounds").deepCopy());
+            }
+
+            // Include semanticsId if present
+            if (node.has("semanticsId")) {
+                match.put("semanticsId", node.path("semanticsId").asInt());
+            }
+
+            // Include role if present
+            if (node.has("role")) {
+                match.put("role", node.path("role").asText());
+            }
+
+            // Include testTag if present
+            if (node.has("testTag")) {
+                match.put("testTag", node.path("testTag").asText());
+            }
+
+            matches.add(match);
+        }
+
+        // Recurse into children
+        JsonNode children = node.path("children");
+        if (children.isArray()) {
+            for (JsonNode child : children) {
+                searchTree(child, currentPath, matches, textFilter, textExactFilter, typeFilter, mapper);
+            }
+        }
+    }
+
+    /**
+     * Checks if a node matches the filter criteria.
+     */
+    private boolean checkMatch(JsonNode node, String textFilter, String textExactFilter, String typeFilter) {
+        // Check type filter
+        if (typeFilter != null) {
+            String composable = node.path("composable").asText("");
+            if (!composable.equalsIgnoreCase(typeFilter)) {
+                return false;
+            }
+        }
+
+        // Check text filters
+        String nodeText = node.path("text").asText(null);
+
+        if (textExactFilter != null) {
+            if (nodeText == null || !nodeText.equals(textExactFilter)) {
+                return false;
+            }
+        }
+
+        if (textFilter != null) {
+            if (nodeText == null || !nodeText.toLowerCase().contains(textFilter.toLowerCase())) {
+                return false;
+            }
+        }
+
+        // If we have filters but no text filter matched yet, need at least one filter to have matched
+        // If only type filter was specified, we matched above
+        // If text filter was specified, we need text to match
+        if (textFilter != null || textExactFilter != null) {
+            return true; // Text filter was checked above
+        }
+
+        // Only type filter was specified (or no filters, but this method isn't called without filters)
+        return typeFilter != null;
     }
 }
