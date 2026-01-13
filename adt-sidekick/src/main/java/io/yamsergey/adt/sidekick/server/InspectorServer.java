@@ -1,5 +1,7 @@
 package io.yamsergey.adt.sidekick.server;
 
+import android.net.LocalServerSocket;
+import android.net.LocalSocket;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -11,8 +13,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -37,14 +37,17 @@ import io.yamsergey.adt.sidekick.network.WebSocketInspector;
 import io.yamsergey.adt.sidekick.network.WebSocketMessage;
 
 /**
- * Simple HTTP server for ADT Sidekick inspection endpoints.
+ * HTTP server for ADT Sidekick inspection endpoints using Unix domain sockets.
  *
  * <p>Provides REST-like endpoints for inspecting various Android components.
- * Runs on localhost only for security.</p>
+ * Uses abstract namespace Unix domain socket for secure local communication.</p>
+ *
+ * <p>Socket name format: {@code adt_sidekick_{package_name}}</p>
  */
 public class InspectorServer {
 
     private static final String TAG = "InspectorServer";
+    private static final String SOCKET_PREFIX = "adt_sidekick_";
     private static volatile InspectorServer instance;
 
     private final Gson gson;
@@ -56,8 +59,13 @@ public class InspectorServer {
     private final Set<OutputStream> sseClients = ConcurrentHashMap.newKeySet();
     private final NetworkInspector.TransactionListener transactionListener;
 
-    private ServerSocket serverSocket;
-    private int port;
+    // Selection state
+    private volatile Map<String, Object> selectedElement;
+    private volatile Map<String, Object> selectedNetworkRequest;
+
+    private LocalServerSocket serverSocket;
+    private String socketName;
+    private String packageName;
 
     private InspectorServer() {
         this.gson = new GsonBuilder().setPrettyPrinting().create();
@@ -91,23 +99,26 @@ public class InspectorServer {
     }
 
     /**
-     * Starts the server on the specified port.
+     * Starts the server on a Unix domain socket.
+     *
+     * @param packageName the app's package name, used to create unique socket name
      */
-    public void start(int port) throws IOException {
+    public void start(String packageName) throws IOException {
         if (running.get()) {
             Log.w(TAG, "Server already running");
             return;
         }
 
-        this.port = port;
-        this.serverSocket = new ServerSocket(port);
+        this.packageName = packageName;
+        this.socketName = SOCKET_PREFIX + packageName;
+        this.serverSocket = new LocalServerSocket(socketName);
         this.running.set(true);
 
         // Register for transaction events
         NetworkInspector.addListener(transactionListener);
 
         executor.submit(this::acceptLoop);
-        Log.i(TAG, "Server started on port " + port);
+        Log.i(TAG, "Server started on socket: " + socketName);
     }
 
     /**
@@ -128,8 +139,9 @@ public class InspectorServer {
         sseClients.clear();
 
         try {
-            if (serverSocket != null && !serverSocket.isClosed()) {
+            if (serverSocket != null) {
                 serverSocket.close();
+                serverSocket = null;
             }
         } catch (IOException e) {
             Log.e(TAG, "Error closing server", e);
@@ -137,10 +149,17 @@ public class InspectorServer {
     }
 
     /**
-     * Returns the port the server is running on.
+     * Returns the socket name the server is listening on.
      */
-    public int getPort() {
-        return port;
+    public String getSocketName() {
+        return socketName;
+    }
+
+    /**
+     * Returns the package name of the app.
+     */
+    public String getPackageName() {
+        return packageName;
     }
 
     /**
@@ -149,7 +168,7 @@ public class InspectorServer {
     private void acceptLoop() {
         while (running.get()) {
             try {
-                Socket client = serverSocket.accept();
+                LocalSocket client = serverSocket.accept();
                 executor.submit(() -> handleClient(client));
             } catch (IOException e) {
                 if (running.get()) {
@@ -162,7 +181,7 @@ public class InspectorServer {
     /**
      * Handles a single client connection.
      */
-    private void handleClient(Socket client) {
+    private void handleClient(LocalSocket client) {
         boolean isStreamingRequest = false;
         try {
             BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
@@ -188,14 +207,27 @@ public class InspectorServer {
             String method = parts[0];
             String path = parts[1];
 
-            // Skip headers (read until empty line)
+            // Read headers and body
             String line;
+            int contentLength = 0;
             while ((line = reader.readLine()) != null && !line.isEmpty()) {
-                // Skip headers
+                if (line.toLowerCase().startsWith("content-length:")) {
+                    contentLength = Integer.parseInt(line.substring(15).trim());
+                }
             }
 
-            // Route request (support GET and DELETE)
-            if (!"GET".equals(method) && !"DELETE".equals(method)) {
+            // Read body if present
+            String body = null;
+            if (contentLength > 0) {
+                char[] bodyChars = new char[contentLength];
+                int read = reader.read(bodyChars, 0, contentLength);
+                if (read > 0) {
+                    body = new String(bodyChars, 0, read);
+                }
+            }
+
+            // Route request (support GET, POST, and DELETE)
+            if (!"GET".equals(method) && !"POST".equals(method) && !"DELETE".equals(method)) {
                 sendError(out, 405, "Method Not Allowed");
                 client.close();
                 return;
@@ -204,7 +236,7 @@ public class InspectorServer {
             // Check if this is a streaming request (SSE)
             isStreamingRequest = "/events/stream".equals(path);
 
-            routeRequest(method, path, out);
+            routeRequest(method, path, body, out);
 
             // Only close if not a streaming request
             if (!isStreamingRequest) {
@@ -222,7 +254,7 @@ public class InspectorServer {
     /**
      * Routes the request to the appropriate handler.
      */
-    private void routeRequest(String method, String path, OutputStream out) throws IOException {
+    private void routeRequest(String method, String path, String body, OutputStream out) throws IOException {
         // Handle network request detail: /network/requests/{id}
         if (path.startsWith("/network/requests/") && path.length() > 18) {
             String requestId = path.substring(18);
@@ -237,12 +269,6 @@ public class InspectorServer {
             return;
         }
 
-        // Handle UI network detail: /ui/network/{id}
-        if (path.startsWith("/ui/network/") && path.length() > 12) {
-            String requestId = path.substring(12);
-            handleNetworkDetailUI(requestId, out);
-            return;
-        }
 
         // Handle compose hit-test: /compose/select?x=N&y=N
         if (path.startsWith("/compose/select")) {
@@ -268,16 +294,33 @@ public class InspectorServer {
             return;
         }
 
+        // Handle selection endpoints
+        if (path.equals("/selection/element")) {
+            if ("GET".equals(method)) {
+                handleGetSelectionElement(out);
+            } else if ("POST".equals(method)) {
+                handleSetSelectionElement(body, out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
+        if (path.equals("/selection/network")) {
+            if ("GET".equals(method)) {
+                handleGetSelectionNetwork(out);
+            } else if ("POST".equals(method)) {
+                handleSetSelectionNetwork(body, out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
         switch (path) {
             case "/":
-                handleHomeUI(out);
-                break;
             case "/health":
                 handleHealth(out);
-                break;
-            case "/ui":
-            case "/ui/network":
-                handleNetworkListUI(out);
                 break;
             case "/compose/hierarchy":
                 handleComposeHierarchy(out);
@@ -329,8 +372,9 @@ public class InspectorServer {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("name", "ADT Sidekick");
-        response.put("version", "1.2.0");
-        response.put("port", port);
+        response.put("version", "2.0.0");
+        response.put("socketName", socketName);
+        response.put("packageName", packageName);
         response.put("sseClients", sseClients.size());
         response.put("endpoints", new String[]{
                 "/health",
@@ -348,7 +392,9 @@ public class InspectorServer {
                 "/network/stats",
                 "/websocket/connections",
                 "/websocket/connections/{id}",
-                "/websocket/clear"
+                "/websocket/clear",
+                "/selection/element",
+                "/selection/network"
         });
 
         sendJson(out, 200, response);
@@ -863,6 +909,124 @@ public class InspectorServer {
         }
     }
 
+    // =========================================================================
+    // Selection Endpoints
+    // =========================================================================
+
+    /**
+     * GET /selection/element - Get currently selected UI element.
+     */
+    private void handleGetSelectionElement(OutputStream out) throws IOException {
+        Map<String, Object> response = new HashMap<>();
+        response.put("selected", selectedElement != null);
+        if (selectedElement != null) {
+            response.put("element", selectedElement);
+        }
+        sendJson(out, 200, response);
+    }
+
+    /**
+     * POST /selection/element - Set currently selected UI element.
+     *
+     * <p>Expects JSON body with element data or null to clear selection.</p>
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSetSelectionElement(String body, OutputStream out) throws IOException {
+        try {
+            if (body == null || body.trim().isEmpty() || body.trim().equals("null")) {
+                selectedElement = null;
+            } else {
+                selectedElement = gson.fromJson(body, Map.class);
+            }
+
+            // Broadcast selection change to SSE clients
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("type", "element");
+            eventData.put("selected", selectedElement != null);
+            if (selectedElement != null) {
+                eventData.put("element", selectedElement);
+            }
+            broadcastSelectionEvent(eventData);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("selected", selectedElement != null);
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting element selection", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Invalid JSON: " + e.getMessage());
+            sendJson(out, 400, error);
+        }
+    }
+
+    /**
+     * GET /selection/network - Get currently selected network request.
+     */
+    private void handleGetSelectionNetwork(OutputStream out) throws IOException {
+        Map<String, Object> response = new HashMap<>();
+        response.put("selected", selectedNetworkRequest != null);
+        if (selectedNetworkRequest != null) {
+            response.put("request", selectedNetworkRequest);
+        }
+        sendJson(out, 200, response);
+    }
+
+    /**
+     * POST /selection/network - Set currently selected network request.
+     *
+     * <p>Expects JSON body with request ID or full request data, or null to clear.</p>
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSetSelectionNetwork(String body, OutputStream out) throws IOException {
+        try {
+            if (body == null || body.trim().isEmpty() || body.trim().equals("null")) {
+                selectedNetworkRequest = null;
+            } else {
+                selectedNetworkRequest = gson.fromJson(body, Map.class);
+            }
+
+            // Broadcast selection change to SSE clients
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("type", "network");
+            eventData.put("selected", selectedNetworkRequest != null);
+            if (selectedNetworkRequest != null) {
+                eventData.put("request", selectedNetworkRequest);
+            }
+            broadcastSelectionEvent(eventData);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("selected", selectedNetworkRequest != null);
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting network selection", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Invalid JSON: " + e.getMessage());
+            sendJson(out, 400, error);
+        }
+    }
+
+    /**
+     * Broadcasts a selection change event to all SSE clients.
+     */
+    private void broadcastSelectionEvent(Map<String, Object> data) {
+        if (sseClients.isEmpty()) {
+            return;
+        }
+
+        for (OutputStream client : sseClients) {
+            try {
+                sendSseEvent(client, "selection", data);
+            } catch (IOException e) {
+                // Client disconnected, will be cleaned up
+                sseClients.remove(client);
+            }
+        }
+    }
+
     /**
      * Converts a WebSocketConnection to a Map for JSON serialization.
      *
@@ -1085,332 +1249,6 @@ public class InspectorServer {
             }
         }
         return map;
-    }
-
-    // =========================================================================
-    // HTML UI Endpoints
-    // =========================================================================
-
-    /**
-     * GET / - Home page with links to UI sections.
-     */
-    private void handleHomeUI(OutputStream out) throws IOException {
-        StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html><html><head>");
-        html.append("<meta charset='UTF-8'>");
-        html.append("<meta name='viewport' content='width=device-width, initial-scale=1'>");
-        html.append("<title>ADT Sidekick</title>");
-        html.append(getCommonStyles());
-        html.append("</head><body>");
-        html.append("<div class='container'>");
-        html.append("<h1>🔧 ADT Sidekick</h1>");
-        html.append("<p class='subtitle'>Android Development Tools Inspector</p>");
-        html.append("<div class='card'>");
-        html.append("<h2>📡 Network</h2>");
-        html.append("<p>Monitor HTTP requests and responses</p>");
-        html.append("<a href='/ui/network' class='btn'>View Network Traffic</a>");
-        html.append("</div>");
-        html.append("<div class='card'>");
-        html.append("<h2>🎨 Compose</h2>");
-        html.append("<p>Inspect Compose UI hierarchy</p>");
-        html.append("<a href='/compose/tree' class='btn btn-secondary'>View JSON</a>");
-        html.append("</div>");
-        html.append("<div class='card'>");
-        html.append("<h2>📊 API Endpoints</h2>");
-        html.append("<ul>");
-        html.append("<li><code>/network/requests</code> - List requests</li>");
-        html.append("<li><code>/network/requests/{id}</code> - Request details</li>");
-        html.append("<li><code>/network/stats</code> - Statistics</li>");
-        html.append("<li><code>/compose/tree</code> - Compose hierarchy</li>");
-        html.append("</ul>");
-        html.append("</div>");
-        html.append("</div></body></html>");
-
-        sendHtml(out, 200, html.toString());
-    }
-
-    /**
-     * GET /ui/network - Network requests list page.
-     */
-    private void handleNetworkListUI(OutputStream out) throws IOException {
-        java.util.List<HttpTransaction> transactions = NetworkInspector.getTransactions();
-
-        StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html><html><head>");
-        html.append("<meta charset='UTF-8'>");
-        html.append("<meta name='viewport' content='width=device-width, initial-scale=1'>");
-        html.append("<title>Network - ADT Sidekick</title>");
-        html.append(getCommonStyles());
-        html.append("<style>");
-        html.append(".request-row { display: flex; padding: 12px; border-bottom: 1px solid #333; cursor: pointer; }");
-        html.append(".request-row:hover { background: #2a2a2a; }");
-        html.append(".method { width: 60px; font-weight: bold; }");
-        html.append(".method.GET { color: #4caf50; }");
-        html.append(".method.POST { color: #ff9800; }");
-        html.append(".method.PUT { color: #2196f3; }");
-        html.append(".method.DELETE { color: #f44336; }");
-        html.append(".url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ccc; }");
-        html.append(".status { width: 50px; text-align: center; }");
-        html.append(".status.s2xx { color: #4caf50; }");
-        html.append(".status.s3xx { color: #ff9800; }");
-        html.append(".status.s4xx, .status.s5xx { color: #f44336; }");
-        html.append(".duration { width: 70px; text-align: right; color: #888; }");
-        html.append(".empty { text-align: center; padding: 40px; color: #666; }");
-        html.append(".toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }");
-        html.append("</style>");
-        html.append("</head><body>");
-        html.append("<div class='container'>");
-        html.append("<div class='toolbar'>");
-        html.append("<h1>📡 Network Traffic</h1>");
-        html.append("<div>");
-        html.append("<a href='/' class='btn btn-secondary'>Home</a> ");
-        html.append("<button onclick='location.reload()' class='btn'>Refresh</button>");
-        html.append("</div></div>");
-
-        if (transactions.isEmpty()) {
-            html.append("<div class='card empty'>No network requests captured yet</div>");
-        } else {
-            html.append("<div class='card' style='padding: 0;'>");
-            // Reverse order to show newest first
-            for (int i = transactions.size() - 1; i >= 0; i--) {
-                HttpTransaction tx = transactions.get(i);
-                HttpRequest req = tx.getRequest();
-                HttpResponse resp = tx.getResponse();
-
-                String method = req != null ? req.getMethod() : "?";
-                String url = req != null ? req.getUrl() : "Unknown";
-                int code = resp != null ? resp.getStatusCode() : 0;
-                String statusClass = code >= 200 && code < 300 ? "s2xx" :
-                        code >= 300 && code < 400 ? "s3xx" :
-                                code >= 400 && code < 500 ? "s4xx" : "s5xx";
-
-                html.append("<a href='/ui/network/").append(tx.getId()).append("' class='request-row' style='text-decoration:none;'>");
-                html.append("<span class='method ").append(method).append("'>").append(method).append("</span>");
-                html.append("<span class='url'>").append(escapeHtml(url)).append("</span>");
-                html.append("<span class='status ").append(statusClass).append("'>").append(code > 0 ? code : "-").append("</span>");
-                html.append("<span class='duration'>").append(tx.getDuration()).append("ms</span>");
-                html.append("</a>");
-            }
-            html.append("</div>");
-        }
-
-        html.append("<p style='color:#666; font-size:12px; margin-top:16px;'>").append(transactions.size()).append(" requests</p>");
-        html.append("</div></body></html>");
-
-        sendHtml(out, 200, html.toString());
-    }
-
-    /**
-     * GET /ui/network/{id} - Network request detail page.
-     */
-    private void handleNetworkDetailUI(String requestId, OutputStream out) throws IOException {
-        HttpTransaction tx = NetworkInspector.getTransaction(requestId);
-
-        if (tx == null) {
-            sendHtml(out, 404, "<html><body><h1>Request not found</h1><a href='/ui/network'>Back</a></body></html>");
-            return;
-        }
-
-        HttpRequest req = tx.getRequest();
-        HttpResponse resp = tx.getResponse();
-
-        StringBuilder html = new StringBuilder();
-        html.append("<!DOCTYPE html><html><head>");
-        html.append("<meta charset='UTF-8'>");
-        html.append("<meta name='viewport' content='width=device-width, initial-scale=1'>");
-        html.append("<title>Request Detail - ADT Sidekick</title>");
-        html.append(getCommonStyles());
-        html.append("<style>");
-        html.append(".section { margin-bottom: 24px; }");
-        html.append(".section h3 { color: #888; font-size: 12px; text-transform: uppercase; margin-bottom: 8px; }");
-        html.append(".header-row { display: flex; padding: 4px 0; border-bottom: 1px solid #333; font-size: 13px; }");
-        html.append(".header-name { width: 200px; color: #888; }");
-        html.append(".header-value { flex: 1; word-break: break-all; }");
-        html.append(".body-content { background: #1a1a1a; padding: 12px; border-radius: 4px; ");
-        html.append("  font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow: auto; }");
-        html.append(".meta { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }");
-        html.append(".meta-item { }");
-        html.append(".meta-label { color: #666; font-size: 11px; }");
-        html.append(".meta-value { font-size: 16px; }");
-        html.append(".tabs { display: flex; border-bottom: 1px solid #333; margin-bottom: 16px; }");
-        html.append(".tab { padding: 8px 16px; cursor: pointer; color: #888; }");
-        html.append(".tab.active { color: #fff; border-bottom: 2px solid #4caf50; }");
-        html.append(".tab-content { display: none; }");
-        html.append(".tab-content.active { display: block; }");
-        html.append("</style>");
-        html.append("</head><body>");
-        html.append("<div class='container'>");
-
-        // Header
-        String method = req != null ? req.getMethod() : "?";
-        String url = req != null ? req.getUrl() : "Unknown";
-        int code = resp != null ? resp.getStatusCode() : 0;
-
-        html.append("<div style='margin-bottom: 16px;'>");
-        html.append("<a href='/ui/network' style='color: #4caf50;'>← Back to list</a>");
-        html.append("</div>");
-
-        html.append("<div class='card'>");
-        html.append("<h2 style='margin-bottom: 8px;'>");
-        html.append("<span style='color:").append(method.equals("GET") ? "#4caf50" : "#ff9800").append(";'>").append(method).append("</span> ");
-        html.append("<span style='color:").append(code >= 200 && code < 300 ? "#4caf50" : "#f44336").append(";'>").append(code).append("</span>");
-        html.append("</h2>");
-        html.append("<p style='word-break:break-all; color:#ccc;'>").append(escapeHtml(url)).append("</p>");
-
-        // Meta info
-        html.append("<div class='meta'>");
-        html.append("<div class='meta-item'><div class='meta-label'>Duration</div><div class='meta-value'>").append(tx.getDuration()).append("ms</div></div>");
-        if (resp != null) {
-            html.append("<div class='meta-item'><div class='meta-label'>Response Size</div><div class='meta-value'>").append(formatBytes(resp.getBodySize())).append("</div></div>");
-            html.append("<div class='meta-item'><div class='meta-label'>Protocol</div><div class='meta-value'>").append(resp.getProtocol()).append("</div></div>");
-        }
-        html.append("<div class='meta-item'><div class='meta-label'>Status</div><div class='meta-value'>").append(tx.getStatus()).append("</div></div>");
-        html.append("</div>");
-        html.append("</div>");
-
-        // Tabs
-        html.append("<div class='tabs'>");
-        html.append("<div class='tab active' onclick='showTab(\"request\")'>Request</div>");
-        html.append("<div class='tab' onclick='showTab(\"response\")'>Response</div>");
-        html.append("</div>");
-
-        // Request tab
-        html.append("<div id='request' class='tab-content active'>");
-        if (req != null) {
-            // Request headers
-            html.append("<div class='section'>");
-            html.append("<h3>Headers</h3>");
-            java.util.List<HttpHeader> reqHeaders = req.getHeaders();
-            if (reqHeaders != null && !reqHeaders.isEmpty()) {
-                for (HttpHeader h : reqHeaders) {
-                    html.append("<div class='header-row'>");
-                    html.append("<span class='header-name'>").append(escapeHtml(h.getName())).append("</span>");
-                    html.append("<span class='header-value'>").append(escapeHtml(h.getValue())).append("</span>");
-                    html.append("</div>");
-                }
-            } else {
-                html.append("<p style='color:#666;'>No headers</p>");
-            }
-            html.append("</div>");
-
-            // Request body
-            String reqBody = req.getBody();
-            if (reqBody != null && !reqBody.isEmpty()) {
-                html.append("<div class='section'>");
-                html.append("<h3>Body</h3>");
-                html.append("<div class='body-content'>").append(escapeHtml(reqBody)).append("</div>");
-                html.append("</div>");
-            }
-        }
-        html.append("</div>");
-
-        // Response tab
-        html.append("<div id='response' class='tab-content'>");
-        if (resp != null) {
-            // Response headers
-            html.append("<div class='section'>");
-            html.append("<h3>Headers</h3>");
-            java.util.List<HttpHeader> respHeaders = resp.getHeaders();
-            if (respHeaders != null && !respHeaders.isEmpty()) {
-                for (HttpHeader h : respHeaders) {
-                    html.append("<div class='header-row'>");
-                    html.append("<span class='header-name'>").append(escapeHtml(h.getName())).append("</span>");
-                    html.append("<span class='header-value'>").append(escapeHtml(h.getValue())).append("</span>");
-                    html.append("</div>");
-                }
-            }
-            html.append("</div>");
-
-            // Response body
-            String respBody = resp.getBody();
-            if (respBody != null && !respBody.isEmpty()) {
-                html.append("<div class='section'>");
-                html.append("<h3>Body</h3>");
-                html.append("<div class='body-content'>").append(escapeHtml(respBody)).append("</div>");
-                html.append("</div>");
-            }
-        } else {
-            html.append("<p style='color:#666;'>No response received</p>");
-        }
-        html.append("</div>");
-
-        // JavaScript for tabs
-        html.append("<script>");
-        html.append("function showTab(name) {");
-        html.append("  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));");
-        html.append("  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));");
-        html.append("  event.target.classList.add('active');");
-        html.append("  document.getElementById(name).classList.add('active');");
-        html.append("}");
-        html.append("</script>");
-
-        html.append("</div></body></html>");
-
-        sendHtml(out, 200, html.toString());
-    }
-
-    /**
-     * Returns common CSS styles for UI pages.
-     */
-    private String getCommonStyles() {
-        return "<style>" +
-                "* { box-sizing: border-box; margin: 0; padding: 0; }" +
-                "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; " +
-                "  background: #1a1a1a; color: #fff; line-height: 1.5; }" +
-                ".container { max-width: 900px; margin: 0 auto; padding: 20px; }" +
-                "h1 { font-size: 24px; margin-bottom: 8px; }" +
-                ".subtitle { color: #888; margin-bottom: 24px; }" +
-                ".card { background: #222; border-radius: 8px; padding: 16px; margin-bottom: 16px; }" +
-                ".card h2 { font-size: 18px; margin-bottom: 8px; }" +
-                ".card p { color: #888; margin-bottom: 12px; }" +
-                ".card ul { margin-left: 20px; color: #888; }" +
-                ".card li { margin: 4px 0; }" +
-                "code { background: #333; padding: 2px 6px; border-radius: 4px; font-size: 13px; }" +
-                ".btn { display: inline-block; padding: 8px 16px; background: #4caf50; color: #fff; " +
-                "  text-decoration: none; border-radius: 4px; border: none; cursor: pointer; font-size: 14px; }" +
-                ".btn:hover { background: #45a049; }" +
-                ".btn-secondary { background: #444; }" +
-                ".btn-secondary:hover { background: #555; }" +
-                "</style>";
-    }
-
-    /**
-     * Escapes HTML special characters.
-     */
-    private String escapeHtml(String text) {
-        if (text == null) return "";
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;");
-    }
-
-    /**
-     * Formats bytes to human readable string.
-     */
-    private String formatBytes(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
-        return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
-    }
-
-    /**
-     * Sends an HTML response.
-     */
-    private void sendHtml(OutputStream out, int statusCode, String html) throws IOException {
-        String status = statusCode == 200 ? "OK" : statusCode == 404 ? "Not Found" : "Error";
-        byte[] body = html.getBytes(StandardCharsets.UTF_8);
-
-        StringBuilder response = new StringBuilder();
-        response.append("HTTP/1.1 ").append(statusCode).append(" ").append(status).append("\r\n");
-        response.append("Content-Type: text/html; charset=utf-8\r\n");
-        response.append("Content-Length: ").append(body.length).append("\r\n");
-        response.append("Connection: close\r\n");
-        response.append("\r\n");
-
-        out.write(response.toString().getBytes(StandardCharsets.UTF_8));
-        out.write(body);
-        out.flush();
     }
 
     // =========================================================================

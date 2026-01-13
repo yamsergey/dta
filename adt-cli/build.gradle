@@ -17,7 +17,6 @@ dependencies {
     // Core libraries
     implementation project(':tools-android')
     implementation project(':workspace-kotlin')
-    implementation project(':adt-debug-server')
 
     // CLI framework
     implementation libs.picocli

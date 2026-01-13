@@ -21,8 +21,15 @@ import io.yamsergey.adt.sidekick.server.InspectorServer;
 /**
  * AndroidX Startup initializer that automatically starts the ADT Sidekick server.
  *
- * <p>This initializer is triggered when the app starts, launching a local HTTP server
- * that provides inspection endpoints for various Android components.</p>
+ * <p>This initializer is triggered when the app starts, launching a local server
+ * on a Unix domain socket that provides inspection endpoints for various Android components.</p>
+ *
+ * <h3>Socket Name</h3>
+ * <p>The server listens on a Unix domain socket named: {@code adt_sidekick_{package_name}}</p>
+ * <p>Connect via ADB port forwarding:</p>
+ * <pre>{@code
+ * adb forward tcp:8642 localabstract:adt_sidekick_com.example.app
+ * }</pre>
  *
  * <h3>Configuration</h3>
  * <p>Configure Sidekick before initialization using {@link io.yamsergey.adt.sidekick.Sidekick#configure}:</p>
@@ -36,14 +43,16 @@ import io.yamsergey.adt.sidekick.server.InspectorServer;
  * <h3>Available endpoints:</h3>
  * <ul>
  *   <li>GET /health - Health check</li>
- *   <li>GET /compose/hierarchy - Compose UI hierarchy</li>
- *   <li>GET /compose/semantics - Compose semantics tree</li>
  *   <li>GET /compose/tree - Unified Compose tree</li>
+ *   <li>GET /compose/select?x=N&amp;y=N - Hit test at coordinates</li>
  *   <li>GET /network/requests - Captured HTTP requests</li>
  *   <li>GET /network/requests/{id} - Single request details</li>
  *   <li>DELETE /network/clear - Clear captured requests</li>
  *   <li>GET /websocket/connections - WebSocket connections</li>
  *   <li>GET /websocket/connections/{id} - Single connection details</li>
+ *   <li>GET/POST /selection/element - Get/set selected UI element</li>
+ *   <li>GET/POST /selection/network - Get/set selected network request</li>
+ *   <li>GET /events/stream - SSE stream for real-time updates</li>
  * </ul>
  *
  * <h3>Supported Network Libraries:</h3>
@@ -55,7 +64,6 @@ import io.yamsergey.adt.sidekick.server.InspectorServer;
 public class SidekickInitializer implements Initializer<InspectorServer> {
 
     private static final String TAG = "ADT-Sidekick";
-    private static final int DEFAULT_PORT = 8642;
 
     @NonNull
     @Override
@@ -72,12 +80,13 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
         // Initialize JVMTI agent for method hooking (API 28+)
         initializeJvmtiAgent(context);
 
-        // Start the HTTP server
+        // Start the server on Unix domain socket
         InspectorServer server = InspectorServer.getInstance();
+        String packageName = context.getPackageName();
 
         try {
-            server.start(DEFAULT_PORT);
-            Log.i(TAG, "ADT Sidekick server started on port " + DEFAULT_PORT);
+            server.start(packageName);
+            Log.i(TAG, "ADT Sidekick server started on socket: adt_sidekick_" + packageName);
         } catch (Exception e) {
             Log.e(TAG, "Failed to start ADT Sidekick server", e);
         }

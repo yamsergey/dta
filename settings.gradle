@@ -21,5 +21,6 @@ include 'tools-android'
 include 'tools-android-cli'
 include 'adt-cli'
 include 'adt-sidekick'
-include 'adt-debug-server'
-include 'adt-mcp-server'
+// Old Java servers removed - replaced by Python adt-mcp
+// include 'adt-debug-server'
+// include 'adt-mcp-server'
