@@ -206,6 +206,26 @@ public class ComposeInspector {
             return null;
         }
 
+        // When there are multiple ComposeViews, find the one with actual content
+        // (the first one might be empty, e.g., a background layer)
+        Object composeViewWithContent = null;
+        if (composeViews.size() > 1) {
+            for (int i = 0; i < composeViews.size(); i++) {
+                Object view = composeViews.get(i);
+                Object root = getRootLayoutNode(view);
+                if (root != null) {
+                    List<Object> children = getLayoutNodeChildren(root);
+                    if (!children.isEmpty()) {
+                        composeViewWithContent = view;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Use the ComposeView with content, or fall back to first one
+        Object firstComposeView = composeViewWithContent != null ? composeViewWithContent : composeViews.get(0);
+
         Map<String, Object> result = new HashMap<>();
         result.put("type", "compose_tree");
         result.put("timestamp", System.currentTimeMillis());
@@ -215,7 +235,6 @@ public class ComposeInspector {
         screen.put("activity", activity.getClass().getSimpleName());
 
         // Get the first compose view's root for screen composable name
-        Object firstComposeView = composeViews.get(0);
         Object rootLayoutNode = getRootLayoutNode(firstComposeView);
         if (rootLayoutNode != null) {
             String rootComposable = extractRootComposableName(rootLayoutNode);
