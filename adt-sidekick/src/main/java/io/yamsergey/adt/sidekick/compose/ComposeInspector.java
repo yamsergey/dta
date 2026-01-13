@@ -206,26 +206,6 @@ public class ComposeInspector {
             return null;
         }
 
-        // When there are multiple ComposeViews, find the one with actual content
-        // (the first one might be empty, e.g., a background layer)
-        Object composeViewWithContent = null;
-        if (composeViews.size() > 1) {
-            for (int i = 0; i < composeViews.size(); i++) {
-                Object view = composeViews.get(i);
-                Object root = getRootLayoutNode(view);
-                if (root != null) {
-                    List<Object> children = getLayoutNodeChildren(root);
-                    if (!children.isEmpty()) {
-                        composeViewWithContent = view;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Use the ComposeView with content, or fall back to first one
-        Object firstComposeView = composeViewWithContent != null ? composeViewWithContent : composeViews.get(0);
-
         Map<String, Object> result = new HashMap<>();
         result.put("type", "compose_tree");
         result.put("timestamp", System.currentTimeMillis());
@@ -233,15 +213,6 @@ public class ComposeInspector {
         // Screen info
         Map<String, Object> screen = new HashMap<>();
         screen.put("activity", activity.getClass().getSimpleName());
-
-        // Get the first compose view's root for screen composable name
-        Object rootLayoutNode = getRootLayoutNode(firstComposeView);
-        if (rootLayoutNode != null) {
-            String rootComposable = extractRootComposableName(rootLayoutNode);
-            if (rootComposable != null) {
-                screen.put("composable", rootComposable);
-            }
-        }
 
         // Add window dimensions (matches screenshot capture dimensions)
         Window window = activity.getWindow();
@@ -265,29 +236,50 @@ public class ComposeInspector {
         screen.put("screenHeight", displayMetrics.heightPixels);
         screen.put("density", displayMetrics.density);
 
-        // Get ComposeView's offset on screen (includes status bar, etc.)
-        // This is where the actual Compose content starts relative to screen origin
-        int[] viewOffset = new int[2];
-        if (firstComposeView instanceof View) {
-            ((View) firstComposeView).getLocationOnScreen(viewOffset);
-            screen.put("composeViewOffsetX", viewOffset[0]);
-            screen.put("composeViewOffsetY", viewOffset[1]);
-        }
-
         result.put("screen", screen);
 
-        // Build semanticsId -> semantics properties map using Android Studio approach
-        // Key: stable semanticsId (int), Value: {semanticsId, text, role, ...}
-        // This is much more reliable than the old identity hashcode approach
-        Map<Integer, Map<String, Object>> semanticsById = buildSemanticsById(firstComposeView);
-
-        // Build composable info map from CompositionData (for proper composable names)
-        // Key: LayoutNode identity hashcode, Value: ComposableInfo with name, file, line
-        Map<Integer, ComposableInfo> composableInfoMap = buildComposableInfoMap(firstComposeView);
-
-        // Capture unified tree, starting with the ComposeView's screen offset
-        if (rootLayoutNode != null) {
-            result.put("root", captureUnifiedNode(rootLayoutNode, viewOffset[0], viewOffset[1], 0, semanticsById, composableInfoMap, null));
+        // When there are multiple ComposeViews, we need to merge all of them
+        // Each ComposeView might represent a different layer (background, content, overlays)
+        List<Map<String, Object>> allRoots = new ArrayList<>();
+        
+        for (int i = 0; i < composeViews.size(); i++) {
+            Object composeView = composeViews.get(i);
+            Object rootLayoutNode = getRootLayoutNode(composeView);
+            
+            if (rootLayoutNode == null) {
+                continue;
+            }
+            
+            // Check if this root has any children
+            List<Object> children = getLayoutNodeChildren(rootLayoutNode);
+            if (children.isEmpty()) {
+                continue;
+            }
+            
+            // Get ComposeView's offset on screen
+            int[] viewOffset = new int[2];
+            if (composeView instanceof View) {
+                ((View) composeView).getLocationOnScreen(viewOffset);
+            }
+            
+            // Build semantics and composable info maps for this ComposeView
+            Map<Integer, Map<String, Object>> semanticsById = buildSemanticsById(composeView);
+            Map<Integer, ComposableInfo> composableInfoMap = buildComposableInfoMap(composeView);
+            
+            // Capture this ComposeView's tree
+            Map<String, Object> rootNode = captureUnifiedNode(rootLayoutNode, viewOffset[0], viewOffset[1], 0, semanticsById, composableInfoMap, null);
+            if (rootNode != null) {
+                allRoots.add(rootNode);
+            }
+        }
+        
+        // Create a synthetic root that contains all ComposeView roots as children
+        if (!allRoots.isEmpty()) {
+            Map<String, Object> syntheticRoot = new HashMap<>();
+            syntheticRoot.put("composable", "Root");
+            syntheticRoot.put("children", allRoots);
+            syntheticRoot.put("id", "0_synthetic");
+            result.put("root", syntheticRoot);
         }
 
         return result;
