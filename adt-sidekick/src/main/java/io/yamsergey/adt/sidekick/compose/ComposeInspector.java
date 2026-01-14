@@ -262,11 +262,23 @@ public class ComposeInspector {
             }
 
             Log.d(TAG, "  -> Processing: has " + children.size() + " children");
-            
-            // Get ComposeView's offset on screen
-            int[] viewOffset = new int[2];
+
+            // Get the window's screen position for coordinate conversion.
+            // boundsInWindow() returns coordinates relative to the window origin,
+            // so we need the window's screen position, not the view's.
+            // Window screen position = view screen position - view window position
+            int[] windowOffset = new int[2];
             if (composeView instanceof View) {
-                ((View) composeView).getLocationOnScreen(viewOffset);
+                View view = (View) composeView;
+                int[] screenLoc = new int[2];
+                int[] windowLoc = new int[2];
+                view.getLocationOnScreen(screenLoc);
+                view.getLocationInWindow(windowLoc);
+                windowOffset[0] = screenLoc[0] - windowLoc[0];
+                windowOffset[1] = screenLoc[1] - windowLoc[1];
+                Log.d(TAG, "  Window offset: screen=" + screenLoc[0] + "," + screenLoc[1] +
+                      " inWindow=" + windowLoc[0] + "," + windowLoc[1] +
+                      " -> windowScreen=" + windowOffset[0] + "," + windowOffset[1]);
             }
             
             // Build semantics and composable info maps for this ComposeView
@@ -274,7 +286,7 @@ public class ComposeInspector {
             Map<Integer, ComposableInfo> composableInfoMap = buildComposableInfoMap(composeView);
             
             // Capture this ComposeView's tree
-            Map<String, Object> rootNode = captureUnifiedNode(rootLayoutNode, viewOffset[0], viewOffset[1], 0, semanticsById, composableInfoMap, null);
+            Map<String, Object> rootNode = captureUnifiedNode(rootLayoutNode, windowOffset[0], windowOffset[1], 0, semanticsById, composableInfoMap, null);
             if (rootNode != null) {
                 allRoots.add(rootNode);
             }
@@ -1221,21 +1233,21 @@ public class ComposeInspector {
      *
      * <p>Coordinate handling:
      * - Each node reports its OWN bounds in window coordinates (via boundsInWindow)
-     * - We add the ComposeView's screen offset to get final screen coordinates
+     * - We add the window's screen offset to get final screen coordinates
      * - NO manual accumulation of parent positions
      * - NO mixing of coordinate systems
      * - Child bounds are CLIPPED to parent bounds to reflect visual clipping</p>
      *
      * @param layoutNode The LayoutNode to capture
-     * @param viewOffsetX ComposeView's X offset on screen (constant for all nodes)
-     * @param viewOffsetY ComposeView's Y offset on screen (constant for all nodes)
+     * @param windowOffsetX Window's X offset on screen (for boundsInWindow conversion)
+     * @param windowOffsetY Window's Y offset on screen (for boundsInWindow conversion)
      * @param depth Current depth in the tree
      * @param semanticsById Map from semanticsId (stable int) to semantics properties
      * @param composableInfoMap Map from LayoutNode identity to ComposableInfo (name, file, line)
      * @param parentBoundsToClipTo Parent bounds to clip this node's bounds to (null for root)
      * @return Map representing the unified node
      */
-    private static Map<String, Object> captureUnifiedNode(Object layoutNode, int viewOffsetX, int viewOffsetY,
+    private static Map<String, Object> captureUnifiedNode(Object layoutNode, int windowOffsetX, int windowOffsetY,
                                                            int depth, Map<Integer, Map<String, Object>> semanticsById,
                                                            Map<Integer, ComposableInfo> composableInfoMap,
                                                            int[] parentBoundsToClipTo) {
@@ -1265,7 +1277,7 @@ public class ComposeInspector {
 
             // Get bounds using boundsInWindow which returns a complete Rect directly from Compose runtime.
             // This is more accurate than computing position + size separately, especially for nested elements.
-            int[] rectBounds = getBoundsFromCoordinates(layoutNode, viewOffsetX, viewOffsetY);
+            int[] rectBounds = getBoundsFromCoordinates(layoutNode, windowOffsetX, windowOffsetY);
             int left, top, right, bottom;
 
             if (rectBounds != null) {
@@ -1275,8 +1287,8 @@ public class ComposeInspector {
                 bottom = rectBounds[3];
             } else {
                 // Last resort: use view offset as origin + dimensions
-                left = viewOffsetX;
-                top = viewOffsetY;
+                left = windowOffsetX;
+                top = windowOffsetY;
                 right = left + width;
                 bottom = top + height;
             }
@@ -1411,7 +1423,7 @@ public class ComposeInspector {
                 java.util.Set<String> childrenToCollapse = COLLAPSE_CHILDREN.get(displayComposable);
 
                 for (Object child : children) {
-                    Map<String, Object> childNode = captureUnifiedNode(child, viewOffsetX, viewOffsetY, depth + 1, semanticsById, composableInfoMap, currentBounds);
+                    Map<String, Object> childNode = captureUnifiedNode(child, windowOffsetX, windowOffsetY, depth + 1, semanticsById, composableInfoMap, currentBounds);
                     if (childNode != null) {
                         String childComposable = (String) childNode.get("composable");
 
@@ -2040,11 +2052,11 @@ public class ComposeInspector {
      * 4. positionInRoot + size - fallback using separate position and dimensions
      *
      * @param layoutNode The LayoutNode to get bounds for
-     * @param viewOffsetX ComposeView's X offset on screen
-     * @param viewOffsetY ComposeView's Y offset on screen
+     * @param windowOffsetX ComposeView's X offset on screen
+     * @param windowOffsetY ComposeView's Y offset on screen
      * @return [left, top, right, bottom] coordinates, or null if unavailable
      */
-    private static int[] getBoundsFromCoordinates(Object layoutNode, int viewOffsetX, int viewOffsetY) {
+    private static int[] getBoundsFromCoordinates(Object layoutNode, int windowOffsetX, int windowOffsetY) {
         try {
             Class<?> nodeClass = layoutNode.getClass();
             Method getCoordinates = nodeClass.getMethod("getCoordinates");
@@ -2089,7 +2101,13 @@ public class ComposeInspector {
                         int[] bounds = extractRectBounds(rect);
                         Log.d(TAG, "extractRectBounds returned: " + (bounds != null ? java.util.Arrays.toString(bounds) : "null"));
                         if (bounds != null) {
-                            return bounds;
+                            // Add window offset to convert from window-relative to screen coordinates
+                            return new int[] {
+                                bounds[0] + windowOffsetX,
+                                bounds[1] + windowOffsetY,
+                                bounds[2] + windowOffsetX,
+                                bounds[3] + windowOffsetY
+                            };
                         }
                     }
                 }
@@ -2106,10 +2124,10 @@ public class ComposeInspector {
                         if (bounds != null) {
                             // Add view offset to convert from root-relative to window coordinates
                             return new int[] {
-                                bounds[0] + viewOffsetX,
-                                bounds[1] + viewOffsetY,
-                                bounds[2] + viewOffsetX,
-                                bounds[3] + viewOffsetY
+                                bounds[0] + windowOffsetX,
+                                bounds[1] + windowOffsetY,
+                                bounds[2] + windowOffsetX,
+                                bounds[3] + windowOffsetY
                             };
                         }
                     }
@@ -2128,9 +2146,10 @@ public class ComposeInspector {
                     float windowY = Float.intBitsToFloat((int) (windowPos & 0xFFFFFFFFL));
                     Log.d(TAG, "localToWindow: x=" + windowX + " y=" + windowY + " width=" + width + " height=" + height);
                     if (!Float.isNaN(windowX) && !Float.isNaN(windowY) && width > 0 && height > 0) {
+                        // Add window offset to convert from window-relative to screen coordinates
                         return new int[] {
-                            Math.round(windowX), Math.round(windowY),
-                            Math.round(windowX) + width, Math.round(windowY) + height
+                            Math.round(windowX) + windowOffsetX, Math.round(windowY) + windowOffsetY,
+                            Math.round(windowX) + windowOffsetX + width, Math.round(windowY) + windowOffsetY + height
                         };
                     }
                 }
@@ -2165,8 +2184,8 @@ public class ComposeInspector {
                         float x = Float.intBitsToFloat((int) (packed >>> 32));
                         float y = Float.intBitsToFloat((int) (packed & 0xFFFFFFFFL));
                         if (!Float.isNaN(x) && !Float.isNaN(y) && width > 0 && height > 0) {
-                            int left = Math.round(x) + viewOffsetX;
-                            int top = Math.round(y) + viewOffsetY;
+                            int left = Math.round(x) + windowOffsetX;
+                            int top = Math.round(y) + windowOffsetY;
                             return new int[] { left, top, left + width, top + height };
                         }
                     }
