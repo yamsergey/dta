@@ -26,6 +26,9 @@ target_link_libraries(sidekick-agent
         log
 )
 
+# 16 KB page alignment for Android 15 compatibility
+target_link_options(sidekick-agent PRIVATE -Wl,-z,max-page-size=16384)
+
 # Optimize for size in release builds
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(sidekick-agent PRIVATE -Os -fvisibility=hidden)
