@@ -1664,7 +1664,11 @@ public class ComposeInspector {
     }
 
     /**
-     * Finds all AndroidComposeView instances in the current activity.
+     * Finds all AndroidComposeView instances across ALL windows (including popups, dialogs, bottom sheets).
+     *
+     * <p>This searches through WindowManagerGlobal to find all root views, not just the activity's
+     * decor view. This is necessary because Compose overlays like ModalBottomSheet, Dialog, and
+     * Popup create separate windows that are not children of the activity's view hierarchy.</p>
      */
     private static List<Object> findComposeViews() {
         List<Object> result = new ArrayList<>();
@@ -1674,20 +1678,70 @@ public class ComposeInspector {
         }
 
         try {
-            Activity activity = getCurrentActivity();
-            if (activity == null) {
-                Log.w(TAG, "No current activity found");
-                return result;
+            // First, try to get all windows from WindowManagerGlobal
+            List<View> allRootViews = getAllWindowRootViews();
+
+            if (!allRootViews.isEmpty()) {
+                Log.d(TAG, "Found " + allRootViews.size() + " window root views");
+                for (View rootView : allRootViews) {
+                    findComposeViewsRecursive(rootView, result);
+                }
+            } else {
+                // Fallback to activity's decor view if we can't get all windows
+                Log.d(TAG, "Falling back to activity decor view");
+                Activity activity = getCurrentActivity();
+                if (activity != null) {
+                    View decorView = activity.getWindow().getDecorView();
+                    findComposeViewsRecursive(decorView, result);
+                } else {
+                    Log.w(TAG, "No current activity found");
+                }
             }
 
-            View decorView = activity.getWindow().getDecorView();
-            findComposeViewsRecursive(decorView, result);
+            Log.d(TAG, "Found " + result.size() + " ComposeViews across all windows");
 
         } catch (Exception e) {
             Log.e(TAG, "Error finding Compose views", e);
         }
 
         return result;
+    }
+
+    /**
+     * Gets all root views from WindowManagerGlobal.
+     * This includes the activity's decor view plus any popup/dialog/bottom sheet windows.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<View> getAllWindowRootViews() {
+        List<View> rootViews = new ArrayList<>();
+
+        try {
+            // Get WindowManagerGlobal instance
+            Class<?> wmgClass = Class.forName("android.view.WindowManagerGlobal");
+            Method getInstanceMethod = wmgClass.getDeclaredMethod("getInstance");
+            Object wmgInstance = getInstanceMethod.invoke(null);
+
+            // Try to get mViews field (ArrayList<View> of all root views)
+            Field viewsField = wmgClass.getDeclaredField("mViews");
+            viewsField.setAccessible(true);
+            Object viewsObj = viewsField.get(wmgInstance);
+
+            if (viewsObj instanceof List) {
+                List<?> views = (List<?>) viewsObj;
+                for (Object view : views) {
+                    if (view instanceof View) {
+                        rootViews.add((View) view);
+                    }
+                }
+            }
+
+            Log.d(TAG, "WindowManagerGlobal returned " + rootViews.size() + " root views");
+
+        } catch (Exception e) {
+            Log.w(TAG, "Could not get windows from WindowManagerGlobal: " + e.getMessage());
+        }
+
+        return rootViews;
     }
 
     /**

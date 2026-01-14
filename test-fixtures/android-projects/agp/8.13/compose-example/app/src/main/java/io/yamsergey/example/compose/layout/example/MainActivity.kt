@@ -19,6 +19,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.yamsergey.example.compose.layout.example.ui.network.NetworkScreen
+import io.yamsergey.example.compose.layout.example.ui.overlays.OverlaysScreen
 import io.yamsergey.example.compose.layout.example.ui.theme.ComposeLayoutExampleTheme
 import io.yamsergey.example.compose.layout.example.ui.websocket.WebSocketScreen
 
@@ -47,7 +48,8 @@ fun AppNavigation() {
                 MainContent(
                     modifier = Modifier.padding(innerPadding),
                     onNavigateToNetwork = { navController.navigate("network") },
-                    onNavigateToWebSocket = { navController.navigate("websocket") }
+                    onNavigateToWebSocket = { navController.navigate("websocket") },
+                    onNavigateToOverlays = { navController.navigate("overlays") }
                 )
             }
         }
@@ -61,6 +63,11 @@ fun AppNavigation() {
                 onNavigateBack = { navController.popBackStack() }
             )
         }
+        composable("overlays") {
+            OverlaysScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
     }
 }
 
@@ -68,7 +75,8 @@ fun AppNavigation() {
 fun MainContent(
     modifier: Modifier = Modifier,
     onNavigateToNetwork: () -> Unit = {},
-    onNavigateToWebSocket: () -> Unit = {}
+    onNavigateToWebSocket: () -> Unit = {},
+    onNavigateToOverlays: () -> Unit = {}
 ) {
     var counter by remember { mutableIntStateOf(0) }
 
@@ -102,6 +110,14 @@ fun MainContent(
             ) {
                 Text("WebSocket Demo")
             }
+        }
+
+        // Overlays Demo Button
+        Button(
+            onClick = onNavigateToOverlays,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Overlays Demo (Bottom Sheets, Dialogs, Popups)")
         }
 
         // Counter section
