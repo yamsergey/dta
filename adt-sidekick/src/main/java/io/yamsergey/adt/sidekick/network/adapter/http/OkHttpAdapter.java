@@ -10,8 +10,9 @@ import io.yamsergey.adt.sidekick.network.adapter.NetworkAdapter;
 /**
  * Network adapter for OkHttp HTTP client.
  *
- * <p>Intercepts calls to {@code okhttp3.internal.connection.RealCall.execute()}
- * to capture HTTP request/response details.</p>
+ * <p>Intercepts calls to {@code okhttp3.internal.connection.RealCall.getResponseWithInterceptorChain()}
+ * to capture HTTP request/response details for both synchronous (execute) and
+ * asynchronous (enqueue) requests.</p>
  *
  * <p>This is the primary HTTP adapter and is enabled by default.</p>
  */

@@ -17,8 +17,9 @@ import io.yamsergey.adt.sidekick.network.NetworkInspector;
 /**
  * JVMTI hook for intercepting OkHttp network calls.
  *
- * <p>This hook intercepts calls to RealCall.execute() and captures complete
- * request/response details including headers, bodies, and timing.</p>
+ * <p>This hook intercepts calls to RealCall.getResponseWithInterceptorChain()
+ * which is the internal method called by both synchronous execute() and
+ * asynchronous enqueue() code paths, ensuring all HTTP requests are captured.</p>
  *
  * <p>Large bodies (over the configured threshold) are automatically stored
  * to disk and replaced with a {@link BodyReference}.</p>
@@ -35,7 +36,9 @@ public class OkHttpExecuteHook implements MethodHook {
 
     @Override
     public String getTargetMethod() {
-        return "execute";
+        // Hook getResponseWithInterceptorChain() instead of execute()
+        // This internal method is called by both sync (execute) and async (enqueue) paths
+        return "getResponseWithInterceptorChain";
     }
 
     @Override
@@ -45,7 +48,7 @@ public class OkHttpExecuteHook implements MethodHook {
 
     @Override
     public String getId() {
-        return "okhttp-execute";
+        return "okhttp-interceptor-chain";
     }
 
     @Override
