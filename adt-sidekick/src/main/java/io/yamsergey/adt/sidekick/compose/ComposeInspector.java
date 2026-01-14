@@ -2,6 +2,7 @@ package io.yamsergey.adt.sidekick.compose;
 
 import android.app.Activity;
 import android.app.Application;
+import android.os.Build;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
@@ -244,17 +245,23 @@ public class ComposeInspector {
         
         for (int i = 0; i < composeViews.size(); i++) {
             Object composeView = composeViews.get(i);
+            Log.d(TAG, "Processing ComposeView [" + i + "]: " + composeView);
+
             Object rootLayoutNode = getRootLayoutNode(composeView);
-            
+
             if (rootLayoutNode == null) {
+                Log.d(TAG, "  -> Skipping: rootLayoutNode is null");
                 continue;
             }
-            
+
             // Check if this root has any children
             List<Object> children = getLayoutNodeChildren(rootLayoutNode);
             if (children.isEmpty()) {
+                Log.d(TAG, "  -> Skipping: no children in rootLayoutNode");
                 continue;
             }
+
+            Log.d(TAG, "  -> Processing: has " + children.size() + " children");
             
             // Get ComposeView's offset on screen
             int[] viewOffset = new int[2];
@@ -1683,7 +1690,12 @@ public class ComposeInspector {
 
             if (!allRootViews.isEmpty()) {
                 Log.d(TAG, "Found " + allRootViews.size() + " window root views");
-                for (View rootView : allRootViews) {
+                for (int i = 0; i < allRootViews.size(); i++) {
+                    View rootView = allRootViews.get(i);
+                    Log.d(TAG, "  Root view [" + i + "]: " + rootView.getClass().getName() +
+                          " visible=" + (rootView.getVisibility() == View.VISIBLE) +
+                          " isShown=" + rootView.isShown() +
+                          " size=" + rootView.getWidth() + "x" + rootView.getHeight());
                     findComposeViewsRecursive(rootView, result);
                 }
             } else {
@@ -1708,40 +1720,67 @@ public class ComposeInspector {
     }
 
     /**
-     * Gets all root views from WindowManagerGlobal.
-     * This includes the activity's decor view plus any popup/dialog/bottom sheet windows.
+     * Gets all root views using the best available API.
+     * Uses WindowInspector (API 29+) as primary method, with WindowManagerGlobal fallback.
+     * Filters to only visible, attached views and sorts by z-order (like Android Studio).
      */
     @SuppressWarnings("unchecked")
     private static List<View> getAllWindowRootViews() {
         List<View> rootViews = new ArrayList<>();
 
-        try {
-            // Get WindowManagerGlobal instance
-            Class<?> wmgClass = Class.forName("android.view.WindowManagerGlobal");
-            Method getInstanceMethod = wmgClass.getDeclaredMethod("getInstance");
-            Object wmgInstance = getInstanceMethod.invoke(null);
-
-            // Try to get mViews field (ArrayList<View> of all root views)
-            Field viewsField = wmgClass.getDeclaredField("mViews");
-            viewsField.setAccessible(true);
-            Object viewsObj = viewsField.get(wmgInstance);
-
-            if (viewsObj instanceof List) {
-                List<?> views = (List<?>) viewsObj;
-                for (Object view : views) {
-                    if (view instanceof View) {
-                        rootViews.add((View) view);
-                    }
-                }
+        // Try WindowInspector first (API 29+) - this is what Android Studio uses
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                rootViews = android.view.inspector.WindowInspector.getGlobalWindowViews();
+                Log.d(TAG, "WindowInspector returned " + rootViews.size() + " root views");
+            } catch (Exception e) {
+                Log.w(TAG, "WindowInspector failed, falling back to WindowManagerGlobal: " + e.getMessage());
+                rootViews = new ArrayList<>();
             }
-
-            Log.d(TAG, "WindowManagerGlobal returned " + rootViews.size() + " root views");
-
-        } catch (Exception e) {
-            Log.w(TAG, "Could not get windows from WindowManagerGlobal: " + e.getMessage());
         }
 
-        return rootViews;
+        // Fallback to WindowManagerGlobal reflection (for API < 29 or if WindowInspector fails)
+        if (rootViews.isEmpty()) {
+            try {
+                Class<?> wmgClass = Class.forName("android.view.WindowManagerGlobal");
+                Method getInstanceMethod = wmgClass.getDeclaredMethod("getInstance");
+                Object wmgInstance = getInstanceMethod.invoke(null);
+
+                Field viewsField = wmgClass.getDeclaredField("mViews");
+                viewsField.setAccessible(true);
+                Object viewsObj = viewsField.get(wmgInstance);
+
+                if (viewsObj instanceof List) {
+                    List<?> views = (List<?>) viewsObj;
+                    for (Object view : views) {
+                        if (view instanceof View) {
+                            rootViews.add((View) view);
+                        }
+                    }
+                }
+                Log.d(TAG, "WindowManagerGlobal returned " + rootViews.size() + " root views");
+            } catch (Exception e) {
+                Log.w(TAG, "Could not get windows from WindowManagerGlobal: " + e.getMessage());
+            }
+        }
+
+        // Filter and sort like Android Studio does:
+        // - Only visible and attached views
+        // - Sorted by z-order (higher z = on top = processed later)
+        List<View> filteredViews = new ArrayList<>();
+        for (View view : rootViews) {
+            if (view.getVisibility() == View.VISIBLE && view.isAttachedToWindow()) {
+                filteredViews.add(view);
+            }
+        }
+
+        // Sort by z-order (views with higher z are drawn on top)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            filteredViews.sort((v1, v2) -> Float.compare(v1.getZ(), v2.getZ()));
+        }
+
+        Log.d(TAG, "After filtering: " + filteredViews.size() + " visible root views");
+        return filteredViews;
     }
 
     /**
@@ -1749,7 +1788,25 @@ public class ComposeInspector {
      */
     private static void findComposeViewsRecursive(View view, List<Object> result) {
         if (androidComposeViewClass.isInstance(view)) {
-            result.add(view);
+            boolean isVisible = view.getVisibility() == View.VISIBLE;
+            boolean isShown = view.isShown();
+            boolean isAttached = view.isAttachedToWindow();
+            boolean hasSize = view.getWidth() > 0 && view.getHeight() > 0;
+
+            Log.d(TAG, "    Found ComposeView: " + view +
+                  " visible=" + isVisible +
+                  " isShown=" + isShown +
+                  " attached=" + isAttached +
+                  " size=" + view.getWidth() + "x" + view.getHeight());
+
+            // Only include ComposeViews that are actually visible to the user
+            // isShown() checks the entire view hierarchy for visibility
+            if (isShown && isAttached && hasSize) {
+                result.add(view);
+            } else {
+                Log.d(TAG, "    -> Skipping: not visible to user (isShown=" + isShown +
+                      " attached=" + isAttached + " hasSize=" + hasSize + ")");
+            }
         }
 
         if (view instanceof ViewGroup) {

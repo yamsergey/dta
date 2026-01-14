@@ -1,5 +1,6 @@
 package io.yamsergey.example.compose.layout.example
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -18,6 +20,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import io.yamsergey.example.compose.layout.example.ui.fragments.FragmentDemoActivity
+import io.yamsergey.example.compose.layout.example.ui.fragments.FragmentsScreen
 import io.yamsergey.example.compose.layout.example.ui.network.NetworkScreen
 import io.yamsergey.example.compose.layout.example.ui.overlays.OverlaysScreen
 import io.yamsergey.example.compose.layout.example.ui.theme.ComposeLayoutExampleTheme
@@ -49,7 +53,8 @@ fun AppNavigation() {
                     modifier = Modifier.padding(innerPadding),
                     onNavigateToNetwork = { navController.navigate("network") },
                     onNavigateToWebSocket = { navController.navigate("websocket") },
-                    onNavigateToOverlays = { navController.navigate("overlays") }
+                    onNavigateToOverlays = { navController.navigate("overlays") },
+                    onNavigateToFragments = { navController.navigate("fragments") }
                 )
             }
         }
@@ -68,6 +73,15 @@ fun AppNavigation() {
                 onNavigateBack = { navController.popBackStack() }
             )
         }
+        composable("fragments") {
+            val context = LocalContext.current
+            FragmentsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onShowFragmentDemo = {
+                    context.startActivity(Intent(context, FragmentDemoActivity::class.java))
+                }
+            )
+        }
     }
 }
 
@@ -76,7 +90,8 @@ fun MainContent(
     modifier: Modifier = Modifier,
     onNavigateToNetwork: () -> Unit = {},
     onNavigateToWebSocket: () -> Unit = {},
-    onNavigateToOverlays: () -> Unit = {}
+    onNavigateToOverlays: () -> Unit = {},
+    onNavigateToFragments: () -> Unit = {}
 ) {
     var counter by remember { mutableIntStateOf(0) }
 
@@ -118,6 +133,14 @@ fun MainContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Overlays Demo (Bottom Sheets, Dialogs, Popups)")
+        }
+
+        // Fragments Demo Button
+        Button(
+            onClick = onNavigateToFragments,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Fragments Demo (Overlapping Fragments)")
         }
 
         // Counter section

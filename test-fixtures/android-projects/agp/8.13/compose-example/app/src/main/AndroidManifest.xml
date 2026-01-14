@@ -24,6 +24,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.fragments.FragmentDemoActivity"
+            android:exported="false"
+            android:label="Fragment Demo"
+            android:theme="@style/Theme.ComposeLayoutExample" />
     </application>
 
 </manifest>
