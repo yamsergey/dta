@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.http;
 
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 
 import io.yamsergey.adt.sidekick.jvmti.MethodHook;
@@ -13,6 +13,12 @@ import io.yamsergey.adt.sidekick.network.adapter.NetworkAdapter;
  * <p>Intercepts calls to {@code okhttp3.internal.connection.RealCall.getResponseWithInterceptorChain()}
  * to capture HTTP request/response details for both synchronous (execute) and
  * asynchronous (enqueue) requests.</p>
+ *
+ * <p>Supports both OkHttp 3.x (Java) and OkHttp 4.x (Kotlin) by registering hooks for:
+ * <ul>
+ *   <li>{@code getResponseWithInterceptorChain} - OkHttp 3.x (Java)</li>
+ *   <li>{@code getResponseWithInterceptorChain$okhttp} - OkHttp 4.x (Kotlin internal mangling)</li>
+ * </ul>
  *
  * <p>This is the primary HTTP adapter and is enabled by default.</p>
  */
@@ -47,7 +53,12 @@ public class OkHttpAdapter implements NetworkAdapter {
 
     @Override
     public List<MethodHook> getHooks() {
-        return Collections.singletonList(new OkHttpExecuteHook());
+        // Register hooks for both OkHttp 3.x (Java) and OkHttp 4.x (Kotlin)
+        // Only one will match at runtime depending on which version is used
+        return Arrays.asList(
+                new OkHttpExecuteHook("getResponseWithInterceptorChain", "okhttp3"),      // OkHttp 3.x
+                new OkHttpExecuteHook("getResponseWithInterceptorChain$okhttp", "okhttp4") // OkHttp 4.x
+        );
     }
 
     @Override
