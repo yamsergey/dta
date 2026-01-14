@@ -21,6 +21,12 @@ import io.yamsergey.adt.sidekick.network.NetworkInspector;
  * which is the internal method called by both synchronous execute() and
  * asynchronous enqueue() code paths, ensuring all HTTP requests are captured.</p>
  *
+ * <p>Supports both OkHttp 3.x (Java) and OkHttp 4.x (Kotlin):
+ * <ul>
+ *   <li>OkHttp 3.x: {@code getResponseWithInterceptorChain()}</li>
+ *   <li>OkHttp 4.x: {@code getResponseWithInterceptorChain$okhttp()} (Kotlin internal mangling)</li>
+ * </ul>
+ *
  * <p>Large bodies (over the configured threshold) are automatically stored
  * to disk and replaced with a {@link BodyReference}.</p>
  */
@@ -29,6 +35,20 @@ public class OkHttpExecuteHook implements MethodHook {
     private static final String TAG = "OkHttpHook";
     private static final Charset UTF8 = StandardCharsets.UTF_8;
 
+    private final String methodName;
+    private final String hookId;
+
+    /**
+     * Creates a hook for the specified method name.
+     *
+     * @param methodName the target method name (varies by OkHttp version)
+     * @param hookId unique identifier for this hook variant
+     */
+    public OkHttpExecuteHook(String methodName, String hookId) {
+        this.methodName = methodName;
+        this.hookId = hookId;
+    }
+
     @Override
     public String getTargetClass() {
         return "okhttp3.internal.connection.RealCall";
@@ -36,9 +56,10 @@ public class OkHttpExecuteHook implements MethodHook {
 
     @Override
     public String getTargetMethod() {
-        // Hook getResponseWithInterceptorChain() instead of execute()
-        // This internal method is called by both sync (execute) and async (enqueue) paths
-        return "getResponseWithInterceptorChain";
+        // Hook getResponseWithInterceptorChain() - the internal method called by both
+        // sync (execute) and async (enqueue) paths.
+        // Method name varies: OkHttp 3.x uses plain name, OkHttp 4.x adds $okhttp suffix
+        return methodName;
     }
 
     @Override
@@ -48,7 +69,7 @@ public class OkHttpExecuteHook implements MethodHook {
 
     @Override
     public String getId() {
-        return "okhttp-interceptor-chain";
+        return "okhttp-interceptor-chain-" + hookId;
     }
 
     @Override

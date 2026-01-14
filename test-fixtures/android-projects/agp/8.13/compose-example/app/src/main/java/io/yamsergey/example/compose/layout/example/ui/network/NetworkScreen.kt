@@ -17,11 +17,15 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -75,6 +79,7 @@ fun NetworkScreen(
     var usersState by remember { mutableStateOf<NetworkState<List<User>>>(NetworkState.Loading) }
     var todosState by remember { mutableStateOf<NetworkState<List<Todo>>>(NetworkState.Loading) }
     var urlConnState by remember { mutableStateOf<NetworkState<List<Post>>>(NetworkState.Loading) }
+    var asyncState by remember { mutableStateOf<NetworkState<List<Post>>>(NetworkState.Loading) }
 
     val client = remember { OkHttpClient() }
     val gson = remember { Gson() }
@@ -100,6 +105,12 @@ fun NetworkScreen(
             3 -> if (urlConnState is NetworkState.Loading) {
                 scope.launch {
                     urlConnState = fetchPostsWithUrlConnection(gson)
+                }
+            }
+            4 -> if (asyncState is NetworkState.Loading) {
+                // Use enqueue (async) instead of execute (sync)
+                fetchPostsAsync(client, gson) { result ->
+                    asyncState = result
                 }
             }
         }
@@ -144,6 +155,11 @@ fun NetworkScreen(
                     onClick = { selectedTab = 3 },
                     text = { Text("URLConn") }
                 )
+                Tab(
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
+                    text = { Text("Async") }
+                )
             }
 
             // Content based on selected tab
@@ -177,6 +193,17 @@ fun NetworkScreen(
                         urlConnState = NetworkState.Loading
                         scope.launch { urlConnState = fetchPostsWithUrlConnection(gson) }
                     }
+                )
+                4 -> AsyncContent(
+                    state = asyncState,
+                    onRefresh = {
+                        asyncState = NetworkState.Loading
+                        fetchPostsAsync(client, gson) { result ->
+                            asyncState = result
+                        }
+                    },
+                    client = client,
+                    gson = gson
                 )
             }
         }
@@ -303,6 +330,93 @@ private fun UrlConnectionContent(
                     PostCard(post)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AsyncContent(
+    state: NetworkState<List<Post>>,
+    onRefresh: () -> Unit,
+    client: OkHttpClient,
+    gson: Gson
+) {
+    when (state) {
+        is NetworkState.Loading -> LoadingContent()
+        is NetworkState.Error -> ErrorContent(state.message, onRefresh)
+        is NetworkState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Async OkHttp Test (enqueue)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Data fetched using OkHttp's async enqueue() method instead of synchronous execute().",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                item {
+                    RefreshButton(onRefresh)
+                }
+                item {
+                    AsyncPostButton(client, gson)
+                }
+                items(state.data.take(10)) { post ->
+                    PostCard(post)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AsyncPostButton(client: OkHttpClient, gson: Gson) {
+    var isLoading by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<String?>(null) }
+
+    Column {
+        Button(
+            onClick = {
+                isLoading = true
+                result = null
+                createPostAsync(client, gson) { response ->
+                    result = response
+                    isLoading = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text("Create Post Async (enqueue)")
+        }
+        result?.let {
+            Text(
+                text = it,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 }
@@ -613,4 +727,103 @@ private suspend fun fetchPostsWithUrlConnection(gson: Gson): NetworkState<List<P
             connection?.disconnect()
         }
     }
+}
+
+/**
+ * Fetches posts using OkHttp's async enqueue() method instead of execute().
+ * This tests the async request capture in ADT Sidekick.
+ */
+private fun fetchPostsAsync(
+    client: OkHttpClient,
+    gson: Gson,
+    callback: (NetworkState<List<Post>>) -> Unit
+) {
+    val request = Request.Builder()
+        .url("https://jsonplaceholder.typicode.com/posts")
+        .header("Accept", "application/json")
+        .header("X-Request-Type", "async-enqueue")
+        .header("X-Request-ID", "async-get-${System.currentTimeMillis()}")
+        .build()
+
+    client.newCall(request).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                callback(NetworkState.Error(e.message ?: "Unknown error"))
+            }
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            try {
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: "[]"
+                    val type = object : TypeToken<List<Post>>() {}.type
+                    val posts: List<Post> = gson.fromJson(body, type)
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        callback(NetworkState.Success(posts))
+                    }
+                } else {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        callback(NetworkState.Error("HTTP ${response.code}: ${response.message}"))
+                    }
+                }
+            } catch (e: Exception) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    callback(NetworkState.Error(e.message ?: "Parse error"))
+                }
+            }
+        }
+    })
+}
+
+/**
+ * Creates a new post using OkHttp's async enqueue() method.
+ * This tests async POST request capture in ADT Sidekick.
+ */
+private fun createPostAsync(
+    client: OkHttpClient,
+    gson: Gson,
+    callback: (String) -> Unit
+) {
+    val newPost = mapOf(
+        "title" to "Async Test Post from ADT Sidekick",
+        "body" to "This is a test post created using OkHttp's async enqueue() method.",
+        "userId" to 1
+    )
+    val jsonBody = gson.toJson(newPost)
+    val mediaType = "application/json; charset=utf-8".toMediaType()
+    val requestBody = jsonBody.toRequestBody(mediaType)
+
+    val request = Request.Builder()
+        .url("https://jsonplaceholder.typicode.com/posts")
+        .header("Content-Type", "application/json")
+        .header("X-Request-Type", "async-enqueue")
+        .header("X-Request-ID", "async-post-${System.currentTimeMillis()}")
+        .post(requestBody)
+        .build()
+
+    client.newCall(request).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                callback("Error: ${e.message}")
+            }
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            try {
+                val result = if (response.isSuccessful) {
+                    val responseBody = response.body?.string() ?: "{}"
+                    "Created! Response: $responseBody"
+                } else {
+                    "Error: HTTP ${response.code}"
+                }
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    callback(result)
+                }
+            } catch (e: Exception) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    callback("Error: ${e.message}")
+                }
+            }
+        }
+    })
 }
