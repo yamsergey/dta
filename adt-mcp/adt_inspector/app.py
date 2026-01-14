@@ -513,8 +513,8 @@ def create_network_panel():
         ui.label("Network Requests").classes("text-lg font-bold")
         ui.button("Refresh", on_click=state.refresh_network, icon="refresh")
 
-    # Request list
-    request_container = ui.scroll_area().classes("w-full h-64")
+    # Request list - use calc to fill remaining viewport height
+    request_container = ui.scroll_area().classes("w-full").style("height: calc(100vh - 180px);")
 
     @ui.refreshable
     def request_list():
@@ -667,8 +667,8 @@ def create_websocket_panel():
         ui.label("WebSocket Connections").classes("text-lg font-bold")
         ui.button("Refresh", on_click=state.refresh_websocket, icon="refresh")
 
-    # Connection list
-    connection_container = ui.scroll_area().classes("w-full h-64")
+    # Connection list - use calc to fill remaining viewport height
+    connection_container = ui.scroll_area().classes("w-full").style("height: calc(100vh - 180px);")
 
     @ui.refreshable
     def connection_list():
