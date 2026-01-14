@@ -124,11 +124,14 @@ public class ComposeHitTester {
 
         // Check if point is within this node's bounds
         Map<String, Object> bounds = (Map<String, Object>) node.get("bounds");
-        if (bounds == null || !containsPoint(bounds, x, y)) {
+
+        // If bounds is null (like synthetic root), still check children
+        // If bounds exists but doesn't contain point, skip this branch
+        if (bounds != null && !containsPoint(bounds, x, y)) {
             return null;
         }
 
-        // This node contains the point - check children for a deeper match
+        // This node contains the point (or has no bounds) - check children for a deeper match
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("children");
 
         if (children != null && !children.isEmpty()) {
@@ -168,12 +171,17 @@ public class ComposeHitTester {
         if (node == null) return;
 
         Map<String, Object> bounds = (Map<String, Object>) node.get("bounds");
-        if (bounds == null || !containsPoint(bounds, x, y)) {
+
+        // If bounds exists but doesn't contain point, skip this branch
+        if (bounds != null && !containsPoint(bounds, x, y)) {
             return;
         }
 
-        // This node contains the point
-        hits.add(createNodeSummary(node));
+        // This node contains the point (or has no bounds like synthetic root)
+        // Only add to hits if it has bounds (skip synthetic containers)
+        if (bounds != null) {
+            hits.add(createNodeSummary(node));
+        }
 
         // Check children
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("children");
