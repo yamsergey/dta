@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.websocket;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.lang.reflect.Field;
 import java.net.URI;
@@ -49,10 +49,10 @@ public class JavaWebSocketConnectHook implements MethodHook {
             WebSocketConnection conn = WebSocketInspector.startConnection(url, "Java-WebSocket");
             WebSocketInspector.mapObjectToConnection(thisObj, conn.getId());
 
-            Log.i(TAG, "WebSocket connecting: " + url);
+            SidekickLog.i(TAG, "WebSocket connecting: " + url);
 
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onEnter", t);
+            SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
 
@@ -72,7 +72,7 @@ public class JavaWebSocketConnectHook implements MethodHook {
                 WebSocketInspector.onConnectionFailed(conn);
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onException", t);
+            SidekickLog.e(TAG, "Error in onException", t);
         }
         return throwable;
     }
@@ -89,7 +89,7 @@ public class JavaWebSocketConnectHook implements MethodHook {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "Failed to get WebSocket URL", e);
+            SidekickLog.w(TAG, "Failed to get WebSocket URL", e);
         }
         return null;
     }

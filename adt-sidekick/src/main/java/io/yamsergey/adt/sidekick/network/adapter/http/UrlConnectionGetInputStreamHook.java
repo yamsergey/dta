@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.http;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.io.InputStream;
 import java.lang.reflect.Method;
@@ -85,13 +85,13 @@ public class UrlConnectionGetInputStreamHook implements MethodHook {
 
             // Start transaction
             HttpTransaction tx = NetworkInspector.startTransaction(request, "URLConnection");
-            Log.i(TAG, ">>> " + method + " " + url);
+            SidekickLog.i(TAG, ">>> " + method + " " + url);
 
             // Store transaction ID for onExit
             storeTransactionId(tx.getId());
 
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onEnter", t);
+            SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
 
@@ -148,13 +148,13 @@ public class UrlConnectionGetInputStreamHook implements MethodHook {
             // TODO: Consider wrapping InputStream to capture body as it's read
 
             tx.setResponse(responseBuilder.build());
-            Log.i(TAG, "<<< " + tx.getResponseCode() + " " + tx.getResponse().getStatusMessage());
+            SidekickLog.i(TAG, "<<< " + tx.getResponseCode() + " " + tx.getResponse().getStatusMessage());
 
             tx.markCompleted();
             NetworkInspector.onTransactionCompleted(tx);
 
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onExit", t);
+            SidekickLog.e(TAG, "Error in onExit", t);
         }
         return result;
     }
@@ -168,11 +168,11 @@ public class UrlConnectionGetInputStreamHook implements MethodHook {
                 if (tx != null) {
                     tx.markFailed(throwable.getMessage());
                     NetworkInspector.onTransactionCompleted(tx);
-                    Log.e(TAG, "!!! Request failed: " + txId + " - " + throwable.getMessage());
+                    SidekickLog.e(TAG, "!!! Request failed: " + txId + " - " + throwable.getMessage());
                 }
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onException", t);
+            SidekickLog.e(TAG, "Error in onException", t);
         }
         return throwable;
     }

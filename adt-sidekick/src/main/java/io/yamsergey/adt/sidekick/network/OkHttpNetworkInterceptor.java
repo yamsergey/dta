@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -92,7 +92,7 @@ public class OkHttpNetworkInterceptor implements Interceptor {
                         requestBuilder.body(buffer.readString(getCharset(contentType)));
                     }
                 } catch (Exception e) {
-                    Log.w(TAG, "Failed to capture request body", e);
+                    SidekickLog.w(TAG, "Failed to capture request body", e);
                 }
             }
         }
@@ -149,7 +149,7 @@ public class OkHttpNetworkInterceptor implements Interceptor {
                         }
                     }
                 } catch (Exception e) {
-                    Log.w(TAG, "Failed to capture response body", e);
+                    SidekickLog.w(TAG, "Failed to capture response body", e);
                 }
             }
         }
@@ -157,7 +157,7 @@ public class OkHttpNetworkInterceptor implements Interceptor {
         transaction.setResponse(responseBuilder.build());
         transaction.markCompleted();
         NetworkInspector.onTransactionCompleted(transaction);
-        Log.d(TAG, "Completed: " + transaction.getId() + " " + response.code());
+        SidekickLog.d(TAG, "Completed: " + transaction.getId() + " " + response.code());
 
         return response;
     }

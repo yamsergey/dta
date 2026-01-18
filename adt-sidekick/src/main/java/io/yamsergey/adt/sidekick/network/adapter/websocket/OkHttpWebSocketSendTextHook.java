@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.websocket;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import io.yamsergey.adt.sidekick.jvmti.MethodHook;
 import io.yamsergey.adt.sidekick.network.WebSocketConnection;
@@ -56,7 +56,7 @@ public class OkHttpWebSocketSendTextHook implements MethodHook {
                 WebSocketInspector.onMessage(msg);
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onEnter", t);
+            SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
 }

@@ -4,7 +4,7 @@ import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -105,7 +105,7 @@ public class InspectorServer {
      */
     public void start(String packageName) throws IOException {
         if (running.get()) {
-            Log.w(TAG, "Server already running");
+            SidekickLog.w(TAG, "Server already running");
             return;
         }
 
@@ -118,7 +118,7 @@ public class InspectorServer {
         NetworkInspector.addListener(transactionListener);
 
         executor.submit(this::acceptLoop);
-        Log.i(TAG, "Server started on socket: " + socketName);
+        SidekickLog.i(TAG, "Server started on socket: " + socketName);
     }
 
     /**
@@ -144,7 +144,7 @@ public class InspectorServer {
                 serverSocket = null;
             }
         } catch (IOException e) {
-            Log.e(TAG, "Error closing server", e);
+            SidekickLog.e(TAG, "Error closing server", e);
         }
     }
 
@@ -172,7 +172,7 @@ public class InspectorServer {
                 executor.submit(() -> handleClient(client));
             } catch (IOException e) {
                 if (running.get()) {
-                    Log.e(TAG, "Error accepting connection", e);
+                    SidekickLog.e(TAG, "Error accepting connection", e);
                 }
             }
         }
@@ -194,7 +194,7 @@ public class InspectorServer {
                 return;
             }
 
-            Log.d(TAG, "Request: " + requestLine);
+            SidekickLog.d(TAG, "Request: " + requestLine);
 
             // Parse request
             String[] parts = requestLine.split(" ");
@@ -244,7 +244,7 @@ public class InspectorServer {
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error handling client", e);
+            SidekickLog.e(TAG, "Error handling client", e);
             try {
                 client.close();
             } catch (IOException ignored) {}
@@ -419,7 +419,7 @@ public class InspectorServer {
             sendJson(out, 200, hierarchy);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing hierarchy", e);
+            SidekickLog.e(TAG, "Error capturing hierarchy", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -443,7 +443,7 @@ public class InspectorServer {
             sendJson(out, 200, semantics);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing semantics", e);
+            SidekickLog.e(TAG, "Error capturing semantics", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -468,7 +468,7 @@ public class InspectorServer {
             sendJson(out, 200, tree);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing tree", e);
+            SidekickLog.e(TAG, "Error capturing tree", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -499,7 +499,7 @@ public class InspectorServer {
             sendPng(out, screenshot);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing screenshot", e);
+            SidekickLog.e(TAG, "Error capturing screenshot", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -548,7 +548,7 @@ public class InspectorServer {
             error.put("error", "Invalid coordinates - must be integers");
             sendJson(out, 400, error);
         } catch (Exception e) {
-            Log.e(TAG, "Error in hit test", e);
+            SidekickLog.e(TAG, "Error in hit test", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -592,7 +592,7 @@ public class InspectorServer {
             error.put("error", "Invalid coordinates - must be integers");
             sendJson(out, 400, error);
         } catch (Exception e) {
-            Log.e(TAG, "Error in hit test all", e);
+            SidekickLog.e(TAG, "Error in hit test all", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -619,7 +619,7 @@ public class InspectorServer {
             sendJson(out, 200, element);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error finding element", e);
+            SidekickLog.e(TAG, "Error finding element", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -680,7 +680,7 @@ public class InspectorServer {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error getting current activity", e);
+            SidekickLog.e(TAG, "Error getting current activity", e);
         }
         return null;
     }
@@ -725,7 +725,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error getting network requests", e);
+            SidekickLog.e(TAG, "Error getting network requests", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -751,7 +751,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error getting network request", e);
+            SidekickLog.e(TAG, "Error getting network request", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -773,7 +773,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error clearing network requests", e);
+            SidekickLog.e(TAG, "Error clearing network requests", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -824,7 +824,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error getting network stats", e);
+            SidekickLog.e(TAG, "Error getting network stats", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -854,7 +854,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error getting websocket connections", e);
+            SidekickLog.e(TAG, "Error getting websocket connections", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -880,7 +880,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error getting websocket connection", e);
+            SidekickLog.e(TAG, "Error getting websocket connection", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -902,7 +902,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error clearing websocket connections", e);
+            SidekickLog.e(TAG, "Error clearing websocket connections", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -954,7 +954,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error setting element selection", e);
+            SidekickLog.e(TAG, "Error setting element selection", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "Invalid JSON: " + e.getMessage());
             sendJson(out, 400, error);
@@ -1002,7 +1002,7 @@ public class InspectorServer {
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error setting network selection", e);
+            SidekickLog.e(TAG, "Error setting network selection", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "Invalid JSON: " + e.getMessage());
             sendJson(out, 400, error);
@@ -1097,7 +1097,7 @@ public class InspectorServer {
      * when network transactions start or complete.</p>
      */
     private void handleEventStream(OutputStream out) throws IOException {
-        Log.i(TAG, "SSE client connected");
+        SidekickLog.i(TAG, "SSE client connected");
 
         // Send SSE headers
         StringBuilder headers = new StringBuilder();
@@ -1132,7 +1132,7 @@ public class InspectorServer {
             // Client disconnected
         } finally {
             sseClients.remove(out);
-            Log.i(TAG, "SSE client disconnected");
+            SidekickLog.i(TAG, "SSE client disconnected");
         }
     }
 

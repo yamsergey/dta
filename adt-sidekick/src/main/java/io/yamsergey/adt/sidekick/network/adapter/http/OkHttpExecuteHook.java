@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.http;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.lang.reflect.Method;
 import java.nio.charset.Charset;
@@ -97,13 +97,13 @@ public class OkHttpExecuteHook implements MethodHook {
 
             // Start transaction
             HttpTransaction tx = NetworkInspector.startTransaction(request, "OkHttp");
-            Log.i(TAG, ">>> " + request.getMethod() + " " + request.getUrl());
+            SidekickLog.i(TAG, ">>> " + request.getMethod() + " " + request.getUrl());
 
             // Store transaction ID for onExit
             storeTransactionId(tx.getId());
 
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onEnter", t);
+            SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
 
@@ -136,15 +136,15 @@ public class OkHttpExecuteHook implements MethodHook {
                 }
 
                 tx.setResponse(responseBuilder.build());
-                Log.i(TAG, "<<< " + tx.getResponseCode() + " " + tx.getResponse().getStatusMessage());
+                SidekickLog.i(TAG, "<<< " + tx.getResponseCode() + " " + tx.getResponse().getStatusMessage());
             }
 
             tx.markCompleted();
             NetworkInspector.onTransactionCompleted(tx);
-            Log.d(TAG, "Transaction completed: " + txId + " (duration=" + tx.getDuration() + "ms)");
+            SidekickLog.d(TAG, "Transaction completed: " + txId + " (duration=" + tx.getDuration() + "ms)");
 
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onExit", t);
+            SidekickLog.e(TAG, "Error in onExit", t);
         }
         return result;
     }
@@ -158,11 +158,11 @@ public class OkHttpExecuteHook implements MethodHook {
                 if (tx != null) {
                     tx.markFailed(throwable.getMessage());
                     NetworkInspector.onTransactionCompleted(tx);
-                    Log.e(TAG, "!!! Request failed: " + txId + " - " + throwable.getMessage());
+                    SidekickLog.e(TAG, "!!! Request failed: " + txId + " - " + throwable.getMessage());
                 }
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onException", t);
+            SidekickLog.e(TAG, "Error in onException", t);
         }
         return throwable;
     }
@@ -199,7 +199,7 @@ public class OkHttpExecuteHook implements MethodHook {
                 builder.addHeader(name, value);
             }
         } catch (Exception e) {
-            Log.w(TAG, "Failed to capture request headers", e);
+            SidekickLog.w(TAG, "Failed to capture request headers", e);
         }
     }
 
@@ -233,7 +233,7 @@ public class OkHttpExecuteHook implements MethodHook {
                 builder.body(bodyContent);
             }
         } catch (Exception e) {
-            Log.w(TAG, "Failed to capture request body", e);
+            SidekickLog.w(TAG, "Failed to capture request body", e);
         }
     }
 
@@ -253,7 +253,7 @@ public class OkHttpExecuteHook implements MethodHook {
                 builder.addHeader(name, value);
             }
         } catch (Exception e) {
-            Log.w(TAG, "Failed to capture response headers", e);
+            SidekickLog.w(TAG, "Failed to capture response headers", e);
         }
     }
 
@@ -315,7 +315,7 @@ public class OkHttpExecuteHook implements MethodHook {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "Failed to capture response body", e);
+            SidekickLog.w(TAG, "Failed to capture response body", e);
         }
     }
 

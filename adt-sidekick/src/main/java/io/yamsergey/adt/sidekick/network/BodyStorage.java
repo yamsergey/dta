@@ -1,7 +1,7 @@
 package io.yamsergey.adt.sidekick.network;
 
 import android.content.Context;
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -84,7 +84,7 @@ public final class BodyStorage {
             );
 
         } catch (IOException e) {
-            Log.e(TAG, "Failed to store body: " + file, e);
+            SidekickLog.e(TAG, "Failed to store body: " + file, e);
             return null;
         }
     }
@@ -132,7 +132,7 @@ public final class BodyStorage {
             );
 
         } catch (IOException e) {
-            Log.e(TAG, "Failed to store body: " + file, e);
+            SidekickLog.e(TAG, "Failed to store body: " + file, e);
             return null;
         }
     }
@@ -158,7 +158,7 @@ public final class BodyStorage {
             fis.read(bytes);
             return new String(bytes, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            Log.e(TAG, "Failed to read body: " + file, e);
+            SidekickLog.e(TAG, "Failed to read body: " + file, e);
             return null;
         }
     }
@@ -184,7 +184,7 @@ public final class BodyStorage {
             fis.read(bytes);
             return bytes;
         } catch (IOException e) {
-            Log.e(TAG, "Failed to read body: " + file, e);
+            SidekickLog.e(TAG, "Failed to read body: " + file, e);
             return null;
         }
     }

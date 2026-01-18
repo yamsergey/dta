@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.websocket;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.lang.reflect.Method;
 
@@ -63,7 +63,7 @@ public class OkHttpWebSocketSendBinaryHook implements MethodHook {
                 WebSocketInspector.onMessage(msg);
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onEnter", t);
+            SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
 
@@ -72,7 +72,7 @@ public class OkHttpWebSocketSendBinaryHook implements MethodHook {
             Method toByteArray = byteString.getClass().getMethod("toByteArray");
             return (byte[]) toByteArray.invoke(byteString);
         } catch (Exception e) {
-            Log.w(TAG, "Failed to extract byte array from ByteString", e);
+            SidekickLog.w(TAG, "Failed to extract byte array from ByteString", e);
             return null;
         }
     }

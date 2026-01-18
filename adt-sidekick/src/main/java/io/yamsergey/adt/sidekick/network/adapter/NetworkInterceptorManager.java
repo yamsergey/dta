@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -70,11 +70,11 @@ public final class NetworkInterceptorManager {
      */
     public static synchronized void initialize() {
         if (initialized) {
-            Log.d(TAG, "Already initialized");
+            SidekickLog.d(TAG, "Already initialized");
             return;
         }
 
-        Log.i(TAG, "Initializing network interceptor manager...");
+        SidekickLog.i(TAG, "Initializing network interceptor manager...");
 
         // Register default adapters
         registerDefaultAdapters();
@@ -83,7 +83,7 @@ public final class NetworkInterceptorManager {
         activateAdapters();
 
         initialized = true;
-        Log.i(TAG, "Initialization complete. Active adapters: " + activeAdapters.size());
+        SidekickLog.i(TAG, "Initialization complete. Active adapters: " + activeAdapters.size());
     }
 
     /**
@@ -125,7 +125,7 @@ public final class NetworkInterceptorManager {
         // Remove existing adapter with same ID
         adapters.removeIf(a -> a.getId().equals(adapter.getId()));
         adapters.add(adapter);
-        Log.d(TAG, "Registered adapter: " + adapter.getId() + " (" + adapter.getName() + ")");
+        SidekickLog.d(TAG, "Registered adapter: " + adapter.getId() + " (" + adapter.getName() + ")");
     }
 
     /**
@@ -141,7 +141,7 @@ public final class NetworkInterceptorManager {
             if (active != null) {
                 active.onDeactivated();
             }
-            Log.d(TAG, "Unregistered adapter: " + adapterId);
+            SidekickLog.d(TAG, "Unregistered adapter: " + adapterId);
         }
         return removed;
     }
@@ -264,7 +264,7 @@ public final class NetworkInterceptorManager {
                 activateAdapter(adapter);
             } else {
                 String reason = !isAdapterEnabled(adapter) ? "disabled" : "not available";
-                Log.d(TAG, "Skipping adapter " + adapter.getId() + " (" + reason + ")");
+                SidekickLog.d(TAG, "Skipping adapter " + adapter.getId() + " (" + reason + ")");
             }
         }
     }
@@ -273,7 +273,7 @@ public final class NetworkInterceptorManager {
         String id = adapter.getId();
 
         if (activeAdapters.containsKey(id)) {
-            Log.d(TAG, "Adapter already active: " + id);
+            SidekickLog.d(TAG, "Adapter already active: " + id);
             return;
         }
 
@@ -284,7 +284,7 @@ public final class NetworkInterceptorManager {
 
             for (MethodHook hook : hooks) {
                 String hookId = JvmtiAgent.registerHook(hook);
-                Log.d(TAG, "Registered hook: " + hookId + " for adapter " + id);
+                SidekickLog.d(TAG, "Registered hook: " + hookId + " for adapter " + id);
                 targetClasses.add(hook.getTargetClass());
             }
 
@@ -298,10 +298,10 @@ public final class NetworkInterceptorManager {
             adapter.onActivated();
 
             activeAdapters.put(id, adapter);
-            Log.i(TAG, "Activated adapter: " + id + " (" + adapter.getName() + ") with " + hooks.size() + " hooks");
+            SidekickLog.i(TAG, "Activated adapter: " + id + " (" + adapter.getName() + ") with " + hooks.size() + " hooks");
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to activate adapter: " + id, e);
+            SidekickLog.e(TAG, "Failed to activate adapter: " + id, e);
         }
     }
 
@@ -318,10 +318,10 @@ public final class NetworkInterceptorManager {
 
             adapter.onDeactivated();
             activeAdapters.remove(id);
-            Log.i(TAG, "Deactivated adapter: " + id);
+            SidekickLog.i(TAG, "Deactivated adapter: " + id);
 
         } catch (Exception e) {
-            Log.e(TAG, "Error deactivating adapter: " + id, e);
+            SidekickLog.e(TAG, "Error deactivating adapter: " + id, e);
         }
     }
 
@@ -329,12 +329,12 @@ public final class NetworkInterceptorManager {
         try {
             Class<?> clazz = Class.forName(className);
             JvmtiAgent.retransformClass(clazz);
-            Log.d(TAG, "Retransformed class: " + className);
+            SidekickLog.d(TAG, "Retransformed class: " + className);
         } catch (ClassNotFoundException e) {
             // Class not loaded yet - hook will apply when loaded
-            Log.d(TAG, "Class not loaded yet: " + className);
+            SidekickLog.d(TAG, "Class not loaded yet: " + className);
         } catch (Exception e) {
-            Log.w(TAG, "Failed to retransform class: " + className, e);
+            SidekickLog.w(TAG, "Failed to retransform class: " + className, e);
         }
     }
 }

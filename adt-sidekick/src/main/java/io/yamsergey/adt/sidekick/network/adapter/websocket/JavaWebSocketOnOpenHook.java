@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.websocket;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import io.yamsergey.adt.sidekick.jvmti.MethodHook;
 import io.yamsergey.adt.sidekick.network.WebSocketConnection;
@@ -45,12 +45,12 @@ public class JavaWebSocketOnOpenHook implements MethodHook {
             if (conn != null) {
                 conn.markConnected();
                 WebSocketInspector.onConnectionOpened(conn);
-                Log.i(TAG, "WebSocket connected: " + conn.getUrl());
+                SidekickLog.i(TAG, "WebSocket connected: " + conn.getUrl());
             } else {
-                Log.w(TAG, "No connection found for WebSocket object");
+                SidekickLog.w(TAG, "No connection found for WebSocket object");
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onEnter", t);
+            SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
 

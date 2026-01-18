@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.jvmti;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 /**
  * Dispatcher that routes method hook invocations to registered hooks.
@@ -39,7 +39,7 @@ public final class HookDispatcher {
             }
         } catch (Throwable t) {
             // Never let hook errors crash the app
-            Log.e(TAG, "Error in hook onEnter: " + hookId, t);
+            SidekickLog.e(TAG, "Error in hook onEnter: " + hookId, t);
         }
     }
 
@@ -65,7 +65,7 @@ public final class HookDispatcher {
             }
         } catch (Throwable t) {
             // Never let hook errors crash the app
-            Log.e(TAG, "Error in hook onExit: " + hookId, t);
+            SidekickLog.e(TAG, "Error in hook onExit: " + hookId, t);
         }
         return result;
     }
@@ -93,7 +93,7 @@ public final class HookDispatcher {
             }
         } catch (Throwable t) {
             // Never let hook errors crash the app
-            Log.e(TAG, "Error in hook onException: " + hookId, t);
+            SidekickLog.e(TAG, "Error in hook onException: " + hookId, t);
         }
         return throwable;
     }

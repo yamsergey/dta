@@ -7,15 +7,15 @@
 
 #include "class_transformer.h"
 #include "hook_manager.h"
-#include <android/log.h>
+#include "sidekick_log.h"
 #include <cstring>
 #include <vector>
 
 #define LOG_TAG "ClassTransformer"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) SIDEKICK_LOGI(LOG_TAG, __VA_ARGS__)
+#define LOGD(...) SIDEKICK_LOGD(LOG_TAG, __VA_ARGS__)
+#define LOGW(...) SIDEKICK_LOGW(LOG_TAG, __VA_ARGS__)
+#define LOGE(...) SIDEKICK_LOGE(LOG_TAG, __VA_ARGS__)
 
 // Static member initialization
 jclass ClassTransformer::s_dispatcherClass = nullptr;
