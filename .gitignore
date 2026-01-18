@@ -71,3 +71,4 @@ output-*\.json
 # Test fixtures
 test-fixtures/**/local.properties
 test-fixtures/**/.idea/
+CLAUDE.md
