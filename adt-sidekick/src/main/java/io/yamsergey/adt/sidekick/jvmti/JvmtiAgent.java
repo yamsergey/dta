@@ -3,7 +3,7 @@ package io.yamsergey.adt.sidekick.jvmti;
 import android.content.Context;
 import android.os.Build;
 import android.os.Debug;
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -71,7 +71,7 @@ public final class JvmtiAgent {
         // Check API level
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             String error = "JVMTI agent requires API 28+ (current: " + Build.VERSION.SDK_INT + ")";
-            Log.w(TAG, error);
+            SidekickLog.w(TAG, error);
             initError.set(error);
             return false;
         }
@@ -82,12 +82,12 @@ public final class JvmtiAgent {
 
         if (!agentLib.exists()) {
             // Library not extracted - extract it from APK
-            Log.d(TAG, "Library not in nativeLibDir, extracting from APK...");
+            SidekickLog.d(TAG, "Library not in nativeLibDir, extracting from APK...");
             agentLib = extractAgentFromApk(context);
 
             if (agentLib == null) {
                 String error = "Failed to extract agent library from APK";
-                Log.e(TAG, error);
+                SidekickLog.e(TAG, error);
                 initError.set(error);
                 return false;
             }
@@ -98,23 +98,23 @@ public final class JvmtiAgent {
 
             // Load the library for JNI using the same path that we'll use for JVMTI.
             // This ensures both JNI and JVMTI use the same library instance.
-            Log.i(TAG, "Loading native library: " + agentPath);
+            SidekickLog.i(TAG, "Loading native library: " + agentPath);
             System.load(agentPath);
 
             // Attach the JVMTI agent using the same path
-            Log.i(TAG, "Attaching JVMTI agent: " + agentPath);
+            SidekickLog.i(TAG, "Attaching JVMTI agent: " + agentPath);
             Debug.attachJvmtiAgent(agentPath, null, JvmtiAgent.class.getClassLoader());
 
             // Register the transformer hook
             nativeRegisterTransformerHook();
 
             agentLoaded.set(true);
-            Log.i(TAG, "JVMTI agent loaded successfully");
+            SidekickLog.i(TAG, "JVMTI agent loaded successfully");
             return true;
 
         } catch (Exception e) {
             String error = "Failed to attach JVMTI agent: " + e.getMessage();
-            Log.e(TAG, error, e);
+            SidekickLog.e(TAG, error, e);
             initError.set(error);
             return false;
         }
@@ -147,7 +147,7 @@ public final class JvmtiAgent {
             for (String path : possiblePaths) {
                 libEntry = apk.getEntry(path);
                 if (libEntry != null) {
-                    Log.d(TAG, "Found library in APK at: " + path);
+                    SidekickLog.d(TAG, "Found library in APK at: " + path);
                     break;
                 }
             }
@@ -159,21 +159,21 @@ public final class JvmtiAgent {
                     ZipEntry entry = entries.nextElement();
                     if (entry.getName().endsWith(AGENT_LIB_NAME)) {
                         libEntry = entry;
-                        Log.d(TAG, "Found library in APK by scan: " + entry.getName());
+                        SidekickLog.d(TAG, "Found library in APK by scan: " + entry.getName());
                         break;
                     }
                 }
             }
 
             if (libEntry == null) {
-                Log.e(TAG, "Library not found in APK");
+                SidekickLog.e(TAG, "Library not found in APK");
                 return null;
             }
 
             // Extract to app's code cache directory (allows execution)
             File outputDir = new File(context.getCodeCacheDir(), "jvmti");
             if (!outputDir.exists() && !outputDir.mkdirs()) {
-                Log.e(TAG, "Failed to create output directory");
+                SidekickLog.e(TAG, "Failed to create output directory");
                 return null;
             }
 
@@ -181,7 +181,7 @@ public final class JvmtiAgent {
 
             // Check if already extracted and up-to-date
             if (outputFile.exists() && outputFile.length() == libEntry.getSize()) {
-                Log.d(TAG, "Using previously extracted library");
+                SidekickLog.d(TAG, "Using previously extracted library");
                 return outputFile;
             }
 
@@ -198,14 +198,14 @@ public final class JvmtiAgent {
 
             // Make executable
             if (!outputFile.setExecutable(true, false)) {
-                Log.w(TAG, "Failed to set executable permission");
+                SidekickLog.w(TAG, "Failed to set executable permission");
             }
 
-            Log.i(TAG, "Extracted library to: " + outputFile.getAbsolutePath());
+            SidekickLog.i(TAG, "Extracted library to: " + outputFile.getAbsolutePath());
             return outputFile;
 
         } catch (IOException e) {
-            Log.e(TAG, "Failed to extract library from APK", e);
+            SidekickLog.e(TAG, "Failed to extract library from APK", e);
             return null;
         }
     }
@@ -226,6 +226,25 @@ public final class JvmtiAgent {
      */
     public static String getInitError() {
         return initError.get();
+    }
+
+    /**
+     * Sets whether native debug logging is enabled.
+     *
+     * <p>When disabled (the default), the native agent will not print
+     * debug/info/warning messages to logcat. Error messages are always printed.</p>
+     *
+     * @param enabled true to enable debug logging
+     */
+    public static void setDebugEnabled(boolean enabled) {
+        if (agentLoaded.get()) {
+            try {
+                nativeSetDebugEnabled(enabled);
+            } catch (UnsatisfiedLinkError e) {
+                // Native method not available - ignore
+                SidekickLog.w(TAG, "nativeSetDebugEnabled not available");
+            }
+        }
     }
 
     /**
@@ -278,16 +297,16 @@ public final class JvmtiAgent {
      */
     public static boolean retransformClass(Class<?> clazz) {
         if (!agentLoaded.get()) {
-            Log.w(TAG, "Cannot retransform: agent not loaded");
+            SidekickLog.w(TAG, "Cannot retransform: agent not loaded");
             return false;
         }
 
         try {
             nativeRetransformClasses(new Class<?>[] { clazz });
-            Log.d(TAG, "Requested retransformation of: " + clazz.getName());
+            SidekickLog.d(TAG, "Requested retransformation of: " + clazz.getName());
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "Failed to retransform class: " + clazz.getName(), e);
+            SidekickLog.e(TAG, "Failed to retransform class: " + clazz.getName(), e);
             return false;
         }
     }
@@ -300,7 +319,7 @@ public final class JvmtiAgent {
      */
     public static boolean retransformClasses(Class<?>... classes) {
         if (!agentLoaded.get()) {
-            Log.w(TAG, "Cannot retransform: agent not loaded");
+            SidekickLog.w(TAG, "Cannot retransform: agent not loaded");
             return false;
         }
 
@@ -308,7 +327,7 @@ public final class JvmtiAgent {
             nativeRetransformClasses(classes);
             return true;
         } catch (Exception e) {
-            Log.e(TAG, "Failed to retransform classes", e);
+            SidekickLog.e(TAG, "Failed to retransform classes", e);
             return false;
         }
     }
@@ -344,6 +363,13 @@ public final class JvmtiAgent {
      * @param classes array of classes to retransform
      */
     private static native void nativeRetransformClasses(Class<?>[] classes);
+
+    /**
+     * Sets native debug logging enabled/disabled.
+     *
+     * @param enabled true to enable debug logging
+     */
+    private static native void nativeSetDebugEnabled(boolean enabled);
 
     // ==========================================================================
     // Callbacks from native code

@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.app.Application;
 import android.os.Build;
 import android.util.DisplayMetrics;
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -46,7 +46,7 @@ public class ComposeInspector {
      */
     public static boolean enableInspection() {
         if (inspectionEnabled) {
-            Log.d(TAG, "Inspection already enabled");
+            SidekickLog.d(TAG, "Inspection already enabled");
             return true;
         }
 
@@ -60,7 +60,7 @@ public class ComposeInspector {
             for (Method m : inspectableValueClass.getDeclaredMethods()) {
                 if (m.getName().contains("setDebugInspectorInfoEnabled") ||
                     m.getName().contains("isDebugInspectorInfoEnabled")) {
-                    Log.d(TAG, "Found method: " + m.getName() + " params: " + m.getParameterCount());
+                    SidekickLog.d(TAG, "Found method: " + m.getName() + " params: " + m.getParameterCount());
                 }
             }
 
@@ -70,9 +70,9 @@ public class ComposeInspector {
                 setter.setAccessible(true);
                 setter.invoke(null, true);
                 success = true;
-                Log.i(TAG, "Enabled inspection via setIsDebugInspectorInfoEnabled()");
+                SidekickLog.i(TAG, "Enabled inspection via setIsDebugInspectorInfoEnabled()");
             } catch (NoSuchMethodException e) {
-                Log.d(TAG, "setIsDebugInspectorInfoEnabled not found, trying field access");
+                SidekickLog.d(TAG, "setIsDebugInspectorInfoEnabled not found, trying field access");
             }
 
             // Try direct field access if setter not available
@@ -80,11 +80,11 @@ public class ComposeInspector {
                 for (Field f : inspectableValueClass.getDeclaredFields()) {
                     if (f.getName().contains("isDebugInspectorInfoEnabled") ||
                         f.getName().contains("DebugInspectorInfo")) {
-                        Log.d(TAG, "Found field: " + f.getName() + " type: " + f.getType().getName());
+                        SidekickLog.d(TAG, "Found field: " + f.getName() + " type: " + f.getType().getName());
                         f.setAccessible(true);
                         f.set(null, true);
                         success = true;
-                        Log.i(TAG, "Enabled inspection via field: " + f.getName());
+                        SidekickLog.i(TAG, "Enabled inspection via field: " + f.getName());
                         break;
                     }
                 }
@@ -92,25 +92,25 @@ public class ComposeInspector {
 
             if (success) {
                 inspectionEnabled = true;
-                Log.i(TAG, "Compose inspection mode ENABLED - CompositionData will be available");
+                SidekickLog.i(TAG, "Compose inspection mode ENABLED - CompositionData will be available");
                 return true;
             } else {
-                Log.w(TAG, "Could not find isDebugInspectorInfoEnabled property");
+                SidekickLog.w(TAG, "Could not find isDebugInspectorInfoEnabled property");
                 // List all fields and methods for debugging
-                Log.d(TAG, "Available fields in InspectableValueKt:");
+                SidekickLog.d(TAG, "Available fields in InspectableValueKt:");
                 for (Field f : inspectableValueClass.getDeclaredFields()) {
-                    Log.d(TAG, "  Field: " + f.getName() + " (" + f.getType().getName() + ")");
+                    SidekickLog.d(TAG, "  Field: " + f.getName() + " (" + f.getType().getName() + ")");
                 }
-                Log.d(TAG, "Available methods in InspectableValueKt:");
+                SidekickLog.d(TAG, "Available methods in InspectableValueKt:");
                 for (Method m : inspectableValueClass.getDeclaredMethods()) {
-                    Log.d(TAG, "  Method: " + m.getName());
+                    SidekickLog.d(TAG, "  Method: " + m.getName());
                 }
             }
 
         } catch (ClassNotFoundException e) {
-            Log.w(TAG, "InspectableValueKt class not found - app may not use Compose UI", e);
+            SidekickLog.w(TAG, "InspectableValueKt class not found - app may not use Compose UI", e);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to enable inspection mode", e);
+            SidekickLog.e(TAG, "Failed to enable inspection mode", e);
         }
 
         return false;
@@ -135,7 +135,7 @@ public class ComposeInspector {
 
         List<Object> composeViews = findComposeViews();
         if (composeViews.isEmpty()) {
-            Log.w(TAG, "No Compose views found");
+            SidekickLog.w(TAG, "No Compose views found");
             return null;
         }
 
@@ -197,13 +197,13 @@ public class ComposeInspector {
 
         Activity activity = getCurrentActivity();
         if (activity == null) {
-            Log.w(TAG, "No current activity found");
+            SidekickLog.w(TAG, "No current activity found");
             return null;
         }
 
         List<Object> composeViews = findComposeViews();
         if (composeViews.isEmpty()) {
-            Log.w(TAG, "No Compose views found");
+            SidekickLog.w(TAG, "No Compose views found");
             return null;
         }
 
@@ -245,23 +245,23 @@ public class ComposeInspector {
         
         for (int i = 0; i < composeViews.size(); i++) {
             Object composeView = composeViews.get(i);
-            Log.d(TAG, "Processing ComposeView [" + i + "]: " + composeView);
+            SidekickLog.d(TAG, "Processing ComposeView [" + i + "]: " + composeView);
 
             Object rootLayoutNode = getRootLayoutNode(composeView);
 
             if (rootLayoutNode == null) {
-                Log.d(TAG, "  -> Skipping: rootLayoutNode is null");
+                SidekickLog.d(TAG, "  -> Skipping: rootLayoutNode is null");
                 continue;
             }
 
             // Check if this root has any children
             List<Object> children = getLayoutNodeChildren(rootLayoutNode);
             if (children.isEmpty()) {
-                Log.d(TAG, "  -> Skipping: no children in rootLayoutNode");
+                SidekickLog.d(TAG, "  -> Skipping: no children in rootLayoutNode");
                 continue;
             }
 
-            Log.d(TAG, "  -> Processing: has " + children.size() + " children");
+            SidekickLog.d(TAG, "  -> Processing: has " + children.size() + " children");
 
             // Get the window's screen position for coordinate conversion.
             // boundsInWindow() returns coordinates relative to the window origin,
@@ -276,7 +276,7 @@ public class ComposeInspector {
                 view.getLocationInWindow(windowLoc);
                 windowOffset[0] = screenLoc[0] - windowLoc[0];
                 windowOffset[1] = screenLoc[1] - windowLoc[1];
-                Log.d(TAG, "  Window offset: screen=" + screenLoc[0] + "," + screenLoc[1] +
+                SidekickLog.d(TAG, "  Window offset: screen=" + screenLoc[0] + "," + screenLoc[1] +
                       " inWindow=" + windowLoc[0] + "," + windowLoc[1] +
                       " -> windowScreen=" + windowOffset[0] + "," + windowOffset[1]);
             }
@@ -326,14 +326,14 @@ public class ComposeInspector {
             Object semanticsOwner = getSemanticsOwner.invoke(composeView);
 
             if (semanticsOwner == null) {
-                Log.w(TAG, "SemanticsOwner is null");
+                SidekickLog.w(TAG, "SemanticsOwner is null");
                 return result;
             }
 
             // Get all semantics nodes using getAllSemanticsNodes(mergingEnabled = false)
             // This gives us unmerged semantics where each node has its own properties
             List<Object> allNodes = getAllSemanticsNodes(semanticsOwner, false);
-            Log.d(TAG, "Found " + allNodes.size() + " semantics nodes via getAllSemanticsNodes");
+            SidekickLog.d(TAG, "Found " + allNodes.size() + " semantics nodes via getAllSemanticsNodes");
 
             for (Object semanticsNode : allNodes) {
                 try {
@@ -355,17 +355,17 @@ public class ComposeInspector {
                     if (entry.containsKey("text") || entry.containsKey("role") ||
                         entry.containsKey("contentDescription") || entry.containsKey("testTag")) {
                         result.put(semanticsId, entry);
-                        Log.d(TAG, "Mapped semanticsId " + semanticsId + " -> " + entry);
+                        SidekickLog.d(TAG, "Mapped semanticsId " + semanticsId + " -> " + entry);
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "Error processing semantics node: " + e.getMessage());
+                    SidekickLog.e(TAG, "Error processing semantics node: " + e.getMessage());
                 }
             }
 
-            Log.d(TAG, "Built semantics map with " + result.size() + " entries");
+            SidekickLog.d(TAG, "Built semantics map with " + result.size() + " entries");
 
         } catch (Exception e) {
-            Log.e(TAG, "Error building semantics by ID", e);
+            SidekickLog.e(TAG, "Error building semantics by ID", e);
         }
 
         return result;
@@ -403,13 +403,13 @@ public class ComposeInspector {
                 for (Object compositionData : compositionDataSet) {
                     walkCompositionGroups(compositionData, result);
                 }
-                Log.d(TAG, "Built composable info map with " + result.size() + " entries from " + compositionDataSet.size() + " SlotTables");
+                SidekickLog.d(TAG, "Built composable info map with " + result.size() + " entries from " + compositionDataSet.size() + " SlotTables");
             } else {
-                Log.d(TAG, "CompositionData not available, will use fallback naming");
+                SidekickLog.d(TAG, "CompositionData not available, will use fallback naming");
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error building composable info map: " + e.getMessage());
+            SidekickLog.e(TAG, "Error building composable info map: " + e.getMessage());
         }
 
         return result;
@@ -431,12 +431,12 @@ public class ComposeInspector {
                 Object tag = view.getTag(tagId);
                 if (tag instanceof java.util.Set) {
                     java.util.Set<?> set = (java.util.Set<?>) tag;
-                    Log.d(TAG, "Found " + set.size() + " CompositionData entries in inspection tag");
+                    SidekickLog.d(TAG, "Found " + set.size() + " CompositionData entries in inspection tag");
                     return set;
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error getting CompositionData set: " + e.getMessage());
+            SidekickLog.e(TAG, "Error getting CompositionData set: " + e.getMessage());
         }
         return null;
     }
@@ -448,7 +448,7 @@ public class ComposeInspector {
     private static Object getCompositionData(Object composeView) {
         try {
             if (!(composeView instanceof View)) {
-                Log.d(TAG, "getCompositionData: composeView is not a View");
+                SidekickLog.d(TAG, "getCompositionData: composeView is not a View");
                 return null;
             }
             View view = (View) composeView;
@@ -456,23 +456,23 @@ public class ComposeInspector {
             // Try to find the inspection_slot_table_set tag ID
             // It's defined in compose-runtime resources
             int tagId = findInspectionTagId();
-            Log.d(TAG, "getCompositionData: tagId = " + tagId);
+            SidekickLog.d(TAG, "getCompositionData: tagId = " + tagId);
 
             if (tagId != 0) {
                 Object tag = view.getTag(tagId);
-                Log.d(TAG, "getCompositionData: tag at " + tagId + " = " + (tag != null ? tag.getClass().getName() : "null"));
+                SidekickLog.d(TAG, "getCompositionData: tag at " + tagId + " = " + (tag != null ? tag.getClass().getName() : "null"));
                 if (tag != null) {
-                    Log.d(TAG, "Found CompositionData via tag ID " + tagId + ": " + tag.getClass().getName());
+                    SidekickLog.d(TAG, "Found CompositionData via tag ID " + tagId + ": " + tag.getClass().getName());
                     // It's a Set<CompositionData>, return the first one
                     if (tag instanceof java.util.Set) {
                         java.util.Set<?> set = (java.util.Set<?>) tag;
-                        Log.d(TAG, "CompositionData Set size: " + set.size());
+                        SidekickLog.d(TAG, "CompositionData Set size: " + set.size());
                         if (!set.isEmpty()) {
                             Object first = set.iterator().next();
-                            Log.d(TAG, "CompositionData first element: " + first.getClass().getName());
+                            SidekickLog.d(TAG, "CompositionData first element: " + first.getClass().getName());
                             return first;
                         } else {
-                            Log.d(TAG, "CompositionData Set is EMPTY - composition may not have run yet");
+                            SidekickLog.d(TAG, "CompositionData Set is EMPTY - composition may not have run yet");
                         }
                     }
                     return tag;
@@ -480,29 +480,29 @@ public class ComposeInspector {
             }
 
             // Try to enumerate all tags on the view to find CompositionData
-            Log.d(TAG, "Trying to find CompositionData via other means...");
+            SidekickLog.d(TAG, "Trying to find CompositionData via other means...");
 
             // Fallback: try to find CompositionData via reflection on the view
             for (Method m : composeView.getClass().getMethods()) {
                 if (m.getName().contains("getComposition") && m.getParameterCount() == 0) {
-                    Log.d(TAG, "Found method: " + m.getName());
+                    SidekickLog.d(TAG, "Found method: " + m.getName());
                     m.setAccessible(true);
                     Object composition = m.invoke(composeView);
                     if (composition != null) {
-                        Log.d(TAG, "Got composition: " + composition.getClass().getName());
+                        SidekickLog.d(TAG, "Got composition: " + composition.getClass().getName());
                         // Try to get CompositionData from Composition
                         for (Method cm : composition.getClass().getMethods()) {
                             if (cm.getName().contains("getData") || cm.getName().contains("getCompositionData")) {
-                                Log.d(TAG, "Found data method: " + cm.getName());
+                                SidekickLog.d(TAG, "Found data method: " + cm.getName());
                                 cm.setAccessible(true);
                                 return cm.invoke(composition);
                             }
                         }
                         // List all methods on composition for debugging
-                        Log.d(TAG, "Composition methods:");
+                        SidekickLog.d(TAG, "Composition methods:");
                         for (Method cm : composition.getClass().getMethods()) {
                             if (!cm.getDeclaringClass().equals(Object.class)) {
-                                Log.d(TAG, "  " + cm.getName() + " -> " + cm.getReturnType().getSimpleName());
+                                SidekickLog.d(TAG, "  " + cm.getName() + " -> " + cm.getReturnType().getSimpleName());
                             }
                         }
                     }
@@ -510,7 +510,7 @@ public class ComposeInspector {
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error getting CompositionData: " + e.getMessage(), e);
+            SidekickLog.e(TAG, "Error getting CompositionData: " + e.getMessage(), e);
         }
         return null;
     }
@@ -529,21 +529,21 @@ public class ComposeInspector {
         for (String pkg : packages) {
             try {
                 Class<?> rId = Class.forName(pkg);
-                Log.d(TAG, "Found R class: " + pkg);
+                SidekickLog.d(TAG, "Found R class: " + pkg);
                 // List all fields for debugging
                 for (Field f : rId.getFields()) {
                     if (f.getName().contains("inspection") || f.getName().contains("slot")) {
-                        Log.d(TAG, "  Found field: " + f.getName() + " = " + f.getInt(null));
+                        SidekickLog.d(TAG, "  Found field: " + f.getName() + " = " + f.getInt(null));
                     }
                 }
                 Field field = rId.getField("inspection_slot_table_set");
                 int id = field.getInt(null);
-                Log.d(TAG, "Found inspection_slot_table_set in " + pkg + ": " + id);
+                SidekickLog.d(TAG, "Found inspection_slot_table_set in " + pkg + ": " + id);
                 return id;
             } catch (ClassNotFoundException e) {
-                Log.d(TAG, "R class not found: " + pkg);
+                SidekickLog.d(TAG, "R class not found: " + pkg);
             } catch (NoSuchFieldException e) {
-                Log.d(TAG, "Field inspection_slot_table_set not found in " + pkg);
+                SidekickLog.d(TAG, "Field inspection_slot_table_set not found in " + pkg);
             } catch (Exception e) {
                 // Try next
             }
@@ -596,7 +596,7 @@ public class ComposeInspector {
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error walking composition groups: " + e.getMessage());
+            SidekickLog.e(TAG, "Error walking composition groups: " + e.getMessage());
         }
     }
 
@@ -738,7 +738,7 @@ public class ComposeInspector {
                         // Log composable names for debugging
                         if (groupLogCount < 100) {
                             String type = parsed.isLibraryComposable ? "library" : "user";
-                            Log.d(TAG, "Found composable: " + parsed.name + " (" + type + ") from " + sourceInfo);
+                            SidekickLog.d(TAG, "Found composable: " + parsed.name + " (" + type + ") from " + sourceInfo);
                         }
 
                         if (isUserLevelComposable(parsed.name)) {
@@ -805,7 +805,7 @@ public class ComposeInspector {
                 if (groupLogCount < MAX_GROUP_LOGS) {
                     groupLogCount++;
                     String source = (thisGroupInfo != null) ? "own" : "ancestor";
-                    Log.d(TAG, "Mapped node " + nodeId + " -> " + infoForNode.name + " (" + source + ")");
+                    SidekickLog.d(TAG, "Mapped node " + nodeId + " -> " + infoForNode.name + " (" + source + ")");
                 }
             }
 
@@ -817,7 +817,7 @@ public class ComposeInspector {
             walkCompositionGroupsWithAncestors(group, result, nextImmediate, nextUserAncestor);
 
         } catch (Exception e) {
-            Log.d(TAG, "Error processing composition group: " + e.getMessage());
+            SidekickLog.d(TAG, "Error processing composition group: " + e.getMessage());
         }
     }
 
@@ -925,7 +925,7 @@ public class ComposeInspector {
             }
 
             // Fallback: manually traverse the semantics tree
-            Log.d(TAG, "getAllSemanticsNodes not found, falling back to tree traversal");
+            SidekickLog.d(TAG, "getAllSemanticsNodes not found, falling back to tree traversal");
             Method getRootNode = null;
             try {
                 getRootNode = semanticsOwner.getClass().getDeclaredMethod("getUnmergedRootSemanticsNode");
@@ -940,7 +940,7 @@ public class ComposeInspector {
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error getting all semantics nodes: " + e.getMessage());
+            SidekickLog.e(TAG, "Error getting all semantics nodes: " + e.getMessage());
         }
 
         return result;
@@ -983,7 +983,7 @@ public class ComposeInspector {
             getId.setAccessible(true);
             return (int) getId.invoke(semanticsNode);
         } catch (Exception e) {
-            Log.e(TAG, "Error getting semantics node ID: " + e.getMessage());
+            SidekickLog.e(TAG, "Error getting semantics node ID: " + e.getMessage());
             return -1;
         }
     }
@@ -1048,7 +1048,7 @@ public class ComposeInspector {
             }
 
         } catch (Exception e) {
-            Log.d(TAG, "Error getting layout node semantics ID: " + e.getMessage());
+            SidekickLog.d(TAG, "Error getting layout node semantics ID: " + e.getMessage());
         }
 
         return -1;
@@ -1085,7 +1085,7 @@ public class ComposeInspector {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error collecting semantics with layoutNode", e);
+            SidekickLog.e(TAG, "Error collecting semantics with layoutNode", e);
         }
     }
 
@@ -1175,7 +1175,7 @@ public class ComposeInspector {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error in collectSemanticsWithLayoutNodeRecursive: " + e.getMessage());
+            SidekickLog.e(TAG, "Error in collectSemanticsWithLayoutNodeRecursive: " + e.getMessage());
         }
     }
 
@@ -1458,7 +1458,7 @@ public class ComposeInspector {
             return node;
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing unified node", e);
+            SidekickLog.e(TAG, "Error capturing unified node", e);
             return null;
         }
     }
@@ -1676,9 +1676,9 @@ public class ComposeInspector {
             androidComposeViewClass = Class.forName("androidx.compose.ui.platform.AndroidComposeView");
             layoutNodeClass = Class.forName("androidx.compose.ui.node.LayoutNode");
             initialized = true;
-            Log.d(TAG, "Compose classes found");
+            SidekickLog.d(TAG, "Compose classes found");
         } catch (ClassNotFoundException e) {
-            Log.w(TAG, "Compose classes not found - app may not use Compose");
+            SidekickLog.w(TAG, "Compose classes not found - app may not use Compose");
         }
     }
 
@@ -1701,10 +1701,10 @@ public class ComposeInspector {
             List<View> allRootViews = getAllWindowRootViews();
 
             if (!allRootViews.isEmpty()) {
-                Log.d(TAG, "Found " + allRootViews.size() + " window root views");
+                SidekickLog.d(TAG, "Found " + allRootViews.size() + " window root views");
                 for (int i = 0; i < allRootViews.size(); i++) {
                     View rootView = allRootViews.get(i);
-                    Log.d(TAG, "  Root view [" + i + "]: " + rootView.getClass().getName() +
+                    SidekickLog.d(TAG, "  Root view [" + i + "]: " + rootView.getClass().getName() +
                           " visible=" + (rootView.getVisibility() == View.VISIBLE) +
                           " isShown=" + rootView.isShown() +
                           " size=" + rootView.getWidth() + "x" + rootView.getHeight());
@@ -1712,20 +1712,20 @@ public class ComposeInspector {
                 }
             } else {
                 // Fallback to activity's decor view if we can't get all windows
-                Log.d(TAG, "Falling back to activity decor view");
+                SidekickLog.d(TAG, "Falling back to activity decor view");
                 Activity activity = getCurrentActivity();
                 if (activity != null) {
                     View decorView = activity.getWindow().getDecorView();
                     findComposeViewsRecursive(decorView, result);
                 } else {
-                    Log.w(TAG, "No current activity found");
+                    SidekickLog.w(TAG, "No current activity found");
                 }
             }
 
-            Log.d(TAG, "Found " + result.size() + " ComposeViews across all windows");
+            SidekickLog.d(TAG, "Found " + result.size() + " ComposeViews across all windows");
 
         } catch (Exception e) {
-            Log.e(TAG, "Error finding Compose views", e);
+            SidekickLog.e(TAG, "Error finding Compose views", e);
         }
 
         return result;
@@ -1744,9 +1744,9 @@ public class ComposeInspector {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 rootViews = android.view.inspector.WindowInspector.getGlobalWindowViews();
-                Log.d(TAG, "WindowInspector returned " + rootViews.size() + " root views");
+                SidekickLog.d(TAG, "WindowInspector returned " + rootViews.size() + " root views");
             } catch (Exception e) {
-                Log.w(TAG, "WindowInspector failed, falling back to WindowManagerGlobal: " + e.getMessage());
+                SidekickLog.w(TAG, "WindowInspector failed, falling back to WindowManagerGlobal: " + e.getMessage());
                 rootViews = new ArrayList<>();
             }
         }
@@ -1770,9 +1770,9 @@ public class ComposeInspector {
                         }
                     }
                 }
-                Log.d(TAG, "WindowManagerGlobal returned " + rootViews.size() + " root views");
+                SidekickLog.d(TAG, "WindowManagerGlobal returned " + rootViews.size() + " root views");
             } catch (Exception e) {
-                Log.w(TAG, "Could not get windows from WindowManagerGlobal: " + e.getMessage());
+                SidekickLog.w(TAG, "Could not get windows from WindowManagerGlobal: " + e.getMessage());
             }
         }
 
@@ -1791,7 +1791,7 @@ public class ComposeInspector {
             filteredViews.sort((v1, v2) -> Float.compare(v1.getZ(), v2.getZ()));
         }
 
-        Log.d(TAG, "After filtering: " + filteredViews.size() + " visible root views");
+        SidekickLog.d(TAG, "After filtering: " + filteredViews.size() + " visible root views");
         return filteredViews;
     }
 
@@ -1805,7 +1805,7 @@ public class ComposeInspector {
             boolean isAttached = view.isAttachedToWindow();
             boolean hasSize = view.getWidth() > 0 && view.getHeight() > 0;
 
-            Log.d(TAG, "    Found ComposeView: " + view +
+            SidekickLog.d(TAG, "    Found ComposeView: " + view +
                   " visible=" + isVisible +
                   " isShown=" + isShown +
                   " attached=" + isAttached +
@@ -1816,7 +1816,7 @@ public class ComposeInspector {
             if (isShown && isAttached && hasSize) {
                 result.add(view);
             } else {
-                Log.d(TAG, "    -> Skipping: not visible to user (isShown=" + isShown +
+                SidekickLog.d(TAG, "    -> Skipping: not visible to user (isShown=" + isShown +
                       " attached=" + isAttached + " hasSize=" + hasSize + ")");
             }
         }
@@ -1860,7 +1860,7 @@ public class ComposeInspector {
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error getting current activity", e);
+            SidekickLog.e(TAG, "Error getting current activity", e);
         }
         return null;
     }
@@ -1892,7 +1892,7 @@ public class ComposeInspector {
             return result;
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing ComposeView", e);
+            SidekickLog.e(TAG, "Error capturing ComposeView", e);
             return null;
         }
     }
@@ -1913,7 +1913,7 @@ public class ComposeInspector {
                 rootField.setAccessible(true);
                 return rootField.get(composeView);
             } catch (Exception e2) {
-                Log.e(TAG, "Cannot get root LayoutNode", e2);
+                SidekickLog.e(TAG, "Cannot get root LayoutNode", e2);
             }
         }
         return null;
@@ -1984,7 +1984,7 @@ public class ComposeInspector {
             return node;
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing LayoutNode", e);
+            SidekickLog.e(TAG, "Error capturing LayoutNode", e);
             return null;
         }
     }
@@ -2073,7 +2073,7 @@ public class ComposeInspector {
                     coordMethods.append(m.getName()).append("(").append(m.getParameterCount()).append("), ");
                 }
             }
-            Log.d(TAG, coordMethods.toString());
+            SidekickLog.d(TAG, coordMethods.toString());
 
             // Get node dimensions (needed for some fallbacks)
             int width = 0, height = 0;
@@ -2093,13 +2093,13 @@ public class ComposeInspector {
             for (Method m : coords.getClass().getMethods()) {
                 String methodName = m.getName();
                 if (m.getParameterCount() == 0 && methodName.contains("boundsInWindow")) {
-                    Log.d(TAG, "Found boundsInWindow method: " + methodName + ", return type: " + m.getReturnType().getName());
+                    SidekickLog.d(TAG, "Found boundsInWindow method: " + methodName + ", return type: " + m.getReturnType().getName());
                     m.setAccessible(true);
                     Object rect = m.invoke(coords);
-                    Log.d(TAG, "boundsInWindow returned: " + (rect != null ? rect.getClass().getName() + " = " + rect : "null"));
+                    SidekickLog.d(TAG, "boundsInWindow returned: " + (rect != null ? rect.getClass().getName() + " = " + rect : "null"));
                     if (rect != null) {
                         int[] bounds = extractRectBounds(rect);
-                        Log.d(TAG, "extractRectBounds returned: " + (bounds != null ? java.util.Arrays.toString(bounds) : "null"));
+                        SidekickLog.d(TAG, "extractRectBounds returned: " + (bounds != null ? java.util.Arrays.toString(bounds) : "null"));
                         if (bounds != null) {
                             // Add window offset to convert from window-relative to screen coordinates
                             return new int[] {
@@ -2144,7 +2144,7 @@ public class ComposeInspector {
                     long windowPos = (long) m.invoke(coords, zeroOffset);
                     float windowX = Float.intBitsToFloat((int) (windowPos >>> 32));
                     float windowY = Float.intBitsToFloat((int) (windowPos & 0xFFFFFFFFL));
-                    Log.d(TAG, "localToWindow: x=" + windowX + " y=" + windowY + " width=" + width + " height=" + height);
+                    SidekickLog.d(TAG, "localToWindow: x=" + windowX + " y=" + windowY + " width=" + width + " height=" + height);
                     if (!Float.isNaN(windowX) && !Float.isNaN(windowY) && width > 0 && height > 0) {
                         // Add window offset to convert from window-relative to screen coordinates
                         return new int[] {
@@ -2164,7 +2164,7 @@ public class ComposeInspector {
                     long screenPos = (long) m.invoke(coords, zeroOffset);
                     float screenX = Float.intBitsToFloat((int) (screenPos >>> 32));
                     float screenY = Float.intBitsToFloat((int) (screenPos & 0xFFFFFFFFL));
-                    Log.d(TAG, "localToScreen fallback: x=" + screenX + " y=" + screenY + " width=" + width + " height=" + height);
+                    SidekickLog.d(TAG, "localToScreen fallback: x=" + screenX + " y=" + screenY + " width=" + width + " height=" + height);
                     if (!Float.isNaN(screenX) && !Float.isNaN(screenY) && width > 0 && height > 0) {
                         return new int[] {
                             Math.round(screenX), Math.round(screenY),
@@ -2193,7 +2193,7 @@ public class ComposeInspector {
             }
 
         } catch (Exception e) {
-            Log.d(TAG, "getBoundsFromCoordinates failed: " + e.getMessage());
+            SidekickLog.d(TAG, "getBoundsFromCoordinates failed: " + e.getMessage());
         }
 
         return null;
@@ -2215,7 +2215,7 @@ public class ComposeInspector {
             Object coords = getCoordinates.invoke(layoutNode);
 
             if (coords == null) {
-                Log.d(TAG, "getBoundsInWindow: coordinates is null");
+                SidekickLog.d(TAG, "getBoundsInWindow: coordinates is null");
                 return null;
             }
 
@@ -2268,7 +2268,7 @@ public class ComposeInspector {
             }
 
         } catch (Exception e) {
-            Log.d(TAG, "getBoundsInWindow failed: " + e.getMessage());
+            SidekickLog.d(TAG, "getBoundsInWindow failed: " + e.getMessage());
         }
 
         return null;
@@ -2306,7 +2306,7 @@ public class ComposeInspector {
                 }
             }
         } catch (Exception e) {
-            Log.d(TAG, "getPositionInRoot failed: " + e.getMessage());
+            SidekickLog.d(TAG, "getPositionInRoot failed: " + e.getMessage());
         }
 
         return null;
@@ -2769,7 +2769,7 @@ public class ComposeInspector {
             }
 
         } catch (Exception e) {
-            Log.e(TAG, "Error extracting semantic properties: " + e.getMessage());
+            SidekickLog.e(TAG, "Error extracting semantic properties: " + e.getMessage());
         }
     }
 
@@ -2872,7 +2872,7 @@ public class ComposeInspector {
             return result;
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing semantics tree", e);
+            SidekickLog.e(TAG, "Error capturing semantics tree", e);
             return null;
         }
     }
@@ -2942,7 +2942,7 @@ public class ComposeInspector {
             return node;
 
         } catch (Exception e) {
-            Log.e(TAG, "Error capturing SemanticsNode", e);
+            SidekickLog.e(TAG, "Error capturing SemanticsNode", e);
             return null;
         }
     }

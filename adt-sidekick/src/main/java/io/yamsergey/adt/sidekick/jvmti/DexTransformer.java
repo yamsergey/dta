@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.jvmti;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import com.android.tools.smali.dexlib2.AccessFlags;
 import com.android.tools.smali.dexlib2.Opcode;
@@ -79,11 +79,11 @@ public class DexTransformer {
             List<MethodHook> hooks = HookRegistry.getHooksForClass(dotClassName);
 
             if (hooks.isEmpty()) {
-                Log.d(TAG, "No hooks registered for: " + className);
+                SidekickLog.d(TAG, "No hooks registered for: " + className);
                 return null;
             }
 
-            Log.d(TAG, "Transforming class: " + className + " with " + hooks.size() + " hooks");
+            SidekickLog.d(TAG, "Transforming class: " + className + " with " + hooks.size() + " hooks");
 
             // Parse the DEX data
             byte[] dexData = classDataLen < classData.length
@@ -104,14 +104,14 @@ public class DexTransformer {
                 if (currentClassName.equals(className)) {
                     transformedClass = transformClass(classDef, hooks);
                     if (transformedClass != null) {
-                        Log.i(TAG, "Transformed class: " + className);
+                        SidekickLog.i(TAG, "Transformed class: " + className);
                     }
                     break; // Found the target class
                 }
             }
 
             if (transformedClass == null) {
-                Log.d(TAG, "No methods transformed in: " + className);
+                SidekickLog.d(TAG, "No methods transformed in: " + className);
                 return null;
             }
 
@@ -123,12 +123,12 @@ public class DexTransformer {
             dexPool.writeTo(dataStore);
 
             byte[] result = Arrays.copyOf(dataStore.getBuffer(), dataStore.getSize());
-            Log.i(TAG, "Transformation complete: " + className +
+            SidekickLog.i(TAG, "Transformation complete: " + className +
                     " (" + classDataLen + " -> " + result.length + " bytes)");
             return result;
 
         } catch (Exception e) {
-            Log.e(TAG, "Error transforming class: " + className, e);
+            SidekickLog.e(TAG, "Error transforming class: " + className, e);
             return null;
         }
     }
@@ -149,13 +149,13 @@ public class DexTransformer {
                     if (newMethod != null) {
                         newMethods.add(newMethod);
                         anyTransformed = true;
-                        Log.d(TAG, "  Hooked: " + method.getName() + buildMethodSignature(method));
+                        SidekickLog.d(TAG, "  Hooked: " + method.getName() + buildMethodSignature(method));
                     } else {
                         // Strip debug info from original method to avoid type index issues
                         newMethods.add(stripDebugInfo(method));
                     }
                 } catch (Exception e) {
-                    Log.w(TAG, "  Failed to hook: " + method.getName() + " - " + e.getMessage());
+                    SidekickLog.w(TAG, "  Failed to hook: " + method.getName() + " - " + e.getMessage());
                     newMethods.add(stripDebugInfo(method));
                 }
             } else {
@@ -719,7 +719,7 @@ public class DexTransformer {
         }
 
         // For any unhandled format, return as-is and log a warning
-        Log.w(TAG, "Unhandled instruction format: " + insn.getClass().getSimpleName());
+        SidekickLog.w(TAG, "Unhandled instruction format: " + insn.getClass().getSimpleName());
         return insn;
     }
 

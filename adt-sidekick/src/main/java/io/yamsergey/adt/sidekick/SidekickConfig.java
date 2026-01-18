@@ -33,6 +33,9 @@ import io.yamsergey.adt.sidekick.network.adapter.NetworkAdapter;
  */
 public final class SidekickConfig {
 
+    // Debug logging (disabled by default)
+    private final boolean debugLoggingEnabled;
+
     // Adapter enable/disable flags
     private final boolean okHttpEnabled;
     private final boolean urlConnectionEnabled;
@@ -47,6 +50,7 @@ public final class SidekickConfig {
     private final List<NetworkAdapter> customAdapters;
 
     private SidekickConfig(Builder builder) {
+        this.debugLoggingEnabled = builder.debugLoggingEnabled;
         this.okHttpEnabled = builder.okHttpEnabled;
         this.urlConnectionEnabled = builder.urlConnectionEnabled;
         this.okHttpWebSocketEnabled = builder.okHttpWebSocketEnabled;
@@ -73,6 +77,13 @@ public final class SidekickConfig {
     // =========================================================================
     // Accessors
     // =========================================================================
+
+    /**
+     * Returns whether debug logging is enabled.
+     */
+    public boolean isDebugLoggingEnabled() {
+        return debugLoggingEnabled;
+    }
 
     public boolean isOkHttpEnabled() {
         return okHttpEnabled && !disabledAdapterIds.contains("okhttp");
@@ -146,6 +157,7 @@ public final class SidekickConfig {
     // =========================================================================
 
     public static final class Builder {
+        private boolean debugLoggingEnabled = false;
         private boolean okHttpEnabled = true;
         private boolean urlConnectionEnabled = true;
         private boolean okHttpWebSocketEnabled = true;
@@ -155,6 +167,30 @@ public final class SidekickConfig {
         private final List<NetworkAdapter> customAdapters = new ArrayList<>();
 
         private Builder() {}
+
+        // =====================================================================
+        // Debug Logging
+        // =====================================================================
+
+        /**
+         * Enables debug logging to logcat (disabled by default).
+         *
+         * <p>When enabled, Sidekick will log detailed debug information
+         * to logcat. This is useful during development but should be
+         * disabled in production to avoid polluting logcat.</p>
+         */
+        public Builder enableDebugLogging() {
+            this.debugLoggingEnabled = true;
+            return this;
+        }
+
+        /**
+         * Disables debug logging (this is the default).
+         */
+        public Builder disableDebugLogging() {
+            this.debugLoggingEnabled = false;
+            return this;
+        }
 
         // =====================================================================
         // HTTP Adapters

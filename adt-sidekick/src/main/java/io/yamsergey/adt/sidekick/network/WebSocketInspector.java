@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -77,7 +77,7 @@ public final class WebSocketInspector {
         WebSocketConnection conn = new WebSocketConnection(url, source);
         addConnection(conn);
 
-        Log.d(TAG, "Started WebSocket connection: " + conn.getId() + " " + url);
+        SidekickLog.d(TAG, "Started WebSocket connection: " + conn.getId() + " " + url);
         notifyConnectionStarted(conn);
 
         return conn;
@@ -126,7 +126,7 @@ public final class WebSocketInspector {
         connections.clear();
         connectionsById.clear();
         objectToConnectionId.clear();
-        Log.d(TAG, "Cleared all connections");
+        SidekickLog.d(TAG, "Cleared all connections");
     }
 
     /**
@@ -199,7 +199,7 @@ public final class WebSocketInspector {
     public static void onConnectionOpened(WebSocketConnection connection) {
         if (!enabled || connection == null) return;
 
-        Log.i(TAG, "WebSocket connected: " + connection.getId() + " " + connection.getUrl());
+        SidekickLog.i(TAG, "WebSocket connected: " + connection.getId() + " " + connection.getUrl());
         notifyConnectionOpened(connection);
     }
 
@@ -213,7 +213,7 @@ public final class WebSocketInspector {
 
         WebSocketConnection conn = getConnection(message.getConnectionId());
         if (conn == null) {
-            Log.w(TAG, "Message for unknown connection: " + message.getConnectionId());
+            SidekickLog.w(TAG, "Message for unknown connection: " + message.getConnectionId());
             return;
         }
 
@@ -223,7 +223,7 @@ public final class WebSocketInspector {
 
         // Limit messages per connection
         if (conn.getMessageCount() >= MAX_MESSAGES_PER_CONNECTION) {
-            Log.w(TAG, "Max messages reached for connection: " + conn.getId());
+            SidekickLog.w(TAG, "Max messages reached for connection: " + conn.getId());
             return;
         }
 
@@ -233,7 +233,7 @@ public final class WebSocketInspector {
         String preview = message.isText()
                 ? truncate(message.getTextPayload(), 50)
                 : "[binary " + message.getPayloadSize() + " bytes]";
-        Log.d(TAG, direction + " " + conn.getUrl() + " " + preview);
+        SidekickLog.d(TAG, direction + " " + conn.getUrl() + " " + preview);
 
         notifyMessage(message);
     }
@@ -246,7 +246,7 @@ public final class WebSocketInspector {
     public static void onConnectionClosed(WebSocketConnection connection) {
         if (!enabled || connection == null) return;
 
-        Log.i(TAG, "WebSocket closed: " + connection.getId() +
+        SidekickLog.i(TAG, "WebSocket closed: " + connection.getId() +
                 " code=" + connection.getCloseCode() +
                 " reason=" + connection.getCloseReason());
         notifyConnectionClosed(connection);
@@ -260,7 +260,7 @@ public final class WebSocketInspector {
     public static void onConnectionFailed(WebSocketConnection connection) {
         if (!enabled || connection == null) return;
 
-        Log.e(TAG, "WebSocket failed: " + connection.getId() +
+        SidekickLog.e(TAG, "WebSocket failed: " + connection.getId() +
                 " error=" + connection.getErrorMessage());
         notifyConnectionFailed(connection);
     }
@@ -331,7 +331,7 @@ public final class WebSocketInspector {
             try {
                 listener.onConnectionStarted(conn);
             } catch (Exception e) {
-                Log.e(TAG, "Error in listener", e);
+                SidekickLog.e(TAG, "Error in listener", e);
             }
         }
     }
@@ -341,7 +341,7 @@ public final class WebSocketInspector {
             try {
                 listener.onConnectionOpened(conn);
             } catch (Exception e) {
-                Log.e(TAG, "Error in listener", e);
+                SidekickLog.e(TAG, "Error in listener", e);
             }
         }
     }
@@ -351,7 +351,7 @@ public final class WebSocketInspector {
             try {
                 listener.onMessage(msg);
             } catch (Exception e) {
-                Log.e(TAG, "Error in listener", e);
+                SidekickLog.e(TAG, "Error in listener", e);
             }
         }
     }
@@ -361,7 +361,7 @@ public final class WebSocketInspector {
             try {
                 listener.onConnectionClosed(conn);
             } catch (Exception e) {
-                Log.e(TAG, "Error in listener", e);
+                SidekickLog.e(TAG, "Error in listener", e);
             }
         }
     }
@@ -371,7 +371,7 @@ public final class WebSocketInspector {
             try {
                 listener.onConnectionFailed(conn);
             } catch (Exception e) {
-                Log.e(TAG, "Error in listener", e);
+                SidekickLog.e(TAG, "Error in listener", e);
             }
         }
     }

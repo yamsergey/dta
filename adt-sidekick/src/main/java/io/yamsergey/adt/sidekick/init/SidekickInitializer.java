@@ -3,7 +3,7 @@ package io.yamsergey.adt.sidekick.init;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.os.Build;
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import androidx.annotation.NonNull;
 import androidx.startup.Initializer;
@@ -68,7 +68,7 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
     @NonNull
     @Override
     public InspectorServer create(@NonNull Context context) {
-        Log.i(TAG, "Initializing ADT Sidekick...");
+        SidekickLog.i(TAG, "Initializing ADT Sidekick...");
 
         // Enable Compose inspection mode FIRST - must happen before any Compose UI is created
         // This enables CompositionData population for accurate composable names
@@ -86,9 +86,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
 
         try {
             server.start(packageName);
-            Log.i(TAG, "ADT Sidekick server started on socket: adt_sidekick_" + packageName);
+            SidekickLog.i(TAG, "ADT Sidekick server started on socket: adt_sidekick_" + packageName);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to start ADT Sidekick server", e);
+            SidekickLog.e(TAG, "Failed to start ADT Sidekick server", e);
         }
 
         return server;
@@ -106,14 +106,14 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
     private void initializeJvmtiAgent(@NonNull Context context) {
         // Check API level
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            Log.i(TAG, "JVMTI agent requires API 28+ (current: " + Build.VERSION.SDK_INT + ")");
+            SidekickLog.i(TAG, "JVMTI agent requires API 28+ (current: " + Build.VERSION.SDK_INT + ")");
             return;
         }
 
         // Check if app is debuggable
         boolean isDebuggable = (context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         if (!isDebuggable) {
-            Log.i(TAG, "JVMTI agent requires debuggable app");
+            SidekickLog.i(TAG, "JVMTI agent requires debuggable app");
             return;
         }
 
@@ -121,13 +121,13 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
         boolean success = JvmtiAgent.initialize(context);
 
         if (success) {
-            Log.i(TAG, "JVMTI agent initialized successfully");
+            SidekickLog.i(TAG, "JVMTI agent initialized successfully");
 
             // Register network hooks
             registerNetworkHooks();
         } else {
             String error = JvmtiAgent.getInitError();
-            Log.w(TAG, "JVMTI agent initialization failed: " + (error != null ? error : "unknown"));
+            SidekickLog.w(TAG, "JVMTI agent initialization failed: " + (error != null ? error : "unknown"));
         }
     }
 
@@ -145,9 +145,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             // Initialize the network interceptor manager (registers all enabled adapters)
             NetworkInterceptorManager.initialize();
 
-            Log.i(TAG, "Network hooks registered via NetworkInterceptorManager");
+            SidekickLog.i(TAG, "Network hooks registered via NetworkInterceptorManager");
         } catch (Exception e) {
-            Log.e(TAG, "Failed to register network hooks", e);
+            SidekickLog.e(TAG, "Failed to register network hooks", e);
         }
     }
 
@@ -162,12 +162,12 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
         try {
             boolean enabled = ComposeInspector.enableInspection();
             if (enabled) {
-                Log.i(TAG, "Compose inspection mode enabled");
+                SidekickLog.i(TAG, "Compose inspection mode enabled");
             } else {
-                Log.w(TAG, "Compose inspection mode could not be enabled (Compose may not be available yet)");
+                SidekickLog.w(TAG, "Compose inspection mode could not be enabled (Compose may not be available yet)");
             }
         } catch (Exception e) {
-            Log.e(TAG, "Failed to enable Compose inspection mode", e);
+            SidekickLog.e(TAG, "Failed to enable Compose inspection mode", e);
         }
     }
 
@@ -177,9 +177,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
     private void initializeEventStore(@NonNull Context context) {
         try {
             EventStore store = EventStore.getInstance(context);
-            Log.i(TAG, "EventStore initialized: " + store.getRecordCount() + " existing events");
+            SidekickLog.i(TAG, "EventStore initialized: " + store.getRecordCount() + " existing events");
         } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize EventStore", e);
+            SidekickLog.e(TAG, "Failed to initialize EventStore", e);
         }
     }
 

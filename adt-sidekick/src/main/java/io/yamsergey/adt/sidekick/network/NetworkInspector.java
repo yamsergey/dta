@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -109,7 +109,7 @@ public final class NetworkInspector {
 
         addTransaction(tx);
 
-        Log.d(TAG, "Started transaction: " + tx.getId() + " " + request.getMethod() + " " + request.getUrl());
+        SidekickLog.d(TAG, "Started transaction: " + tx.getId() + " " + request.getMethod() + " " + request.getUrl());
         notifyTransactionStarted(tx);
 
         return tx;
@@ -173,7 +173,7 @@ public final class NetworkInspector {
     public static void clearTransactions() {
         transactions.clear();
         transactionsById.clear();
-        Log.d(TAG, "Cleared all transactions");
+        SidekickLog.d(TAG, "Cleared all transactions");
     }
 
     /**
@@ -194,7 +194,7 @@ public final class NetworkInspector {
      */
     public static void registerHook(MethodHook hook) {
         customHooks.add(hook);
-        Log.d(TAG, "Registered custom hook: " + hook.getTargetClass() + "." + hook.getTargetMethod());
+        SidekickLog.d(TAG, "Registered custom hook: " + hook.getTargetClass() + "." + hook.getTargetMethod());
     }
 
     /**
@@ -218,7 +218,7 @@ public final class NetworkInspector {
             Class.forName("okhttp3.Interceptor");
             return new OkHttpNetworkInterceptor();
         } catch (ClassNotFoundException e) {
-            Log.w(TAG, "OkHttp not available");
+            SidekickLog.w(TAG, "OkHttp not available");
             return null;
         }
     }
@@ -301,7 +301,7 @@ public final class NetworkInspector {
             try {
                 listener.onTransactionStarted(tx);
             } catch (Exception e) {
-                Log.e(TAG, "Error in listener", e);
+                SidekickLog.e(TAG, "Error in listener", e);
             }
         }
         // Record to EventStore (server will merge with completion event)
@@ -321,7 +321,7 @@ public final class NetworkInspector {
             try {
                 listener.onTransactionCompleted(tx);
             } catch (Exception e) {
-                Log.e(TAG, "Error in listener", e);
+                SidekickLog.e(TAG, "Error in listener", e);
             }
         }
 
@@ -343,7 +343,7 @@ public final class NetworkInspector {
                 store.record(HttpEventAdapter.getInstance(), tx);
             }
         } catch (Exception e) {
-            Log.e(TAG, "Failed to record to EventStore", e);
+            SidekickLog.e(TAG, "Failed to record to EventStore", e);
         }
     }
 

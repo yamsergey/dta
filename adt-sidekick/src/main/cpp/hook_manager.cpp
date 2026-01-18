@@ -3,13 +3,13 @@
  */
 
 #include "hook_manager.h"
-#include <android/log.h>
+#include "sidekick_log.h"
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
 #define LOG_TAG "HookManager"
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) SIDEKICK_LOGD(LOG_TAG, __VA_ARGS__)
 
 // Storage for hook targets
 static std::mutex g_hookMutex;

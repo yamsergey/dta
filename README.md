@@ -122,60 +122,55 @@ adt-cli inspect logcat --tag MyApp -o app.txt
 Dump Compose UI hierarchy (requires `adt-sidekick` in the app).
 
 ```bash
-adt-cli inspect compose --format json -o compose-tree.json
+# Unified tree (recommended)
+adt-cli inspect compose com.example.app --tree -o compose-tree.json
+
+# Semantics tree
+adt-cli inspect compose com.example.app --semantics -o semantics.json
+
+# Filter by composable name
+adt-cli inspect compose com.example.app --tree --composable Button
 ```
 
-### `debug` - Debug Session
+#### Packages
 
-Start a full debug session with web UI for real-time inspection of network traffic, WebSocket connections, and Compose UI.
+List debuggable packages on device.
 
 ```bash
-# Start debug session (builds and installs APK)
-adt-cli debug /path/to/project
+# List debuggable third-party packages
+adt-cli inspect packages
 
-# Skip build (use existing APK)
-adt-cli debug /path/to/project --no-build
+# Include system packages
+adt-cli inspect packages --all
 
-# Specify package name
-adt-cli debug /path/to/project -p com.example.app
-
-# Custom server port
-adt-cli debug /path/to/project --port 9000
-
-# Target specific device
-adt-cli debug /path/to/project -d emulator-5554
+# Output as JSON
+adt-cli inspect packages --json
 ```
 
-**Output:**
+## ADT Sidekick
+
+Runtime inspection library for Android apps. Add to your debug builds for Compose UI inspection, network monitoring, and WebSocket tracking.
+
+### Setup
+
+```gradle
+dependencies {
+    debugImplementation 'com.github.yamsergey.yamsergey.adt:adt-sidekick:2.0.0'
+}
 ```
-════════════════════════════════════════════════════════════
-  DEBUG SESSION ACTIVE
-════════════════════════════════════════════════════════════
 
-  Server:  http://localhost:8700
-  Token:   sk_dbg_XXXXXXXXXXXXXXXXXXXXXXXXXXXX
-```
+The library auto-initializes via AndroidX Startup. No code changes needed.
 
-Open the web UI at `http://localhost:8700` and enter the token to access:
+### Sidekick REST API
 
-- **Network Inspector** - Monitor HTTP requests/responses
-- **WebSocket Inspector** - Monitor WebSocket connections and messages
-- **Compose Inspector** - Visual UI hierarchy with bounds
-
-#### Supported Libraries
-
-| Type | Libraries |
-|------|-----------|
-| HTTP | OkHttp, HttpURLConnection |
-| WebSocket | OkHttp WebSocket, Java-WebSocket, NV-WebSocket |
-
-#### REST API
-
-The sidekick agent exposes a REST API on port 8642:
+When the app runs, sidekick exposes a REST API on port 8642:
 
 ```bash
 # Setup port forwarding
 adb forward tcp:8642 tcp:8642
+
+# Health check
+curl http://localhost:8642/health
 
 # Get Compose UI tree
 curl http://localhost:8642/compose/tree
@@ -190,25 +185,45 @@ curl http://localhost:8642/websocket/connections
 curl http://localhost:8642/websocket/connections/{id}
 ```
 
-### `sidekick` - Agent Management
+### Supported Libraries
 
-Manually manage the JVMTI sidekick agent (typically handled by `debug` command).
+| Type | Libraries |
+|------|-----------|
+| HTTP | OkHttp 3.x/4.x, HttpURLConnection |
+| WebSocket | OkHttp WebSocket, Java-WebSocket, NV-WebSocket |
+
+### Configuration (Optional)
+
+```kotlin
+// In Application.onCreate() or via ContentProvider
+Sidekick.configure(
+    SidekickConfig.builder()
+        .enableDebugLogging()  // Enable verbose logging (disabled by default)
+        .build()
+)
+```
+
+## ADT Inspector
+
+Visual web UI for inspecting Android apps. Install via pipx:
 
 ```bash
-# Attach agent to running app
-adt-cli sidekick attach -p com.example.app
-
-# Check agent status
-adt-cli sidekick status
+pipx install adt-inspector
+adt-inspector
 ```
+
+Open http://localhost:8080 to access:
+- **Compose Inspector** - Visual UI hierarchy with element selection
+- **Network Inspector** - Monitor HTTP requests/responses
+- **WebSocket Inspector** - Monitor WebSocket connections and messages
 
 ## Modules
 
 | Module | Description |
 |--------|-------------|
 | **adt-cli** | Unified CLI interface |
-| **adt-sidekick** | JVMTI agent for runtime inspection (Android AAR) |
-| **adt-debug-server** | Web server for debug UI |
+| **adt-sidekick** | Runtime inspection library (Android AAR) |
+| **adt-mcp** | Python package with adt-inspector web UI and MCP server |
 | **tools-android** | Core Gradle Tooling API integration |
 | **workspace-kotlin** | Workspace.json converter |
 

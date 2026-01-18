@@ -1,7 +1,7 @@
 package io.yamsergey.adt.sidekick.events;
 
 import android.content.Context;
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import org.msgpack.core.MessageBufferPacker;
 import org.msgpack.core.MessagePack;
@@ -93,10 +93,10 @@ public final class EventStore {
                     recordCount = readRecordCount();
                 }
                 initialized = true;
-                Log.i(TAG, "EventStore initialized: " + eventFile.getAbsolutePath() +
+                SidekickLog.i(TAG, "EventStore initialized: " + eventFile.getAbsolutePath() +
                         " (" + recordCount + " records)");
             } catch (IOException e) {
-                Log.e(TAG, "Failed to initialize EventStore", e);
+                SidekickLog.e(TAG, "Failed to initialize EventStore", e);
             }
         }
     }
@@ -110,7 +110,7 @@ public final class EventStore {
      */
     public <T> void record(EventAdapter<T> adapter, T source) {
         if (!initialized) {
-            Log.w(TAG, "EventStore not initialized, skipping event");
+            SidekickLog.w(TAG, "EventStore not initialized, skipping event");
             return;
         }
 
@@ -118,7 +118,7 @@ public final class EventStore {
             EventRecord record = adapter.toRecord(source);
             writeRecord(record);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to record event", e);
+            SidekickLog.e(TAG, "Failed to record event", e);
         }
     }
 
@@ -127,14 +127,14 @@ public final class EventStore {
      */
     public void record(EventRecord record) {
         if (!initialized) {
-            Log.w(TAG, "EventStore not initialized, skipping event");
+            SidekickLog.w(TAG, "EventStore not initialized, skipping event");
             return;
         }
 
         try {
             writeRecord(record);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to record event", e);
+            SidekickLog.e(TAG, "Failed to record event", e);
         }
     }
 
@@ -254,7 +254,7 @@ public final class EventStore {
             raf.seek(8); // Skip magic and version
             raf.writeInt(recordCount);
         } catch (IOException e) {
-            Log.e(TAG, "Failed to update record count", e);
+            SidekickLog.e(TAG, "Failed to update record count", e);
         }
     }
 
@@ -269,7 +269,7 @@ public final class EventStore {
     }
 
     private void rotate() throws IOException {
-        Log.i(TAG, "Rotating event file (size: " + eventFile.length() + " bytes)");
+        SidekickLog.i(TAG, "Rotating event file (size: " + eventFile.length() + " bytes)");
 
         // Delete old backup if exists
         File backup = new File(eventFile.getParent(), FILE_NAME + ".old");
@@ -295,9 +295,9 @@ public final class EventStore {
             try {
                 writeHeader();
                 recordCount = 0;
-                Log.i(TAG, "EventStore cleared");
+                SidekickLog.i(TAG, "EventStore cleared");
             } catch (IOException e) {
-                Log.e(TAG, "Failed to clear EventStore", e);
+                SidekickLog.e(TAG, "Failed to clear EventStore", e);
             }
         }
     }

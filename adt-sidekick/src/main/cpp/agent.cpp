@@ -13,12 +13,24 @@
 #include "jvmti.h"
 #include "hook_manager.h"
 #include "class_transformer.h"
+#include "sidekick_log.h"
 
 #define LOG_TAG "SidekickAgent"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) SIDEKICK_LOGI(LOG_TAG, __VA_ARGS__)
+#define LOGW(...) SIDEKICK_LOGW(LOG_TAG, __VA_ARGS__)
+#define LOGE(...) SIDEKICK_LOGE(LOG_TAG, __VA_ARGS__)
+#define LOGD(...) SIDEKICK_LOGD(LOG_TAG, __VA_ARGS__)
+
+// Global debug flag definition (declared extern in sidekick_log.h)
+bool g_sidekick_debug_enabled = false;
+
+void sidekick_set_debug_enabled(bool enabled) {
+    g_sidekick_debug_enabled = enabled;
+}
+
+bool sidekick_is_debug_enabled() {
+    return g_sidekick_debug_enabled;
+}
 
 // Global JVMTI environment
 static jvmtiEnv* g_jvmti = nullptr;
@@ -344,4 +356,12 @@ jvmtiEnv* getJvmtiEnv() {
 // Getter for the global JavaVM
 JavaVM* getJavaVM() {
     return g_vm;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_yamsergey_adt_sidekick_jvmti_JvmtiAgent_nativeSetDebugEnabled(
+        JNIEnv* env,
+        jclass clazz,
+        jboolean enabled) {
+    sidekick_set_debug_enabled(enabled);
 }

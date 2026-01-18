@@ -6,7 +6,7 @@ import android.graphics.Rect;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 import android.view.PixelCopy;
 import android.view.View;
 import android.view.Window;
@@ -267,13 +267,13 @@ public class ComposeHitTester {
      */
     public static byte[] captureScreenshot(Window window) {
         if (window == null) {
-            Log.e(TAG, "Window is null");
+            SidekickLog.e(TAG, "Window is null");
             return null;
         }
 
         View decorView = window.getDecorView();
         if (decorView == null) {
-            Log.e(TAG, "DecorView is null");
+            SidekickLog.e(TAG, "DecorView is null");
             return null;
         }
 
@@ -281,7 +281,7 @@ public class ComposeHitTester {
         int height = decorView.getHeight();
 
         if (width <= 0 || height <= 0) {
-            Log.e(TAG, "Invalid view dimensions: " + width + "x" + height);
+            SidekickLog.e(TAG, "Invalid view dimensions: " + width + "x" + height);
             return null;
         }
 
@@ -318,13 +318,13 @@ public class ComposeHitTester {
             }, handler);
 
             if (!latch.await(2, TimeUnit.SECONDS)) {
-                Log.e(TAG, "PixelCopy timeout");
+                SidekickLog.e(TAG, "PixelCopy timeout");
                 bitmap.recycle();
                 return null;
             }
 
             if (resultCode.get() != PixelCopy.SUCCESS) {
-                Log.e(TAG, "PixelCopy failed with code: " + resultCode.get());
+                SidekickLog.e(TAG, "PixelCopy failed with code: " + resultCode.get());
                 bitmap.recycle();
                 return null;
             }
@@ -334,7 +334,7 @@ public class ComposeHitTester {
             return pngBytes;
 
         } catch (Exception e) {
-            Log.e(TAG, "PixelCopy error", e);
+            SidekickLog.e(TAG, "PixelCopy error", e);
             return null;
         }
     }
@@ -353,7 +353,7 @@ public class ComposeHitTester {
             return pngBytes;
 
         } catch (Exception e) {
-            Log.e(TAG, "Canvas capture error", e);
+            SidekickLog.e(TAG, "Canvas capture error", e);
             return null;
         }
     }

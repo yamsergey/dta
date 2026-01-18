@@ -1,6 +1,6 @@
 package io.yamsergey.adt.sidekick.network.adapter.websocket;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
 
 import java.lang.reflect.Method;
 
@@ -52,10 +52,10 @@ public class OkHttpWebSocketConnectHook implements MethodHook {
             // Map the WebSocket object to connection for later lookups
             WebSocketInspector.mapObjectToConnection(thisObj, conn.getId());
 
-            Log.i(TAG, "WebSocket connecting: " + url);
+            SidekickLog.i(TAG, "WebSocket connecting: " + url);
 
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onEnter", t);
+            SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
 
@@ -68,7 +68,7 @@ public class OkHttpWebSocketConnectHook implements MethodHook {
                 WebSocketInspector.onConnectionOpened(conn);
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onExit", t);
+            SidekickLog.e(TAG, "Error in onExit", t);
         }
         return result;
     }
@@ -82,7 +82,7 @@ public class OkHttpWebSocketConnectHook implements MethodHook {
                 WebSocketInspector.onConnectionFailed(conn);
             }
         } catch (Throwable t) {
-            Log.e(TAG, "Error in onException", t);
+            SidekickLog.e(TAG, "Error in onException", t);
         }
         return throwable;
     }
@@ -100,7 +100,7 @@ public class OkHttpWebSocketConnectHook implements MethodHook {
                 return url != null ? url.toString() : null;
             }
         } catch (Exception e) {
-            Log.w(TAG, "Failed to get WebSocket URL", e);
+            SidekickLog.w(TAG, "Failed to get WebSocket URL", e);
         }
         return null;
     }

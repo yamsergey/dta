@@ -3,7 +3,6 @@ package io.yamsergey.adt.cli;
 import io.yamsergey.adt.cli.drawable.DrawableCommand;
 import io.yamsergey.adt.cli.inspect.InspectCommand;
 import io.yamsergey.adt.cli.resolve.ResolveCommand;
-import io.yamsergey.adt.cli.sidekick.SidekickCommand;
 import io.yamsergey.adt.cli.workspace.WorkspaceCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -16,8 +15,7 @@ import picocli.CommandLine.Command;
     ResolveCommand.class,
     WorkspaceCommand.class,
     DrawableCommand.class,
-    InspectCommand.class,
-    SidekickCommand.class
+    InspectCommand.class
 })
 public class App implements Runnable {
 

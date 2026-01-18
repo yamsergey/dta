@@ -1,6 +1,7 @@
 package io.yamsergey.adt.sidekick;
 
-import android.util.Log;
+import io.yamsergey.adt.sidekick.SidekickLog;
+import io.yamsergey.adt.sidekick.jvmti.JvmtiAgent;
 
 import io.yamsergey.adt.sidekick.network.adapter.NetworkAdapter;
 import io.yamsergey.adt.sidekick.network.adapter.NetworkInterceptorManager;
@@ -51,7 +52,7 @@ public final class Sidekick {
         }
 
         pendingConfig = config;
-        Log.d(TAG, "Configuration pending (will apply on initialization)");
+        SidekickLog.d(TAG, "Configuration pending (will apply on initialization)");
     }
 
     /**
@@ -84,17 +85,23 @@ public final class Sidekick {
         SidekickConfig config = pendingConfig != null ? pendingConfig : SidekickConfig.defaults();
         activeConfig = config;
 
+        // Apply debug logging setting to Java side
+        SidekickLog.setDebugEnabled(config.isDebugLoggingEnabled());
+
+        // Apply debug logging setting to native side (if agent is loaded)
+        JvmtiAgent.setDebugEnabled(config.isDebugLoggingEnabled());
+
         // Apply adapter enable/disable settings
         applyAdapterSettings(config);
 
         // Register custom adapters
         for (NetworkAdapter adapter : config.getCustomAdapters()) {
             NetworkInterceptorManager.registerAdapter(adapter);
-            Log.i(TAG, "Registered custom adapter: " + adapter.getId());
+            SidekickLog.i(TAG, "Registered custom adapter: " + adapter.getId());
         }
 
         initialized = true;
-        Log.d(TAG, "Configuration applied");
+        SidekickLog.d(TAG, "Configuration applied");
     }
 
     private static void applyAdapterSettings(SidekickConfig config) {
