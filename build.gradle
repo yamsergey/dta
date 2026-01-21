@@ -6,13 +6,13 @@
  */
 
 allprojects {
-    group = 'io.yamsergey.adt'
-    version = '1.0.0'
+    group = 'io.yamsergey.dta'
+    version = dtaVersion
 }
 
 subprojects {
     // Skip Android library modules - they have their own configuration
-    if (project.name == 'adt-sidekick') {
+    if (project.name == 'dta-sidekick') {
         return
     }
 

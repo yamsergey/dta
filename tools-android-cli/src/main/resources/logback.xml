@@ -24,7 +24,7 @@
     </root>
     
     <!-- Our package logger configuration - only to file by default -->
-    <logger name="io.yamsergey.adt.tools" level="INFO" additivity="false">
+    <logger name="io.yamsergey.dta.tools" level="INFO" additivity="false">
         <appender-ref ref="DEBUG_FILE" />
     </logger>
 </configuration>

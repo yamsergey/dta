@@ -47,7 +47,7 @@ jobs:
             adt-cli-${{ github.ref_name }}.tar.gz
             adt-cli-${{ github.ref_name }}.zip
           body: |
-            ## Android Development Tools ${{ github.ref_name }}
+            ## Development Tools for Android ${{ github.ref_name }}
 
             ### Downloads
 
@@ -109,7 +109,7 @@ jobs:
 
           cat > Formula/adt-cli.rb << 'EOF'
           class AdtCli < Formula
-            desc "Android Development Tools - CLI for Android project analysis and workspace generation"
+            desc "Development Tools for Android - CLI for Android project analysis and workspace generation"
             homepage "https://github.com/yamsergey/yamsergey.adt"
             url "https://github.com/yamsergey/yamsergey.adt/releases/download/${{ github.ref_name }}/adt-cli-${{ github.ref_name }}.tar.gz"
             sha256 "${{ steps.sha.outputs.sha256 }}"

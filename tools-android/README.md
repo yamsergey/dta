@@ -30,7 +30,7 @@ Add the dependency:
 
 ```gradle
 dependencies {
-    implementation 'com.github.yamsergey.yamsergey.adt:tools-android:1.0.0'
+    implementation 'com.github.yamsergey.yamsergey.dta:tools-android:1.0.0'
 }
 ```
 

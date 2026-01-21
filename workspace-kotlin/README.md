@@ -30,7 +30,7 @@ Add the dependency:
 
 ```gradle
 dependencies {
-    implementation 'com.github.yamsergey.yamsergey.adt:workspace-kotlin:1.0.0'
+    implementation 'com.github.yamsergey.yamsergey.dta:workspace-kotlin:1.0.0'
 }
 ```
 
@@ -62,9 +62,9 @@ dependencies {
 ### Basic Conversion
 
 ```java
-import io.yamsergey.adt.tools.android.resolver.AndroidProjectResolver;
-import io.yamsergey.adt.workspace.kotlin.converter.ProjectToWorkspaceConverter;
-import io.yamsergey.adt.workspace.kotlin.model.Workspace;
+import io.yamsergey.dta.tools.android.resolver.AndroidProjectResolver;
+import io.yamsergey.dta.workspace.kotlin.converter.ProjectToWorkspaceConverter;
+import io.yamsergey.dta.workspace.kotlin.model.Workspace;
 
 // Resolve Android project
 AndroidProjectResolver resolver = new AndroidProjectResolver("/path/to/project");
@@ -88,7 +88,7 @@ switch (projectResult) {
 ### JSON Serialization
 
 ```java
-import io.yamsergey.adt.workspace.kotlin.serializer.WorkspaceJsonSerializer;
+import io.yamsergey.dta.workspace.kotlin.serializer.WorkspaceJsonSerializer;
 
 Workspace workspace = converter.convert(project);
 WorkspaceJsonSerializer serializer = new WorkspaceJsonSerializer();
