@@ -1,0 +1,46 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
+}
+
+ext {
+    springBootVersion = '3.4.1'
+}
+
+dependencies {
+    // Core DTA library
+    implementation project(':tools-android')
+
+    // Spring Boot with explicit versions
+    implementation "org.springframework.boot:spring-boot-starter-web:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-websocket:${springBootVersion}"
+
+    // Jackson for JSON
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
+
+    // Testing
+    testImplementation "org.springframework.boot:spring-boot-starter-test:${springBootVersion}"
+}
+
+// Disable bootJar to create a regular jar that can be used as a library
+bootJar {
+    enabled = true
+    archiveClassifier = 'boot'
+}
+
+jar {
+    enabled = true
+}
+
+test {
+    useJUnitPlatform()
+}

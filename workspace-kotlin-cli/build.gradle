@@ -44,7 +44,7 @@ java {
 
 application {
     // Define the main class for the application.
-    mainClass = 'io.yamsergey.adt.workspace.kotlin.cli.App'
+    mainClass = 'io.yamsergey.dta.workspace.kotlin.cli.App'
 }
 
 tasks.named('test') {
@@ -59,7 +59,7 @@ task fatJar(type: Jar) {
     zip64 = true  // Enable zip64 for large archives
 
     manifest {
-        attributes 'Main-Class': 'io.yamsergey.adt.workspace.kotlin.cli.App'
+        attributes 'Main-Class': 'io.yamsergey.dta.workspace.kotlin.cli.App'
     }
 
     from {

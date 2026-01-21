@@ -42,8 +42,8 @@ android {
 }
 
 dependencies {
-    // ADT Sidekick for compose inspection (debug only)
-    debugImplementation("io.yamsergey.adt:sidekick:1.0.0")
+    // DTA Sidekick for compose inspection (debug only)
+    debugImplementation("io.yamsergey.dta:sidekick:1.0.8")
 
     // Network - HTTP
     implementation(libs.okhttp)

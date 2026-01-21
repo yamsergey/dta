@@ -1,6 +1,6 @@
 # Test Fixtures - Android Projects
 
-This directory contains real Android projects used for integration testing of the Android Development Tools (ADT) library.
+This directory contains real Android projects used for integration testing of the Development Tools for Android (ADT) library.
 
 ## Directory Structure
 

@@ -81,12 +81,12 @@ publishing {
         maven(MavenPublication) {
             from components.java
 
-            groupId = 'io.yamsergey.adt'
+            groupId = 'io.yamsergey.dta'
             artifactId = 'tools-android'
             version = '1.0.0'
 
             pom {
-                name = 'Android Development Tools - Core Library'
+                name = 'Development Tools for Android - Core Library'
                 description = 'Core library for Android project analysis using Gradle Tooling API'
                 url = 'https://github.com/yamsergey/yamsergey.adt'
 

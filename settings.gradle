@@ -13,14 +13,13 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'yamsergey-adt'
+rootProject.name = 'yamsergey-dta'
 
 include 'workspace-kotlin'
 include 'workspace-kotlin-cli'
 include 'tools-android'
 include 'tools-android-cli'
-include 'adt-cli'
-include 'adt-sidekick'
-// Old Java servers removed - replaced by Python adt-mcp
-// include 'adt-debug-server'
-// include 'adt-mcp-server'
+include 'dta-cli'
+include 'dta-sidekick'
+include 'dta-mcp'
+include 'dta-inspector-web'

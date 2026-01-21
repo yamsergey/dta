@@ -1,0 +1,2060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DTA Inspector</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Prism.js for syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+    <style>
+        /* Catppuccin Mocha Color Scheme */
+        :root {
+            --ctp-base: #1e1e2e;
+            --ctp-mantle: #181825;
+            --ctp-crust: #11111b;
+            --ctp-surface0: #313244;
+            --ctp-surface1: #45475a;
+            --ctp-surface2: #585b70;
+            --ctp-overlay0: #6c7086;
+            --ctp-overlay1: #7f849c;
+            --ctp-text: #cdd6f4;
+            --ctp-subtext0: #a6adc8;
+            --ctp-subtext1: #bac2de;
+            --ctp-red: #f38ba8;
+            --ctp-green: #a6e3a1;
+            --ctp-yellow: #f9e2af;
+            --ctp-blue: #89b4fa;
+            --ctp-mauve: #cba6f7;
+            --ctp-pink: #f5c2e7;
+            --ctp-teal: #94e2d5;
+            --ctp-peach: #fab387;
+            --ctp-lavender: #b4befe;
+            --ctp-sky: #89dceb;
+            --ctp-sapphire: #74c7ec;
+            --ctp-rosewater: #f5e0dc;
+            --ctp-flamingo: #f2cdcd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--ctp-base);
+            color: var(--ctp-text);
+            height: 100vh;
+            overflow: hidden;
+        }
+        .app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background: var(--ctp-mantle);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            border-bottom: 1px solid var(--ctp-surface0);
+        }
+        header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--ctp-mauve);
+        }
+        .connection {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        select, button, input {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--ctp-surface1);
+            background: var(--ctp-surface0);
+            color: var(--ctp-text);
+            font-size: 14px;
+        }
+        button {
+            background: var(--ctp-mauve);
+            border-color: var(--ctp-mauve);
+            color: var(--ctp-crust);
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover {
+            background: var(--ctp-pink);
+            border-color: var(--ctp-pink);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button.secondary {
+            background: var(--ctp-surface1);
+            border-color: var(--ctp-surface1);
+            color: var(--ctp-text);
+        }
+        button.secondary:hover {
+            background: var(--ctp-surface2);
+            border-color: var(--ctp-surface2);
+        }
+        .tabs {
+            display: flex;
+            background: var(--ctp-mantle);
+            border-bottom: 1px solid var(--ctp-surface0);
+        }
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            color: var(--ctp-overlay1);
+        }
+        .tab:hover {
+            color: var(--ctp-text);
+        }
+        .tab.active {
+            color: var(--ctp-mauve);
+            border-bottom-color: var(--ctp-mauve);
+        }
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        .panel {
+            flex: 1;
+            min-width: 0; /* Allow flex items to shrink below content size */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .panel-header {
+            padding: 10px 15px;
+            background: var(--ctp-mantle);
+            border-bottom: 1px solid var(--ctp-surface0);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--ctp-subtext0);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .panel-content {
+            flex: 1;
+            overflow: auto;
+            padding: 10px;
+        }
+
+        /* Tree styles */
+        .tree-node-row {
+            display: flex;
+            align-items: center;
+            padding: 3px 6px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+            gap: 4px;
+        }
+        .tree-node-row:hover {
+            background: var(--ctp-surface0);
+        }
+        .tree-node-row.selected {
+            background: color-mix(in srgb, var(--ctp-mauve) 25%, transparent);
+        }
+        .tree-node-row.hovered {
+            background: color-mix(in srgb, var(--ctp-teal) 20%, transparent);
+        }
+        .tree-toggle {
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--ctp-overlay0);
+            font-size: 10px;
+            flex-shrink: 0;
+            user-select: none;
+        }
+        .tree-toggle.has-children {
+            cursor: pointer;
+        }
+        .tree-toggle.has-children:hover {
+            color: var(--ctp-text);
+        }
+        .tree-children {
+            margin-left: 12px;
+            padding-left: 8px;
+            border-left: 1px solid var(--ctp-surface1);
+        }
+        .composable-name {
+            color: var(--ctp-mauve);
+        }
+        .text-content {
+            color: var(--ctp-green);
+            font-size: 12px;
+        }
+        .bounds-info {
+            color: var(--ctp-overlay0);
+            font-size: 11px;
+            margin-left: auto;
+        }
+
+        /* Screenshot container with overlay */
+        .screenshot-wrapper {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+            overflow: auto;
+        }
+        .screenshot-container {
+            position: relative;
+            display: inline-block;
+        }
+        .screenshot-container img {
+            display: block;
+            max-height: 70vh;
+            width: auto;
+        }
+        .highlight-box {
+            position: absolute;
+            border: 1px solid var(--ctp-mauve);
+            background: color-mix(in srgb, var(--ctp-mauve) 15%, transparent);
+            pointer-events: none;
+            transition: all 0.15s ease;
+        }
+        .highlight-box.hover {
+            border-color: var(--ctp-teal);
+            background: color-mix(in srgb, var(--ctp-teal) 15%, transparent);
+        }
+
+        /* Request/Connection item styles */
+        .request-item, .connection-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--ctp-surface0);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .request-item:hover, .connection-item:hover {
+            background: var(--ctp-surface0);
+        }
+        .request-item.selected, .connection-item.selected {
+            background: color-mix(in srgb, var(--ctp-mauve) 20%, transparent);
+        }
+        .method-badge, .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            min-width: 50px;
+            text-align: center;
+        }
+        .method-GET { background: var(--ctp-green); color: var(--ctp-crust); }
+        .method-POST { background: var(--ctp-peach); color: var(--ctp-crust); }
+        .method-PUT { background: var(--ctp-yellow); color: var(--ctp-crust); }
+        .method-DELETE { background: var(--ctp-red); color: var(--ctp-crust); }
+        .method-PATCH { background: var(--ctp-mauve); color: var(--ctp-crust); }
+        .status-OPEN { background: var(--ctp-green); color: var(--ctp-crust); }
+        .status-CLOSED { background: var(--ctp-red); color: var(--ctp-crust); }
+        .status-CONNECTING { background: var(--ctp-yellow); color: var(--ctp-crust); }
+        .url-text {
+            flex: 1;
+            font-size: 13px;
+            word-break: break-all;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .meta-text {
+            font-size: 12px;
+            color: var(--ctp-subtext0);
+            white-space: nowrap;
+        }
+
+        /* Detail panel */
+        .detail-panel {
+            width: 350px;
+            min-width: 280px;
+            max-width: 450px;
+            border-left: 1px solid var(--ctp-surface0);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .detail-panel.collapsed {
+            display: none;
+        }
+        .close-btn {
+            background: transparent;
+            border: none;
+            color: var(--ctp-overlay1);
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .close-btn:hover {
+            color: var(--ctp-text);
+            background: var(--ctp-surface0);
+        }
+
+        /* Responsive layout */
+        @media (max-width: 1200px) {
+            .detail-panel {
+                width: 300px;
+                min-width: 250px;
+            }
+        }
+        @media (max-width: 900px) {
+            .main.compose-layout,
+            .main.network-layout,
+            .main.websocket-layout {
+                flex-direction: column;
+            }
+            .main.compose-layout .panel,
+            .main.network-layout .panel,
+            .main.websocket-layout .panel {
+                max-width: 100% !important;
+                min-height: 200px;
+            }
+            .main.compose-layout .detail-panel,
+            .main.network-layout .detail-panel,
+            .main.websocket-layout .detail-panel {
+                width: 100%;
+                max-width: 100%;
+                min-width: 100%;
+                border-left: none;
+                border-top: 1px solid var(--ctp-surface0);
+                max-height: 50vh;
+            }
+            .screenshot-container img {
+                max-height: 40vh;
+            }
+        }
+        /* Section header with copy button */
+        .detail-section-header {
+            position: relative;
+        }
+        .detail-section-header .copy-btn {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            padding: 2px 8px;
+            font-size: 10px;
+            background: var(--ctp-surface0);
+            border: 1px solid var(--ctp-surface1);
+            color: var(--ctp-subtext0);
+            border-radius: 4px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .detail-section-header:hover .copy-btn {
+            opacity: 1;
+        }
+        .detail-section-header .copy-btn:hover {
+            background: var(--ctp-surface1);
+            color: var(--ctp-text);
+        }
+        .detail-section-header .copy-btn.copied {
+            background: var(--ctp-green);
+            color: var(--ctp-crust);
+        }
+        .detail-section {
+            border-bottom: 1px solid var(--ctp-surface0);
+        }
+        .detail-section-header {
+            padding: 10px 15px;
+            font-size: 11px;
+            color: var(--ctp-subtext0);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+        }
+        .detail-section-header:hover {
+            background: var(--ctp-surface0);
+        }
+        .detail-section-header .toggle {
+            font-size: 8px;
+            transition: transform 0.2s;
+            color: var(--ctp-overlay0);
+        }
+        .detail-section-header .toggle.expanded {
+            transform: rotate(90deg);
+        }
+        .detail-section-content {
+            padding: 0 15px 12px 15px;
+        }
+        .detail-value {
+            color: var(--ctp-text);
+            font-size: 13px;
+        }
+        .detail-value.type {
+            color: var(--ctp-mauve);
+        }
+        .detail-value.text {
+            color: var(--ctp-green);
+        }
+        pre {
+            background: var(--ctp-crust);
+            padding: 10px;
+            border-radius: 6px;
+            overflow: auto;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            color: var(--ctp-text);
+        }
+        /* Prism.js syntax highlighting - Catppuccin theme override */
+        pre code {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+            background: transparent !important;
+            padding: 0 !important;
+            text-shadow: none !important;
+        }
+        code[class*="language-"], pre[class*="language-"] {
+            background: transparent !important;
+            text-shadow: none !important;
+        }
+        .token.comment, .token.prolog, .token.doctype, .token.cdata { color: var(--ctp-overlay0) !important; }
+        .token.punctuation { color: var(--ctp-overlay1) !important; }
+        .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: var(--ctp-peach) !important; }
+        .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: var(--ctp-green) !important; }
+        .token.operator, .token.entity, .token.url { color: var(--ctp-sky) !important; }
+        .token.atrule, .token.attr-value, .token.keyword { color: var(--ctp-mauve) !important; }
+        .token.function, .token.class-name { color: var(--ctp-blue) !important; }
+        .token.regex, .token.important, .token.variable { color: var(--ctp-yellow) !important; }
+        .token.null, .token.nil { color: var(--ctp-peach) !important; font-style: italic; }
+        /* Content type badge */
+        .content-type-badge {
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: var(--ctp-surface1);
+            color: var(--ctp-subtext1);
+            text-transform: uppercase;
+            margin-left: 6px;
+        }
+        /* Network/WebSocket detail panels - no nested scrolling */
+        .network-layout .detail-panel pre,
+        .websocket-layout .detail-panel pre {
+            max-height: none;
+            overflow: visible;
+        }
+
+        /* Resizable panels */
+        .resize-handle {
+            width: 5px;
+            background: var(--ctp-surface0);
+            cursor: col-resize;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .resize-handle:hover,
+        .resize-handle.dragging {
+            background: var(--ctp-mauve);
+        }
+        .resizable-panel {
+            flex: none !important;
+            min-width: 200px;
+        }
+        /* Breadcrumbs for drill-down navigation */
+        .breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+        .back-btn {
+            background: var(--ctp-surface0);
+            border: none;
+            color: var(--ctp-text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.15s;
+        }
+        .back-btn:hover {
+            background: var(--ctp-surface1);
+        }
+        .breadcrumb-item {
+            color: var(--ctp-blue);
+            cursor: pointer;
+        }
+        .breadcrumb-item:hover {
+            text-decoration: underline;
+        }
+        .breadcrumb-sep {
+            color: var(--ctp-overlay0);
+        }
+        .breadcrumb-current {
+            color: var(--ctp-text);
+            font-weight: 500;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--ctp-subtext0);
+        }
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: var(--ctp-overlay0);
+        }
+        .filter-bar {
+            padding: 10px;
+            background: var(--ctp-mantle);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .filter-bar input {
+            flex: 1;
+            min-width: 120px;
+        }
+
+        /* Better overflow handling */
+        .tree-node-row {
+            overflow: hidden;
+        }
+        .composable-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 200px;
+        }
+        .text-content {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 150px;
+            flex-shrink: 1;
+        }
+
+        /* Message styles */
+        .message-item {
+            padding: 10px;
+            border-bottom: 1px solid var(--ctp-surface0);
+            cursor: pointer;
+        }
+        .message-item:hover {
+            background: var(--ctp-surface0);
+        }
+        .message-item.selected {
+            background: color-mix(in srgb, var(--ctp-mauve) 20%, transparent);
+        }
+        .message-item.sent {
+            border-left: 3px solid var(--ctp-blue);
+        }
+        .message-item.received {
+            border-left: 3px solid var(--ctp-green);
+        }
+        .message-item.sent.selected {
+            border-left-color: var(--ctp-mauve);
+        }
+        .message-item.received.selected {
+            border-left-color: var(--ctp-mauve);
+        }
+        .message-direction {
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .message-direction.sent { color: var(--ctp-blue); }
+        .message-direction.received { color: var(--ctp-green); }
+        .message-preview {
+            font-size: 12px;
+            color: var(--ctp-subtext1);
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .message-time {
+            font-size: 10px;
+            color: var(--ctp-overlay0);
+            margin-top: 4px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+        }
+        .btn-sm {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+
+        /* Match list styles for filtered results */
+        .match-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .match-item {
+            padding: 8px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+        }
+        .match-item:hover {
+            background: var(--ctp-surface0);
+        }
+        .match-item.selected {
+            background: color-mix(in srgb, var(--ctp-mauve) 25%, transparent);
+            border-left-color: var(--ctp-mauve);
+        }
+        .match-path {
+            font-size: 11px;
+            color: var(--ctp-overlay0);
+            margin-bottom: 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .path-segment {
+            color: var(--ctp-overlay1);
+        }
+        .path-sep {
+            color: var(--ctp-surface2);
+            margin: 0 2px;
+        }
+        .match-node {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .match-group {
+            padding: 8px;
+            margin-bottom: 8px;
+            background: var(--ctp-mantle);
+            border-radius: 6px;
+            border-left: 3px solid var(--ctp-mauve);
+        }
+        .match-group .match-path {
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--ctp-surface0);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="app">
+            <header>
+                <h1>DTA Inspector</h1>
+                <div class="connection">
+                    <select v-model="selectedDevice" @change="loadApps">
+                        <option value="">Select Device</option>
+                        <option v-for="d in devices" :value="d.serial">
+                            {{ d.model || d.serial }} ({{ d.state }})
+                        </option>
+                    </select>
+                    <select v-model="selectedApp" @change="connect" :disabled="!selectedDevice">
+                        <option value="">Select App</option>
+                        <option v-for="app in apps" :value="app.package">
+                            {{ app.package }}
+                        </option>
+                    </select>
+                    <button @click="refresh" :disabled="!connected">Refresh</button>
+                </div>
+            </header>
+
+            <div class="tabs">
+                <div class="tab" :class="{ active: activeTab === 'compose' }" @click="switchTab('compose')">
+                    Compose
+                </div>
+                <div class="tab" :class="{ active: activeTab === 'network' }" @click="switchTab('network')">
+                    Network ({{ networkRequests.length }})
+                </div>
+                <div class="tab" :class="{ active: activeTab === 'websocket' }" @click="switchTab('websocket')">
+                    WebSocket ({{ wsConnections.length }})
+                </div>
+            </div>
+
+            <!-- Compose Tab -->
+            <div class="main compose-layout" v-show="activeTab === 'compose'">
+                <!-- Screenshot panel -->
+                <div class="panel" style="flex: 0 1 40%; min-width: 250px;">
+                    <div class="panel-header">
+                        <span>Screenshot</span>
+                        <button class="secondary btn-sm" @click="refreshScreenshot" :disabled="!connected">
+                            Capture
+                        </button>
+                    </div>
+                    <div class="panel-content" style="display: flex; align-items: flex-start; justify-content: center;">
+                        <div v-if="!screenshot" class="empty">
+                            Connect to an app and click Capture
+                        </div>
+                        <div v-else class="screenshot-wrapper">
+                            <div class="screenshot-container" @click="onScreenshotClick" ref="screenshotContainer">
+                                <img :src="screenshot" @load="onImageLoad" ref="screenshotImg">
+                                <!-- Selection highlight -->
+                                <div v-if="selectedNode && selectedNode.bounds && imageScale"
+                                     class="highlight-box"
+                                     :style="getHighlightStyle(selectedNode.bounds)">
+                                </div>
+                                <!-- Hover highlight -->
+                                <div v-if="hoveredNode && hoveredNode.bounds && hoveredNode !== selectedNode && imageScale"
+                                     class="highlight-box hover"
+                                     :style="getHighlightStyle(hoveredNode.bounds)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tree panel -->
+                <div class="panel">
+                    <div class="filter-bar">
+                        <input v-model="textFilter" placeholder="Filter by text content..." @input="debouncedFilter">
+                        <select v-model="elementFilter" @change="loadComposeTree">
+                            <option value="">All elements</option>
+                            <option v-for="el in availableElements" :key="el" :value="el">{{ el }}</option>
+                        </select>
+                        <button class="secondary btn-sm" @click="clearFilters" v-if="textFilter || elementFilter">✕ Clear</button>
+                    </div>
+                    <div class="panel-header">
+                        <span>UI Tree</span>
+                        <span v-if="composeTree?.matches" class="meta-text">{{ composeTree.matches.length }} matches</span>
+                    </div>
+                    <div class="panel-content" ref="treeContainer">
+                        <div v-if="loading" class="loading">Loading...</div>
+                        <div v-else-if="!composeTree" class="empty">
+                            Connect to an app to inspect the UI
+                        </div>
+                        <!-- Filtered results (matches with nested children) -->
+                        <div v-else-if="composeTree.matches">
+                            <div v-if="composeTree.matches.length === 0" class="empty">
+                                No elements match the current filters
+                            </div>
+                            <div v-else class="match-list">
+                                <div v-for="(match, index) in composeTree.matches" :key="index" class="match-group">
+                                    <div class="match-path" v-if="match.parents?.length">
+                                        <span v-for="(p, i) in match.parents" :key="i" class="path-segment">
+                                            {{ p.composable }}<span class="path-sep"> › </span>
+                                        </span>
+                                    </div>
+                                    <tree-node
+                                        :node="match.node"
+                                        :selected="selectedNode"
+                                        :hovered="hoveredNode"
+                                        :expanded-nodes="expandedNodes"
+                                        @select="selectNode"
+                                        @hover="hoverNode"
+                                        @toggle="toggleNode" />
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Tree view (no filters) -->
+                        <tree-node v-else-if="composeTree.root"
+                            :node="composeTree.root"
+                            :selected="selectedNode"
+                            :hovered="hoveredNode"
+                            :expanded-nodes="expandedNodes"
+                            @select="selectNode"
+                            @hover="hoverNode"
+                            @toggle="toggleNode" />
+                    </div>
+                </div>
+
+                <!-- Details panel -->
+                <div class="detail-panel" v-if="selectedNode && showElementDetails">
+                    <div class="panel-header">
+                        <span>Element Details</span>
+                        <button class="close-btn" @click="showElementDetails = false" title="Close panel">✕</button>
+                    </div>
+                    <div class="panel-content">
+                        <div class="detail-section">
+                            <div class="detail-section-header" @click="detailSections.type = !detailSections.type">
+                                <span class="toggle" :class="{ expanded: detailSections.type }">▶</span>
+                                Type
+                            </div>
+                            <div class="detail-section-content" v-show="detailSections.type">
+                                <div class="detail-value type">{{ selectedNode.composable || selectedNode.className }}</div>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedNode.text">
+                            <div class="detail-section-header" @click="detailSections.text = !detailSections.text">
+                                <span class="toggle" :class="{ expanded: detailSections.text }">▶</span>
+                                Text
+                            </div>
+                            <div class="detail-section-content" v-show="detailSections.text">
+                                <div class="detail-value text">{{ selectedNode.text }}</div>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedNode.bounds">
+                            <div class="detail-section-header" @click="detailSections.bounds = !detailSections.bounds">
+                                <span class="toggle" :class="{ expanded: detailSections.bounds }">▶</span>
+                                Bounds
+                            </div>
+                            <div class="detail-section-content" v-show="detailSections.bounds">
+                                <div class="detail-value">
+                                    ({{ selectedNode.bounds.left }}, {{ selectedNode.bounds.top }}) -
+                                    ({{ selectedNode.bounds.right }}, {{ selectedNode.bounds.bottom }})<br>
+                                    Size: {{ selectedNode.bounds.right - selectedNode.bounds.left }} x
+                                    {{ selectedNode.bounds.bottom - selectedNode.bounds.top }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedNode.role">
+                            <div class="detail-section-header" @click="detailSections.role = !detailSections.role">
+                                <span class="toggle" :class="{ expanded: detailSections.role }">▶</span>
+                                Role
+                            </div>
+                            <div class="detail-section-content" v-show="detailSections.role">
+                                <div class="detail-value">{{ selectedNode.role }}</div>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedNode.testTag">
+                            <div class="detail-section-header" @click="detailSections.testTag = !detailSections.testTag">
+                                <span class="toggle" :class="{ expanded: detailSections.testTag }">▶</span>
+                                Test Tag
+                            </div>
+                            <div class="detail-section-content" v-show="detailSections.testTag">
+                                <div class="detail-value">{{ selectedNode.testTag }}</div>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-section-header" @click="detailSections.raw = !detailSections.raw">
+                                <span class="toggle" :class="{ expanded: detailSections.raw }">▶</span>
+                                Raw JSON
+                            </div>
+                            <div class="detail-section-content" v-show="detailSections.raw">
+                                <pre>{{ JSON.stringify(selectedNode, null, 2) }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Network Tab -->
+            <div class="main network-layout" v-show="activeTab === 'network'" ref="networkLayout">
+                <div class="panel resizable-panel" :style="{ width: networkPanelWidth + 'px' }" ref="networkListPanel">
+                    <div class="panel-header">
+                        <span>Requests</span>
+                        <button class="secondary btn-sm" @click="loadNetworkRequests" :disabled="!connected">
+                            Refresh
+                        </button>
+                    </div>
+                    <div class="panel-content">
+                        <div v-if="loading" class="loading">Loading...</div>
+                        <div v-else-if="!networkRequests.length" class="empty">
+                            No network requests captured.<br>
+                            Make some HTTP requests in the app to see them here.
+                        </div>
+                        <div v-else>
+                            <div v-for="req in networkRequestsReversed" :key="req.id"
+                                 class="request-item"
+                                 :class="{ selected: selectedRequest?.id === req.id }"
+                                 @click="selectRequest(req)">
+                                <span class="method-badge" :class="'method-' + req.method">
+                                    {{ req.method }}
+                                </span>
+                                <span class="url-text">{{ req.url }}</span>
+                                <span class="meta-text" :style="{ color: getStatusColor(req.responseCode) }">
+                                    {{ req.responseCode || 'Pending' }}
+                                </span>
+                                <span class="meta-text">{{ req.duration || '...' }}ms</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="resize-handle"
+                     v-if="selectedRequestDetails"
+                     @mousedown="startNetworkResize"
+                     :class="{ dragging: isResizingNetwork }"></div>
+                <div class="detail-panel" style="flex: 1; width: auto; max-width: none;" v-if="selectedRequestDetails">
+                    <div class="panel-header">
+                        <span>Request Details</span>
+                        <div class="btn-group">
+                            <button class="secondary btn-sm" @click="copyRequest">Copy All</button>
+                            <button class="secondary btn-sm" @click="exportRequest">Export</button>
+                            <button class="close-btn" @click="selectedRequestDetails = null" title="Close panel">✕</button>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="detail-section">
+                            <div class="detail-section-header" @click="sections.url = !sections.url">
+                                <span class="toggle" :class="{ expanded: sections.url }">▶</span>
+                                URL
+                                <button class="copy-btn" @click.stop="copySection('url', selectedRequestDetails.url)">Copy</button>
+                            </div>
+                            <div class="detail-section-content" v-show="sections.url">
+                                <pre><code v-html="highlightUrl(selectedRequestDetails.url)"></code></pre>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedRequestDetails.requestHeaders">
+                            <div class="detail-section-header" @click="sections.reqHeaders = !sections.reqHeaders">
+                                <span class="toggle" :class="{ expanded: sections.reqHeaders }">▶</span>
+                                Request Headers
+                                <button class="copy-btn" @click.stop="copySection('reqHeaders', formatHeaders(selectedRequestDetails.requestHeaders))">Copy</button>
+                            </div>
+                            <div class="detail-section-content" v-show="sections.reqHeaders">
+                                <pre><code v-html="highlightHeaders(selectedRequestDetails.requestHeaders)"></code></pre>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedRequestDetails.requestBody">
+                            <div class="detail-section-header" @click="sections.reqBody = !sections.reqBody">
+                                <span class="toggle" :class="{ expanded: sections.reqBody }">▶</span>
+                                Request Body
+                                <span class="content-type-badge" v-if="detectContentType(selectedRequestDetails.requestBody)">{{ detectContentType(selectedRequestDetails.requestBody) }}</span>
+                                <button class="copy-btn" @click.stop="copySection('reqBody', formatBody(selectedRequestDetails.requestBody))">Copy</button>
+                            </div>
+                            <div class="detail-section-content" v-show="sections.reqBody">
+                                <pre><code v-html="highlightBody(selectedRequestDetails.requestBody)"></code></pre>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedRequestDetails.responseHeaders">
+                            <div class="detail-section-header" @click="sections.respHeaders = !sections.respHeaders">
+                                <span class="toggle" :class="{ expanded: sections.respHeaders }">▶</span>
+                                Response Headers
+                                <button class="copy-btn" @click.stop="copySection('respHeaders', formatHeaders(selectedRequestDetails.responseHeaders))">Copy</button>
+                            </div>
+                            <div class="detail-section-content" v-show="sections.respHeaders">
+                                <pre><code v-html="highlightHeaders(selectedRequestDetails.responseHeaders)"></code></pre>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedRequestDetails.responseBody">
+                            <div class="detail-section-header" @click="sections.respBody = !sections.respBody">
+                                <span class="toggle" :class="{ expanded: sections.respBody }">▶</span>
+                                Response Body ({{ (selectedRequestDetails.responseBody || '').length }} bytes)
+                                <span class="content-type-badge" v-if="detectContentType(selectedRequestDetails.responseBody)">{{ detectContentType(selectedRequestDetails.responseBody) }}</span>
+                                <button class="copy-btn" @click.stop="copySection('respBody', formatBody(selectedRequestDetails.responseBody))">Copy</button>
+                            </div>
+                            <div class="detail-section-content" v-show="sections.respBody">
+                                <pre><code v-html="highlightBody(selectedRequestDetails.responseBody)"></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WebSocket Tab -->
+            <div class="main websocket-layout" v-show="activeTab === 'websocket'">
+                <!-- Connections list (shown when no connection selected) -->
+                <div class="panel" v-if="!selectedWsConnection">
+                    <div class="panel-header">
+                        <span>Connections</span>
+                        <button class="secondary btn-sm" @click="loadWsConnections" :disabled="!connected">
+                            Refresh
+                        </button>
+                    </div>
+                    <div class="panel-content">
+                        <div v-if="loading" class="loading">Loading...</div>
+                        <div v-else-if="!wsConnections.length" class="empty">
+                            No WebSocket connections captured.<br>
+                            Open a WebSocket connection in the app to see it here.
+                        </div>
+                        <div v-else>
+                            <div v-for="conn in wsConnections" :key="conn.id"
+                                 class="connection-item"
+                                 @click="selectWsConnection(conn)">
+                                <span class="status-badge" :class="'status-' + conn.status">
+                                    {{ conn.status }}
+                                </span>
+                                <span class="url-text">{{ conn.url }}</span>
+                                <span class="meta-text">{{ conn.messageCount || 0 }} msgs</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Messages panel (shown when connection is selected) -->
+                <div class="panel" v-if="selectedWsConnection"
+                     :style="selectedWsMessage ? { width: wsPanelWidth + 'px', flex: 'none' } : { flex: '1' }">
+                    <div class="panel-header">
+                        <div class="breadcrumbs">
+                            <button class="back-btn" @click="backToConnections" title="Back to connections">←</button>
+                            <span class="breadcrumb-item" @click="backToConnections">Connections</span>
+                            <span class="breadcrumb-sep">›</span>
+                            <span class="breadcrumb-current">{{ truncateUrl(selectedWsConnection.url) }}</span>
+                        </div>
+                        <div class="btn-group">
+                            <button class="secondary btn-sm" @click="copyWsMessages">Copy All</button>
+                            <button class="secondary btn-sm" @click="exportWsMessages">Export</button>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div v-if="!selectedWsDetails?.messages?.length" class="empty">
+                            No messages captured
+                        </div>
+                        <div v-else>
+                            <div v-for="(msg, index) in selectedWsDetails.messages" :key="index"
+                                 class="message-item"
+                                 :class="[msg.direction?.toLowerCase(), { selected: selectedWsMessage?.index === index }]"
+                                 @click="selectWsMessage(index, msg)">
+                                <div class="message-direction" :class="msg.direction?.toLowerCase()">
+                                    {{ msg.direction === 'SENT' ? '↑ Sent' : '↓ Received' }}
+                                </div>
+                                <div class="message-preview">{{ truncateMessage(getMessageContent(msg)) }}</div>
+                                <div class="message-time">{{ msg.timestamp }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Resize handle -->
+                <div class="resize-handle" v-if="selectedWsConnection && selectedWsMessage"
+                     @mousedown="startWsResize" :class="{ dragging: isResizingWs }"></div>
+                <!-- Message detail panel -->
+                <div class="detail-panel" style="flex: 1; width: auto; max-width: none;" v-if="selectedWsMessage">
+                    <div class="panel-header">
+                        <span>Message Details</span>
+                        <div class="btn-group">
+                            <button class="secondary btn-sm" @click="copyWsMessageBody">Copy Body</button>
+                            <button class="close-btn" @click="selectedWsMessage = null" title="Close panel">✕</button>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="detail-section">
+                            <div class="detail-section-header" @click="wsMsgSections.direction = !wsMsgSections.direction">
+                                <span class="toggle" :class="{ expanded: wsMsgSections.direction }">▶</span>
+                                Direction
+                            </div>
+                            <div class="detail-section-content" v-show="wsMsgSections.direction">
+                                <div class="detail-value" :style="{ color: selectedWsMessage.message.direction === 'SENT' ? 'var(--ctp-blue)' : 'var(--ctp-green)' }">
+                                    {{ selectedWsMessage.message.direction === 'SENT' ? '↑ Sent' : '↓ Received' }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedWsMessage.message.timestamp">
+                            <div class="detail-section-header" @click="wsMsgSections.timestamp = !wsMsgSections.timestamp">
+                                <span class="toggle" :class="{ expanded: wsMsgSections.timestamp }">▶</span>
+                                Timestamp
+                            </div>
+                            <div class="detail-section-content" v-show="wsMsgSections.timestamp">
+                                <div class="detail-value">{{ selectedWsMessage.message.timestamp }}</div>
+                            </div>
+                        </div>
+                        <div class="detail-section" v-if="selectedWsMessage.message.textPayload">
+                            <div class="detail-section-header" @click="wsMsgSections.textPayload = !wsMsgSections.textPayload">
+                                <span class="toggle" :class="{ expanded: wsMsgSections.textPayload }">▶</span>
+                                Text Payload
+                                <span class="content-type-badge" v-if="detectContentType(selectedWsMessage.message.textPayload)">{{ detectContentType(selectedWsMessage.message.textPayload) }}</span>
+                                <button class="copy-btn" @click.stop="copyToClipboard(selectedWsMessage.message.textPayload)">Copy</button>
+                            </div>
+                            <div class="detail-section-content" v-show="wsMsgSections.textPayload">
+                                <pre><code v-html="highlightBody(selectedWsMessage.message.textPayload)"></code></pre>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-section-header" @click="wsMsgSections.body = !wsMsgSections.body">
+                                <span class="toggle" :class="{ expanded: wsMsgSections.body }">▶</span>
+                                Raw Message
+                                <span class="content-type-badge" v-if="detectContentType(getMessageContent(selectedWsMessage.message))">{{ detectContentType(getMessageContent(selectedWsMessage.message)) }}</span>
+                                <button class="copy-btn" @click.stop="copyWsMessageBody">Copy</button>
+                            </div>
+                            <div class="detail-section-content" v-show="wsMsgSections.body">
+                                <pre><code v-html="highlightBody(getMessageContent(selectedWsMessage.message))"></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
+
+        // Tree node component with collapse/expand
+        const TreeNode = {
+            name: 'TreeNode',
+            props: ['node', 'selected', 'hovered', 'expandedNodes'],
+            emits: ['select', 'hover', 'toggle'],
+            template: `
+                <div v-if="node">
+                    <div class="tree-node-row"
+                         :class="{ selected: selected === node, hovered: hovered === node && hovered !== selected }"
+                         :id="'node-' + (node.id || 'unknown')"
+                         @click.stop="$emit('select', node)"
+                         @mouseenter="$emit('hover', node)"
+                         @mouseleave="$emit('hover', null)">
+                        <span class="tree-toggle"
+                              :class="{ 'has-children': hasChildren }"
+                              @click.stop="hasChildren && $emit('toggle', node.id)">
+                            {{ hasChildren ? (isExpanded ? '▼' : '▶') : '·' }}
+                        </span>
+                        <span class="composable-name">{{ node.composable || node.className || 'Node' }}</span>
+                        <span v-if="node.text" class="text-content">"{{ truncate(node.text) }}"</span>
+                        <span v-if="node.bounds" class="bounds-info">
+                            [{{ node.bounds.left }},{{ node.bounds.top }}]
+                        </span>
+                    </div>
+                    <div v-if="hasChildren && isExpanded" class="tree-children">
+                        <tree-node
+                            v-for="(child, index) in validChildren"
+                            :key="child.id || index"
+                            :node="child"
+                            :selected="selected"
+                            :hovered="hovered"
+                            :expanded-nodes="expandedNodes"
+                            @select="$emit('select', $event)"
+                            @hover="$emit('hover', $event)"
+                            @toggle="$emit('toggle', $event)"
+                        />
+                    </div>
+                </div>
+            `,
+            computed: {
+                hasChildren() {
+                    return this.node && this.node.children && this.node.children.length > 0;
+                },
+                isExpanded() {
+                    return this.node && this.expandedNodes.has(this.node.id);
+                },
+                validChildren() {
+                    return (this.node.children || []).filter(child => child != null);
+                }
+            },
+            methods: {
+                truncate(text) {
+                    return text && text.length > 25 ? text.slice(0, 25) + '...' : text;
+                }
+            }
+        };
+
+        createApp({
+            components: { TreeNode },
+            setup() {
+                const devices = ref([]);
+                const apps = ref([]);
+                const selectedDevice = ref('');
+                const selectedApp = ref('');
+                const connected = ref(false);
+                const loading = ref(false);
+                const activeTab = ref('compose');
+
+                // Compose state
+                const composeTree = ref(null);
+                const fullTree = ref(null); // Unfiltered tree for extracting element names
+                const selectedNode = ref(null);
+                const hoveredNode = ref(null);
+                const showElementDetails = ref(true);
+                const textFilter = ref('');
+                const elementFilter = ref('');
+                const screenshot = ref(null);
+                const imageScale = ref(null);
+                const treeContainer = ref(null);
+                const screenshotImg = ref(null);
+                const screenshotContainer = ref(null);
+                const expandedNodes = ref(new Set());
+
+                // Detail sections collapse state
+                const detailSections = reactive({
+                    type: true,
+                    text: true,
+                    bounds: true,
+                    role: true,
+                    testTag: true,
+                    raw: false
+                });
+
+                // Network state
+                const networkRequests = ref([]);
+                const selectedRequest = ref(null);
+                const selectedRequestDetails = ref(null);
+
+                // WebSocket state
+                const wsConnections = ref([]);
+                const selectedWsConnection = ref(null);
+                const selectedWsDetails = ref(null);
+                const selectedWsMessage = ref(null); // { index, message, connectionId }
+
+                // Collapsible sections state
+                const sections = reactive({
+                    url: true,
+                    reqHeaders: true,
+                    reqBody: true,
+                    respHeaders: true,
+                    respBody: true
+                });
+
+                // WebSocket message detail sections
+                const wsMsgSections = reactive({
+                    direction: true,
+                    timestamp: true,
+                    textPayload: true,
+                    body: false
+                });
+
+                // Resizable panels state
+                const networkLayout = ref(null);
+                const networkListPanel = ref(null);
+                const networkPanelWidth = ref(400);
+                const isResizingNetwork = ref(false);
+
+                // WebSocket resizable panel state
+                const wsLayout = ref(null);
+                const wsPanelWidth = ref(500);
+                const isResizingWs = ref(false);
+
+                const networkRequestsReversed = computed(() => [...networkRequests.value].reverse());
+
+                // Extract unique element names from the full tree
+                const availableElements = computed(() => {
+                    if (!fullTree.value?.root) return [];
+                    const elements = new Set();
+                    function collect(node) {
+                        if (!node) return;
+                        const name = node.composable || node.className;
+                        if (name) elements.add(name);
+                        (node.children || []).forEach(collect);
+                    }
+                    collect(fullTree.value.root);
+                    return Array.from(elements).sort();
+                });
+
+                const api = (path) => `/api${path}`;
+
+                // Debounce filter for text input
+                let filterTimeout = null;
+                function debouncedFilter() {
+                    clearTimeout(filterTimeout);
+                    filterTimeout = setTimeout(() => {
+                        if (connected.value) loadComposeTree();
+                    }, 300);
+                }
+
+                function truncateText(text) {
+                    return text && text.length > 30 ? text.slice(0, 30) + '...' : text;
+                }
+
+                function clearFilters() {
+                    textFilter.value = '';
+                    elementFilter.value = '';
+                    if (connected.value) loadComposeTree();
+                }
+
+                async function loadDevices() {
+                    try {
+                        const res = await fetch(api('/devices'));
+                        const data = await res.json();
+                        devices.value = data.devices || [];
+                    } catch (e) {
+                        console.error('Failed to load devices:', e);
+                    }
+                }
+
+                async function loadApps() {
+                    if (!selectedDevice.value) {
+                        apps.value = [];
+                        return;
+                    }
+                    try {
+                        const res = await fetch(api(`/apps?device=${selectedDevice.value}`));
+                        const data = await res.json();
+                        apps.value = data.apps || [];
+                    } catch (e) {
+                        console.error('Failed to load apps:', e);
+                    }
+                }
+
+                async function connect() {
+                    if (!selectedApp.value) {
+                        connected.value = false;
+                        return;
+                    }
+                    connected.value = true;
+                    refresh();
+                }
+
+                async function refresh() {
+                    if (!connected.value) return;
+                    loading.value = true;
+                    try {
+                        await Promise.all([
+                            loadComposeTree(),
+                            refreshScreenshot(),
+                            loadNetworkRequests(),
+                            loadWsConnections()
+                        ]);
+                    } finally {
+                        loading.value = false;
+                    }
+                }
+
+                async function refreshScreenshot() {
+                    if (!connected.value) return;
+                    try {
+                        const res = await fetch(api(`/screenshot?device=${selectedDevice.value}`));
+                        if (res.ok) {
+                            const blob = await res.blob();
+                            screenshot.value = URL.createObjectURL(blob);
+                        }
+                    } catch (e) {
+                        console.error('Failed to capture screenshot:', e);
+                    }
+                }
+
+                function onImageLoad() {
+                    const img = screenshotImg.value;
+                    if (img) {
+                        imageScale.value = img.clientWidth / img.naturalWidth;
+                    }
+                }
+
+                function getHighlightStyle(bounds) {
+                    if (!bounds || !imageScale.value) return { display: 'none' };
+                    const scale = imageScale.value;
+                    return {
+                        left: (bounds.left * scale) + 'px',
+                        top: (bounds.top * scale) + 'px',
+                        width: ((bounds.right - bounds.left) * scale) + 'px',
+                        height: ((bounds.bottom - bounds.top) * scale) + 'px'
+                    };
+                }
+
+                function onScreenshotClick(event) {
+                    if (!composeTree.value?.root || !imageScale.value) return;
+                    const rect = screenshotContainer.value.getBoundingClientRect();
+                    const x = Math.round((event.clientX - rect.left) / imageScale.value);
+                    const y = Math.round((event.clientY - rect.top) / imageScale.value);
+
+                    const element = findElementAt(x, y, composeTree.value.root);
+                    if (element) {
+                        selectNode(element);
+                    }
+                }
+
+                function findElementAt(x, y, node) {
+                    const bounds = node.bounds;
+                    if (bounds) {
+                        if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) {
+                            return null;
+                        }
+                    }
+                    const children = node.children || [];
+                    for (let i = children.length - 1; i >= 0; i--) {
+                        const found = findElementAt(x, y, children[i]);
+                        if (found) return found;
+                    }
+                    if (bounds) return node;
+                    return null;
+                }
+
+                async function loadComposeTree() {
+                    const hasFilters = textFilter.value || elementFilter.value;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    // Add filter params for server-side filtering
+                    if (textFilter.value) params.set('text', textFilter.value);
+                    if (elementFilter.value) params.set('type', elementFilter.value);
+
+                    const res = await fetch(api(`/compose/tree?${params}`));
+                    composeTree.value = await res.json();
+
+                    // Store unfiltered tree for element name extraction
+                    if (!hasFilters && composeTree.value?.root) {
+                        fullTree.value = composeTree.value;
+                    }
+
+                    // Clear selection when tree changes (old reference becomes stale)
+                    selectedNode.value = null;
+
+                    // Assign unique IDs and auto-expand
+                    let idCounter = 0;
+                    function assignIds(node, depth = 0, maxDepth = 3) {
+                        if (!node.id) node.id = 'gen_' + (idCounter++);
+                        if (depth < maxDepth) {
+                            expandedNodes.value.add(node.id);
+                        }
+                        (node.children || []).forEach(child => assignIds(child, depth + 1, maxDepth));
+                    }
+
+                    expandedNodes.value.clear();
+
+                    if (composeTree.value?.root) {
+                        // Tree view - expand first 3 levels
+                        assignIds(composeTree.value.root, 0, 3);
+                    } else if (composeTree.value?.matches) {
+                        // Match results - expand all levels in each match
+                        composeTree.value.matches.forEach(match => {
+                            if (match.node) {
+                                assignIds(match.node, 0, 10);
+                            }
+                        });
+                    }
+                }
+
+                async function loadNetworkRequests() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    const res = await fetch(api(`/network/requests?${params}`));
+                    const data = await res.json();
+                    networkRequests.value = data.requests || [];
+                }
+
+                async function loadWsConnections() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    const res = await fetch(api(`/websocket/connections?${params}`));
+                    const data = await res.json();
+                    wsConnections.value = data.connections || [];
+                }
+
+                function selectNode(node) {
+                    selectedNode.value = node;
+                    showElementDetails.value = true; // Show details when selecting
+                    // Expand path to selected node
+                    expandPathToNode(node);
+                    nextTick(() => {
+                        if (node?.id) {
+                            const el = document.getElementById('node-' + node.id);
+                            if (el) {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }
+                    });
+                    // Sync selection with device (highlight on screen)
+                    if (connected.value && node) {
+                        syncSelectionToDevice(node);
+                    }
+                }
+
+                async function syncSelectionToDevice(node) {
+                    if (!connected.value) return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        await fetch(api(`/selection/element?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(node)
+                        });
+                    } catch (e) {
+                        console.error('Failed to sync selection:', e);
+                    }
+                }
+
+                // Poll device selection to sync when agent selects an element
+                async function pollDeviceSelection() {
+                    if (!connected.value || activeTab.value !== 'compose') return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/selection/element?${params}`));
+                        const data = await res.json();
+
+                        if (data.selected && data.element) {
+                            // Find matching node in our tree by bounds
+                            const deviceElement = data.element;
+                            if (deviceElement.bounds && composeTree.value?.root) {
+                                const match = findNodeByBounds(composeTree.value.root, deviceElement.bounds);
+                                if (match && match !== selectedNode.value) {
+                                    // Update selection without syncing back to device
+                                    selectedNode.value = match;
+                                    showElementDetails.value = true;
+                                    expandPathToNode(match);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore polling errors
+                    }
+                }
+
+                function findNodeByBounds(node, bounds) {
+                    if (!node) return null;
+                    if (node.bounds &&
+                        node.bounds.left === bounds.left &&
+                        node.bounds.top === bounds.top &&
+                        node.bounds.right === bounds.right &&
+                        node.bounds.bottom === bounds.bottom) {
+                        return node;
+                    }
+                    for (const child of (node.children || [])) {
+                        const found = findNodeByBounds(child, bounds);
+                        if (found) return found;
+                    }
+                    return null;
+                }
+
+                function expandPathToNode(targetNode) {
+                    // Find and expand all ancestors
+                    function findAndExpand(node, target) {
+                        if (node === target) return true;
+                        for (const child of (node.children || [])) {
+                            if (findAndExpand(child, target)) {
+                                expandedNodes.value.add(node.id);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                    if (composeTree.value?.root) {
+                        findAndExpand(composeTree.value.root, targetNode);
+                    }
+                }
+
+                function hoverNode(node) {
+                    hoveredNode.value = node;
+                }
+
+                function toggleNode(nodeId) {
+                    if (expandedNodes.value.has(nodeId)) {
+                        expandedNodes.value.delete(nodeId);
+                    } else {
+                        expandedNodes.value.add(nodeId);
+                    }
+                    // Force reactivity update
+                    expandedNodes.value = new Set(expandedNodes.value);
+                }
+
+                async function selectRequest(req) {
+                    selectedRequest.value = req;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        const res = await fetch(api(`/network/requests/${req.id}?${params}`));
+                        selectedRequestDetails.value = await res.json();
+                        // Sync selection with device
+                        syncNetworkSelectionToDevice(req);
+                    } catch (e) {
+                        selectedRequestDetails.value = req;
+                    }
+                }
+
+                async function syncNetworkSelectionToDevice(req) {
+                    if (!connected.value) return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        await fetch(api(`/selection/network?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(req)
+                        });
+                    } catch (e) {
+                        console.error('Failed to sync network selection:', e);
+                    }
+                }
+
+                // Poll device network selection to sync when agent selects a request
+                async function pollNetworkSelection() {
+                    if (!connected.value || activeTab.value !== 'network') return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/selection/network?${params}`));
+                        const data = await res.json();
+
+                        if (data.selected && data.request) {
+                            // Find matching request in our list by id
+                            const match = networkRequests.value.find(r => r.id === data.request.id);
+                            if (match && match.id !== selectedRequest.value?.id) {
+                                selectedRequest.value = match;
+                                // Load details without syncing back to device
+                                const detailRes = await fetch(api(`/network/requests/${match.id}?${params}`));
+                                selectedRequestDetails.value = await detailRes.json();
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore polling errors
+                    }
+                }
+
+                // Copy section content with visual feedback
+                function copySection(sectionId, content) {
+                    if (!content) return;
+                    navigator.clipboard.writeText(content);
+                    // Visual feedback - the CSS handles the animation
+                    const event = window.event;
+                    if (event?.target) {
+                        const btn = event.target;
+                        btn.textContent = 'Copied!';
+                        btn.classList.add('copied');
+                        setTimeout(() => {
+                            btn.textContent = 'Copy';
+                            btn.classList.remove('copied');
+                        }, 1500);
+                    }
+                }
+
+                // Resizable panel functions
+                function startNetworkResize(e) {
+                    isResizingNetwork.value = true;
+                    document.addEventListener('mousemove', doNetworkResize);
+                    document.addEventListener('mouseup', stopNetworkResize);
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                }
+
+                function doNetworkResize(e) {
+                    if (!isResizingNetwork.value || !networkLayout.value) return;
+                    const layoutRect = networkLayout.value.getBoundingClientRect();
+                    const newWidth = e.clientX - layoutRect.left;
+                    // Constrain between min and max
+                    networkPanelWidth.value = Math.max(200, Math.min(newWidth, layoutRect.width - 300));
+                }
+
+                function stopNetworkResize() {
+                    isResizingNetwork.value = false;
+                    document.removeEventListener('mousemove', doNetworkResize);
+                    document.removeEventListener('mouseup', stopNetworkResize);
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                }
+
+                // WebSocket panel resize functions
+                function startWsResize(e) {
+                    isResizingWs.value = true;
+                    document.addEventListener('mousemove', doWsResize);
+                    document.addEventListener('mouseup', stopWsResize);
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                }
+
+                function doWsResize(e) {
+                    if (!isResizingWs.value) return;
+                    const container = document.querySelector('.websocket-layout');
+                    if (!container) return;
+                    const containerRect = container.getBoundingClientRect();
+                    const newWidth = e.clientX - containerRect.left;
+                    wsPanelWidth.value = Math.max(200, Math.min(newWidth, containerRect.width - 300));
+                }
+
+                function stopWsResize() {
+                    isResizingWs.value = false;
+                    document.removeEventListener('mousemove', doWsResize);
+                    document.removeEventListener('mouseup', stopWsResize);
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                }
+
+                // WebSocket drill-down navigation functions
+                function backToConnections() {
+                    selectedWsConnection.value = null;
+                    selectedWsDetails.value = null;
+                    selectedWsMessage.value = null;
+                }
+
+                function truncateUrl(url) {
+                    if (!url) return '';
+                    try {
+                        const parsed = new URL(url);
+                        const path = parsed.pathname + parsed.search;
+                        if (path.length > 40) {
+                            return parsed.host + path.slice(0, 37) + '...';
+                        }
+                        return parsed.host + path;
+                    } catch {
+                        return url.length > 50 ? url.slice(0, 47) + '...' : url;
+                    }
+                }
+
+                async function selectWsConnection(conn) {
+                    selectedWsConnection.value = conn;
+                    selectedWsMessage.value = null; // Clear message selection when changing connection
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        const res = await fetch(api(`/websocket/connections/${conn.id}?${params}`));
+                        selectedWsDetails.value = await res.json();
+                    } catch (e) {
+                        selectedWsDetails.value = conn;
+                    }
+                }
+
+                function selectWsMessage(index, msg) {
+                    selectedWsMessage.value = {
+                        index: index,
+                        message: msg,
+                        connectionId: selectedWsConnection.value?.id
+                    };
+                    // Sync selection with device
+                    syncWsMessageSelectionToDevice(index, msg);
+                }
+
+                async function syncWsMessageSelectionToDevice(index, msg) {
+                    if (!connected.value || !selectedWsConnection.value) return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        await fetch(api(`/selection/websocket-message?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                connectionId: selectedWsConnection.value.id,
+                                messageIndex: index,
+                                message: msg
+                            })
+                        });
+                    } catch (e) {
+                        console.error('Failed to sync websocket message selection:', e);
+                    }
+                }
+
+                // Poll device websocket message selection
+                async function pollWsMessageSelection() {
+                    if (!connected.value || activeTab.value !== 'websocket') return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/selection/websocket-message?${params}`));
+                        const data = await res.json();
+
+                        if (data.selected && data.connectionId && data.messageIndex !== undefined) {
+                            // Check if we need to switch connection
+                            if (selectedWsConnection.value?.id !== data.connectionId) {
+                                const conn = wsConnections.value.find(c => c.id === data.connectionId);
+                                if (conn) {
+                                    selectedWsConnection.value = conn;
+                                    const connRes = await fetch(api(`/websocket/connections/${conn.id}?${params}`));
+                                    selectedWsDetails.value = await connRes.json();
+                                }
+                            }
+                            // Update message selection if different
+                            if (selectedWsMessage.value?.index !== data.messageIndex ||
+                                selectedWsMessage.value?.connectionId !== data.connectionId) {
+                                if (selectedWsDetails.value?.messages?.[data.messageIndex]) {
+                                    selectedWsMessage.value = {
+                                        index: data.messageIndex,
+                                        message: selectedWsDetails.value.messages[data.messageIndex],
+                                        connectionId: data.connectionId
+                                    };
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore polling errors
+                    }
+                }
+
+                function copyWsMessageBody() {
+                    if (selectedWsMessage.value?.message) {
+                        const content = formatBody(getMessageContent(selectedWsMessage.value.message));
+                        navigator.clipboard.writeText(content);
+                    }
+                }
+
+                function switchTab(tab) {
+                    activeTab.value = tab;
+                    if (connected.value) {
+                        if (tab === 'network') loadNetworkRequests();
+                        else if (tab === 'websocket') loadWsConnections();
+                    }
+                }
+
+                function getStatusColor(status) {
+                    if (!status) return 'var(--ctp-subtext0)';
+                    if (status >= 200 && status < 300) return 'var(--ctp-green)';
+                    if (status >= 400) return 'var(--ctp-red)';
+                    return 'var(--ctp-yellow)';
+                }
+
+                function formatHeaders(headers) {
+                    if (!headers) return '';
+                    if (typeof headers === 'string') return headers;
+                    return Object.entries(headers)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join('\n');
+                }
+
+                function formatBody(body) {
+                    if (!body) return '';
+                    try {
+                        const parsed = JSON.parse(body);
+                        return JSON.stringify(parsed, null, 2);
+                    } catch {
+                        return body;
+                    }
+                }
+
+                function detectContentType(body) {
+                    if (!body || typeof body !== 'string') return null;
+                    const trimmed = body.trim();
+                    // Check for JSON
+                    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                        try {
+                            JSON.parse(trimmed);
+                            return 'json';
+                        } catch {}
+                    }
+                    // Check for XML/HTML
+                    if (trimmed.startsWith('<?xml') || trimmed.startsWith('<')) {
+                        if (trimmed.toLowerCase().includes('<!doctype html') ||
+                            trimmed.toLowerCase().includes('<html')) {
+                            return 'html';
+                        }
+                        return 'xml';
+                    }
+                    return null;
+                }
+
+                function highlightBody(body) {
+                    if (!body) return '';
+                    const contentType = detectContentType(body);
+                    let formatted = body;
+                    let language = null;
+
+                    if (contentType === 'json') {
+                        try {
+                            formatted = JSON.stringify(JSON.parse(body), null, 2);
+                            language = 'json';
+                        } catch (e) {
+                            console.warn('JSON parse error:', e);
+                        }
+                    } else if (contentType === 'xml' || contentType === 'html') {
+                        // Basic XML/HTML formatting
+                        formatted = formatXml(body);
+                        language = 'markup';
+                    }
+
+                    // Apply Prism highlighting if available and language detected
+                    if (language && typeof Prism !== 'undefined' && Prism.languages && Prism.languages[language]) {
+                        try {
+                            const highlighted = Prism.highlight(formatted, Prism.languages[language], language);
+                            return highlighted;
+                        } catch (e) {
+                            console.warn('Prism highlight error:', e);
+                        }
+                    }
+
+                    // Escape HTML and return plain text
+                    return escapeHtml(formatted);
+                }
+
+                function formatXml(xml) {
+                    // Simple XML formatter
+                    let formatted = '';
+                    let indent = 0;
+                    const parts = xml.replace(/>\s*</g, '><').split(/(<[^>]+>)/g);
+
+                    for (const part of parts) {
+                        if (!part.trim()) continue;
+
+                        if (part.match(/^<\/\w/)) {
+                            // Closing tag - decrease indent first
+                            indent = Math.max(0, indent - 1);
+                        }
+
+                        if (part.startsWith('<')) {
+                            formatted += '  '.repeat(indent) + part + '\n';
+                        } else {
+                            formatted += '  '.repeat(indent) + part.trim() + '\n';
+                        }
+
+                        if (part.match(/^<\w[^>]*[^\/]>/) && !part.match(/^<(br|hr|img|input|meta|link)/i)) {
+                            // Opening tag (not self-closing) - increase indent
+                            indent++;
+                        }
+                    }
+                    return formatted.trim();
+                }
+
+                function escapeHtml(text) {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                }
+
+                function highlightUrl(url) {
+                    if (!url) return '';
+                    try {
+                        const parsed = new URL(url);
+                        let result = '';
+                        // Protocol
+                        result += `<span class="token keyword">${escapeHtml(parsed.protocol)}</span>`;
+                        result += '<span class="token punctuation">//</span>';
+                        // Host
+                        result += `<span class="token function">${escapeHtml(parsed.host)}</span>`;
+                        // Path
+                        if (parsed.pathname) {
+                            result += `<span class="token string">${escapeHtml(parsed.pathname)}</span>`;
+                        }
+                        // Query params
+                        if (parsed.search) {
+                            result += '<span class="token punctuation">?</span>';
+                            const params = parsed.search.slice(1).split('&');
+                            result += params.map((param, i) => {
+                                const [key, value] = param.split('=');
+                                let paramHtml = `<span class="token property">${escapeHtml(key)}</span>`;
+                                if (value !== undefined) {
+                                    paramHtml += `<span class="token punctuation">=</span><span class="token string">${escapeHtml(value)}</span>`;
+                                }
+                                return paramHtml;
+                            }).join('<span class="token punctuation">&amp;</span>');
+                        }
+                        // Hash
+                        if (parsed.hash) {
+                            result += `<span class="token comment">${escapeHtml(parsed.hash)}</span>`;
+                        }
+                        return result;
+                    } catch {
+                        return escapeHtml(url);
+                    }
+                }
+
+                function highlightHeaders(headers) {
+                    if (!headers) return '';
+                    let lines = [];
+                    if (typeof headers === 'string') {
+                        lines = headers.split('\n');
+                    } else if (typeof headers === 'object') {
+                        lines = Object.entries(headers).map(([k, v]) => `${k}: ${v}`);
+                    }
+                    return lines.map(line => {
+                        const colonIndex = line.indexOf(':');
+                        if (colonIndex > 0) {
+                            const key = line.slice(0, colonIndex);
+                            const value = line.slice(colonIndex + 1);
+                            return `<span class="token property">${escapeHtml(key)}</span><span class="token punctuation">:</span><span class="token string">${escapeHtml(value)}</span>`;
+                        }
+                        return escapeHtml(line);
+                    }).join('\n');
+                }
+
+                function getMessageContent(msg) {
+                    return msg.data || msg.content || msg.payload || msg.message || msg.text || msg.body || JSON.stringify(msg);
+                }
+
+                function truncateMessage(text) {
+                    const line = (text || '').replace(/\n/g, ' ');
+                    return line.length > 100 ? line.slice(0, 100) + '...' : line;
+                }
+
+                function copyRequest() {
+                    if (selectedRequestDetails.value) {
+                        navigator.clipboard.writeText(JSON.stringify(selectedRequestDetails.value, null, 2));
+                    }
+                }
+
+                function exportRequest() {
+                    if (selectedRequestDetails.value) {
+                        const blob = new Blob([JSON.stringify(selectedRequestDetails.value, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `request_${selectedRequestDetails.value.id || 'unknown'}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    }
+                }
+
+                function copyWsMessages() {
+                    if (selectedWsDetails.value?.messages) {
+                        navigator.clipboard.writeText(JSON.stringify(selectedWsDetails.value.messages, null, 2));
+                    }
+                }
+
+                function exportWsMessages() {
+                    if (selectedWsDetails.value) {
+                        const blob = new Blob([JSON.stringify(selectedWsDetails.value, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `websocket_${selectedWsDetails.value.id || 'unknown'}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    }
+                }
+
+                onMounted(() => {
+                    loadDevices();
+                    // Poll for data updates
+                    setInterval(() => {
+                        if (connected.value && activeTab.value === 'network') {
+                            loadNetworkRequests();
+                        }
+                        if (connected.value && activeTab.value === 'websocket') {
+                            loadWsConnections();
+                        }
+                    }, 3000);
+                    // Poll for device selection changes (faster, for agent interaction)
+                    setInterval(() => {
+                        if (connected.value) {
+                            if (activeTab.value === 'compose') {
+                                pollDeviceSelection();
+                            } else if (activeTab.value === 'network') {
+                                pollNetworkSelection();
+                            } else if (activeTab.value === 'websocket') {
+                                pollWsMessageSelection();
+                            }
+                        }
+                    }, 1000);
+                });
+
+                window.addEventListener('resize', () => {
+                    if (screenshotImg.value) {
+                        onImageLoad();
+                    }
+                });
+
+                return {
+                    devices, apps, selectedDevice, selectedApp,
+                    connected, loading, activeTab,
+                    composeTree, selectedNode, hoveredNode, showElementDetails, textFilter, elementFilter, availableElements,
+                    screenshot, imageScale, treeContainer, screenshotImg, screenshotContainer,
+                    expandedNodes, detailSections,
+                    networkRequests, networkRequestsReversed, selectedRequest, selectedRequestDetails,
+                    wsConnections, selectedWsConnection, selectedWsDetails, selectedWsMessage,
+                    sections, wsMsgSections,
+                    // Resizable panels
+                    networkLayout, networkListPanel, networkPanelWidth, isResizingNetwork,
+                    startNetworkResize,
+                    // WebSocket resizable panels
+                    wsLayout, wsPanelWidth, isResizingWs,
+                    startWsResize, backToConnections, truncateUrl,
+                    loadApps, connect, refresh, refreshScreenshot,
+                    onImageLoad, getHighlightStyle, onScreenshotClick,
+                    selectNode, hoverNode, toggleNode, selectRequest, selectWsConnection, selectWsMessage, switchTab,
+                    getStatusColor, formatHeaders, formatBody, detectContentType, highlightBody, highlightUrl, highlightHeaders,
+                    getMessageContent, truncateMessage, truncateText,
+                    copyRequest, exportRequest, copyWsMessages, exportWsMessages, copyWsMessageBody, copySection,
+                    debouncedFilter, clearFilters, loadComposeTree, loadNetworkRequests, loadWsConnections
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

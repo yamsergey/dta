@@ -28,7 +28,7 @@ dependencies {
 
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
-    // Android Development Tools dependency
+    // Development Tools for Android dependency
     api project(':tools-android')
 
     // JSON serialization
@@ -58,12 +58,12 @@ publishing {
         maven(MavenPublication) {
             from components.java
 
-            groupId = 'io.yamsergey.adt'
+            groupId = 'io.yamsergey.dta'
             artifactId = 'workspace-kotlin'
             version = '1.0.0'
 
             pom {
-                name = 'Android Development Tools - Workspace Library'
+                name = 'Development Tools for Android - Workspace Library'
                 description = 'Workspace converter library for Kotlin Language Server integration'
                 url = 'https://github.com/yamsergey/yamsergey.adt'
 

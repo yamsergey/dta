@@ -50,7 +50,7 @@ java {
 
 application {
     // Define the main class for the application.
-    mainClass = 'io.yamsergey.adt.tools.android.cli.App'
+    mainClass = 'io.yamsergey.dta.tools.android.cli.App'
 }
 
 tasks.named('test') {

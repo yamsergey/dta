@@ -1,0 +1,56 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
+}
+
+application {
+    mainClass = 'io.yamsergey.dta.mcp.McpServer'
+    applicationName = 'dta-mcp'
+}
+
+// Generate version.properties from centralized version
+def versionPropsDir = layout.buildDirectory.dir("generated/resources")
+def dtaVersionValue = rootProject.findProperty('dtaVersion') ?: '0.0.0'
+
+tasks.register('generateVersionProperties') {
+    outputs.dir(versionPropsDir)
+    inputs.property('version', dtaVersionValue)
+    doLast {
+        def outDir = versionPropsDir.get().asFile
+        outDir.mkdirs()
+        new File(outDir, "version.properties").text = "version=${dtaVersionValue}\n"
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn 'generateVersionProperties'
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDir versionPropsDir
+        }
+    }
+}
+
+dependencies {
+    // Core DTA library for sidekick client
+    implementation project(':tools-android')
+
+    // MCP Java SDK
+    implementation 'io.modelcontextprotocol.sdk:mcp:0.10.0'
+
+    // Jackson for JSON
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
+
+    // Logging - must go to stderr, not stdout (stdout is for JSON-RPC)
+    implementation 'ch.qos.logback:logback-classic:1.5.6'
+}
