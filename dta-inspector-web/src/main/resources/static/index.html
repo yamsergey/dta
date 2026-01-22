@@ -67,6 +67,19 @@
             font-size: 18px;
             font-weight: 600;
             color: var(--ctp-mauve);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .beta-badge {
+            font-size: 10px;
+            font-weight: 600;
+            background: var(--ctp-peach);
+            color: var(--ctp-crust);
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         .connection {
             display: flex;
@@ -451,6 +464,37 @@
             text-transform: uppercase;
             margin-left: 6px;
         }
+        .media-preview {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .media-preview img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 4px;
+            background: var(--ctp-surface0);
+        }
+        .media-preview .media-info {
+            font-size: 11px;
+            color: var(--ctp-subtext0);
+        }
+        .media-preview .load-btn {
+            background: var(--ctp-surface1);
+            border: 1px solid var(--ctp-surface2);
+            color: var(--ctp-text);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .media-preview .load-btn:hover {
+            background: var(--ctp-surface2);
+        }
+        .media-preview .loading {
+            color: var(--ctp-subtext0);
+        }
         /* Network/WebSocket detail panels - no nested scrolling */
         .network-layout .detail-panel pre,
         .websocket-layout .detail-panel pre {
@@ -665,7 +709,7 @@
     <div id="app">
         <div class="app">
             <header>
-                <h1>DTA Inspector</h1>
+                <h1>DTA Inspector <span class="beta-badge">Beta</span></h1>
                 <div class="connection">
                     <select v-model="selectedDevice" @change="loadApps">
                         <option value="">Select Device</option>
@@ -856,9 +900,14 @@
                 <div class="panel resizable-panel" :style="{ width: networkPanelWidth + 'px' }" ref="networkListPanel">
                     <div class="panel-header">
                         <span>Requests</span>
-                        <button class="secondary btn-sm" @click="loadNetworkRequests" :disabled="!connected">
-                            Refresh
-                        </button>
+                        <div class="btn-group">
+                            <button class="secondary btn-sm" @click="loadNetworkRequests" :disabled="!connected">
+                                Refresh
+                            </button>
+                            <button class="secondary btn-sm" @click="clearNetworkRequests" :disabled="!connected || !networkRequests.length">
+                                Clear
+                            </button>
+                        </div>
                     </div>
                     <div class="panel-content">
                         <div v-if="loading" class="loading">Loading...</div>
@@ -893,7 +942,7 @@
                         <div class="btn-group">
                             <button class="secondary btn-sm" @click="copyRequest">Copy All</button>
                             <button class="secondary btn-sm" @click="exportRequest">Export</button>
-                            <button class="close-btn" @click="selectedRequestDetails = null" title="Close panel">✕</button>
+                            <button class="close-btn" @click="closeNetworkRequest" title="Close panel">✕</button>
                         </div>
                     </div>
                     <div class="panel-content">
@@ -949,6 +998,34 @@
                                 <pre><code v-html="highlightBody(selectedRequestDetails.responseBody)"></code></pre>
                             </div>
                         </div>
+                        <!-- Media Preview Section -->
+                        <div class="detail-section" v-if="!selectedRequestDetails.responseBody && isImageContentType(selectedRequestDetails.responseContentType)">
+                            <div class="detail-section-header" @click="sections.respBody = !sections.respBody">
+                                <span class="toggle" :class="{ expanded: sections.respBody }">▶</span>
+                                Response Preview
+                                <span class="content-type-badge">{{ selectedRequestDetails.responseContentType }}</span>
+                                <span class="media-info" style="margin-left: auto;">{{ formatSize(selectedRequestDetails.responseBodySize) }}</span>
+                            </div>
+                            <div class="detail-section-content" v-show="sections.respBody">
+                                <div class="media-preview">
+                                    <template v-if="!mediaBody">
+                                        <button class="load-btn" @click="loadMediaBody(selectedRequestDetails.id)">
+                                            Load Image Preview
+                                        </button>
+                                    </template>
+                                    <template v-else-if="mediaBody.loading">
+                                        <span class="loading">Loading...</span>
+                                    </template>
+                                    <template v-else-if="mediaBody.error">
+                                        <span class="error">{{ mediaBody.error }}</span>
+                                    </template>
+                                    <template v-else-if="mediaBody.data">
+                                        <img :src="mediaBody.data" :alt="selectedRequestDetails.url" />
+                                        <span class="media-info">{{ mediaBody.contentType }} - {{ formatSize(mediaBody.size) }}</span>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -959,9 +1036,14 @@
                 <div class="panel" v-if="!selectedWsConnection">
                     <div class="panel-header">
                         <span>Connections</span>
-                        <button class="secondary btn-sm" @click="loadWsConnections" :disabled="!connected">
-                            Refresh
-                        </button>
+                        <div class="btn-group">
+                            <button class="secondary btn-sm" @click="loadWsConnections" :disabled="!connected">
+                                Refresh
+                            </button>
+                            <button class="secondary btn-sm" @click="clearWsConnections" :disabled="!connected || !wsConnections.length">
+                                Clear
+                            </button>
+                        </div>
                     </div>
                     <div class="panel-content">
                         <div v-if="loading" class="loading">Loading...</div>
@@ -1024,7 +1106,7 @@
                         <span>Message Details</span>
                         <div class="btn-group">
                             <button class="secondary btn-sm" @click="copyWsMessageBody">Copy Body</button>
-                            <button class="close-btn" @click="selectedWsMessage = null" title="Close panel">✕</button>
+                            <button class="close-btn" @click="closeWsMessage" title="Close panel">✕</button>
                         </div>
                     </div>
                     <div class="panel-content">
@@ -1176,6 +1258,7 @@
                 const networkRequests = ref([]);
                 const selectedRequest = ref(null);
                 const selectedRequestDetails = ref(null);
+                const mediaBody = ref(null);  // { loading, data, error }
 
                 // WebSocket state
                 const wsConnections = ref([]);
@@ -1423,6 +1506,30 @@
                     wsConnections.value = data.connections || [];
                 }
 
+                async function clearNetworkRequests() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    await fetch(api(`/network/clear?${params}`), { method: 'DELETE' });
+                    networkRequests.value = [];
+                    selectedRequest.value = null;
+                    selectedRequestDetails.value = null;
+                }
+
+                async function clearWsConnections() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    await fetch(api(`/websocket/clear?${params}`), { method: 'DELETE' });
+                    wsConnections.value = [];
+                    selectedWsConnection.value = null;
+                    selectedWsMessage.value = null;
+                }
+
                 function selectNode(node) {
                     selectedNode.value = node;
                     showElementDetails.value = true; // Show details when selecting
@@ -1537,6 +1644,7 @@
 
                 async function selectRequest(req) {
                     selectedRequest.value = req;
+                    mediaBody.value = null;  // Clear media body when changing selection
                     const params = new URLSearchParams({
                         package: selectedApp.value,
                         device: selectedDevice.value
@@ -1565,6 +1673,27 @@
                         });
                     } catch (e) {
                         console.error('Failed to sync network selection:', e);
+                    }
+                }
+
+                async function closeNetworkRequest() {
+                    selectedRequest.value = null;
+                    selectedRequestDetails.value = null;
+                    // Clear selection on device to prevent polling from re-selecting
+                    if (connected.value) {
+                        try {
+                            const params = new URLSearchParams({
+                                package: selectedApp.value,
+                                device: selectedDevice.value
+                            });
+                            await fetch(api(`/selection/network?${params}`), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: 'null'
+                            });
+                        } catch (e) {
+                            // Ignore errors
+                        }
                     }
                 }
 
@@ -1665,10 +1794,26 @@
                 }
 
                 // WebSocket drill-down navigation functions
-                function backToConnections() {
+                async function backToConnections() {
                     selectedWsConnection.value = null;
                     selectedWsDetails.value = null;
                     selectedWsMessage.value = null;
+                    // Clear selection on device to prevent polling from re-selecting
+                    if (connected.value) {
+                        try {
+                            const params = new URLSearchParams({
+                                package: selectedApp.value,
+                                device: selectedDevice.value
+                            });
+                            await fetch(api(`/selection/websocket-message?${params}`), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: 'null'
+                            });
+                        } catch (e) {
+                            // Ignore errors
+                        }
+                    }
                 }
 
                 function truncateUrl(url) {
@@ -1776,6 +1921,26 @@
                     }
                 }
 
+                async function closeWsMessage() {
+                    selectedWsMessage.value = null;
+                    // Clear selection on device to prevent polling from re-selecting
+                    if (connected.value) {
+                        try {
+                            const params = new URLSearchParams({
+                                package: selectedApp.value,
+                                device: selectedDevice.value
+                            });
+                            await fetch(api(`/selection/websocket-message?${params}`), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: 'null'
+                            });
+                        } catch (e) {
+                            // Ignore errors
+                        }
+                    }
+                }
+
                 function switchTab(tab) {
                     activeTab.value = tab;
                     if (connected.value) {
@@ -1797,6 +1962,13 @@
                     return Object.entries(headers)
                         .map(([k, v]) => `${k}: ${v}`)
                         .join('\n');
+                }
+
+                function formatSize(bytes) {
+                    if (bytes === null || bytes === undefined) return '';
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
                 }
 
                 function formatBody(body) {
@@ -1829,6 +2001,50 @@
                         return 'xml';
                     }
                     return null;
+                }
+
+                function isMediaContentType(contentType) {
+                    if (!contentType) return false;
+                    const lower = contentType.toLowerCase();
+                    return lower.startsWith('image/') ||
+                           lower.startsWith('video/') ||
+                           lower.startsWith('audio/');
+                }
+
+                function isImageContentType(contentType) {
+                    if (!contentType) return false;
+                    return contentType.toLowerCase().startsWith('image/');
+                }
+
+                async function loadMediaBody(requestId) {
+                    if (!requestId || !connected.value) return;
+
+                    mediaBody.value = { loading: true, data: null, error: null };
+
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/network/requests/${requestId}/body?${params}`));
+                        const data = await res.json();
+
+                        if (data.error) {
+                            mediaBody.value = { loading: false, data: null, error: data.error };
+                        } else if (data.encoding === 'base64' && data.body) {
+                            mediaBody.value = {
+                                loading: false,
+                                data: `data:${data.contentType};base64,${data.body}`,
+                                error: null,
+                                size: data.size,
+                                contentType: data.contentType
+                            };
+                        } else {
+                            mediaBody.value = { loading: false, data: null, error: 'Unexpected response format' };
+                        }
+                    } catch (e) {
+                        mediaBody.value = { loading: false, data: null, error: e.message };
+                    }
                 }
 
                 function highlightBody(body) {
@@ -2036,7 +2252,7 @@
                     composeTree, selectedNode, hoveredNode, showElementDetails, textFilter, elementFilter, availableElements,
                     screenshot, imageScale, treeContainer, screenshotImg, screenshotContainer,
                     expandedNodes, detailSections,
-                    networkRequests, networkRequestsReversed, selectedRequest, selectedRequestDetails,
+                    networkRequests, networkRequestsReversed, selectedRequest, selectedRequestDetails, mediaBody,
                     wsConnections, selectedWsConnection, selectedWsDetails, selectedWsMessage,
                     sections, wsMsgSections,
                     // Resizable panels
@@ -2044,14 +2260,15 @@
                     startNetworkResize,
                     // WebSocket resizable panels
                     wsLayout, wsPanelWidth, isResizingWs,
-                    startWsResize, backToConnections, truncateUrl,
+                    startWsResize, backToConnections, truncateUrl, closeWsMessage,
                     loadApps, connect, refresh, refreshScreenshot,
                     onImageLoad, getHighlightStyle, onScreenshotClick,
-                    selectNode, hoverNode, toggleNode, selectRequest, selectWsConnection, selectWsMessage, switchTab,
-                    getStatusColor, formatHeaders, formatBody, detectContentType, highlightBody, highlightUrl, highlightHeaders,
+                    selectNode, hoverNode, toggleNode, selectRequest, closeNetworkRequest, selectWsConnection, selectWsMessage, switchTab,
+                    getStatusColor, formatHeaders, formatSize, formatBody, detectContentType, isMediaContentType, isImageContentType, loadMediaBody, highlightBody, highlightUrl, highlightHeaders,
                     getMessageContent, truncateMessage, truncateText,
                     copyRequest, exportRequest, copyWsMessages, exportWsMessages, copyWsMessageBody, copySection,
-                    debouncedFilter, clearFilters, loadComposeTree, loadNetworkRequests, loadWsConnections
+                    debouncedFilter, clearFilters, loadComposeTree, loadNetworkRequests, loadWsConnections,
+                    clearNetworkRequests, clearWsConnections
                 };
             }
         }).mount('#app');

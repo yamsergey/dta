@@ -1,14 +1,21 @@
 package io.yamsergey.example.compose.layout.example.ui.network
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +69,26 @@ data class Todo(
     val completed: Boolean
 )
 
+/**
+ * Data class representing an image from Picsum API.
+ */
+data class PicsumImage(
+    val id: String,
+    val author: String,
+    val width: Int,
+    val height: Int,
+    val url: String,
+    val download_url: String
+)
+
+/**
+ * Data class for loaded image with bitmap.
+ */
+data class LoadedImage(
+    val info: PicsumImage,
+    val bitmap: android.graphics.Bitmap?
+)
+
 sealed class NetworkState<out T> {
     data object Loading : NetworkState<Nothing>()
     data class Success<T>(val data: T) : NetworkState<T>()
@@ -80,6 +107,7 @@ fun NetworkScreen(
     var todosState by remember { mutableStateOf<NetworkState<List<Todo>>>(NetworkState.Loading) }
     var urlConnState by remember { mutableStateOf<NetworkState<List<Post>>>(NetworkState.Loading) }
     var asyncState by remember { mutableStateOf<NetworkState<List<Post>>>(NetworkState.Loading) }
+    var imagesState by remember { mutableStateOf<NetworkState<List<LoadedImage>>>(NetworkState.Loading) }
 
     val client = remember { OkHttpClient() }
     val gson = remember { Gson() }
@@ -111,6 +139,11 @@ fun NetworkScreen(
                 // Use enqueue (async) instead of execute (sync)
                 fetchPostsAsync(client, gson) { result ->
                     asyncState = result
+                }
+            }
+            5 -> if (imagesState is NetworkState.Loading) {
+                scope.launch {
+                    imagesState = fetchImages(client, gson)
                 }
             }
         }
@@ -160,6 +193,11 @@ fun NetworkScreen(
                     onClick = { selectedTab = 4 },
                     text = { Text("Async") }
                 )
+                Tab(
+                    selected = selectedTab == 5,
+                    onClick = { selectedTab = 5 },
+                    text = { Text("Images") }
+                )
             }
 
             // Content based on selected tab
@@ -204,6 +242,13 @@ fun NetworkScreen(
                     },
                     client = client,
                     gson = gson
+                )
+                5 -> ImagesContent(
+                    state = imagesState,
+                    onRefresh = {
+                        imagesState = NetworkState.Loading
+                        scope.launch { imagesState = fetchImages(client, gson) }
+                    }
                 )
             }
         }
@@ -378,6 +423,88 @@ private fun AsyncContent(
                 items(state.data.take(10)) { post ->
                     PostCard(post)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImagesContent(
+    state: NetworkState<List<LoadedImage>>,
+    onRefresh: () -> Unit
+) {
+    when (state) {
+        is NetworkState.Loading -> LoadingContent()
+        is NetworkState.Error -> ErrorContent(state.message, onRefresh)
+        is NetworkState.Success -> {
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Refresh button at top
+                Button(
+                    onClick = onRefresh,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text("Refresh Images")
+                }
+
+                // Image grid
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(state.data) { loadedImage ->
+                        ImageCard(loadedImage)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImageCard(loadedImage: LoadedImage) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (loadedImage.bitmap != null) {
+                Image(
+                    bitmap = loadedImage.bitmap.asImageBitmap(),
+                    contentDescription = "Image by ${loadedImage.info.author}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text = "Failed to load",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            // Author overlay
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
+            ) {
+                Text(
+                    text = loadedImage.info.author,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(4.dp),
+                    maxLines = 1
+                )
             }
         }
     }
@@ -826,4 +953,62 @@ private fun createPostAsync(
             }
         }
     })
+}
+
+/**
+ * Fetches images from Picsum Photos API.
+ * This tests image response capture in ADT Sidekick.
+ */
+private suspend fun fetchImages(client: OkHttpClient, gson: Gson): NetworkState<List<LoadedImage>> {
+    return withContext(Dispatchers.IO) {
+        try {
+            // First, get the list of images from the API
+            val listRequest = Request.Builder()
+                .url("https://picsum.photos/v2/list?page=1&limit=20")
+                .header("Accept", "application/json")
+                .build()
+
+            val images = client.newCall(listRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: "[]"
+                    val type = object : TypeToken<List<PicsumImage>>() {}.type
+                    gson.fromJson<List<PicsumImage>>(body, type)
+                } else {
+                    return@withContext NetworkState.Error("HTTP ${response.code}: ${response.message}")
+                }
+            }
+
+            // Use only first 5 unique images but repeat them to test deduplication
+            // This creates 20 requests but only 5 unique images should be stored
+            val uniqueImages = images.take(5)
+            val repeatedImages = (1..4).flatMap { uniqueImages }  // Repeat 4 times = 20 items
+
+            val loadedImages = repeatedImages.mapIndexed { index, imageInfo ->
+                try {
+                    val imageUrl = "https://picsum.photos/id/${imageInfo.id}/200/200"
+                    val imageRequest = Request.Builder()
+                        .url(imageUrl)
+                        .build()
+
+                    val bitmap = client.newCall(imageRequest).execute().use { response ->
+                        if (response.isSuccessful) {
+                            response.body?.byteStream()?.use { stream ->
+                                BitmapFactory.decodeStream(stream)
+                            }
+                        } else {
+                            null
+                        }
+                    }
+                    // Create unique LoadedImage with index to differentiate in UI
+                    LoadedImage(imageInfo.copy(id = "${imageInfo.id}-$index"), bitmap)
+                } catch (e: Exception) {
+                    LoadedImage(imageInfo.copy(id = "${imageInfo.id}-$index"), null)
+                }
+            }
+
+            NetworkState.Success(loadedImages)
+        } catch (e: Exception) {
+            NetworkState.Error(e.message ?: "Unknown error")
+        }
+    }
 }

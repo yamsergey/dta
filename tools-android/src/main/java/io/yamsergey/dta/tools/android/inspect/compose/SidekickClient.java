@@ -177,6 +177,17 @@ public class SidekickClient {
     }
 
     /**
+     * Gets the response body for a specific HTTP request.
+     * Returns base64-encoded content for binary responses.
+     *
+     * @param requestId the request ID
+     * @return Result containing body JSON on success
+     */
+    public Result<String> getNetworkRequestBody(String requestId) {
+        return httpGet("/network/requests/" + requestId + "/body");
+    }
+
+    /**
      * Gets network statistics.
      *
      * @return Result containing stats JSON on success
@@ -191,7 +202,7 @@ public class SidekickClient {
      * @return Result indicating success or failure
      */
     public Result<String> clearNetworkRequests() {
-        return httpGet("/network/clear");
+        return httpDelete("/network/clear");
     }
 
     // ========================================================================
@@ -223,7 +234,7 @@ public class SidekickClient {
      * @return Result indicating success or failure
      */
     public Result<String> clearWebSocketConnections() {
-        return httpGet("/websocket/clear");
+        return httpDelete("/websocket/clear");
     }
 
     // ========================================================================
@@ -410,6 +421,43 @@ public class SidekickClient {
             if (body != null) {
                 connection.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
             }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                String responseBody = readStream(connection.getInputStream());
+                return new Success<>(responseBody, "OK");
+            } else {
+                String error = readStream(connection.getErrorStream());
+                return new Failure<>(null, "HTTP " + responseCode + ": " + error);
+            }
+
+        } catch (java.net.ConnectException e) {
+            return new Failure<>(null,
+                "Cannot connect to sidekick server on port " + port + ". " +
+                "Make sure the app is running and includes the dta-sidekick dependency.");
+        } catch (Exception e) {
+            return new Failure<>(null, "HTTP request failed: " + e.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Makes an HTTP DELETE request to the sidekick server.
+     *
+     * @param path the endpoint path
+     * @return Result containing response body on success
+     */
+    private Result<String> httpDelete(String path) {
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL("http://localhost:" + port + path);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("DELETE");
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
 
             int responseCode = connection.getResponseCode();
             if (responseCode == 200) {

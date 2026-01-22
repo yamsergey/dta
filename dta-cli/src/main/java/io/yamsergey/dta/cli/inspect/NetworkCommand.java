@@ -27,6 +27,9 @@ import java.util.concurrent.Callable;
  * # Get specific request details
  * dta-cli inspect network com.example.app --request-id abc123
  *
+ * # Get response body for a request
+ * dta-cli inspect network com.example.app --request-id abc123 --body
+ *
  * # Get network statistics
  * dta-cli inspect network com.example.app --stats
  *
@@ -71,6 +74,10 @@ public class NetworkCommand implements Callable<Integer> {
     @Option(names = {"--request-id", "-r"},
             description = "Get details for a specific request by ID.")
     private String requestId;
+
+    @Option(names = {"--body", "-b"},
+            description = "Get response body for the request specified by --request-id.")
+    private boolean getBody;
 
     @Option(names = {"--stats"},
             description = "Show network statistics instead of requests.")
@@ -120,6 +127,14 @@ public class NetworkCommand implements Callable<Integer> {
                 System.err.println("Fetching network statistics...");
                 dataResult = client.getNetworkStats();
                 operationType = "stats";
+            } else if (getBody) {
+                if (requestId == null || requestId.isEmpty()) {
+                    System.err.println("Error: --body requires --request-id to be specified");
+                    return 1;
+                }
+                System.err.println("Fetching body for request " + requestId + "...");
+                dataResult = client.getNetworkRequestBody(requestId);
+                operationType = "body";
             } else if (requestId != null && !requestId.isEmpty()) {
                 System.err.println("Fetching request " + requestId + "...");
                 dataResult = client.getNetworkRequest(requestId);

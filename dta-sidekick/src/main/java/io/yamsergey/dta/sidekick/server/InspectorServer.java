@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.compose.ComposeHitTester;
+import io.yamsergey.dta.sidekick.network.BodyReference;
+import io.yamsergey.dta.sidekick.network.BodyStorage;
 import io.yamsergey.dta.sidekick.network.HttpHeader;
 import io.yamsergey.dta.sidekick.network.HttpRequest;
 import io.yamsergey.dta.sidekick.network.HttpResponse;
@@ -256,6 +258,13 @@ public class InspectorServer {
      * Routes the request to the appropriate handler.
      */
     private void routeRequest(String method, String path, String body, OutputStream out) throws IOException {
+        // Handle network request body: /network/requests/{id}/body
+        if (path.startsWith("/network/requests/") && path.contains("/body")) {
+            String requestId = path.substring(18, path.indexOf("/body"));
+            handleNetworkRequestBody(requestId, out);
+            return;
+        }
+
         // Handle network request detail: /network/requests/{id}
         if (path.startsWith("/network/requests/") && path.length() > 18) {
             String requestId = path.substring(18);
@@ -772,12 +781,97 @@ public class InspectorServer {
     }
 
     /**
+     * GET /network/requests/{id}/body - Get the response body for a request.
+     * Returns base64-encoded body for binary content, or raw text for text content.
+     */
+    private void handleNetworkRequestBody(String requestId, OutputStream out) throws IOException {
+        try {
+            HttpTransaction tx = NetworkInspector.getTransaction(requestId);
+
+            if (tx == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Request not found");
+                error.put("id", requestId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            HttpResponse response = tx.getResponse();
+            if (response == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "No response available");
+                sendJson(out, 404, error);
+                return;
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("id", requestId);
+            result.put("contentType", response.getContentType());
+            result.put("size", response.getBodySize());
+
+            // Check if body is stored externally
+            if (response.hasExternalBody()) {
+                BodyReference bodyRef = response.getBodyRef();
+                BodyStorage storage = BodyStorage.getInstance();
+
+                if (storage != null) {
+                    byte[] bytes = storage.readBytes(bodyRef);
+                    if (bytes != null) {
+                        String contentType = response.getContentType();
+                        boolean isImage = contentType != null && contentType.startsWith("image/");
+                        boolean isBinary = isImage || (contentType != null && (
+                            contentType.contains("octet-stream") ||
+                            contentType.contains("application/pdf") ||
+                            contentType.contains("audio/") ||
+                            contentType.contains("video/")
+                        ));
+
+                        if (isBinary) {
+                            // Return base64-encoded binary content
+                            result.put("encoding", "base64");
+                            result.put("body", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP));
+                        } else {
+                            // Return as text
+                            result.put("encoding", "text");
+                            result.put("body", new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                    } else {
+                        result.put("error", "Body file not found");
+                    }
+                } else {
+                    result.put("error", "Body storage not initialized");
+                }
+            } else if (response.getBody() != null) {
+                // Inline body
+                result.put("encoding", "text");
+                result.put("body", response.getBody());
+            } else {
+                result.put("error", "No body available");
+            }
+
+            sendJson(out, 200, result);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error getting network request body", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
      * DELETE /network/clear - Clear all captured network transactions.
      */
     private void handleNetworkClear(OutputStream out) throws IOException {
         try {
             int count = NetworkInspector.getTransactionCount();
             NetworkInspector.clearTransactions();
+
+            // Also clear stored body files
+            BodyStorage storage = BodyStorage.getInstance();
+            if (storage != null) {
+                storage.clear();
+            }
 
             Map<String, Object> response = new HashMap<>();
             response.put("cleared", count);
