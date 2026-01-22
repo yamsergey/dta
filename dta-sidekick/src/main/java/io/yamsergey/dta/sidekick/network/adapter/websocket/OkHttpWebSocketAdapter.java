@@ -19,7 +19,9 @@ import io.yamsergey.dta.sidekick.network.adapter.NetworkAdapter;
  *   <li>{@code connect()} - connection establishment</li>
  *   <li>{@code send(String)} - text message sent</li>
  *   <li>{@code send(ByteString)} - binary message sent</li>
- *   <li>Listener callbacks for received messages</li>
+ *   <li>{@code onReadMessage(String)} - text message received</li>
+ *   <li>{@code onReadMessage(ByteString)} - binary message received</li>
+ *   <li>{@code close()} - connection close</li>
  * </ul>
  */
 public class OkHttpWebSocketAdapter implements NetworkAdapter {
@@ -57,6 +59,8 @@ public class OkHttpWebSocketAdapter implements NetworkAdapter {
             new OkHttpWebSocketConnectHook(),
             new OkHttpWebSocketSendTextHook(),
             new OkHttpWebSocketSendBinaryHook(),
+            new OkHttpWebSocketReceiveTextHook(),
+            new OkHttpWebSocketReceiveBinaryHook(),
             new OkHttpWebSocketCloseHook()
         );
     }

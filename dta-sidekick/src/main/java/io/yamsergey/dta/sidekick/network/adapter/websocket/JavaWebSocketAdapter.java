@@ -19,7 +19,8 @@ import io.yamsergey.dta.sidekick.network.adapter.NetworkAdapter;
  *   <li>{@code onOpen(ServerHandshake)} - connection established</li>
  *   <li>{@code send(String)} - text message sent</li>
  *   <li>{@code send(byte[])} - binary message sent</li>
- *   <li>{@code onMessage(String)} - text message received</li>
+ *   <li>{@code onWebsocketMessage(WebSocket, String)} - text message received</li>
+ *   <li>{@code onWebsocketMessage(WebSocket, ByteBuffer)} - binary message received</li>
  *   <li>{@code onClose(int, String, boolean)} - connection close</li>
  * </ul>
  */
@@ -60,6 +61,7 @@ public class JavaWebSocketAdapter implements NetworkAdapter {
             new JavaWebSocketSendTextHook(),
             new JavaWebSocketSendBinaryHook(),
             new JavaWebSocketOnMessageHook(),
+            new JavaWebSocketOnBinaryMessageHook(),
             new JavaWebSocketOnCloseHook()
         );
     }

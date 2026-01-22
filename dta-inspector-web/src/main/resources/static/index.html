@@ -2171,6 +2171,9 @@
                 }
 
                 function getMessageContent(msg) {
+                    // For WebSocket messages, prefer textPayload first
+                    if (msg.textPayload) return msg.textPayload;
+                    if (msg.binaryPayload) return `[Binary: ${msg.payloadSize || msg.binaryPayload.length} bytes]`;
                     return msg.data || msg.content || msg.payload || msg.message || msg.text || msg.body || JSON.stringify(msg);
                 }
 

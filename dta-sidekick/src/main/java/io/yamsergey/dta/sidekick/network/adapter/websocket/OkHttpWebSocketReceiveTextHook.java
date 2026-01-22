@@ -8,54 +8,46 @@ import io.yamsergey.dta.sidekick.network.WebSocketInspector;
 import io.yamsergey.dta.sidekick.network.WebSocketMessage;
 
 /**
- * JVMTI hook for Java-WebSocket received text messages.
+ * JVMTI hook for OkHttp WebSocket received text messages.
  *
- * <p>Hooks into {@code WebSocketClient.onWebsocketMessage(WebSocket, String)} to capture
- * incoming text messages. This concrete method is called by the internal WebSocket engine
- * and then delegates to the abstract onMessage(String).</p>
+ * <p>Hooks into {@code RealWebSocket.onReadMessage(String)} to capture incoming text messages.
+ * This method is called by WebSocketReader when a text frame is received.</p>
  */
-public class JavaWebSocketOnMessageHook implements MethodHook {
+public class OkHttpWebSocketReceiveTextHook implements MethodHook {
 
-    private static final String TAG = "JavaWsOnMessageHook";
+    private static final String TAG = "OkHttpWsRecvTextHook";
 
     @Override
     public String getTargetClass() {
-        return "org.java_websocket.client.WebSocketClient";
+        return "okhttp3.internal.ws.RealWebSocket";
     }
 
     @Override
     public String getTargetMethod() {
-        return "onWebsocketMessage";
+        return "onReadMessage";
     }
 
     @Override
     public String getMethodSignature() {
-        return "(Lorg/java_websocket/WebSocket;Ljava/lang/String;)V";
+        return "(Ljava/lang/String;)V";
     }
 
     @Override
     public String getId() {
-        return "java-websocket-onmessage";
+        return "okhttp-websocket-receive-text";
     }
 
     @Override
     public void onEnter(Object thisObj, Object[] args) {
         try {
-            // args[0] = WebSocket conn, args[1] = String message
-            if (args == null || args.length < 2 || !(args[1] instanceof String)) {
+            if (args == null || args.length == 0 || !(args[0] instanceof String)) {
                 return;
             }
 
-            String text = (String) args[1];
+            String text = (String) args[0];
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
 
             if (conn != null) {
-                // Mark as connected if still in connecting state
-                if (conn.getStatus() == WebSocketConnection.Status.CONNECTING) {
-                    conn.markConnected();
-                    WebSocketInspector.onConnectionOpened(conn);
-                }
-
                 WebSocketMessage msg = WebSocketMessage.textMessage(
                         conn.getId(),
                         WebSocketMessage.Direction.RECEIVED,

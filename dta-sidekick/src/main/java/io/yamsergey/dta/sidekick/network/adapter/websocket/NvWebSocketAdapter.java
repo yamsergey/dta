@@ -11,14 +11,17 @@ import io.yamsergey.dta.sidekick.network.adapter.NetworkAdapter;
  * Network adapter for nv-websocket-client library (com.neovisionaries:nv-websocket-client).
  *
  * <p>Intercepts WebSocket connections and messages via
- * {@code com.neovisionaries.ws.client.WebSocket} class.</p>
+ * {@code com.neovisionaries.ws.client.WebSocket} and
+ * {@code com.neovisionaries.ws.client.ListenerManager} classes.</p>
  *
  * <p>Hook points:</p>
  * <ul>
- *   <li>{@code connect()} - connection establishment</li>
- *   <li>{@code sendText(String)} - text message sent</li>
- *   <li>{@code sendBinary(byte[])} - binary message sent</li>
- *   <li>{@code disconnect()} - connection close</li>
+ *   <li>{@code WebSocket.connect()} - connection establishment</li>
+ *   <li>{@code WebSocket.sendText(String)} - text message sent</li>
+ *   <li>{@code WebSocket.sendBinary(byte[])} - binary message sent</li>
+ *   <li>{@code WebSocket.disconnect()} - connection close</li>
+ *   <li>{@code ListenerManager.callOnTextMessage(WebSocket, String)} - text message received</li>
+ *   <li>{@code ListenerManager.callOnBinaryMessage(WebSocket, byte[])} - binary message received</li>
  * </ul>
  */
 public class NvWebSocketAdapter implements NetworkAdapter {
@@ -56,6 +59,8 @@ public class NvWebSocketAdapter implements NetworkAdapter {
             new NvWebSocketConnectHook(),
             new NvWebSocketSendTextHook(),
             new NvWebSocketSendBinaryHook(),
+            new NvWebSocketReceiveTextHook(),
+            new NvWebSocketReceiveBinaryHook(),
             new NvWebSocketDisconnectHook()
         );
     }
