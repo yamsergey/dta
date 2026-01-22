@@ -193,6 +193,24 @@ public class InspectorController {
         }
     }
 
+    @GetMapping("/network/requests/{requestId}/body")
+    public ResponseEntity<?> networkRequestBody(
+            @RequestParam("package") String packageName,
+            @PathVariable String requestId,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().getNetworkRequestBody(requestId);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to get network request body");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
     @GetMapping("/network/stats")
     public ResponseEntity<?> networkStats(
             @RequestParam("package") String packageName,
@@ -205,6 +223,23 @@ public class InspectorController {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
             return error("Failed to get network stats");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/network/clear")
+    public ResponseEntity<?> clearNetworkRequests(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().clearNetworkRequests();
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to clear network requests");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
@@ -244,6 +279,23 @@ public class InspectorController {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
             return error("Failed to get websocket connection");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/websocket/clear")
+    public ResponseEntity<?> clearWebSocketConnections(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().clearWebSocketConnections();
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to clear websocket connections");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }

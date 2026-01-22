@@ -15,6 +15,7 @@ import io.yamsergey.dta.sidekick.Sidekick;
 import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.events.EventStore;
 import io.yamsergey.dta.sidekick.jvmti.JvmtiAgent;
+import io.yamsergey.dta.sidekick.network.BodyStorage;
 import io.yamsergey.dta.sidekick.network.adapter.NetworkInterceptorManager;
 import io.yamsergey.dta.sidekick.server.InspectorServer;
 
@@ -76,6 +77,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
 
         // Initialize EventStore for binary event capture
         initializeEventStore(context);
+
+        // Initialize BodyStorage for large HTTP body storage
+        initializeBodyStorage(context);
 
         // Initialize JVMTI agent for method hooking (API 28+)
         initializeJvmtiAgent(context);
@@ -180,6 +184,18 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             SidekickLog.i(TAG, "EventStore initialized: " + store.getRecordCount() + " existing events");
         } catch (Exception e) {
             SidekickLog.e(TAG, "Failed to initialize EventStore", e);
+        }
+    }
+
+    /**
+     * Initializes the BodyStorage for large HTTP body storage.
+     */
+    private void initializeBodyStorage(@NonNull Context context) {
+        try {
+            BodyStorage.init(context);
+            SidekickLog.i(TAG, "BodyStorage initialized");
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Failed to initialize BodyStorage", e);
         }
     }
 

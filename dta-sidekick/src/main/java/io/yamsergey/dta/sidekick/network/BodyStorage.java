@@ -11,11 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
 /**
- * Handles storage of large HTTP bodies to disk.
+ * Handles storage of large HTTP bodies to disk using content-addressable storage.
  *
- * <p>When a body exceeds the inline threshold, it's stored to a file
- * and replaced with a {@link BodyReference} containing the file path
- * and metadata.</p>
+ * <p>Bodies are stored using their content hash as the filename, enabling automatic
+ * deduplication. Multiple requests with identical response bodies share a single
+ * stored file.</p>
  *
  * <p>Bodies are stored in the app's cache directory under {@code adt-bodies/}.</p>
  */
@@ -50,10 +50,13 @@ public final class BodyStorage {
     }
 
     /**
-     * Stores a body to disk and returns a reference.
+     * Stores a text body to disk and returns a reference.
      *
-     * @param transactionId the transaction ID
-     * @param type "request" or "response"
+     * <p>Uses content-addressable storage: the file is named by its content hash.
+     * If an identical body is already stored, returns a reference to the existing file.</p>
+     *
+     * @param transactionId the transaction ID (used for logging only)
+     * @param type "request" or "response" (used for logging only)
      * @param body the body content
      * @param contentType the content type
      * @return a reference to the stored body
@@ -63,15 +66,24 @@ public final class BodyStorage {
             return null;
         }
 
-        String filename = transactionId + "-" + type + ".bin";
-        File file = new File(storageDir, filename);
-
         try {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            String hash = computeHash(bytes);
+            if (hash == null) {
+                return null;
+            }
 
-            // Write to file
-            try (FileOutputStream fos = new FileOutputStream(file)) {
-                fos.write(bytes);
+            String filename = hash + ".bin";
+            File file = new File(storageDir, filename);
+
+            // Content-addressable: only write if file doesn't exist
+            if (!file.exists()) {
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(bytes);
+                }
+                SidekickLog.d(TAG, "Stored body: " + hash + " (" + bytes.length + " bytes)");
+            } else {
+                SidekickLog.d(TAG, "Deduplicated body: " + hash + " (already exists)");
             }
 
             // Create reference
@@ -80,20 +92,23 @@ public final class BodyStorage {
                     bytes.length,
                     contentType,
                     createPreview(body),
-                    computeHash(bytes)
+                    hash
             );
 
         } catch (IOException e) {
-            SidekickLog.e(TAG, "Failed to store body: " + file, e);
+            SidekickLog.e(TAG, "Failed to store body for transaction: " + transactionId, e);
             return null;
         }
     }
 
     /**
-     * Stores binary body data to disk.
+     * Stores binary body data to disk and returns a reference.
      *
-     * @param transactionId the transaction ID
-     * @param type "request" or "response"
+     * <p>Uses content-addressable storage: the file is named by its content hash.
+     * If an identical body is already stored, returns a reference to the existing file.</p>
+     *
+     * @param transactionId the transaction ID (used for logging only)
+     * @param type "request" or "response" (used for logging only)
      * @param data the body bytes
      * @param contentType the content type
      * @return a reference to the stored body
@@ -103,13 +118,23 @@ public final class BodyStorage {
             return null;
         }
 
-        String filename = transactionId + "-" + type + ".bin";
-        File file = new File(storageDir, filename);
-
         try {
-            // Write to file
-            try (FileOutputStream fos = new FileOutputStream(file)) {
-                fos.write(data);
+            String hash = computeHash(data);
+            if (hash == null) {
+                return null;
+            }
+
+            String filename = hash + ".bin";
+            File file = new File(storageDir, filename);
+
+            // Content-addressable: only write if file doesn't exist
+            if (!file.exists()) {
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(data);
+                }
+                SidekickLog.d(TAG, "Stored binary body: " + hash + " (" + data.length + " bytes)");
+            } else {
+                SidekickLog.d(TAG, "Deduplicated binary body: " + hash + " (already exists)");
             }
 
             // Create preview (for text content)
@@ -128,11 +153,11 @@ public final class BodyStorage {
                     data.length,
                     contentType,
                     preview,
-                    computeHash(data)
+                    hash
             );
 
         } catch (IOException e) {
-            SidekickLog.e(TAG, "Failed to store body: " + file, e);
+            SidekickLog.e(TAG, "Failed to store body for transaction: " + transactionId, e);
             return null;
         }
     }
@@ -190,23 +215,6 @@ public final class BodyStorage {
     }
 
     /**
-     * Deletes stored bodies for a transaction.
-     *
-     * @param transactionId the transaction ID
-     */
-    public void delete(String transactionId) {
-        File requestFile = new File(storageDir, transactionId + "-request.bin");
-        File responseFile = new File(storageDir, transactionId + "-response.bin");
-
-        if (requestFile.exists()) {
-            requestFile.delete();
-        }
-        if (responseFile.exists()) {
-            responseFile.delete();
-        }
-    }
-
-    /**
      * Clears all stored bodies.
      */
     public void clear() {
@@ -216,6 +224,7 @@ public final class BodyStorage {
                 file.delete();
             }
         }
+        SidekickLog.d(TAG, "Cleared all stored bodies");
     }
 
     /**
@@ -232,6 +241,14 @@ public final class BodyStorage {
         return total;
     }
 
+    /**
+     * Gets the number of stored body files.
+     */
+    public int getFileCount() {
+        File[] files = storageDir.listFiles();
+        return files != null ? files.length : 0;
+    }
+
     private String createPreview(String body) {
         if (body == null) {
             return null;
@@ -242,16 +259,21 @@ public final class BodyStorage {
         return body.substring(0, PREVIEW_SIZE) + "...";
     }
 
+    /**
+     * Computes SHA-256 hash of data and returns hex string.
+     * Uses full 32-byte hash for reliable content addressing.
+     */
     private String computeHash(byte[] data) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] hash = md.digest(data);
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < 8; i++) { // First 8 bytes = 16 hex chars
-                sb.append(String.format("%02x", hash[i]));
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
             }
             return sb.toString();
         } catch (Exception e) {
+            SidekickLog.e(TAG, "Failed to compute hash", e);
             return null;
         }
     }

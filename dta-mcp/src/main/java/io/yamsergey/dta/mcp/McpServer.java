@@ -555,6 +555,158 @@ public class McpServer {
                 }
             }
         ));
+
+        // clear_network_requests
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("clear_network_requests", "Clear all captured HTTP requests from an app",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.clearNetworkRequests();
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to clear network requests");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // clear_websocket_connections
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("clear_websocket_connections", "Clear all captured WebSocket connections from an app",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.clearWebSocketConnections();
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to clear websocket connections");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // network_request_body
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("network_request_body", "Get the response body for a specific HTTP request",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "request_id", prop("string", "Request ID from network_requests", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String requestId = getString(args, "request_id");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.getNetworkRequestBody(requestId);
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to get network request body");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // network_stats
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("network_stats", "Get network statistics for an app",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.getNetworkStats();
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to get network stats");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // clear_network_selection
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("clear_network_selection", "Clear the current network request selection",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.clearSelectedNetworkRequest();
+                        if (result instanceof Success<String> success) {
+                            return jsonResult(Map.of("success", true, "message", "Network selection cleared"));
+                        }
+                        return errorResult("Failed to clear network selection");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // clear_websocket_selection
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("clear_websocket_selection", "Clear the current WebSocket message selection",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.clearSelectedWebSocketMessage();
+                        if (result instanceof Success<String> success) {
+                            return jsonResult(Map.of("success", true, "message", "WebSocket selection cleared"));
+                        }
+                        return errorResult("Failed to clear websocket selection");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
     }
 
     // ========================================================================

@@ -264,18 +264,14 @@ public class OkHttpExecuteHook implements MethodHook {
 
             // Get content type
             Object mediaType = invoke(body, "contentType");
-            if (mediaType != null) {
-                builder.contentType(mediaType.toString());
+            String contentType = mediaType != null ? mediaType.toString() : null;
+            if (contentType != null) {
+                builder.contentType(contentType);
             }
 
             // Get content length
             long contentLength = (long) invoke(body, "contentLength");
             builder.bodySize(contentLength);
-
-            // Only capture text bodies
-            if (!isTextContent(mediaType)) {
-                return;
-            }
 
             // Get buffered source and read body
             Object source = invoke(body, "source");
@@ -291,27 +287,62 @@ public class OkHttpExecuteHook implements MethodHook {
             long size = (long) invoke(buffer, "size");
             builder.bodySize(size);
 
+            // Limit body capture to reasonable size (5MB max for binary)
+            int maxBinarySize = 5 * 1024 * 1024;
+            if (size > maxBinarySize) {
+                SidekickLog.d(TAG, "Response body too large to capture: " + size + " bytes");
+                return;
+            }
+
             int maxInlineSize = NetworkInspector.getMaxInlineBodySize();
+            boolean isText = isTextContent(mediaType);
 
-            if (size <= maxInlineSize) {
-                // Store inline
-                Object clonedBuffer = invoke(buffer, "clone");
-                String bodyContent = (String) invoke(clonedBuffer, "readString",
-                        new Class[]{Charset.class}, UTF8);
-                builder.body(bodyContent);
-            } else {
-                // Store to disk with reference
-                Object clonedBuffer = invoke(buffer, "clone");
-                String bodyContent = (String) invoke(clonedBuffer, "readString",
-                        new Class[]{Charset.class}, UTF8);
+            if (isText) {
+                // Text content - use string handling
+                if (size <= maxInlineSize) {
+                    // Store inline
+                    Object clonedBuffer = invoke(buffer, "clone");
+                    String bodyContent = (String) invoke(clonedBuffer, "readString",
+                            new Class[]{Charset.class}, UTF8);
+                    builder.body(bodyContent);
+                } else {
+                    // Store to disk with reference
+                    Object clonedBuffer = invoke(buffer, "clone");
+                    String bodyContent = (String) invoke(clonedBuffer, "readString",
+                            new Class[]{Charset.class}, UTF8);
 
-                BodyStorage storage = BodyStorage.getInstance();
-                if (storage != null) {
-                    BodyReference ref = storage.store(txId, "response", bodyContent,
-                            mediaType != null ? mediaType.toString() : null);
-                    if (ref != null) {
-                        builder.bodyRef(ref);
+                    BodyStorage storage = BodyStorage.getInstance();
+                    if (storage != null) {
+                        BodyReference ref = storage.store(txId, "response", bodyContent, contentType);
+                        if (ref != null) {
+                            builder.bodyRef(ref);
+                        }
                     }
+                }
+            } else {
+                // Binary content (images, etc.) - always store to disk
+                SidekickLog.d(TAG, "Capturing binary body, contentType=" + contentType + ", size=" + size);
+                try {
+                    Object clonedBuffer = invoke(buffer, "clone");
+                    // Use snapshot() to get a ByteString, then toByteArray() to get byte[]
+                    Object byteString = invoke(clonedBuffer, "snapshot");
+                    byte[] bytes = (byte[]) invoke(byteString, "toByteArray");
+                    SidekickLog.d(TAG, "Got binary bytes, length=" + bytes.length);
+
+                    BodyStorage storage = BodyStorage.getInstance();
+                    if (storage != null) {
+                        BodyReference ref = storage.store(txId, "response", bytes, contentType);
+                        if (ref != null) {
+                            builder.bodyRef(ref);
+                            SidekickLog.d(TAG, "Stored binary body: " + bytes.length + " bytes, path=" + ref.getPath());
+                        } else {
+                            SidekickLog.w(TAG, "BodyStorage.store returned null for binary body");
+                        }
+                    } else {
+                        SidekickLog.w(TAG, "BodyStorage not initialized for binary body");
+                    }
+                } catch (Exception e) {
+                    SidekickLog.e(TAG, "Failed to capture binary body", e);
                 }
             }
         } catch (Exception e) {
