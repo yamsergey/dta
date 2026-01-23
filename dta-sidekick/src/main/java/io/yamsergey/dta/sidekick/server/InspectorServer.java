@@ -66,9 +66,10 @@ public class InspectorServer {
     private volatile Map<String, Object> selectedNetworkRequest;
     private volatile Map<String, Object> selectedWebSocketMessage; // { connectionId, messageIndex, message }
 
-    private LocalServerSocket serverSocket;
-    private String socketName;
-    private String packageName;
+    private volatile LocalServerSocket serverSocket;
+    private volatile String socketName;
+    private volatile String packageName;
+    private final AtomicBoolean startCalled = new AtomicBoolean(false);
 
     private InspectorServer() {
         this.gson = new GsonBuilder().setPrettyPrinting().create();
@@ -107,6 +108,12 @@ public class InspectorServer {
      * @param packageName the app's package name, used to create unique socket name
      */
     public void start(String packageName) throws IOException {
+        // Prevent multiple concurrent start calls
+        if (!startCalled.compareAndSet(false, true)) {
+            SidekickLog.w(TAG, "Server start already in progress or completed");
+            return;
+        }
+        
         if (running.get()) {
             SidekickLog.w(TAG, "Server already running");
             return;
@@ -114,7 +121,37 @@ public class InspectorServer {
 
         this.packageName = packageName;
         this.socketName = SOCKET_PREFIX + packageName;
-        this.serverSocket = new LocalServerSocket(socketName);
+        
+        // Close any existing server socket first to prevent duplicates
+        if (this.serverSocket != null) {
+            try {
+                this.serverSocket.close();
+            } catch (IOException e) {
+                SidekickLog.w(TAG, "Error closing existing server socket", e);
+            }
+            this.serverSocket = null;
+        }
+        
+        try {
+            this.serverSocket = new LocalServerSocket(socketName);
+        } catch (IOException e) {
+            // If socket creation fails, it might be because the socket already exists
+            // This can happen if the app was killed without proper cleanup
+            SidekickLog.e(TAG, "Failed to create server socket: " + socketName, e);
+            
+            // Try to clean up and retry once
+            try {
+                // Wait a bit for the old socket to be cleaned up by the system
+                Thread.sleep(100);
+                this.serverSocket = new LocalServerSocket(socketName);
+                SidekickLog.i(TAG, "Server socket created on retry");
+            } catch (Exception retryException) {
+                SidekickLog.e(TAG, "Failed to create server socket on retry", retryException);
+                startCalled.set(false); // Reset flag on failure
+                throw new IOException("Failed to create server socket: " + socketName, retryException);
+            }
+        }
+        
         this.running.set(true);
 
         // Register for transaction events
@@ -128,6 +165,12 @@ public class InspectorServer {
      * Stops the server.
      */
     public void stop() {
+        if (!running.get()) {
+            SidekickLog.d(TAG, "Server not running, nothing to stop");
+            return;
+        }
+        
+        SidekickLog.i(TAG, "Stopping server on socket: " + socketName);
         running.set(false);
 
         // Unregister listener
@@ -141,13 +184,22 @@ public class InspectorServer {
         }
         sseClients.clear();
 
+        // Close server socket
         try {
             if (serverSocket != null) {
                 serverSocket.close();
                 serverSocket = null;
+                SidekickLog.i(TAG, "Server socket closed successfully");
             }
         } catch (IOException e) {
-            SidekickLog.e(TAG, "Error closing server", e);
+            SidekickLog.e(TAG, "Error closing server socket", e);
+        }
+        
+        // Shutdown executor
+        try {
+            executor.shutdownNow();
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error shutting down executor", e);
         }
     }
 
