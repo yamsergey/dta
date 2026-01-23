@@ -27,6 +27,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.compose.ComposeHitTester;
+import io.yamsergey.dta.sidekick.mock.MockConfig;
+import io.yamsergey.dta.sidekick.mock.MockDirection;
+import io.yamsergey.dta.sidekick.mock.MockHttpResponse;
+import io.yamsergey.dta.sidekick.mock.MockManager;
+import io.yamsergey.dta.sidekick.mock.MockRule;
+import io.yamsergey.dta.sidekick.mock.MockType;
+import io.yamsergey.dta.sidekick.mock.MockWebSocketMessage;
 import io.yamsergey.dta.sidekick.network.BodyReference;
 import io.yamsergey.dta.sidekick.network.BodyStorage;
 import io.yamsergey.dta.sidekick.network.HttpHeader;
@@ -281,8 +288,8 @@ public class InspectorServer {
                 }
             }
 
-            // Route request (support GET, POST, and DELETE)
-            if (!"GET".equals(method) && !"POST".equals(method) && !"DELETE".equals(method)) {
+            // Route request (support GET, POST, PUT, and DELETE)
+            if (!"GET".equals(method) && !"POST".equals(method) && !"PUT".equals(method) && !"DELETE".equals(method)) {
                 sendError(out, 405, "Method Not Allowed");
                 client.close();
                 return;
@@ -331,6 +338,66 @@ public class InspectorServer {
             return;
         }
 
+        // Handle mock rule by ID: /mock/rules/{id}
+        if (path.startsWith("/mock/rules/") && path.length() > 12) {
+            String ruleId = path.substring(12);
+            if ("GET".equals(method)) {
+                handleMockRuleById(ruleId, out);
+            } else if ("PUT".equals(method)) {
+                handleUpdateMockRule(ruleId, body, out);
+            } else if ("DELETE".equals(method)) {
+                handleDeleteMockRule(ruleId, out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
+        // Handle mock rules list: /mock/rules
+        if (path.equals("/mock/rules")) {
+            if ("GET".equals(method)) {
+                handleMockRulesList(out);
+            } else if ("POST".equals(method)) {
+                handleCreateMockRule(body, out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
+        // Handle mock config: /mock/config
+        if (path.equals("/mock/config")) {
+            if ("GET".equals(method)) {
+                handleGetMockConfig(out);
+            } else if ("PUT".equals(method)) {
+                handleUpdateMockConfig(body, out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
+        // Handle create mock from request: /mock/from-request/{id}
+        if (path.startsWith("/mock/from-request/") && path.length() > 19) {
+            String requestId = path.substring(19);
+            if ("POST".equals(method)) {
+                handleCreateMockFromRequest(requestId, out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
+        // Handle create mock from WebSocket message: /mock/from-message/{id}
+        if (path.startsWith("/mock/from-message/") && path.length() > 19) {
+            String messageId = path.substring(19);
+            if ("POST".equals(method)) {
+                handleCreateMockFromMessage(messageId, out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
 
         // Handle compose hit-test: /compose/select?x=N&y=N
         if (path.startsWith("/compose/select")) {
@@ -468,7 +535,12 @@ public class InspectorServer {
                 "/websocket/clear",
                 "/selection/element",
                 "/selection/network",
-                "/selection/websocket-message"
+                "/selection/websocket-message",
+                "/mock/rules",
+                "/mock/rules/{id}",
+                "/mock/config",
+                "/mock/from-request/{id}",
+                "/mock/from-message/{id}"
         });
 
         sendJson(out, 200, response);
@@ -1069,6 +1141,461 @@ public class InspectorServer {
     }
 
     // =========================================================================
+    // Mock Endpoints
+    // =========================================================================
+
+    /**
+     * GET /mock/rules - List all mock rules.
+     */
+    private void handleMockRulesList(OutputStream out) throws IOException {
+        try {
+            MockManager manager = MockManager.getInstance();
+            java.util.List<MockRule> rules = manager.getRules();
+
+            java.util.List<Map<String, Object>> ruleList = new java.util.ArrayList<>();
+            for (MockRule rule : rules) {
+                ruleList.add(mockRuleToMap(rule));
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("count", rules.size());
+            response.put("rules", ruleList);
+            response.put("config", mockConfigToMap(manager.getConfig()));
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error listing mock rules", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /mock/rules/{id} - Get a single mock rule by ID.
+     */
+    private void handleMockRuleById(String ruleId, OutputStream out) throws IOException {
+        try {
+            MockManager manager = MockManager.getInstance();
+            MockRule rule = manager.getRule(ruleId);
+
+            if (rule == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Mock rule not found");
+                error.put("id", ruleId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            sendJson(out, 200, mockRuleToMap(rule));
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error getting mock rule", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * POST /mock/rules - Create a new mock rule.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleCreateMockRule(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> data = gson.fromJson(body, Map.class);
+
+            MockRule.Builder builder = MockRule.builder();
+
+            // Required: type
+            String typeStr = (String) data.get("type");
+            if (typeStr == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Missing required field: type");
+                sendJson(out, 400, error);
+                return;
+            }
+            builder.type(MockType.valueOf(typeStr.toUpperCase()));
+
+            // Optional fields
+            if (data.containsKey("name")) {
+                builder.name((String) data.get("name"));
+            }
+            if (data.containsKey("enabled")) {
+                builder.enabled((Boolean) data.get("enabled"));
+            }
+            if (data.containsKey("urlPattern")) {
+                builder.urlPattern((String) data.get("urlPattern"));
+            }
+            if (data.containsKey("method")) {
+                builder.method((String) data.get("method"));
+            }
+            if (data.containsKey("direction")) {
+                builder.direction(MockDirection.valueOf(((String) data.get("direction")).toUpperCase()));
+            }
+            if (data.containsKey("delayMs")) {
+                builder.delayMs(((Number) data.get("delayMs")).intValue());
+            }
+
+            // Mock response (for HTTP)
+            if (data.containsKey("mockResponse")) {
+                Map<String, Object> respData = (Map<String, Object>) data.get("mockResponse");
+                MockHttpResponse.Builder respBuilder = MockHttpResponse.builder();
+
+                if (respData.containsKey("statusCode")) {
+                    respBuilder.statusCode(((Number) respData.get("statusCode")).intValue());
+                }
+                if (respData.containsKey("statusMessage")) {
+                    respBuilder.statusMessage((String) respData.get("statusMessage"));
+                }
+                if (respData.containsKey("body")) {
+                    respBuilder.body((String) respData.get("body"));
+                }
+                if (respData.containsKey("contentType")) {
+                    respBuilder.contentType((String) respData.get("contentType"));
+                }
+                if (respData.containsKey("headers")) {
+                    Map<String, String> headers = (Map<String, String>) respData.get("headers");
+                    respBuilder.headers(headers);
+                }
+
+                builder.mockResponse(respBuilder.build());
+            }
+
+            // Mock message (for WebSocket)
+            if (data.containsKey("mockMessage")) {
+                Map<String, Object> msgData = (Map<String, Object>) data.get("mockMessage");
+                MockWebSocketMessage.Builder msgBuilder = MockWebSocketMessage.builder();
+
+                if (msgData.containsKey("textPayload")) {
+                    msgBuilder.textPayload((String) msgData.get("textPayload"));
+                }
+                if (msgData.containsKey("drop")) {
+                    msgBuilder.drop((Boolean) msgData.get("drop"));
+                }
+
+                builder.mockMessage(msgBuilder.build());
+            }
+
+            MockRule rule = builder.build();
+            MockManager.getInstance().addRule(rule);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("rule", mockRuleToMap(rule));
+
+            sendJson(out, 201, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error creating mock rule", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 400, error);
+        }
+    }
+
+    /**
+     * PUT /mock/rules/{id} - Update an existing mock rule.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleUpdateMockRule(String ruleId, String body, OutputStream out) throws IOException {
+        try {
+            MockManager manager = MockManager.getInstance();
+            MockRule rule = manager.getRule(ruleId);
+
+            if (rule == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Mock rule not found");
+                error.put("id", ruleId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            Map<String, Object> data = gson.fromJson(body, Map.class);
+
+            // Update fields
+            if (data.containsKey("name")) {
+                rule.setName((String) data.get("name"));
+            }
+            if (data.containsKey("enabled")) {
+                rule.setEnabled((Boolean) data.get("enabled"));
+            }
+            if (data.containsKey("urlPattern")) {
+                rule.setUrlPattern((String) data.get("urlPattern"));
+            }
+            if (data.containsKey("contentPattern")) {
+                rule.setContentPattern((String) data.get("contentPattern"));
+            }
+            if (data.containsKey("method")) {
+                rule.setMethod((String) data.get("method"));
+            }
+            if (data.containsKey("direction")) {
+                rule.setDirection(MockDirection.valueOf(((String) data.get("direction")).toUpperCase()));
+            }
+            if (data.containsKey("delayMs")) {
+                rule.setDelayMs(((Number) data.get("delayMs")).intValue());
+            }
+
+            // Update mock response
+            if (data.containsKey("mockResponse")) {
+                Map<String, Object> respData = (Map<String, Object>) data.get("mockResponse");
+                MockHttpResponse.Builder respBuilder = MockHttpResponse.builder();
+
+                if (respData.containsKey("statusCode")) {
+                    respBuilder.statusCode(((Number) respData.get("statusCode")).intValue());
+                }
+                if (respData.containsKey("statusMessage")) {
+                    respBuilder.statusMessage((String) respData.get("statusMessage"));
+                }
+                if (respData.containsKey("body")) {
+                    respBuilder.body((String) respData.get("body"));
+                }
+                if (respData.containsKey("contentType")) {
+                    respBuilder.contentType((String) respData.get("contentType"));
+                }
+                if (respData.containsKey("headers")) {
+                    respBuilder.headers((Map<String, String>) respData.get("headers"));
+                }
+
+                rule.setMockResponse(respBuilder.build());
+            }
+
+            // Update mock message
+            if (data.containsKey("mockMessage")) {
+                Map<String, Object> msgData = (Map<String, Object>) data.get("mockMessage");
+                MockWebSocketMessage.Builder msgBuilder = MockWebSocketMessage.builder();
+
+                if (msgData.containsKey("textPayload")) {
+                    msgBuilder.textPayload((String) msgData.get("textPayload"));
+                }
+                if (msgData.containsKey("drop")) {
+                    msgBuilder.drop((Boolean) msgData.get("drop"));
+                }
+
+                rule.setMockMessage(msgBuilder.build());
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("rule", mockRuleToMap(rule));
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error updating mock rule", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 400, error);
+        }
+    }
+
+    /**
+     * DELETE /mock/rules/{id} - Delete a mock rule.
+     */
+    private void handleDeleteMockRule(String ruleId, OutputStream out) throws IOException {
+        try {
+            boolean deleted = MockManager.getInstance().deleteRule(ruleId);
+
+            if (!deleted) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Mock rule not found");
+                error.put("id", ruleId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("deleted", ruleId);
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error deleting mock rule", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /mock/config - Get global mock configuration.
+     */
+    private void handleGetMockConfig(OutputStream out) throws IOException {
+        try {
+            MockConfig config = MockManager.getInstance().getConfig();
+            sendJson(out, 200, mockConfigToMap(config));
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error getting mock config", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * PUT /mock/config - Update global mock configuration.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleUpdateMockConfig(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> data = gson.fromJson(body, Map.class);
+            MockConfig config = MockManager.getInstance().getConfig();
+
+            if (data.containsKey("enabled")) {
+                config.setEnabled((Boolean) data.get("enabled"));
+            }
+            if (data.containsKey("httpMockingEnabled")) {
+                config.setHttpMockingEnabled((Boolean) data.get("httpMockingEnabled"));
+            }
+            if (data.containsKey("webSocketMockingEnabled")) {
+                config.setWebSocketMockingEnabled((Boolean) data.get("webSocketMockingEnabled"));
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("config", mockConfigToMap(config));
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error updating mock config", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 400, error);
+        }
+    }
+
+    /**
+     * POST /mock/from-request/{id} - Create a mock rule from a captured HTTP request.
+     */
+    private void handleCreateMockFromRequest(String requestId, OutputStream out) throws IOException {
+        try {
+            MockManager manager = MockManager.getInstance();
+            MockRule.Builder builder = manager.createRuleFromTransaction(requestId);
+
+            if (builder == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Request not found or has no response");
+                error.put("id", requestId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            MockRule rule = builder.build();
+            manager.addRule(rule);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("rule", mockRuleToMap(rule));
+
+            sendJson(out, 201, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error creating mock from request", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * POST /mock/from-message/{id} - Create a mock rule from a captured WebSocket message.
+     */
+    private void handleCreateMockFromMessage(String messageId, OutputStream out) throws IOException {
+        try {
+            MockManager manager = MockManager.getInstance();
+            MockRule.Builder builder = manager.createRuleFromMessage(messageId);
+
+            if (builder == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Message not found");
+                error.put("id", messageId);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            MockRule rule = builder.build();
+            manager.addRule(rule);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("rule", mockRuleToMap(rule));
+
+            sendJson(out, 201, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error creating mock from message", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * Converts a MockRule to a Map for JSON serialization.
+     */
+    private Map<String, Object> mockRuleToMap(MockRule rule) {
+        Map<String, Object> map = new HashMap<>();
+
+        map.put("id", rule.getId());
+        map.put("name", rule.getName());
+        map.put("type", rule.getType().name());
+        map.put("enabled", rule.isEnabled());
+        map.put("urlPattern", rule.getUrlPattern());
+        map.put("contentPattern", rule.getContentPattern());
+        map.put("method", rule.getMethod());
+        map.put("direction", rule.getDirection() != null ? rule.getDirection().name() : null);
+        map.put("delayMs", rule.getDelayMs());
+        map.put("matchCount", rule.getMatchCount());
+        map.put("createdAt", rule.getCreatedAt());
+
+        // Include mock response if present
+        MockHttpResponse mockResponse = rule.getMockResponse();
+        if (mockResponse != null) {
+            Map<String, Object> respMap = new HashMap<>();
+            respMap.put("statusCode", mockResponse.getStatusCode());
+            respMap.put("statusMessage", mockResponse.getStatusMessage());
+            respMap.put("body", mockResponse.getBody());
+            respMap.put("contentType", mockResponse.getContentType());
+            respMap.put("headers", mockResponse.getHeaders());
+            respMap.put("capturedTransactionId", mockResponse.getCapturedTransactionId());
+            map.put("mockResponse", respMap);
+        }
+
+        // Include mock message if present
+        MockWebSocketMessage mockMessage = rule.getMockMessage();
+        if (mockMessage != null) {
+            Map<String, Object> msgMap = new HashMap<>();
+            msgMap.put("textPayload", mockMessage.getTextPayload());
+            msgMap.put("drop", mockMessage.isDrop());
+            msgMap.put("capturedMessageId", mockMessage.getCapturedMessageId());
+            if (mockMessage.getBinaryPayload() != null) {
+                msgMap.put("binaryPayload", android.util.Base64.encodeToString(
+                        mockMessage.getBinaryPayload(), android.util.Base64.NO_WRAP));
+            }
+            map.put("mockMessage", msgMap);
+        }
+
+        return map;
+    }
+
+    /**
+     * Converts a MockConfig to a Map for JSON serialization.
+     */
+    private Map<String, Object> mockConfigToMap(MockConfig config) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("enabled", config.isEnabled());
+        map.put("httpMockingEnabled", config.isHttpMockingEnabled());
+        map.put("webSocketMockingEnabled", config.isWebSocketMockingEnabled());
+        map.put("httpMockingActive", config.isHttpMockingActive());
+        map.put("webSocketMockingActive", config.isWebSocketMockingActive());
+        return map;
+    }
+
+    // =========================================================================
     // Selection Endpoints
     // =========================================================================
 
@@ -1407,6 +1934,11 @@ public class InspectorServer {
         map.put("endTime", tx.getEndTime());
         map.put("duration", tx.getDuration());
         map.put("source", tx.getSource());
+        map.put("mocked", tx.isMocked());
+
+        if (tx.getMockRuleId() != null) {
+            map.put("mockRuleId", tx.getMockRuleId());
+        }
 
         if (tx.getError() != null) {
             map.put("error", tx.getError());

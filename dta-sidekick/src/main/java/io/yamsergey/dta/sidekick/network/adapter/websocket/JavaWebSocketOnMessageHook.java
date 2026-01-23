@@ -3,6 +3,9 @@ package io.yamsergey.dta.sidekick.network.adapter.websocket;
 import io.yamsergey.dta.sidekick.SidekickLog;
 
 import io.yamsergey.dta.sidekick.jvmti.MethodHook;
+import io.yamsergey.dta.sidekick.mock.MockManager;
+import io.yamsergey.dta.sidekick.mock.MockRule;
+import io.yamsergey.dta.sidekick.mock.MockWebSocketMessage;
 import io.yamsergey.dta.sidekick.network.WebSocketConnection;
 import io.yamsergey.dta.sidekick.network.WebSocketInspector;
 import io.yamsergey.dta.sidekick.network.WebSocketMessage;
@@ -54,6 +57,32 @@ public class JavaWebSocketOnMessageHook implements MethodHook {
                 if (conn.getStatus() == WebSocketConnection.Status.CONNECTING) {
                     conn.markConnected();
                     WebSocketInspector.onConnectionOpened(conn);
+                }
+
+                // Check for mock rules
+                MockManager mockManager = MockManager.getInstance();
+                MockRule rule = mockManager.findMatchingWebSocketRule(
+                        conn.getUrl(),
+                        WebSocketMessage.Direction.RECEIVED,
+                        text
+                );
+
+                if (rule != null && rule.getMockMessage() != null) {
+                    MockWebSocketMessage mockMsg = rule.getMockMessage();
+
+                    if (mockMsg.isDrop()) {
+                        args[1] = "";
+                        SidekickLog.d(TAG, "Dropped received message (replaced with empty)");
+                        rule.incrementMatchCount();
+                        return;
+                    }
+
+                    if (mockMsg.getTextPayload() != null) {
+                        args[1] = mockMsg.getTextPayload();
+                        text = mockMsg.getTextPayload();
+                        rule.incrementMatchCount();
+                        SidekickLog.d(TAG, "Mocked received text message (rule: " + rule.getName() + ")");
+                    }
                 }
 
                 WebSocketMessage msg = WebSocketMessage.textMessage(

@@ -10,6 +10,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+    <!-- CodeMirror for mock body editor -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
     <style>
         /* Catppuccin Mocha Color Scheme */
         :root {
@@ -507,6 +511,169 @@
             overflow: visible;
         }
 
+        /* Mock tab styles */
+        .mock-layout {
+            padding: 16px;
+            display: flex;
+            gap: 16px;
+        }
+        .mock-rules-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .mock-rule-item {
+            background: var(--ctp-surface0);
+            border-radius: 6px;
+            padding: 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .mock-rule-item:hover {
+            background: var(--ctp-surface1);
+        }
+        .mock-rule-item.selected {
+            background: var(--ctp-surface1);
+            border-left: 3px solid var(--ctp-mauve);
+        }
+        .mock-rule-item.disabled {
+            opacity: 0.5;
+        }
+        .mock-rule-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .mock-rule-type {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+        .mock-rule-type.http {
+            background: var(--ctp-blue);
+            color: var(--ctp-base);
+        }
+        .mock-rule-type.websocket {
+            background: var(--ctp-green);
+            color: var(--ctp-base);
+        }
+        .mock-rule-name {
+            flex: 1;
+            font-weight: 500;
+        }
+        .mock-rule-matches {
+            font-size: 12px;
+            color: var(--ctp-subtext0);
+        }
+        .mock-rule-details {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--ctp-surface2);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .mock-detail-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .mock-detail-row label {
+            font-size: 12px;
+            color: var(--ctp-subtext0);
+        }
+        .mock-detail-row input,
+        .mock-detail-row textarea {
+            background: var(--ctp-base);
+            border: 1px solid var(--ctp-surface2);
+            border-radius: 4px;
+            padding: 8px;
+            color: var(--ctp-text);
+            font-family: inherit;
+            font-size: 13px;
+        }
+        .mock-detail-row textarea {
+            resize: vertical;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .mock-detail-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 16px !important;
+            overflow: hidden !important;
+            flex: 1;
+            min-height: 0;
+        }
+        .mock-body-section {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+            min-height: 0;
+        }
+        .mock-body-section label {
+            font-size: 12px;
+            color: var(--ctp-subtext0);
+            flex-shrink: 0;
+        }
+        .mock-body-editor {
+            flex: 1;
+            min-height: 0;
+            border: 1px solid var(--ctp-surface0);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .mock-body-editor:focus-within {
+            border-color: var(--ctp-mauve);
+        }
+        /* CodeMirror Catppuccin theme */
+        .mock-body-editor .CodeMirror {
+            height: 100%;
+            background: var(--ctp-mantle);
+            color: var(--ctp-text);
+            font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .mock-body-editor .CodeMirror-gutters {
+            background: var(--ctp-crust);
+            border-right: 1px solid var(--ctp-surface0);
+        }
+        .mock-body-editor .CodeMirror-linenumber {
+            color: var(--ctp-overlay0);
+        }
+        .mock-body-editor .CodeMirror-cursor {
+            border-left: 2px solid var(--ctp-text);
+        }
+        .mock-body-editor .CodeMirror-selected {
+            background: var(--ctp-surface1) !important;
+        }
+        .mock-body-editor .CodeMirror-focused .CodeMirror-selected {
+            background: var(--ctp-surface2) !important;
+        }
+        .mock-body-editor .CodeMirror-matchingbracket {
+            color: var(--ctp-green) !important;
+            font-weight: bold;
+        }
+        /* JSON syntax colors */
+        .mock-body-editor .cm-property { color: var(--ctp-blue); }
+        .mock-body-editor .cm-string { color: var(--ctp-green); }
+        .mock-body-editor .cm-number { color: var(--ctp-peach); }
+        .mock-body-editor .cm-atom { color: var(--ctp-peach); }
+        .mock-body-editor .cm-keyword { color: var(--ctp-mauve); }
+        .mock-body-editor .cm-comment { color: var(--ctp-overlay0); }
+        .mock-body-editor .cm-bracket { color: var(--ctp-overlay1); }
+        .btn-sm.danger {
+            background: var(--ctp-red);
+            color: var(--ctp-base);
+        }
+        .btn-sm.danger:hover {
+            background: var(--ctp-maroon);
+        }
+
         /* Resizable panels */
         .resize-handle {
             width: 5px;
@@ -708,6 +875,42 @@
             padding-bottom: 6px;
             border-bottom: 1px solid var(--ctp-surface0);
         }
+
+        /* Context Menu */
+        .context-menu-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 999;
+        }
+        .context-menu {
+            position: fixed;
+            background: var(--ctp-surface0);
+            border: 1px solid var(--ctp-surface1);
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 160px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+        }
+        .context-menu-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--ctp-text);
+        }
+        .context-menu-item:hover {
+            background: var(--ctp-surface1);
+        }
+        .context-menu-icon {
+            width: 16px;
+            text-align: center;
+            color: var(--ctp-mauve);
+        }
     </style>
 </head>
 <body>
@@ -763,6 +966,9 @@
                 </div>
                 <div class="tab" :class="{ active: activeTab === 'websocket' }" @click="switchTab('websocket')">
                     WebSocket ({{ wsConnections.length }})
+                </div>
+                <div class="tab" :class="{ active: activeTab === 'mock' }" @click="switchTab('mock')">
+                    Mock ({{ mockRules.length }})
                 </div>
             </div>
 
@@ -945,8 +1151,10 @@
                         <div v-else>
                             <div v-for="req in networkRequestsReversed" :key="req.id"
                                  class="request-item"
-                                 :class="{ selected: selectedRequest?.id === req.id }"
-                                 @click="selectRequest(req)">
+                                 :class="{ selected: selectedRequest?.id === req.id, mocked: req.mocked }"
+                                 @click="selectRequest(req)"
+                                 @contextmenu.prevent="showRequestContextMenu($event, req)">
+                                <span v-if="req.mocked" class="mock-badge" title="Mocked">M</span>
                                 <span class="method-badge" :class="'method-' + req.method">
                                     {{ req.method }}
                                 </span>
@@ -1114,7 +1322,8 @@
                             <div v-for="(msg, index) in selectedWsDetails.messages" :key="index"
                                  class="message-item"
                                  :class="[msg.direction?.toLowerCase(), { selected: selectedWsMessage?.index === index }]"
-                                 @click="selectWsMessage(index, msg)">
+                                 @click="selectWsMessage(index, msg)"
+                                 @contextmenu.prevent="showMessageContextMenu($event, msg)">
                                 <div class="message-direction" :class="msg.direction?.toLowerCase()">
                                     {{ msg.direction === 'SENT' ? '↑ Sent' : '↓ Received' }}
                                 </div>
@@ -1181,6 +1390,118 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Mock Tab -->
+            <div class="main mock-layout" v-show="activeTab === 'mock'">
+                <!-- Left Panel: Config + Rules List -->
+                <div class="panel" style="width: 350px; min-width: 250px; display: flex; flex-direction: column;">
+                    <!-- Global Config -->
+                    <div class="panel-header" style="flex-shrink: 0;">
+                        <span>Mock Rules ({{ mockRules.length }})</span>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="btn-sm" @click="createNewMockRule" :disabled="!connected" title="Add new rule">
+                                + Add
+                            </button>
+                            <button class="secondary btn-sm" @click="refreshMockRules" :disabled="!connected">
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div style="padding: 8px 12px; border-bottom: 1px solid var(--ctp-surface0); flex-shrink: 0;">
+                        <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+                                <input type="checkbox" v-model="mockConfig.enabled" @change="updateMockConfig">
+                                <span>Enabled</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+                                <input type="checkbox" v-model="mockConfig.httpMockingEnabled" @change="updateMockConfig" :disabled="!mockConfig.enabled">
+                                <span>HTTP</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+                                <input type="checkbox" v-model="mockConfig.webSocketMockingEnabled" @change="updateMockConfig" :disabled="!mockConfig.enabled">
+                                <span>WS</span>
+                            </label>
+                        </div>
+                    </div>
+                    <!-- Rules List -->
+                    <div class="panel-content" style="overflow-y: auto; flex: 1;">
+                        <div v-if="mockRules.length === 0" class="empty">
+                            No mock rules.<br>Right-click on a request to create one.
+                        </div>
+                        <div v-else class="mock-rules-list">
+                            <div v-for="rule in mockRules" :key="rule.id"
+                                 class="mock-rule-item"
+                                 :class="{ disabled: !rule.enabled, selected: selectedMockRule === rule }"
+                                 @click="selectMockRule(rule)">
+                                <div class="mock-rule-header">
+                                    <input type="checkbox" v-model="rule.enabled" @change="toggleMockRule(rule)" @click.stop>
+                                    <span class="mock-rule-type" :class="rule.type.toLowerCase()">{{ rule.type }}</span>
+                                    <span class="mock-rule-name">{{ rule.name }}</span>
+                                    <span class="mock-rule-matches">{{ rule.matchCount }}</span>
+                                    <button class="btn-sm danger" @click.stop="deleteMockRule(rule)" title="Delete">×</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Panel: Rule Details -->
+                <div class="panel" style="flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;">
+                    <div class="panel-header" style="flex-shrink: 0;">
+                        <span v-if="selectedMockRule">{{ selectedMockRule.name }}</span>
+                        <span v-else>Select a rule</span>
+                    </div>
+                    <div v-if="!selectedMockRule" class="panel-content" style="display: flex; align-items: center; justify-content: center; color: var(--ctp-subtext0);">
+                        Select a mock rule to edit
+                    </div>
+                    <div v-else class="panel-content mock-detail-panel">
+                        <div class="mock-detail-row">
+                            <label>Name:</label>
+                            <input type="text" v-model="selectedMockRule.name" @change="updateMockRuleField(selectedMockRule, 'name')" placeholder="Rule name">
+                        </div>
+                        <div class="mock-detail-row">
+                            <label>URL Pattern:</label>
+                            <input type="text" v-model="selectedMockRule.urlPattern" @change="updateMockRuleField(selectedMockRule, 'urlPattern')">
+                        </div>
+                        <div class="mock-detail-row" v-if="selectedMockRule.type === 'WEBSOCKET'">
+                            <label>Content Pattern (regex):</label>
+                            <input type="text" v-model="selectedMockRule.contentPattern" @change="updateMockRuleField(selectedMockRule, 'contentPattern')" placeholder="Regex to match message content">
+                        </div>
+                        <div class="mock-detail-row" v-if="selectedMockRule.type === 'HTTP' && selectedMockRule.mockResponse">
+                            <label>Status Code:</label>
+                            <input type="number" v-model="selectedMockRule.mockResponse.statusCode" @change="updateMockResponse(selectedMockRule)" style="width: 100px;">
+                        </div>
+                        <!-- Response Body with syntax highlighting -->
+                        <div class="mock-body-section" v-if="selectedMockRule.type === 'HTTP' && selectedMockRule.mockResponse">
+                            <label>Response Body:</label>
+                            <div class="mock-body-editor" ref="httpEditorContainer"></div>
+                        </div>
+                        <!-- WebSocket Payload with syntax highlighting -->
+                        <div class="mock-body-section" v-if="selectedMockRule.type === 'WEBSOCKET' && selectedMockRule.mockMessage">
+                            <label>Mock Payload:</label>
+                            <div class="mock-body-editor" ref="wsEditorContainer"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Context Menu -->
+            <div v-if="contextMenu.visible"
+                 class="context-menu"
+                 :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+                 @click.stop>
+                <div class="context-menu-item" @click="contextMenuCreateMock">
+                    <span class="context-menu-icon">+</span>
+                    Create Mock Rule
+                </div>
+            </div>
+
+            <!-- Global click handler to close context menu -->
+            <div v-if="contextMenu.visible"
+                 class="context-menu-overlay"
+                 @click="hideContextMenu"
+                 @contextmenu.prevent="hideContextMenu">
             </div>
         </div>
     </div>
@@ -1293,6 +1614,24 @@
                 const selectedWsDetails = ref(null);
                 const selectedWsMessage = ref(null); // { index, message, connectionId }
 
+                // Mock state
+                const mockRules = ref([]);
+                const selectedMockRule = ref(null);
+                const mockConfig = reactive({
+                    enabled: true,
+                    httpMockingEnabled: true,
+                    webSocketMockingEnabled: true
+                });
+
+                // Context menu state
+                const contextMenu = reactive({
+                    visible: false,
+                    x: 0,
+                    y: 0,
+                    type: null, // 'request' or 'message'
+                    item: null
+                });
+
                 // Collapsible sections state
                 const sections = reactive({
                     url: true,
@@ -1315,6 +1654,12 @@
                 const networkListPanel = ref(null);
                 const networkPanelWidth = ref(400);
                 const isResizingNetwork = ref(false);
+
+                // Mock body editor refs and CodeMirror instances
+                const httpEditorContainer = ref(null);
+                const wsEditorContainer = ref(null);
+                let httpEditor = null;
+                let wsEditor = null;
 
                 // WebSocket resizable panel state
                 const wsLayout = ref(null);
@@ -1555,6 +1900,296 @@
                     wsConnections.value = [];
                     selectedWsConnection.value = null;
                     selectedWsMessage.value = null;
+                }
+
+                // Mock functions
+                async function refreshMockRules() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        const res = await fetch(api(`/mock/rules?${params}`));
+                        const data = await res.json();
+                        mockRules.value = data.rules || [];
+                        if (data.config) {
+                            mockConfig.enabled = data.config.enabled;
+                            mockConfig.httpMockingEnabled = data.config.httpMockingEnabled;
+                            mockConfig.webSocketMockingEnabled = data.config.webSocketMockingEnabled;
+                        }
+                    } catch (e) {
+                        console.error('Failed to load mock rules:', e);
+                    }
+                }
+
+                async function updateMockConfig() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        await fetch(api(`/mock/config?${params}`), {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                enabled: mockConfig.enabled,
+                                httpMockingEnabled: mockConfig.httpMockingEnabled,
+                                webSocketMockingEnabled: mockConfig.webSocketMockingEnabled
+                            })
+                        });
+                    } catch (e) {
+                        console.error('Failed to update mock config:', e);
+                    }
+                }
+
+                async function toggleMockRule(rule) {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        await fetch(api(`/mock/rules/${rule.id}?${params}`), {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ enabled: rule.enabled })
+                        });
+                    } catch (e) {
+                        console.error('Failed to toggle mock rule:', e);
+                        rule.enabled = !rule.enabled; // Revert on error
+                    }
+                }
+
+                async function deleteMockRule(rule) {
+                    if (!connected.value) return;
+                    if (!confirm(`Delete mock rule "${rule.name}"?`)) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        await fetch(api(`/mock/rules/${rule.id}?${params}`), { method: 'DELETE' });
+                        mockRules.value = mockRules.value.filter(r => r.id !== rule.id);
+                        if (selectedMockRule.value === rule) selectedMockRule.value = null;
+                    } catch (e) {
+                        console.error('Failed to delete mock rule:', e);
+                    }
+                }
+
+                async function updateMockRuleField(rule, field) {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        await fetch(api(`/mock/rules/${rule.id}?${params}`), {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ [field]: rule[field] })
+                        });
+                    } catch (e) {
+                        console.error('Failed to update mock rule:', e);
+                    }
+                }
+
+                async function updateMockMessage(rule) {
+                    if (!connected.value || !rule.mockMessage) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        await fetch(api(`/mock/rules/${rule.id}?${params}`), {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mockMessage: { textPayload: rule.mockMessage.textPayload } })
+                        });
+                    } catch (e) {
+                        console.error('Failed to update mock message:', e);
+                    }
+                }
+
+                async function updateMockResponse(rule) {
+                    if (!connected.value || !rule.mockResponse) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        await fetch(api(`/mock/rules/${rule.id}?${params}`), {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mockResponse: { statusCode: rule.mockResponse.statusCode, body: rule.mockResponse.body } })
+                        });
+                    } catch (e) {
+                        console.error('Failed to update mock response:', e);
+                    }
+                }
+
+                // Select a mock rule and initialize editor
+                function selectMockRule(rule) {
+                    selectedMockRule.value = rule;
+                    initMockEditor(rule.type);
+                }
+
+                // Initialize CodeMirror editor for mock body
+                function initMockEditor(type) {
+                    nextTick(() => {
+                        if (type === 'HTTP' && httpEditorContainer.value && selectedMockRule.value?.mockResponse) {
+                            if (httpEditor) {
+                                httpEditor.toTextArea();
+                            }
+                            // Create textarea for CodeMirror
+                            const textarea = document.createElement('textarea');
+                            textarea.value = selectedMockRule.value.mockResponse.body || '';
+                            httpEditorContainer.value.innerHTML = '';
+                            httpEditorContainer.value.appendChild(textarea);
+
+                            httpEditor = CodeMirror.fromTextArea(textarea, {
+                                mode: { name: 'javascript', json: true },
+                                lineNumbers: true,
+                                lineWrapping: true,
+                                matchBrackets: true,
+                                autoCloseBrackets: true
+                            });
+
+                            // Sync changes back to model
+                            httpEditor.on('change', () => {
+                                if (selectedMockRule.value?.mockResponse) {
+                                    selectedMockRule.value.mockResponse.body = httpEditor.getValue();
+                                    updateMockResponse(selectedMockRule.value);
+                                }
+                            });
+                        } else if (type === 'WEBSOCKET' && wsEditorContainer.value && selectedMockRule.value?.mockMessage) {
+                            if (wsEditor) {
+                                wsEditor.toTextArea();
+                            }
+                            const textarea = document.createElement('textarea');
+                            textarea.value = selectedMockRule.value.mockMessage.textPayload || '';
+                            wsEditorContainer.value.innerHTML = '';
+                            wsEditorContainer.value.appendChild(textarea);
+
+                            wsEditor = CodeMirror.fromTextArea(textarea, {
+                                mode: { name: 'javascript', json: true },
+                                lineNumbers: true,
+                                lineWrapping: true,
+                                matchBrackets: true,
+                                autoCloseBrackets: true
+                            });
+
+                            wsEditor.on('change', () => {
+                                if (selectedMockRule.value?.mockMessage) {
+                                    selectedMockRule.value.mockMessage.textPayload = wsEditor.getValue();
+                                    updateMockMessage(selectedMockRule.value);
+                                }
+                            });
+                        }
+                    });
+                }
+
+                async function createNewMockRule() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        const newRule = {
+                            name: 'New Rule',
+                            type: 'HTTP',
+                            enabled: true,
+                            urlPattern: '.*',
+                            mockResponse: {
+                                statusCode: 200,
+                                statusMessage: 'OK',
+                                body: '{\n  "message": "Mocked response"\n}',
+                                contentType: 'application/json'
+                            }
+                        };
+                        const res = await fetch(api(`/mock/rules?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(newRule)
+                        });
+                        const data = await res.json();
+                        if (data.rule) {
+                            mockRules.value.push(data.rule);
+                            selectMockRule(data.rule);
+                        }
+                    } catch (e) {
+                        console.error('Failed to create new mock rule:', e);
+                    }
+                }
+
+                async function createMockFromRequest(requestId) {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        const res = await fetch(api(`/mock/from-request/${requestId}?${params}`), { method: 'POST' });
+                        const data = await res.json();
+                        if (data.rule) {
+                            mockRules.value.push(data.rule);
+                            activeTab.value = 'mock';
+                            selectMockRule(data.rule);
+                        }
+                    } catch (e) {
+                        console.error('Failed to create mock from request:', e);
+                    }
+                }
+
+                async function createMockFromMessage(messageId) {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+                    try {
+                        const res = await fetch(api(`/mock/from-message/${messageId}?${params}`), { method: 'POST' });
+                        const data = await res.json();
+                        if (data.rule) {
+                            mockRules.value.push(data.rule);
+                            activeTab.value = 'mock';
+                            selectMockRule(data.rule);
+                        }
+                    } catch (e) {
+                        console.error('Failed to create mock from message:', e);
+                    }
+                }
+
+                function showRequestContextMenu(event, request) {
+                    contextMenu.visible = true;
+                    contextMenu.x = event.clientX;
+                    contextMenu.y = event.clientY;
+                    contextMenu.type = 'request';
+                    contextMenu.item = request;
+                }
+
+                function showMessageContextMenu(event, message) {
+                    contextMenu.visible = true;
+                    contextMenu.x = event.clientX;
+                    contextMenu.y = event.clientY;
+                    contextMenu.type = 'message';
+                    contextMenu.item = message;
+                }
+
+                function hideContextMenu() {
+                    contextMenu.visible = false;
+                    contextMenu.item = null;
+                }
+
+                async function contextMenuCreateMock() {
+                    if (contextMenu.type === 'request' && contextMenu.item) {
+                        await createMockFromRequest(contextMenu.item.id);
+                    } else if (contextMenu.type === 'message' && contextMenu.item) {
+                        await createMockFromMessage(contextMenu.item.id);
+                    }
+                    hideContextMenu();
                 }
 
                 function selectNode(node) {
@@ -1973,6 +2608,7 @@
                     if (connected.value) {
                         if (tab === 'network') loadNetworkRequests();
                         else if (tab === 'websocket') loadWsConnections();
+                        else if (tab === 'mock') refreshMockRules();
                     }
                 }
 
@@ -2284,10 +2920,13 @@
                     expandedNodes, detailSections,
                     networkRequests, networkRequestsReversed, selectedRequest, selectedRequestDetails, mediaBody,
                     wsConnections, selectedWsConnection, selectedWsDetails, selectedWsMessage,
+                    mockRules, selectedMockRule, mockConfig, contextMenu,
                     sections, wsMsgSections,
                     // Resizable panels
                     networkLayout, networkListPanel, networkPanelWidth, isResizingNetwork,
                     startNetworkResize,
+                    // Mock body editor refs
+                    httpEditorContainer, wsEditorContainer, selectMockRule,
                     // WebSocket resizable panels
                     wsLayout, wsPanelWidth, isResizingWs,
                     startWsResize, backToConnections, truncateUrl, closeWsMessage,
@@ -2298,7 +2937,13 @@
                     getMessageContent, truncateMessage, truncateText,
                     copyRequest, exportRequest, copyWsMessages, exportWsMessages, copyWsMessageBody, copySection,
                     debouncedFilter, clearFilters, loadComposeTree, loadNetworkRequests, loadWsConnections,
-                    clearNetworkRequests, clearWsConnections
+                    clearNetworkRequests, clearWsConnections,
+                    // Mock functions
+                    refreshMockRules, updateMockConfig, toggleMockRule, deleteMockRule,
+                    updateMockRuleField, updateMockMessage, updateMockResponse,
+                    createNewMockRule, createMockFromRequest, createMockFromMessage,
+                    // Context menu
+                    showRequestContextMenu, showMessageContextMenu, hideContextMenu, contextMenuCreateMock
                 };
             }
         }).mount('#app');

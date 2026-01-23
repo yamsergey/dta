@@ -66,6 +66,8 @@ public final class HttpTransaction {
     private volatile Status status;
     private volatile String error;
     private volatile String source;
+    private volatile boolean mocked;
+    private volatile String mockRuleId;
 
     private HttpTransaction(Builder builder) {
         this.id = builder.id != null ? builder.id : UUID.randomUUID().toString();
@@ -150,6 +152,20 @@ public final class HttpTransaction {
         return source;
     }
 
+    /**
+     * Returns true if this transaction was mocked (response came from a mock rule).
+     */
+    public boolean isMocked() {
+        return mocked;
+    }
+
+    /**
+     * Gets the ID of the mock rule that was applied, if any.
+     */
+    public String getMockRuleId() {
+        return mockRuleId;
+    }
+
     // =========================================================================
     // Setters / Mutators
     // =========================================================================
@@ -175,6 +191,22 @@ public final class HttpTransaction {
      */
     public HttpTransaction setSource(String source) {
         this.source = source;
+        return this;
+    }
+
+    /**
+     * Sets whether this transaction was mocked.
+     */
+    public HttpTransaction setMocked(boolean mocked) {
+        this.mocked = mocked;
+        return this;
+    }
+
+    /**
+     * Sets the mock rule ID that was applied.
+     */
+    public HttpTransaction setMockRuleId(String mockRuleId) {
+        this.mockRuleId = mockRuleId;
         return this;
     }
 

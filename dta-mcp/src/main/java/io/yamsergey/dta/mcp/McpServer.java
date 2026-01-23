@@ -34,6 +34,7 @@ public class McpServer {
         List<McpServerFeatures.SyncToolSpecification> tools = new ArrayList<>();
         collectDeviceTools(tools);
         collectAppTools(tools);
+        collectMockTools(tools);
 
         // Build server with all tools registered upfront
         var server = io.modelcontextprotocol.server.McpServer.sync(
@@ -701,6 +702,224 @@ public class McpServer {
                             return jsonResult(Map.of("success", true, "message", "WebSocket selection cleared"));
                         }
                         return errorResult("Failed to clear websocket selection");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+    }
+
+    // ========================================================================
+    // Mock tools
+    // ========================================================================
+
+    private static void collectMockTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        // mock_list_rules
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("mock_list_rules", "List all mock rules for HTTP and WebSocket mocking",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.getMockRules();
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to get mock rules");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // mock_create_rule
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("mock_create_rule", "Create a mock rule from a captured HTTP request or WebSocket message. Provide either request_id OR message_id.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "request_id", prop("string", "ID of the captured HTTP request to create mock from", false),
+                    "message_id", prop("string", "ID of the captured WebSocket message to create mock from", false),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String requestId = getString(args, "request_id");
+                    String messageId = getString(args, "message_id");
+                    String device = getString(args, "device");
+
+                    if (requestId == null && messageId == null) {
+                        return errorResult("Either request_id or message_id must be provided");
+                    }
+                    if (requestId != null && messageId != null) {
+                        return errorResult("Provide either request_id or message_id, not both");
+                    }
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result;
+                        if (requestId != null) {
+                            result = client.createMockFromRequest(requestId);
+                        } else {
+                            result = client.createMockFromMessage(messageId);
+                        }
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to create mock rule");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // mock_update_rule
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "rule_id", prop("string", "Mock rule ID", true),
+                    "enabled", prop("boolean", "Enable or disable the rule", false),
+                    "content_pattern", prop("string", "Regex pattern to match message/body content (for selective mocking)", false),
+                    "status_code", prop("integer", "New HTTP status code (for HTTP rules)", false),
+                    "body", prop("string", "New response body (for HTTP rules)", false),
+                    "text_payload", prop("string", "New WebSocket message payload (for WebSocket rules)", false),
+                    "drop", prop("boolean", "Drop WebSocket message instead of modifying (for WebSocket rules)", false),
+                    "delay_ms", prop("integer", "Response delay in milliseconds", false),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String ruleId = getString(args, "rule_id");
+                    String device = getString(args, "device");
+
+                    // Build update JSON
+                    ObjectNode update = mapper.createObjectNode();
+                    if (args.containsKey("enabled")) {
+                        update.put("enabled", (Boolean) args.get("enabled"));
+                    }
+                    if (args.containsKey("delay_ms")) {
+                        update.put("delayMs", getInt(args, "delay_ms", 0));
+                    }
+                    if (args.containsKey("content_pattern")) {
+                        update.put("contentPattern", getString(args, "content_pattern"));
+                    }
+
+                    // Build mock response updates if needed (for HTTP rules)
+                    if (args.containsKey("status_code") || args.containsKey("body")) {
+                        ObjectNode mockResponse = update.putObject("mockResponse");
+                        if (args.containsKey("status_code")) {
+                            mockResponse.put("statusCode", getInt(args, "status_code", 200));
+                        }
+                        if (args.containsKey("body")) {
+                            mockResponse.put("body", getString(args, "body"));
+                        }
+                    }
+
+                    // Build mock message updates if needed (for WebSocket rules)
+                    if (args.containsKey("text_payload") || args.containsKey("drop")) {
+                        ObjectNode mockMessage = update.putObject("mockMessage");
+                        if (args.containsKey("text_payload")) {
+                            mockMessage.put("textPayload", getString(args, "text_payload"));
+                        }
+                        if (args.containsKey("drop")) {
+                            mockMessage.put("drop", (Boolean) args.get("drop"));
+                        }
+                    }
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.updateMockRule(ruleId, mapper.writeValueAsString(update));
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to update mock rule");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // mock_delete_rule
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("mock_delete_rule", "Delete a mock rule",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "rule_id", prop("string", "Mock rule ID to delete", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String ruleId = getString(args, "rule_id");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        Result<String> result = client.deleteMockRule(ruleId);
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to delete mock rule");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // mock_config
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("mock_config", "Get or update global mock configuration",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "enabled", prop("boolean", "Enable/disable all mocking (optional, omit to just get config)", false),
+                    "http_enabled", prop("boolean", "Enable/disable HTTP mocking", false),
+                    "websocket_enabled", prop("boolean", "Enable/disable WebSocket mocking", false),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    // If any config values provided, update; otherwise just get
+                    boolean hasUpdate = args.containsKey("enabled") ||
+                                       args.containsKey("http_enabled") ||
+                                       args.containsKey("websocket_enabled");
+
+                    return withSidekick(pkg, device, client -> {
+                        if (hasUpdate) {
+                            ObjectNode configUpdate = mapper.createObjectNode();
+                            if (args.containsKey("enabled")) {
+                                configUpdate.put("enabled", (Boolean) args.get("enabled"));
+                            }
+                            if (args.containsKey("http_enabled")) {
+                                configUpdate.put("httpMockingEnabled", (Boolean) args.get("http_enabled"));
+                            }
+                            if (args.containsKey("websocket_enabled")) {
+                                configUpdate.put("webSocketMockingEnabled", (Boolean) args.get("websocket_enabled"));
+                            }
+                            Result<String> result = client.updateMockConfig(mapper.writeValueAsString(configUpdate));
+                            if (result instanceof Success<String> success) {
+                                return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                            }
+                            return errorResult("Failed to update mock config");
+                        } else {
+                            Result<String> result = client.getMockConfig();
+                            if (result instanceof Success<String> success) {
+                                return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                            }
+                            return errorResult("Failed to get mock config");
+                        }
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());

@@ -94,6 +94,24 @@ public final class WebSocketInspector {
     }
 
     /**
+     * Gets a message by ID, searching across all connections.
+     *
+     * @param messageId the message ID
+     * @return the message, or null if not found
+     */
+    public static WebSocketMessage getMessage(String messageId) {
+        if (messageId == null) return null;
+        for (WebSocketConnection conn : connections) {
+            for (WebSocketMessage msg : conn.getMessages()) {
+                if (messageId.equals(msg.getId())) {
+                    return msg;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Gets all captured connections.
      *
      * @return unmodifiable list of connections (newest first)

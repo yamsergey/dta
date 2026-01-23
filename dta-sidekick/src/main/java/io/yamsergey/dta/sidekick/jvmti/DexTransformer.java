@@ -395,6 +395,38 @@ public class DexTransformer {
                 hookIdReg, thisObjReg, argsReg, 0, 0,
                 new ImmutableMethodReference(DISPATCHER_TYPE, ON_ENTER_NAME, ON_ENTER_PARAMS, ON_ENTER_RETURN)));
 
+        // Read back modified object parameters from args array (enables mocking)
+        // This allows hooks to modify args[i] and have the changes take effect
+        if (actualParamCount > 0) {
+            int paramIdx = 0;
+            int paramReg = isStatic ? newParamStart : newParamStart + 1;
+            for (MethodParameter param : params) {
+                String paramType = param.getType();
+
+                // For object types, read the value back from the args array
+                if (paramType.startsWith("L") || paramType.startsWith("[")) {
+                    // Load array index
+                    newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, tempReg, paramIdx));
+                    // Load value from args array
+                    newInstructions.add(new ImmutableInstruction23x(Opcode.AGET_OBJECT, tempReg, argsReg, tempReg));
+                    // Cast to correct type
+                    newInstructions.add(new ImmutableInstruction21c(
+                            Opcode.CHECK_CAST, tempReg,
+                            new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference(paramType)));
+                    // Store back to parameter register
+                    newInstructions.add(new ImmutableInstruction12x(Opcode.MOVE_OBJECT, paramReg, tempReg));
+                }
+
+                // Move to next parameter register
+                if (paramType.equals("J") || paramType.equals("D")) {
+                    paramReg += 2;
+                } else {
+                    paramReg += 1;
+                }
+                paramIdx++;
+            }
+        }
+
         int prologueSize = 0;
         for (Instruction insn : newInstructions) {
             prologueSize += insn.getCodeUnits();
@@ -402,10 +434,10 @@ public class DexTransformer {
 
         // FIRST PASS: Build offset map (original offset -> shift amount at that point)
         // RETURN_VOID: const/16 (2) + invoke-static (3) = 5 code units
-        // RETURN_OBJECT: just invoke-static (3) = 3 code units (return value is in existing register)
+        // RETURN_OBJECT: invoke-static (3) + move-result-object (1) + check-cast (2) = 6 code units
         // RETURN/RETURN_WIDE (primitives): const/16 (2) + invoke-static (3) = 5 code units (pass null for primitive)
         final int EXIT_VOID_SIZE = 5;
-        final int EXIT_OBJECT_SIZE = 3;
+        final int EXIT_OBJECT_SIZE = 6;
         final int EXIT_PRIMITIVE_SIZE = 5;
         Map<Integer, Integer> cumulativeShiftAtOffset = new HashMap<>();
         int currentOrigOffset = 0;
@@ -439,13 +471,19 @@ public class DexTransformer {
                         hookIdReg, thisObjReg, nullReg, 0, 0,
                         new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
             } else if (opcode == Opcode.RETURN_OBJECT) {
-                // For object return, pass the actual return value
+                // For object return, pass the actual return value and capture onExit's return
                 Instruction11x returnInsn = (Instruction11x) insn;
                 int returnReg = shift(returnInsn.getRegisterA(), originalParamStart, extraRegs);
                 newInstructions.add(new ImmutableInstruction35c(
                         Opcode.INVOKE_STATIC, 3,
                         hookIdReg, thisObjReg, returnReg, 0, 0,
                         new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+                // Capture onExit return value - enables mocking by returning a different object
+                newInstructions.add(new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, returnReg));
+                // Cast to method's return type to satisfy verifier
+                newInstructions.add(new ImmutableInstruction21c(
+                        Opcode.CHECK_CAST, returnReg,
+                        new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference(method.getReturnType())));
             } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_WIDE) {
                 // For primitive return (int, boolean, long, double, etc.), pass null
                 // Primitive values can't be passed as Object without boxing, so we skip the return value
