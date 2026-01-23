@@ -4,6 +4,7 @@ import io.yamsergey.dta.cli.drawable.DrawableCommand;
 import io.yamsergey.dta.cli.inspect.InspectCommand;
 import io.yamsergey.dta.cli.inspector.InspectorWebCommand;
 import io.yamsergey.dta.cli.mcp.McpCommand;
+import io.yamsergey.dta.cli.mock.MockCommand;
 import io.yamsergey.dta.cli.resolve.ResolveCommand;
 import io.yamsergey.dta.cli.workspace.WorkspaceCommand;
 import picocli.CommandLine;
@@ -18,6 +19,7 @@ import picocli.CommandLine.Command;
     WorkspaceCommand.class,
     DrawableCommand.class,
     InspectCommand.class,
+    MockCommand.class,
     McpCommand.class,
     InspectorWebCommand.class
 })

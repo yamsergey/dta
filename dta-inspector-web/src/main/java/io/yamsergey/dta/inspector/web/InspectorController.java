@@ -437,6 +437,171 @@ public class InspectorController {
     }
 
     // ========================================================================
+    // Mock endpoints
+    // ========================================================================
+
+    @GetMapping("/mock/rules")
+    public ResponseEntity<?> getMockRules(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().getMockRules();
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to get mock rules");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/mock/rules/{ruleId}")
+    public ResponseEntity<?> getMockRule(
+            @RequestParam("package") String packageName,
+            @PathVariable String ruleId,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().getMockRule(ruleId);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to get mock rule");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/mock/rules")
+    public ResponseEntity<?> createMockRule(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device,
+            @RequestBody String ruleJson) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().createMockRule(ruleJson);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to create mock rule");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @PutMapping("/mock/rules/{ruleId}")
+    public ResponseEntity<?> updateMockRule(
+            @RequestParam("package") String packageName,
+            @PathVariable String ruleId,
+            @RequestParam(required = false) String device,
+            @RequestBody String updateJson) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().updateMockRule(ruleId, updateJson);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to update mock rule");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/mock/rules/{ruleId}")
+    public ResponseEntity<?> deleteMockRule(
+            @RequestParam("package") String packageName,
+            @PathVariable String ruleId,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().deleteMockRule(ruleId);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to delete mock rule");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/mock/config")
+    public ResponseEntity<?> getMockConfig(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().getMockConfig();
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to get mock config");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @PutMapping("/mock/config")
+    public ResponseEntity<?> updateMockConfig(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device,
+            @RequestBody String configJson) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().updateMockConfig(configJson);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to update mock config");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/mock/from-request/{requestId}")
+    public ResponseEntity<?> createMockFromRequest(
+            @RequestParam("package") String packageName,
+            @PathVariable String requestId,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().createMockFromRequest(requestId);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to create mock from request");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/mock/from-message/{messageId}")
+    public ResponseEntity<?> createMockFromMessage(
+            @RequestParam("package") String packageName,
+            @PathVariable String messageId,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().createMockFromMessage(messageId);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to create mock from message");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
 

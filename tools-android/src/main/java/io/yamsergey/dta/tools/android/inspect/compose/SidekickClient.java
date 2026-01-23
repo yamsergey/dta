@@ -363,6 +363,101 @@ public class SidekickClient {
         return httpPost("/selection/websocket-message", "null");
     }
 
+    // ========================================================================
+    // Mock API endpoints
+    // ========================================================================
+
+    /**
+     * Gets all mock rules.
+     *
+     * @return Result containing mock rules JSON on success
+     */
+    public Result<String> getMockRules() {
+        return httpGet("/mock/rules");
+    }
+
+    /**
+     * Gets a specific mock rule by ID.
+     *
+     * @param ruleId the rule ID
+     * @return Result containing rule details JSON on success
+     */
+    public Result<String> getMockRule(String ruleId) {
+        return httpGet("/mock/rules/" + ruleId);
+    }
+
+    /**
+     * Creates a new mock rule.
+     *
+     * @param ruleJson JSON representation of the rule to create
+     * @return Result containing created rule JSON on success
+     */
+    public Result<String> createMockRule(String ruleJson) {
+        return httpPost("/mock/rules", ruleJson);
+    }
+
+    /**
+     * Updates an existing mock rule.
+     *
+     * @param ruleId the rule ID
+     * @param updateJson JSON with fields to update
+     * @return Result containing updated rule JSON on success
+     */
+    public Result<String> updateMockRule(String ruleId, String updateJson) {
+        return httpPut("/mock/rules/" + ruleId, updateJson);
+    }
+
+    /**
+     * Deletes a mock rule.
+     *
+     * @param ruleId the rule ID
+     * @return Result indicating success or failure
+     */
+    public Result<String> deleteMockRule(String ruleId) {
+        return httpDelete("/mock/rules/" + ruleId);
+    }
+
+    /**
+     * Gets the global mock configuration.
+     *
+     * @return Result containing config JSON on success
+     */
+    public Result<String> getMockConfig() {
+        return httpGet("/mock/config");
+    }
+
+    /**
+     * Updates the global mock configuration.
+     *
+     * @param configJson JSON with config fields to update
+     * @return Result containing updated config JSON on success
+     */
+    public Result<String> updateMockConfig(String configJson) {
+        return httpPut("/mock/config", configJson);
+    }
+
+    /**
+     * Creates a mock rule from a captured HTTP request.
+     * The rule is pre-filled with the captured response data.
+     *
+     * @param requestId the captured request ID
+     * @return Result containing created rule JSON on success
+     */
+    public Result<String> createMockFromRequest(String requestId) {
+        return httpPost("/mock/from-request/" + requestId, null);
+    }
+
+    /**
+     * Creates a mock rule from a captured WebSocket message.
+     * The rule is pre-filled with the captured message data.
+     *
+     * @param messageId the captured message ID
+     * @return Result containing created rule JSON on success
+     */
+    public Result<String> createMockFromMessage(String messageId) {
+        return httpPost("/mock/from-message/" + messageId, null);
+    }
+
     /**
      * Makes an HTTP GET request to the sidekick server.
      *
@@ -423,7 +518,51 @@ public class SidekickClient {
             }
 
             int responseCode = connection.getResponseCode();
-            if (responseCode == 200) {
+            if (responseCode >= 200 && responseCode < 300) {
+                String responseBody = readStream(connection.getInputStream());
+                return new Success<>(responseBody, "OK");
+            } else {
+                String error = readStream(connection.getErrorStream());
+                return new Failure<>(null, "HTTP " + responseCode + ": " + error);
+            }
+
+        } catch (java.net.ConnectException e) {
+            return new Failure<>(null,
+                "Cannot connect to sidekick server on port " + port + ". " +
+                "Make sure the app is running and includes the dta-sidekick dependency.");
+        } catch (Exception e) {
+            return new Failure<>(null, "HTTP request failed: " + e.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Makes an HTTP PUT request to the sidekick server.
+     *
+     * @param path the endpoint path
+     * @param body the request body (JSON)
+     * @return Result containing response body on success
+     */
+    private Result<String> httpPut(String path, String body) {
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL("http://localhost:" + port + path);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("PUT");
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json");
+
+            if (body != null) {
+                connection.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+            }
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode >= 200 && responseCode < 300) {
                 String responseBody = readStream(connection.getInputStream());
                 return new Success<>(responseBody, "OK");
             } else {
