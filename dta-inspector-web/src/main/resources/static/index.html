@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DTA Inspector</title>
+    <link rel="icon" type="image/svg+xml" href="mascot.svg">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Prism.js for syntax highlighting -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
@@ -70,6 +71,10 @@
             display: flex;
             align-items: center;
             gap: 8px;
+        }
+        .title-icon {
+            height: 28px;
+            width: auto;
         }
         .beta-badge {
             font-size: 10px;
@@ -709,7 +714,7 @@
     <div id="app">
         <div class="app">
             <header>
-                <h1>DTA Inspector <span class="beta-badge">Beta</span></h1>
+                <h1><img src="mascot.svg" alt="DTA" class="title-icon">DTA Inspector <span class="beta-badge">Beta</span></h1>
                 <div class="connection">
                     <select v-model="selectedDevice" @change="loadApps">
                         <option value="">Select Device</option>
