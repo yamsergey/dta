@@ -99,7 +99,7 @@ afterEvaluate {
                 pom {
                     name.set("DTA Sidekick")
                     description.set("Android library for runtime inspection - UI hierarchy, network, and WebSocket monitoring")
-                    url.set("https://github.com/yamsergey/yamsergey.dta")
+                    url.set("https://github.com/yamsergey/dta")
                     licenses {
                         license {
                             name.set("Apache License 2.0")
