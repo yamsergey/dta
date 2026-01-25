@@ -90,9 +90,21 @@ afterEvaluate {
         publications {
             register<MavenPublication>("release") {
                 from(components["release"])
-                groupId = "io.yamsergey.dta"
-                artifactId = "sidekick"
+                groupId = "com.github.yamsergey.yamsergey.dta"
+                artifactId = "dta-sidekick"
                 version = project.property("dtaVersion") as String
+
+                pom {
+                    name.set("DTA Sidekick")
+                    description.set("Android library for runtime inspection - UI hierarchy, network, and WebSocket monitoring")
+                    url.set("https://github.com/yamsergey/yamsergey.dta")
+                    licenses {
+                        license {
+                            name.set("Apache License 2.0")
+                            url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                        }
+                    }
+                }
             }
         }
         repositories {

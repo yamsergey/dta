@@ -30,65 +30,81 @@ jobs:
         run: ./gradlew build
 
       - name: Build CLI distribution
-        run: ./gradlew :adt-cli:installDist
+        run: ./gradlew :dta-cli:installDist
 
-      - name: Package adt-cli
+      - name: Package dta-cli
         run: |
-          cd adt-cli/build/install
-          tar -czf adt-cli-${{ github.ref_name }}.tar.gz adt-cli
-          zip -r adt-cli-${{ github.ref_name }}.zip adt-cli
-          mv adt-cli-${{ github.ref_name }}.tar.gz ../../../
-          mv adt-cli-${{ github.ref_name }}.zip ../../../
+          cd dta-cli/build/install
+          tar -czf dta-cli-${{ github.ref_name }}.tar.gz dta-cli
+          zip -r dta-cli-${{ github.ref_name }}.zip dta-cli
+          mv dta-cli-${{ github.ref_name }}.tar.gz ../../../
+          mv dta-cli-${{ github.ref_name }}.zip ../../../
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            adt-cli-${{ github.ref_name }}.tar.gz
-            adt-cli-${{ github.ref_name }}.zip
+            dta-cli-${{ github.ref_name }}.tar.gz
+            dta-cli-${{ github.ref_name }}.zip
           body: |
             ## Development Tools for Android ${{ github.ref_name }}
 
             ### Downloads
 
-            **adt-cli** - Unified CLI for Android project analysis and workspace generation
-            - Linux/macOS: `adt-cli-${{ github.ref_name }}.tar.gz` (~114MB)
-            - Windows: `adt-cli-${{ github.ref_name }}.zip` (~114MB)
+            **dta-cli** - CLI for Android project analysis, workspace generation, and device inspection
+            - Linux/macOS: `dta-cli-${{ github.ref_name }}.tar.gz`
+            - Windows: `dta-cli-${{ github.ref_name }}.zip`
 
             ### Installation
 
             #### Homebrew (macOS/Linux)
             ```bash
-            brew tap yamsergey/adt
+            brew tap yamsergey/packages
+            brew install dta-cli
+            ```
+
+            #### Legacy name (backward compatibility)
+            ```bash
+            brew tap yamsergey/packages
             brew install adt-cli
             ```
 
             #### Manual Installation
             ```bash
             # Extract the archive
-            tar -xzf adt-cli-${{ github.ref_name }}.tar.gz
+            tar -xzf dta-cli-${{ github.ref_name }}.tar.gz
+
+            # Add to PATH
+            export PATH="$PWD/dta-cli/bin:$PATH"
             ```
 
             ### Usage
 
             ```bash
             # Generate workspace.json for Kotlin LSP
-            adt-cli workspace /path/to/android/project \
-              --output workspace.json
+            dta-cli workspace /path/to/android/project --output workspace.json
 
             # Analyze project structure
-            adt-cli resolve /path/to/android/project \
-              --workspace --output project-analysis.json
+            dta-cli resolve /path/to/android/project --workspace
 
-            # List build variants
-            adt-cli resolve /path/to/android/project \
-              --variants --output variants.json
+            # Inspect device UI hierarchy
+            dta-cli inspect layout --format json
+
+            # Capture device screenshot
+            dta-cli inspect screenshot -o screen.png
+
+            # Start MCP server for AI assistants
+            dta-cli mcp --project /path/to/android/project
+
+            # Start web inspector
+            dta-cli inspector
             ```
 
             ### Requirements
 
             - Java 21 or higher
-            - Gradle 8.0 or higher (for analyzed projects)
+            - Gradle 8.0+ (for analyzed projects)
+            - ADB (for device inspection commands)
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -96,22 +112,23 @@ jobs:
       - name: Calculate SHA256
         id: sha
         run: |
-          SHA256=$(shasum -a 256 adt-cli-${{ github.ref_name }}.tar.gz | awk '{print $1}')
+          SHA256=$(shasum -a 256 dta-cli-${{ github.ref_name }}.tar.gz | awk '{print $1}')
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
 
-      - name: Update Homebrew Formula
+      - name: Update Homebrew Formulas
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/yamsergey/homebrew-adt.git
-          cd homebrew-adt
+          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/yamsergey/homebrew-packages.git
+          cd homebrew-packages
 
-          cat > Formula/adt-cli.rb << 'EOF'
-          class AdtCli < Formula
-            desc "Development Tools for Android - CLI for Android project analysis and workspace generation"
-            homepage "https://github.com/yamsergey/yamsergey.adt"
-            url "https://github.com/yamsergey/yamsergey.adt/releases/download/${{ github.ref_name }}/adt-cli-${{ github.ref_name }}.tar.gz"
+          # Primary formula: dta-cli
+          cat > Formula/dta-cli.rb << 'EOF'
+          class DtaCli < Formula
+            desc "Development Tools for Android - CLI for project analysis, workspace generation, and device inspection"
+            homepage "https://github.com/yamsergey/yamsergey.dta"
+            url "https://github.com/yamsergey/yamsergey.dta/releases/download/${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
             sha256 "${{ steps.sha.outputs.sha256 }}"
             license "Apache-2.0"
             version "${{ github.ref_name }}"
@@ -120,15 +137,47 @@ jobs:
 
             def install
               libexec.install Dir["*"]
-              bin.install_symlink libexec/"bin/adt-cli"
+              bin.install_symlink libexec/"bin/dta-cli"
             end
 
             test do
-              assert_match "adt-cli", shell_output("#{bin}/adt-cli --version")
+              assert_match "dta-cli", shell_output("#{bin}/dta-cli --version")
             end
           end
           EOF
 
-          git add Formula/adt-cli.rb
-          git commit -m "Update adt-cli to ${{ github.ref_name }}"
+          # Legacy formula: adt-cli (backward compatibility)
+          cat > Formula/adt-cli.rb << 'EOF'
+          class AdtCli < Formula
+            desc "Development Tools for Android - CLI (legacy name, use dta-cli instead)"
+            homepage "https://github.com/yamsergey/yamsergey.dta"
+            url "https://github.com/yamsergey/yamsergey.dta/releases/download/${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
+            sha256 "${{ steps.sha.outputs.sha256 }}"
+            license "Apache-2.0"
+            version "${{ github.ref_name }}"
+
+            depends_on "openjdk@21"
+
+            def install
+              libexec.install Dir["*"]
+              # Install both dta-cli and adt-cli symlinks for compatibility
+              bin.install_symlink libexec/"bin/dta-cli"
+              bin.install_symlink libexec/"bin/dta-cli" => "adt-cli"
+            end
+
+            def caveats
+              <<~EOS
+                Note: adt-cli is the legacy name. Consider using dta-cli instead:
+                  brew install dta-cli
+              EOS
+            end
+
+            test do
+              assert_match "dta-cli", shell_output("#{bin}/adt-cli --version")
+            end
+          end
+          EOF
+
+          git add Formula/dta-cli.rb Formula/adt-cli.rb
+          git commit -m "Update formulas to ${{ github.ref_name }}"
           git push
