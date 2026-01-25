@@ -90,9 +90,8 @@ afterEvaluate {
         publications {
             register<MavenPublication>("release") {
                 from(components["release"])
-                // Use io.yamsergey.dta group for cleaner dependency path
-                // JitPack will publish at: io.yamsergey.dta:dta-sidekick:VERSION
-                groupId = "io.yamsergey.dta"
+                // Don't set groupId - let JitPack derive it as com.github.yamsergey.dta
+                // JitPack multi-module format: com.github.{user}.{repo}:{module}:{version}
                 artifactId = "dta-sidekick"
                 version = project.property("dtaVersion") as String
 

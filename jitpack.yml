@@ -30,8 +30,6 @@ install:
 # 2. Add dependency in app's build.gradle.kts:
 #
 #    dependencies {
-#        implementation("io.yamsergey.dta:dta-sidekick:VERSION")
+#        implementation("com.github.yamsergey.dta:dta-sidekick:VERSION")
 #    }
-#
-# Note: JitPack may also expose as com.github.yamsergey:dta:VERSION
 # Available versions: release tags (1.0.10+), branch snapshots (main-SNAPSHOT)

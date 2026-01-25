@@ -6,7 +6,6 @@
  */
 
 allprojects {
-    group = 'io.yamsergey.dta'
     version = dtaVersion
 }
 
@@ -16,6 +15,7 @@ subprojects {
         return
     }
 
+    group = 'io.yamsergey.dta'
     apply plugin: 'java'
 
     java {
