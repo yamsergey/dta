@@ -130,7 +130,7 @@ jobs:
             homepage "https://github.com/yamsergey/dta"
             url "https://github.com/yamsergey/dta/releases/download/${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
             sha256 "${{ steps.sha.outputs.sha256 }}"
-            license "Apache-2.0"
+            license "LGPL-3.0"
             version "${{ github.ref_name }}"
 
             depends_on "openjdk@21"
@@ -153,7 +153,7 @@ jobs:
             homepage "https://github.com/yamsergey/dta"
             url "https://github.com/yamsergey/dta/releases/download/${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
             sha256 "${{ steps.sha.outputs.sha256 }}"
-            license "Apache-2.0"
+            license "LGPL-3.0"
             version "${{ github.ref_name }}"
 
             depends_on "openjdk@21"

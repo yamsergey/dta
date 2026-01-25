@@ -1,4 +1,4 @@
-# JitPack configuration for dta-sidekick Android library
+# JitPack configuration for DTA libraries
 # Artifacts are public, source is private
 
 jdk:
@@ -9,9 +9,9 @@ before_install:
   - yes | sdkmanager --licenses &> /dev/null || true
   - sdkmanager --install "ndk;26.1.10909125" &> /dev/null || true
 
-# Build the sidekick Android library
+# Build and publish both libraries to local Maven
 install:
-  - ./gradlew :dta-sidekick:publishToMavenLocal -x test --no-daemon
+  - ./gradlew :dta-sidekick:publishToMavenLocal :tools-android:publishToMavenLocal -x test --no-daemon
 
 # ============================================================================
 # USAGE
@@ -30,6 +30,11 @@ install:
 # 2. Add dependency in app's build.gradle.kts:
 #
 #    dependencies {
+#        // Android runtime inspection library
 #        implementation("com.github.yamsergey.dta:dta-sidekick:VERSION")
+#
+#        // Core library for Android project analysis (JVM)
+#        implementation("com.github.yamsergey.dta:tools-android:VERSION")
 #    }
+#
 # Available versions: release tags (1.0.10+), branch snapshots (main-SNAPSHOT)

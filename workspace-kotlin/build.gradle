@@ -58,19 +58,20 @@ publishing {
         maven(MavenPublication) {
             from components.java
 
-            groupId = 'io.yamsergey.dta'
+            // Match JitPack's expected path for multi-module projects
+            groupId = 'com.github.yamsergey.dta'
             artifactId = 'workspace-kotlin'
-            version = '1.0.0'
+            version = dtaVersion
 
             pom {
                 name = 'Development Tools for Android - Workspace Library'
                 description = 'Workspace converter library for Kotlin Language Server integration'
-                url = 'https://github.com/yamsergey/yamsergey.adt'
+                url = 'https://github.com/yamsergey/dta'
 
                 licenses {
                     license {
-                        name = 'GNU General Public License v3.0'
-                        url = 'https://www.gnu.org/licenses/gpl-3.0.en.html'
+                        name = 'GNU Lesser General Public License v3.0'
+                        url = 'https://www.gnu.org/licenses/lgpl-3.0.en.html'
                     }
                 }
 
@@ -82,9 +83,9 @@ publishing {
                 }
 
                 scm {
-                    connection = 'scm:git:git://github.com/yamsergey/yamsergey.adt.git'
-                    developerConnection = 'scm:git:ssh://github.com/yamsergey/yamsergey.adt.git'
-                    url = 'https://github.com/yamsergey/yamsergey.adt'
+                    connection = 'scm:git:git://github.com/yamsergey/dta.git'
+                    developerConnection = 'scm:git:ssh://github.com/yamsergey/dta.git'
+                    url = 'https://github.com/yamsergey/dta'
                 }
             }
         }
