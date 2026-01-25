@@ -117,12 +117,13 @@ public class InspectorServer {
     public void start(String packageName) throws IOException {
         // Prevent multiple concurrent start calls
         if (!startCalled.compareAndSet(false, true)) {
-            SidekickLog.w(TAG, "Server start already in progress or completed");
+            SidekickLog.w(TAG, "Server start already in progress");
             return;
         }
-        
+
         if (running.get()) {
             SidekickLog.w(TAG, "Server already running");
+            startCalled.set(false); // Reset flag - not starting, already running
             return;
         }
 
@@ -170,15 +171,20 @@ public class InspectorServer {
 
     /**
      * Stops the server.
+     *
+     * <p>Note: After stopping, the server cannot be restarted because the executor
+     * is shut down. This is by design - the server is expected to run for the app's
+     * entire lifecycle as a singleton.</p>
      */
     public void stop() {
         if (!running.get()) {
             SidekickLog.d(TAG, "Server not running, nothing to stop");
             return;
         }
-        
+
         SidekickLog.i(TAG, "Stopping server on socket: " + socketName);
         running.set(false);
+        startCalled.set(false); // Reset to allow potential restart (though executor limits this)
 
         // Unregister listener
         NetworkInspector.removeListener(transactionListener);
@@ -191,7 +197,7 @@ public class InspectorServer {
         }
         sseClients.clear();
 
-        // Close server socket
+        // Close server socket first to unblock accept()
         try {
             if (serverSocket != null) {
                 serverSocket.close();
@@ -201,8 +207,8 @@ public class InspectorServer {
         } catch (IOException e) {
             SidekickLog.e(TAG, "Error closing server socket", e);
         }
-        
-        // Shutdown executor
+
+        // Shutdown executor - this prevents restart but ensures clean shutdown
         try {
             executor.shutdownNow();
         } catch (Exception e) {
