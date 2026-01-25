@@ -1,2 +1,36 @@
+# JitPack configuration for dta-sidekick Android library
+# Artifacts are public, source is private
+
 jdk:
   - openjdk21
+
+# Accept Android SDK licenses and install NDK for native build
+before_install:
+  - yes | sdkmanager --licenses &> /dev/null || true
+  - sdkmanager --install "ndk;26.1.10909125" &> /dev/null || true
+
+# Build the sidekick Android library
+install:
+  - ./gradlew :dta-sidekick:publishToMavenLocal -x test --no-daemon
+
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# 1. Add JitPack repository to settings.gradle.kts:
+#
+#    dependencyResolutionManagement {
+#        repositories {
+#            google()
+#            mavenCentral()
+#            maven { url = uri("https://jitpack.io") }
+#        }
+#    }
+#
+# 2. Add dependency in app's build.gradle.kts:
+#
+#    dependencies {
+#        implementation("com.github.yamsergey.yamsergey.dta:dta-sidekick:1.0.8")
+#    }
+#
+# Available versions: release tags (1.0.8), branch snapshots (main-SNAPSHOT)
