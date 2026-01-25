@@ -90,8 +90,8 @@ afterEvaluate {
         publications {
             register<MavenPublication>("release") {
                 from(components["release"])
-                // Don't set groupId - let JitPack derive it as com.github.yamsergey.dta
-                // JitPack multi-module format: com.github.{user}.{repo}:{module}:{version}
+                // Match JitPack's expected path for multi-module projects
+                groupId = "com.github.yamsergey.dta"
                 artifactId = "dta-sidekick"
                 version = project.property("dtaVersion") as String
 
