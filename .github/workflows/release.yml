@@ -115,20 +115,31 @@ jobs:
           SHA256=$(shasum -a 256 dta-cli-${{ github.ref_name }}.tar.gz | awk '{print $1}')
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
 
-      - name: Update Homebrew Formulas
+      - name: Upload binaries and update Homebrew Formulas
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/yamsergey/homebrew-packages.git
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/yamsergey/homebrew-packages.git
           cd homebrew-packages
 
-          # Primary formula: dta-cli
+          # Create or update release on homebrew-packages with binaries
+          gh release delete "dta-cli-${{ github.ref_name }}" --yes 2>/dev/null || true
+          gh release create "dta-cli-${{ github.ref_name }}" \
+            ../dta-cli-${{ github.ref_name }}.tar.gz \
+            ../dta-cli-${{ github.ref_name }}.zip \
+            --title "dta-cli ${{ github.ref_name }}" \
+            --notes "Binary release for dta-cli ${{ github.ref_name }}"
+
+          # Primary formula: dta-cli (URL points to homebrew-packages releases)
           cat > Formula/dta-cli.rb << 'EOF'
           class DtaCli < Formula
             desc "Development Tools for Android - CLI for project analysis, workspace generation, and device inspection"
             homepage "https://github.com/yamsergey/dta"
-            url "https://github.com/yamsergey/dta/releases/download/${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
+            url "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
             sha256 "${{ steps.sha.outputs.sha256 }}"
             license "LGPL-3.0"
             version "${{ github.ref_name }}"
@@ -151,7 +162,7 @@ jobs:
           class AdtCli < Formula
             desc "Development Tools for Android - CLI (legacy name, use dta-cli instead)"
             homepage "https://github.com/yamsergey/dta"
-            url "https://github.com/yamsergey/dta/releases/download/${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
+            url "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
             sha256 "${{ steps.sha.outputs.sha256 }}"
             license "LGPL-3.0"
             version "${{ github.ref_name }}"
