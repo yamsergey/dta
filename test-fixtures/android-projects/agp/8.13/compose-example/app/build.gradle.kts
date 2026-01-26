@@ -44,7 +44,7 @@ android {
 dependencies {
     // DTA Sidekick for compose inspection (debug only)
     // debugImplementation("io.yamsergey.dta:sidekick:1.0.8")
-    implementation("com.github.yamsergey.dta:dta-sidekick:0.9.1")
+    implementation("com.github.yamsergey.dta:dta-sidekick:0.9.2")
     // Network - HTTP
     implementation(libs.okhttp)
     implementation(libs.gson)
