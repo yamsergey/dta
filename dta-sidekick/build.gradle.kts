@@ -57,6 +57,10 @@ android {
 }
 
 dependencies {
+    // Lombok for boilerplate reduction (builders, with methods, etc.)
+    compileOnly(libs.sugar.lombok)
+    annotationProcessor(libs.sugar.lombok)
+
     // AndroidX Startup for auto-initialization
     implementation("androidx.startup:startup-runtime:1.1.1")
 

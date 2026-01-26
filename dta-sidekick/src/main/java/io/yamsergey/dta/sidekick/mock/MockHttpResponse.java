@@ -3,119 +3,85 @@ package io.yamsergey.dta.sidekick.mock;
 import java.util.HashMap;
 import java.util.Map;
 
+import lombok.Builder;
+import lombok.Value;
+import lombok.With;
+
 /**
  * Represents a mock HTTP response to be returned instead of the real response.
+ *
+ * <p>This class is immutable. Use the builder or {@code withXxx()} methods to create
+ * modified copies:</p>
+ *
+ * <pre>{@code
+ * // Using builder
+ * MockHttpResponse response = MockHttpResponse.builder()
+ *     .statusCode(200)
+ *     .body("{\"success\": true}")
+ *     .build();
+ *
+ * // Creating modified copy
+ * MockHttpResponse modified = response
+ *     .withBody("{\"userId\": \"123\"}")
+ *     .withStatusCode(201);
+ *
+ * // Using toBuilder for multiple changes
+ * MockHttpResponse another = response.toBuilder()
+ *     .statusCode(404)
+ *     .statusMessage("Not Found")
+ *     .build();
+ * }</pre>
  */
+@Value
+@Builder(builderClassName = "Builder", toBuilder = true)
+@With
 public class MockHttpResponse {
 
-    private final int statusCode;
-    private final String statusMessage;
-    private final Map<String, String> headers;
-    private final String body;
-    private final String contentType;
-    private final String capturedTransactionId;
+    @Builder.Default
+    int statusCode = 200;
 
-    private MockHttpResponse(Builder builder) {
-        this.statusCode = builder.statusCode;
-        this.statusMessage = builder.statusMessage;
-        this.headers = builder.headers != null ? new HashMap<>(builder.headers) : new HashMap<>();
-        this.body = builder.body;
-        this.contentType = builder.contentType;
-        this.capturedTransactionId = builder.capturedTransactionId;
-    }
+    @Builder.Default
+    String statusMessage = "OK";
 
-    // Getters
-    public int getStatusCode() {
-        return statusCode;
-    }
+    @Builder.Default
+    Map<String, String> headers = new HashMap<>();
 
-    public String getStatusMessage() {
-        return statusMessage;
-    }
+    String body;
 
-    public Map<String, String> getHeaders() {
-        return headers;
-    }
+    String contentType;
 
-    public String getBody() {
-        return body;
-    }
+    /**
+     * The ID of the captured transaction this mock was created from (if any).
+     */
+    String capturedTransactionId;
 
-    public String getContentType() {
-        return contentType;
-    }
-
-    public String getCapturedTransactionId() {
-        return capturedTransactionId;
-    }
-
-    // Builder
-    public static Builder builder() {
-        return new Builder();
+    /**
+     * Convenience method to add a header to this response.
+     * Returns a new response with the header added.
+     */
+    public MockHttpResponse withHeader(String name, String value) {
+        Map<String, String> newHeaders = new HashMap<>(this.headers != null ? this.headers : new HashMap<>());
+        newHeaders.put(name, value);
+        return this.withHeaders(newHeaders);
     }
 
     /**
-     * Creates a new builder initialized with this response's values.
-     * Useful for creating modified copies of a response.
+     * Custom builder methods that extend Lombok's generated builder.
+     * Lombok will merge this with the generated builder.
      */
-    public Builder toBuilder() {
-        return new Builder()
-                .statusCode(this.statusCode)
-                .statusMessage(this.statusMessage)
-                .headers(this.headers != null ? new HashMap<>(this.headers) : null)
-                .body(this.body)
-                .contentType(this.contentType)
-                .capturedTransactionId(this.capturedTransactionId);
-    }
-
     public static class Builder {
-        private int statusCode = 200;
-        private String statusMessage = "OK";
+        // Declare the field so we can access it in our custom method
         private Map<String, String> headers;
-        private String body;
-        private String contentType;
-        private String capturedTransactionId;
 
-        public Builder statusCode(int statusCode) {
-            this.statusCode = statusCode;
-            return this;
-        }
-
-        public Builder statusMessage(String statusMessage) {
-            this.statusMessage = statusMessage;
-            return this;
-        }
-
-        public Builder headers(Map<String, String> headers) {
-            this.headers = headers;
-            return this;
-        }
-
+        /**
+         * Convenience method to add a header during building.
+         */
         public Builder addHeader(String name, String value) {
             if (this.headers == null) {
                 this.headers = new HashMap<>();
             }
             this.headers.put(name, value);
             return this;
-        }
-
-        public Builder body(String body) {
-            this.body = body;
-            return this;
-        }
-
-        public Builder contentType(String contentType) {
-            this.contentType = contentType;
-            return this;
-        }
-
-        public Builder capturedTransactionId(String capturedTransactionId) {
-            this.capturedTransactionId = capturedTransactionId;
-            return this;
-        }
-
-        public MockHttpResponse build() {
-            return new MockHttpResponse(this);
         }
     }
 }
