@@ -73,6 +73,9 @@ public class JavaWebSocketSendTextHook implements MethodHook {
                         text
                 );
 
+                boolean wasMocked = false;
+                String mockRuleId = null;
+
                 if (rule != null && rule.getMockMessage() != null) {
                     // Get the mock adapter from configuration
                     WebSocketMockAdapter adapter = Sidekick.getConfig().getWebSocketMockAdapter();
@@ -89,25 +92,34 @@ public class JavaWebSocketSendTextHook implements MethodHook {
                         SidekickLog.d(TAG, "Dropped sent message (replaced with empty)");
                         rule.incrementMatchCount();
 
-                        // Capture the dropped message
-                        WebSocketInspector.onMessage(originalMsg);
+                        // Capture the dropped message as mocked
+                        WebSocketMessage droppedMsg = WebSocketMessage.textMessage(
+                                conn.getId(),
+                                WebSocketMessage.Direction.SENT,
+                                ""
+                        ).mocked(true).mockRuleId(rule.getId()).build();
+                        WebSocketInspector.onMessage(droppedMsg);
                         return;
                     } else if (finalMock.getTextPayload() != null) {
                         args[0] = finalMock.getTextPayload();
                         text = finalMock.getTextPayload();
                         rule.incrementMatchCount();
+                        wasMocked = true;
+                        mockRuleId = rule.getId();
                         SidekickLog.d(TAG, "Mocked sent text message (rule: " + rule.getName() + ")");
                     }
                 }
 
                 // Capture the final message (possibly modified)
-                WebSocketMessage msg = WebSocketMessage.textMessage(
+                WebSocketMessage.Builder msgBuilder = WebSocketMessage.textMessage(
                         conn.getId(),
                         WebSocketMessage.Direction.SENT,
                         text
-                ).build();
-
-                WebSocketInspector.onMessage(msg);
+                );
+                if (wasMocked) {
+                    msgBuilder.mocked(true).mockRuleId(mockRuleId);
+                }
+                WebSocketInspector.onMessage(msgBuilder.build());
             }
         } catch (Throwable t) {
             SidekickLog.e(TAG, "Error in onEnter", t);

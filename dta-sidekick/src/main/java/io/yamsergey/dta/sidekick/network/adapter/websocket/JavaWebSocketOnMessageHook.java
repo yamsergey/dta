@@ -76,6 +76,9 @@ public class JavaWebSocketOnMessageHook implements MethodHook {
                         text
                 );
 
+                boolean wasMocked = false;
+                String mockRuleId = null;
+
                 if (rule != null && rule.getMockMessage() != null) {
                     // Get the mock adapter from configuration
                     WebSocketMockAdapter adapter = Sidekick.getConfig().getWebSocketMockAdapter();
@@ -92,25 +95,34 @@ public class JavaWebSocketOnMessageHook implements MethodHook {
                         SidekickLog.d(TAG, "Dropped received message (replaced with empty)");
                         rule.incrementMatchCount();
 
-                        // Capture the dropped message
-                        WebSocketInspector.onMessage(originalMsg);
+                        // Capture the dropped message as mocked
+                        WebSocketMessage droppedMsg = WebSocketMessage.textMessage(
+                                conn.getId(),
+                                WebSocketMessage.Direction.RECEIVED,
+                                ""
+                        ).mocked(true).mockRuleId(rule.getId()).build();
+                        WebSocketInspector.onMessage(droppedMsg);
                         return;
                     } else if (finalMock.getTextPayload() != null) {
                         args[1] = finalMock.getTextPayload();
                         text = finalMock.getTextPayload();
                         rule.incrementMatchCount();
+                        wasMocked = true;
+                        mockRuleId = rule.getId();
                         SidekickLog.d(TAG, "Mocked received text message (rule: " + rule.getName() + ")");
                     }
                 }
 
                 // Capture the final message (possibly modified)
-                WebSocketMessage msg = WebSocketMessage.textMessage(
+                WebSocketMessage.Builder msgBuilder = WebSocketMessage.textMessage(
                         conn.getId(),
                         WebSocketMessage.Direction.RECEIVED,
                         text
-                ).build();
-
-                WebSocketInspector.onMessage(msg);
+                );
+                if (wasMocked) {
+                    msgBuilder.mocked(true).mockRuleId(mockRuleId);
+                }
+                WebSocketInspector.onMessage(msgBuilder.build());
                 SidekickLog.d(TAG, "Captured received text message: " + text.length() + " chars");
             }
         } catch (Throwable t) {

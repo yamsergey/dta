@@ -17,6 +17,8 @@ public class WebSocketMessage {
     private final String textPayload;
     private final byte[] binaryPayload;
     private final int payloadSize;
+    private final boolean mocked;
+    private final String mockRuleId;
 
     private WebSocketMessage(Builder builder) {
         this.id = builder.id != null ? builder.id : UUID.randomUUID().toString();
@@ -27,6 +29,8 @@ public class WebSocketMessage {
         this.textPayload = builder.textPayload;
         this.binaryPayload = builder.binaryPayload;
         this.payloadSize = builder.payloadSize > 0 ? builder.payloadSize : calculatePayloadSize();
+        this.mocked = builder.mocked;
+        this.mockRuleId = builder.mockRuleId;
     }
 
     private int calculatePayloadSize() {
@@ -53,6 +57,8 @@ public class WebSocketMessage {
     public boolean isReceived() { return direction == Direction.RECEIVED; }
     public boolean isText() { return type == MessageType.TEXT; }
     public boolean isBinary() { return type == MessageType.BINARY; }
+    public boolean isMocked() { return mocked; }
+    public String getMockRuleId() { return mockRuleId; }
 
     /**
      * Message direction.
@@ -103,6 +109,8 @@ public class WebSocketMessage {
         private String textPayload;
         private byte[] binaryPayload;
         private int payloadSize;
+        private boolean mocked;
+        private String mockRuleId;
 
         public Builder id(String id) { this.id = id; return this; }
         public Builder connectionId(String connectionId) { this.connectionId = connectionId; return this; }
@@ -112,6 +120,8 @@ public class WebSocketMessage {
         public Builder textPayload(String textPayload) { this.textPayload = textPayload; return this; }
         public Builder binaryPayload(byte[] binaryPayload) { this.binaryPayload = binaryPayload; return this; }
         public Builder payloadSize(int payloadSize) { this.payloadSize = payloadSize; return this; }
+        public Builder mocked(boolean mocked) { this.mocked = mocked; return this; }
+        public Builder mockRuleId(String mockRuleId) { this.mockRuleId = mockRuleId; return this; }
 
         public WebSocketMessage build() {
             return new WebSocketMessage(this);

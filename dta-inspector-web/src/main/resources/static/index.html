@@ -1372,9 +1372,10 @@
                         <div v-else>
                             <div v-for="(msg, index) in selectedWsDetails.messages" :key="index"
                                  class="message-item"
-                                 :class="[msg.direction?.toLowerCase(), { selected: selectedWsMessage?.index === index }]"
+                                 :class="[msg.direction?.toLowerCase(), { selected: selectedWsMessage?.index === index, mocked: msg.mocked }]"
                                  @click="selectWsMessage(index, msg)"
                                  @contextmenu.prevent="showMessageContextMenu($event, msg)">
+                                <span v-if="msg.mocked" class="mock-badge" title="Mocked">M</span>
                                 <div class="message-direction" :class="msg.direction?.toLowerCase()">
                                     {{ msg.direction === 'SENT' ? '↑ Sent' : '↓ Received' }}
                                 </div>
@@ -1451,8 +1452,11 @@
                     <div class="panel-header" style="flex-shrink: 0;">
                         <span>Mock Rules ({{ mockRules.length }})</span>
                         <div style="display: flex; gap: 6px;">
-                            <button class="btn-sm" @click="createNewMockRule" :disabled="!connected" title="Add new rule">
-                                + Add
+                            <button class="btn-sm" @click="createNewMockRule('HTTP')" :disabled="!connected" title="Add HTTP mock rule">
+                                + HTTP
+                            </button>
+                            <button class="btn-sm" @click="createNewMockRule('WEBSOCKET')" :disabled="!connected" title="Add WebSocket mock rule">
+                                + WS
                             </button>
                             <button class="secondary btn-sm" @click="refreshMockRules" :disabled="!connected">
                                 Refresh
@@ -1518,6 +1522,14 @@
                         <div class="mock-detail-row" v-if="selectedMockRule.type === 'WEBSOCKET'">
                             <label>Content Pattern (regex):</label>
                             <input type="text" v-model="selectedMockRule.contentPattern" @change="updateMockRuleField(selectedMockRule, 'contentPattern')" placeholder="Regex to match message content">
+                        </div>
+                        <div class="mock-detail-row" v-if="selectedMockRule.type === 'WEBSOCKET'">
+                            <label>Direction:</label>
+                            <select v-model="selectedMockRule.direction" @change="updateMockRuleField(selectedMockRule, 'direction')">
+                                <option value="SENT">Sent (outgoing)</option>
+                                <option value="RECEIVED">Received (incoming)</option>
+                                <option value="BOTH">Both</option>
+                            </select>
                         </div>
                         <div class="mock-detail-row" v-if="selectedMockRule.type === 'HTTP' && selectedMockRule.mockResponse">
                             <label>Status Code:</label>
@@ -2159,25 +2171,39 @@
                     });
                 }
 
-                async function createNewMockRule() {
+                async function createNewMockRule(type = 'HTTP') {
                     if (!connected.value) return;
                     const params = new URLSearchParams({
                         package: selectedApp.value,
                         device: selectedDevice.value
                     });
                     try {
-                        const newRule = {
-                            name: 'New Rule',
-                            type: 'HTTP',
-                            enabled: true,
-                            urlPattern: '.*',
-                            mockResponse: {
-                                statusCode: 200,
-                                statusMessage: 'OK',
-                                body: '{\n  "message": "Mocked response"\n}',
-                                contentType: 'application/json'
-                            }
-                        };
+                        let newRule;
+                        if (type === 'WEBSOCKET') {
+                            newRule = {
+                                name: 'New WebSocket Rule',
+                                type: 'WEBSOCKET',
+                                enabled: true,
+                                urlPattern: '.*',
+                                direction: 'RECEIVED',
+                                mockMessage: {
+                                    textPayload: '{"message": "Mocked WebSocket message"}'
+                                }
+                            };
+                        } else {
+                            newRule = {
+                                name: 'New HTTP Rule',
+                                type: 'HTTP',
+                                enabled: true,
+                                urlPattern: '.*',
+                                mockResponse: {
+                                    statusCode: 200,
+                                    statusMessage: 'OK',
+                                    body: '{\n  "message": "Mocked response"\n}',
+                                    contentType: 'application/json'
+                                }
+                            };
+                        }
                         const res = await fetch(api(`/mock/rules?${params}`), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },

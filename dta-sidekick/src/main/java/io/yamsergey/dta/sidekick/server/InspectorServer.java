@@ -1827,6 +1827,12 @@ public class InspectorServer {
                     msg.getBinaryPayload(), android.util.Base64.NO_WRAP));
         }
 
+        // Include mock information
+        map.put("mocked", msg.isMocked());
+        if (msg.getMockRuleId() != null) {
+            map.put("mockRuleId", msg.getMockRuleId());
+        }
+
         return map;
     }
 
