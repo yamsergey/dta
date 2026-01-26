@@ -95,6 +95,53 @@
             gap: 10px;
             align-items: center;
         }
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .connection-status .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .connection-status.disconnected {
+            background: var(--ctp-surface0);
+            color: var(--ctp-overlay1);
+        }
+        .connection-status.disconnected .status-dot {
+            background: var(--ctp-overlay0);
+        }
+        .connection-status.connecting {
+            background: var(--ctp-surface0);
+            color: var(--ctp-yellow);
+        }
+        .connection-status.connecting .status-dot {
+            background: var(--ctp-yellow);
+            animation: pulse 1s infinite;
+        }
+        .connection-status.connected {
+            background: rgba(166, 227, 161, 0.15);
+            color: var(--ctp-green);
+        }
+        .connection-status.connected .status-dot {
+            background: var(--ctp-green);
+        }
+        .connection-status.failed {
+            background: rgba(243, 139, 168, 0.15);
+            color: var(--ctp-red);
+        }
+        .connection-status.failed .status-dot {
+            background: var(--ctp-red);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
         select, button, input {
             padding: 8px 12px;
             border-radius: 6px;
@@ -954,6 +1001,10 @@
                         </option>
                     </select>
                     <button @click="refresh" :disabled="!connected">Refresh</button>
+                    <span class="connection-status" :class="connectionStatus" :title="connectionStatusText">
+                        <span class="status-dot"></span>
+                        <span class="status-text">{{ connectionStatusText }}</span>
+                    </span>
                 </div>
             </header>
 
@@ -1577,6 +1628,11 @@
                 const loading = ref(false);
                 const activeTab = ref('compose');
 
+                // Connection status: 'disconnected', 'connecting', 'connected', 'failed'
+                const connectionStatus = ref('disconnected');
+                const failureCount = ref(0);
+                const MAX_FAILURES = 3;
+
                 // Compose state
                 const composeTree = ref(null);
                 const fullTree = ref(null); // Unfiltered tree for extracting element names
@@ -1730,15 +1786,21 @@
                 async function connect() {
                     if (!selectedApp.value) {
                         connected.value = false;
+                        connectionStatus.value = 'disconnected';
                         return;
                     }
                     connected.value = true;
+                    connectionStatus.value = 'connecting';
+                    failureCount.value = 0;
                     refresh();
                 }
 
                 async function refresh() {
                     if (!connected.value) return;
                     loading.value = true;
+                    // Reset failure count on manual refresh
+                    failureCount.value = 0;
+                    connectionStatus.value = 'connecting';
                     try {
                         await Promise.all([
                             loadComposeTree(),
@@ -1746,6 +1808,13 @@
                             loadNetworkRequests(),
                             loadWsConnections()
                         ]);
+                        connectionStatus.value = 'connected';
+                    } catch (e) {
+                        console.error('Connection failed:', e);
+                        failureCount.value++;
+                        if (failureCount.value >= MAX_FAILURES) {
+                            connectionStatus.value = 'failed';
+                        }
                     } finally {
                         loading.value = false;
                     }
@@ -2881,26 +2950,47 @@
                     }
                 }
 
+                // Helper to handle polling with failure tracking
+                async function pollWithFailureTracking(fn) {
+                    if (connectionStatus.value === 'failed') return;
+                    try {
+                        await fn();
+                        if (connectionStatus.value === 'connecting') {
+                            connectionStatus.value = 'connected';
+                        }
+                        failureCount.value = 0;
+                    } catch (e) {
+                        console.error('Polling failed:', e);
+                        failureCount.value++;
+                        if (failureCount.value >= MAX_FAILURES) {
+                            connectionStatus.value = 'failed';
+                            console.warn('Connection failed after ' + MAX_FAILURES + ' attempts. Click Refresh to retry.');
+                        }
+                    }
+                }
+
                 onMounted(() => {
                     loadDevices();
-                    // Poll for data updates
+                    // Poll for data updates (only if not failed)
                     setInterval(() => {
-                        if (connected.value && activeTab.value === 'network') {
-                            loadNetworkRequests();
-                        }
-                        if (connected.value && activeTab.value === 'websocket') {
-                            loadWsConnections();
+                        if (connected.value && connectionStatus.value !== 'failed') {
+                            if (activeTab.value === 'network') {
+                                pollWithFailureTracking(loadNetworkRequests);
+                            }
+                            if (activeTab.value === 'websocket') {
+                                pollWithFailureTracking(loadWsConnections);
+                            }
                         }
                     }, 3000);
                     // Poll for device selection changes (faster, for agent interaction)
                     setInterval(() => {
-                        if (connected.value) {
+                        if (connected.value && connectionStatus.value !== 'failed') {
                             if (activeTab.value === 'compose') {
-                                pollDeviceSelection();
+                                pollWithFailureTracking(pollDeviceSelection);
                             } else if (activeTab.value === 'network') {
-                                pollNetworkSelection();
+                                pollWithFailureTracking(pollNetworkSelection);
                             } else if (activeTab.value === 'websocket') {
-                                pollWsMessageSelection();
+                                pollWithFailureTracking(pollWsMessageSelection);
                             }
                         }
                     }, 1000);
@@ -2912,9 +3002,19 @@
                     }
                 });
 
+                // Computed connection status text
+                const connectionStatusText = computed(() => {
+                    switch (connectionStatus.value) {
+                        case 'connecting': return 'Connecting...';
+                        case 'connected': return 'Connected';
+                        case 'failed': return 'Failed - Click Refresh';
+                        default: return 'Disconnected';
+                    }
+                });
+
                 return {
                     devices, apps, selectedDevice, selectedApp,
-                    connected, loading, activeTab,
+                    connected, loading, activeTab, connectionStatus, connectionStatusText,
                     composeTree, selectedNode, hoveredNode, showElementDetails, textFilter, elementFilter, availableElements,
                     screenshot, imageScale, treeContainer, screenshotImg, screenshotContainer,
                     expandedNodes, detailSections,
