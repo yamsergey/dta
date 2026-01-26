@@ -1,5 +1,6 @@
 package io.yamsergey.dta.sidekick.network.adapter.http;
 
+import io.yamsergey.dta.sidekick.Sidekick;
 import io.yamsergey.dta.sidekick.SidekickLog;
 
 import java.lang.reflect.Method;
@@ -7,9 +8,11 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 import io.yamsergey.dta.sidekick.jvmti.MethodHook;
+import io.yamsergey.dta.sidekick.mock.MockHttpResponse;
 import io.yamsergey.dta.sidekick.mock.MockManager;
 import io.yamsergey.dta.sidekick.mock.MockRule;
 import io.yamsergey.dta.sidekick.mock.OkHttpResponseBuilder;
+import io.yamsergey.dta.sidekick.mock.adapter.HttpMockAdapter;
 import io.yamsergey.dta.sidekick.network.BodyReference;
 import io.yamsergey.dta.sidekick.network.BodyStorage;
 import io.yamsergey.dta.sidekick.network.HttpRequest;
@@ -128,51 +131,62 @@ public class OkHttpExecuteHook implements MethodHook {
             MockRule matchingRule = mockManager.findMatchingHttpRule(tx.getRequest());
 
             if (matchingRule != null && matchingRule.getMockResponse() != null) {
-                // Apply mock response
-                SidekickLog.i(TAG, "<<< MOCK " + matchingRule.getMockResponse().getStatusCode() +
-                        " " + matchingRule.getMockResponse().getStatusMessage() +
-                        " (rule: " + matchingRule.getName() + ")");
+                // Get the mock adapter from configuration
+                HttpMockAdapter adapter = Sidekick.getConfig().getHttpMockAdapter();
 
-                // Apply optional delay
-                if (matchingRule.getDelayMs() > 0) {
-                    try {
-                        Thread.sleep(matchingRule.getDelayMs());
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
+                // Let the adapter decide on the final response
+                MockHttpResponse proposedResponse = matchingRule.getMockResponse();
+                MockHttpResponse finalResponse = adapter.onMockRequest(tx, proposedResponse);
 
-                // Build mock OkHttp Response
-                Object mockResponse = OkHttpResponseBuilder.build(thisObj, result, matchingRule.getMockResponse());
-                if (mockResponse != null) {
-                    // Update transaction with mock response info
-                    var mockData = matchingRule.getMockResponse();
-                    HttpResponse.Builder responseBuilder = HttpResponse.builder()
-                            .statusCode(mockData.getStatusCode())
-                            .statusMessage(mockData.getStatusMessage())
-                            .contentType(mockData.getContentType())
-                            .body(mockData.getBody());
+                // If adapter returns null, skip mocking and let the real request through
+                if (finalResponse == null) {
+                    SidekickLog.i(TAG, "<<< MOCK SKIPPED by adapter (rule: " + matchingRule.getName() + ")");
+                } else {
+                    // Apply mock response
+                    SidekickLog.i(TAG, "<<< MOCK " + finalResponse.getStatusCode() +
+                            " " + finalResponse.getStatusMessage() +
+                            " (rule: " + matchingRule.getName() + ")");
 
-                    // Add mock headers
-                    if (mockData.getHeaders() != null) {
-                        for (var entry : mockData.getHeaders().entrySet()) {
-                            responseBuilder.addHeader(entry.getKey(), entry.getValue());
+                    // Apply optional delay
+                    if (matchingRule.getDelayMs() > 0) {
+                        try {
+                            Thread.sleep(matchingRule.getDelayMs());
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
                         }
                     }
 
-                    tx.setResponse(responseBuilder.build());
-                    tx.setMocked(true);
-                    tx.setMockRuleId(matchingRule.getId());
-                    matchingRule.incrementMatchCount();
+                    // Build mock OkHttp Response
+                    Object mockResponse = OkHttpResponseBuilder.build(thisObj, result, finalResponse);
+                    if (mockResponse != null) {
+                        // Update transaction with mock response info
+                        HttpResponse.Builder responseBuilder = HttpResponse.builder()
+                                .statusCode(finalResponse.getStatusCode())
+                                .statusMessage(finalResponse.getStatusMessage())
+                                .contentType(finalResponse.getContentType())
+                                .body(finalResponse.getBody());
 
-                    tx.markCompleted();
-                    NetworkInspector.onTransactionCompleted(tx);
-                    SidekickLog.d(TAG, "Mocked transaction completed: " + txId +
-                            " (rule: " + matchingRule.getId() + ", matches: " + matchingRule.getMatchCount() + ")");
+                        // Add mock headers
+                        if (finalResponse.getHeaders() != null) {
+                            for (var entry : finalResponse.getHeaders().entrySet()) {
+                                responseBuilder.addHeader(entry.getKey(), entry.getValue());
+                            }
+                        }
 
-                    return mockResponse;
-                } else {
-                    SidekickLog.w(TAG, "Failed to build mock response, falling back to real response");
+                        tx.setResponse(responseBuilder.build());
+                        tx.setMocked(true);
+                        tx.setMockRuleId(matchingRule.getId());
+                        matchingRule.incrementMatchCount();
+
+                        tx.markCompleted();
+                        NetworkInspector.onTransactionCompleted(tx);
+                        SidekickLog.d(TAG, "Mocked transaction completed: " + txId +
+                                " (rule: " + matchingRule.getId() + ", matches: " + matchingRule.getMatchCount() + ")");
+
+                        return mockResponse;
+                    } else {
+                        SidekickLog.w(TAG, "Failed to build mock response, falling back to real response");
+                    }
                 }
             }
 

@@ -54,6 +54,20 @@ public class MockHttpResponse {
         return new Builder();
     }
 
+    /**
+     * Creates a new builder initialized with this response's values.
+     * Useful for creating modified copies of a response.
+     */
+    public Builder toBuilder() {
+        return new Builder()
+                .statusCode(this.statusCode)
+                .statusMessage(this.statusMessage)
+                .headers(this.headers != null ? new HashMap<>(this.headers) : null)
+                .body(this.body)
+                .contentType(this.contentType)
+                .capturedTransactionId(this.capturedTransactionId);
+    }
+
     public static class Builder {
         private int statusCode = 200;
         private String statusMessage = "OK";

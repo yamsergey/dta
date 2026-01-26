@@ -6,6 +6,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import io.yamsergey.dta.sidekick.mock.adapter.DefaultHttpMockAdapter;
+import io.yamsergey.dta.sidekick.mock.adapter.DefaultWebSocketMockAdapter;
+import io.yamsergey.dta.sidekick.mock.adapter.HttpMockAdapter;
+import io.yamsergey.dta.sidekick.mock.adapter.WebSocketMockAdapter;
 import io.yamsergey.dta.sidekick.network.adapter.NetworkAdapter;
 
 /**
@@ -49,6 +53,10 @@ public final class SidekickConfig {
     // Custom adapters
     private final List<NetworkAdapter> customAdapters;
 
+    // Mock adapters for dynamic response customization
+    private final HttpMockAdapter httpMockAdapter;
+    private final WebSocketMockAdapter webSocketMockAdapter;
+
     private SidekickConfig(Builder builder) {
         this.debugLoggingEnabled = builder.debugLoggingEnabled;
         this.okHttpEnabled = builder.okHttpEnabled;
@@ -58,6 +66,8 @@ public final class SidekickConfig {
         this.nvWebSocketEnabled = builder.nvWebSocketEnabled;
         this.disabledAdapterIds = Collections.unmodifiableSet(new HashSet<>(builder.disabledAdapterIds));
         this.customAdapters = Collections.unmodifiableList(new ArrayList<>(builder.customAdapters));
+        this.httpMockAdapter = builder.httpMockAdapter;
+        this.webSocketMockAdapter = builder.webSocketMockAdapter;
     }
 
     /**
@@ -152,6 +162,20 @@ public final class SidekickConfig {
         return customAdapters;
     }
 
+    /**
+     * Gets the HTTP mock adapter for dynamic response customization.
+     */
+    public HttpMockAdapter getHttpMockAdapter() {
+        return httpMockAdapter;
+    }
+
+    /**
+     * Gets the WebSocket mock adapter for dynamic message customization.
+     */
+    public WebSocketMockAdapter getWebSocketMockAdapter() {
+        return webSocketMockAdapter;
+    }
+
     // =========================================================================
     // Builder
     // =========================================================================
@@ -165,6 +189,8 @@ public final class SidekickConfig {
         private boolean nvWebSocketEnabled = true;
         private final Set<String> disabledAdapterIds = new HashSet<>();
         private final List<NetworkAdapter> customAdapters = new ArrayList<>();
+        private HttpMockAdapter httpMockAdapter = DefaultHttpMockAdapter.getInstance();
+        private WebSocketMockAdapter webSocketMockAdapter = DefaultWebSocketMockAdapter.getInstance();
 
         private Builder() {}
 
@@ -359,6 +385,61 @@ public final class SidekickConfig {
                     }
                 }
             }
+            return this;
+        }
+
+        // =====================================================================
+        // Mock Adapters
+        // =====================================================================
+
+        /**
+         * Sets a custom HTTP mock adapter for dynamic response customization.
+         *
+         * <p>The adapter is called when an HTTP request matches a mock rule,
+         * allowing you to modify the response or skip mocking entirely.</p>
+         *
+         * <h4>Example:</h4>
+         * <pre>{@code
+         * .httpMockAdapter((transaction, proposedResponse) -> {
+         *     // Add request ID to response
+         *     String requestId = transaction.getRequestHeaders().get("X-Request-Id");
+         *     return proposedResponse.toBuilder()
+         *         .body("{\"requestId\": \"" + requestId + "\"}")
+         *         .build();
+         * })
+         * }</pre>
+         *
+         * @param adapter the HTTP mock adapter, or null to use the default
+         */
+        public Builder httpMockAdapter(HttpMockAdapter adapter) {
+            this.httpMockAdapter = adapter != null ? adapter : DefaultHttpMockAdapter.getInstance();
+            return this;
+        }
+
+        /**
+         * Sets a custom WebSocket mock adapter for dynamic message customization.
+         *
+         * <p>The adapter is called when a WebSocket message matches a mock rule,
+         * allowing you to modify the message or skip mocking entirely.</p>
+         *
+         * <h4>Example:</h4>
+         * <pre>{@code
+         * .webSocketMockAdapter((originalMessage, proposedMock) -> {
+         *     // Echo back with modification
+         *     String payload = originalMessage.getTextPayload();
+         *     if (payload != null && payload.contains("ping")) {
+         *         return MockWebSocketMessage.textMessage(
+         *             payload.replace("ping", "pong")
+         *         );
+         *     }
+         *     return proposedMock;
+         * })
+         * }</pre>
+         *
+         * @param adapter the WebSocket mock adapter, or null to use the default
+         */
+        public Builder webSocketMockAdapter(WebSocketMockAdapter adapter) {
+            this.webSocketMockAdapter = adapter != null ? adapter : DefaultWebSocketMockAdapter.getInstance();
             return this;
         }
 
