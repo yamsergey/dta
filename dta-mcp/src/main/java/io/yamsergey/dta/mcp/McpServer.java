@@ -742,38 +742,84 @@ public class McpServer {
 
         // mock_create_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("mock_create_rule", "Create a mock rule from a captured HTTP request or WebSocket message. Provide either request_id OR message_id.",
-                schema(Map.of(
-                    "package", prop("string", "App package name", true),
-                    "request_id", prop("string", "ID of the captured HTTP request to create mock from", false),
-                    "message_id", prop("string", "ID of the captured WebSocket message to create mock from", false),
-                    "device", prop("string", "Device serial", false)
+            new Tool("mock_create_rule", "Create a mock rule. Either provide request_id/message_id to create from captured data, OR provide type with other parameters to create from scratch.",
+                schema(Map.ofEntries(
+                    Map.entry("package", prop("string", "App package name", true)),
+                    Map.entry("request_id", prop("string", "ID of captured HTTP request (mode 1)", false)),
+                    Map.entry("message_id", prop("string", "ID of captured WebSocket message (mode 1)", false)),
+                    Map.entry("type", prop("string", "Rule type: HTTP or WEBSOCKET (mode 2)", false)),
+                    Map.entry("name", prop("string", "Rule name", false)),
+                    Map.entry("url_pattern", prop("string", "URL pattern regex", false)),
+                    Map.entry("direction", prop("string", "WebSocket direction: SENT, RECEIVED, or BOTH", false)),
+                    Map.entry("body", prop("string", "Mock response body (HTTP)", false)),
+                    Map.entry("status_code", prop("integer", "HTTP status code (default 200)", false)),
+                    Map.entry("text_payload", prop("string", "Mock text payload (WebSocket)", false)),
+                    Map.entry("device", prop("string", "Device serial", false))
                 ))),
             (exchange, args) -> {
                 try {
                     String pkg = getString(args, "package");
                     String requestId = getString(args, "request_id");
                     String messageId = getString(args, "message_id");
+                    String type = getString(args, "type");
                     String device = getString(args, "device");
 
-                    if (requestId == null && messageId == null) {
-                        return errorResult("Either request_id or message_id must be provided");
+                    boolean fromCaptured = requestId != null || messageId != null;
+                    boolean fromScratch = type != null;
+
+                    if (!fromCaptured && !fromScratch) {
+                        return errorResult("Provide request_id, message_id, or type to create a rule");
+                    }
+                    if (fromCaptured && fromScratch) {
+                        return errorResult("Cannot mix request_id/message_id with type");
                     }
                     if (requestId != null && messageId != null) {
                         return errorResult("Provide either request_id or message_id, not both");
                     }
 
                     return withSidekick(pkg, device, client -> {
-                        Result<String> result;
-                        if (requestId != null) {
-                            result = client.createMockFromRequest(requestId);
+                        if (fromCaptured) {
+                            Result<String> result;
+                            if (requestId != null) {
+                                result = client.createMockFromRequest(requestId);
+                            } else {
+                                result = client.createMockFromMessage(messageId);
+                            }
+                            if (result instanceof Success<String> success) {
+                                return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                            }
+                            return errorResult("Failed to create mock rule");
                         } else {
-                            result = client.createMockFromMessage(messageId);
+                            // Create from scratch
+                            String ruleType = type.toUpperCase();
+                            if (!ruleType.equals("HTTP") && !ruleType.equals("WEBSOCKET")) {
+                                return errorResult("type must be HTTP or WEBSOCKET");
+                            }
+
+                            ObjectNode rule = mapper.createObjectNode();
+                            rule.put("type", ruleType);
+                            rule.put("enabled", true);
+                            rule.put("name", getString(args, "name") != null ? getString(args, "name") : "New " + ruleType + " Rule");
+                            rule.put("urlPattern", getString(args, "url_pattern") != null ? getString(args, "url_pattern") : ".*");
+
+                            if (ruleType.equals("HTTP")) {
+                                ObjectNode mockResponse = rule.putObject("mockResponse");
+                                mockResponse.put("statusCode", getInt(args, "status_code", 200));
+                                mockResponse.put("statusMessage", "OK");
+                                mockResponse.put("body", getString(args, "body") != null ? getString(args, "body") : "{\"mocked\":true}");
+                                mockResponse.put("contentType", "application/json");
+                            } else {
+                                rule.put("direction", getString(args, "direction") != null ? getString(args, "direction").toUpperCase() : "RECEIVED");
+                                ObjectNode mockMessage = rule.putObject("mockMessage");
+                                mockMessage.put("textPayload", getString(args, "text_payload") != null ? getString(args, "text_payload") : "{\"mocked\":true}");
+                            }
+
+                            Result<String> result = client.createMockRule(mapper.writeValueAsString(rule));
+                            if (result instanceof Success<String> success) {
+                                return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                            }
+                            return errorResult("Failed to create mock rule");
                         }
-                        if (result instanceof Success<String> success) {
-                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
-                        }
-                        return errorResult("Failed to create mock rule");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
@@ -784,17 +830,18 @@ public class McpServer {
         // mock_update_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
             new Tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)",
-                schema(Map.of(
-                    "package", prop("string", "App package name", true),
-                    "rule_id", prop("string", "Mock rule ID", true),
-                    "enabled", prop("boolean", "Enable or disable the rule", false),
-                    "content_pattern", prop("string", "Regex pattern to match message/body content (for selective mocking)", false),
-                    "status_code", prop("integer", "New HTTP status code (for HTTP rules)", false),
-                    "body", prop("string", "New response body (for HTTP rules)", false),
-                    "text_payload", prop("string", "New WebSocket message payload (for WebSocket rules)", false),
-                    "drop", prop("boolean", "Drop WebSocket message instead of modifying (for WebSocket rules)", false),
-                    "delay_ms", prop("integer", "Response delay in milliseconds", false),
-                    "device", prop("string", "Device serial", false)
+                schema(Map.ofEntries(
+                    Map.entry("package", prop("string", "App package name", true)),
+                    Map.entry("rule_id", prop("string", "Mock rule ID", true)),
+                    Map.entry("enabled", prop("boolean", "Enable or disable the rule", false)),
+                    Map.entry("content_pattern", prop("string", "Regex pattern to match message/body content (for selective mocking)", false)),
+                    Map.entry("direction", prop("string", "WebSocket direction: SENT, RECEIVED, or BOTH (for WebSocket rules)", false)),
+                    Map.entry("status_code", prop("integer", "New HTTP status code (for HTTP rules)", false)),
+                    Map.entry("body", prop("string", "New response body (for HTTP rules)", false)),
+                    Map.entry("text_payload", prop("string", "New WebSocket message payload (for WebSocket rules)", false)),
+                    Map.entry("drop", prop("boolean", "Drop WebSocket message instead of modifying (for WebSocket rules)", false)),
+                    Map.entry("delay_ms", prop("integer", "Response delay in milliseconds", false)),
+                    Map.entry("device", prop("string", "Device serial", false))
                 ))),
             (exchange, args) -> {
                 try {
@@ -812,6 +859,9 @@ public class McpServer {
                     }
                     if (args.containsKey("content_pattern")) {
                         update.put("contentPattern", getString(args, "content_pattern"));
+                    }
+                    if (args.containsKey("direction")) {
+                        update.put("direction", getString(args, "direction"));
                     }
 
                     // Build mock response updates if needed (for HTTP rules)

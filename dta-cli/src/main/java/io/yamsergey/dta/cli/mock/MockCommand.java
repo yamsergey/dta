@@ -14,6 +14,7 @@ import picocli.CommandLine.Command;
          subcommands = {
              MockListCommand.class,
              MockCreateCommand.class,
+             MockUpdateCommand.class,
              MockEnableCommand.class,
              MockDisableCommand.class,
              MockDeleteCommand.class,
