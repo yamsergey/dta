@@ -272,95 +272,125 @@ public class SidekickClient {
     }
 
     /**
-     * Gets the currently selected UI element.
+     * Gets all selected UI elements.
      *
-     * @return Result containing selected element JSON, or null if nothing selected
+     * @return Result containing JSON with { count, elements[] }
      */
-    public Result<String> getSelectedElement() {
+    public Result<String> getSelectedElements() {
         return httpGet("/selection/element");
     }
 
     /**
-     * Sets the selected UI element (highlights it on screen).
+     * Adds an element to the selection.
      *
-     * @param elementJson JSON representation of the element to select
-     * @return Result indicating success or failure
+     * @param elementJson JSON representation of the element to add
+     * @return Result containing updated selection
      */
-    public Result<String> setSelectedElement(String elementJson) {
-        return httpPost("/selection/element", elementJson);
+    public Result<String> addSelectedElement(String elementJson) {
+        return httpPost("/selection/element?action=add", elementJson);
     }
 
     /**
-     * Clears the current element selection.
+     * Removes an element from the selection.
+     *
+     * @param elementJson JSON representation of the element to remove
+     * @return Result containing updated selection
+     */
+    public Result<String> removeSelectedElement(String elementJson) {
+        return httpPost("/selection/element?action=remove", elementJson);
+    }
+
+    /**
+     * Clears all element selections.
      *
      * @return Result indicating success or failure
      */
-    public Result<String> clearSelectedElement() {
-        return httpPost("/selection/element", "null");
+    public Result<String> clearSelectedElements() {
+        return httpPost("/selection/element?action=clear", "null");
     }
 
     // ========================================================================
-    // Network request selection
+    // Network request selection (multi-selection)
     // ========================================================================
 
     /**
-     * Gets the currently selected network request.
+     * Gets all selected network requests.
      *
-     * @return Result containing selected request JSON, or null if nothing selected
+     * @return Result containing JSON with { count, requests[] }
      */
-    public Result<String> getSelectedNetworkRequest() {
+    public Result<String> getSelectedNetworkRequests() {
         return httpGet("/selection/network");
     }
 
     /**
-     * Sets the selected network request.
+     * Adds a network request to the selection.
      *
-     * @param requestJson JSON representation of the request to select
-     * @return Result indicating success or failure
+     * @param requestJson JSON representation of the request to add
+     * @return Result containing updated selection
      */
-    public Result<String> setSelectedNetworkRequest(String requestJson) {
-        return httpPost("/selection/network", requestJson);
+    public Result<String> addSelectedNetworkRequest(String requestJson) {
+        return httpPost("/selection/network?action=add", requestJson);
     }
 
     /**
-     * Clears the current network request selection.
+     * Removes a network request from the selection.
+     *
+     * @param requestJson JSON representation of the request to remove
+     * @return Result containing updated selection
+     */
+    public Result<String> removeSelectedNetworkRequest(String requestJson) {
+        return httpPost("/selection/network?action=remove", requestJson);
+    }
+
+    /**
+     * Clears all network request selections.
      *
      * @return Result indicating success or failure
      */
-    public Result<String> clearSelectedNetworkRequest() {
-        return httpPost("/selection/network", "null");
+    public Result<String> clearSelectedNetworkRequests() {
+        return httpPost("/selection/network?action=clear", "null");
     }
 
     // ========================================================================
-    // WebSocket message selection
+    // WebSocket message selection (multi-selection)
     // ========================================================================
 
     /**
-     * Gets the currently selected WebSocket message.
+     * Gets all selected WebSocket messages.
      *
-     * @return Result containing selected message JSON with connectionId, messageIndex, message
+     * @return Result containing JSON with { count, messages[] }
      */
-    public Result<String> getSelectedWebSocketMessage() {
+    public Result<String> getSelectedWebSocketMessages() {
         return httpGet("/selection/websocket-message");
     }
 
     /**
-     * Sets the selected WebSocket message.
+     * Adds a WebSocket message to the selection.
      *
      * @param selectionJson JSON with { connectionId, messageIndex, message }
-     * @return Result indicating success or failure
+     * @return Result containing updated selection
      */
-    public Result<String> setSelectedWebSocketMessage(String selectionJson) {
-        return httpPost("/selection/websocket-message", selectionJson);
+    public Result<String> addSelectedWebSocketMessage(String selectionJson) {
+        return httpPost("/selection/websocket-message?action=add", selectionJson);
     }
 
     /**
-     * Clears the current WebSocket message selection.
+     * Removes a WebSocket message from the selection.
+     *
+     * @param selectionJson JSON with { connectionId, messageIndex }
+     * @return Result containing updated selection
+     */
+    public Result<String> removeSelectedWebSocketMessage(String selectionJson) {
+        return httpPost("/selection/websocket-message?action=remove", selectionJson);
+    }
+
+    /**
+     * Clears all WebSocket message selections.
      *
      * @return Result indicating success or failure
      */
-    public Result<String> clearSelectedWebSocketMessage() {
-        return httpPost("/selection/websocket-message", "null");
+    public Result<String> clearSelectedWebSocketMessages() {
+        return httpPost("/selection/websocket-message?action=clear", "null");
     }
 
     // ========================================================================

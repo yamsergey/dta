@@ -14,8 +14,12 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -68,10 +72,10 @@ public class InspectorServer {
     private final Set<OutputStream> sseClients = ConcurrentHashMap.newKeySet();
     private final NetworkInspector.TransactionListener transactionListener;
 
-    // Selection state
-    private volatile Map<String, Object> selectedElement;
-    private volatile Map<String, Object> selectedNetworkRequest;
-    private volatile Map<String, Object> selectedWebSocketMessage; // { connectionId, messageIndex, message }
+    // Selection state (multi-selection support)
+    private final List<Map<String, Object>> selectedElements = Collections.synchronizedList(new ArrayList<>());
+    private final List<Map<String, Object>> selectedNetworkRequests = Collections.synchronizedList(new ArrayList<>());
+    private final List<Map<String, Object>> selectedWebSocketMessages = Collections.synchronizedList(new ArrayList<>()); // each: { connectionId, messageIndex, message }
 
     private volatile LocalServerSocket serverSocket;
     private volatile String socketName;
@@ -429,34 +433,46 @@ public class InspectorServer {
             return;
         }
 
-        // Handle selection endpoints
-        if (path.equals("/selection/element")) {
+        // Handle selection endpoints (multi-selection support)
+        // Query param: action=add|remove|clear (default: add for POST)
+        Map<String, String> selectionParams = parseQueryParams(path);
+        String action = selectionParams.getOrDefault("action", "add");
+        // Strip query params from path for matching
+        String cleanPath = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
+
+        if (cleanPath.equals("/selection/element")) {
             if ("GET".equals(method)) {
-                handleGetSelectionElement(out);
+                handleGetSelectionElements(out);
             } else if ("POST".equals(method)) {
-                handleSetSelectionElement(body, out);
+                handleModifySelectionElements(body, action, out);
+            } else if ("DELETE".equals(method)) {
+                handleModifySelectionElements(body, "clear", out);
             } else {
                 sendError(out, 405, "Method Not Allowed");
             }
             return;
         }
 
-        if (path.equals("/selection/network")) {
+        if (cleanPath.equals("/selection/network")) {
             if ("GET".equals(method)) {
                 handleGetSelectionNetwork(out);
             } else if ("POST".equals(method)) {
-                handleSetSelectionNetwork(body, out);
+                handleModifySelectionNetwork(body, action, out);
+            } else if ("DELETE".equals(method)) {
+                handleModifySelectionNetwork(body, "clear", out);
             } else {
                 sendError(out, 405, "Method Not Allowed");
             }
             return;
         }
 
-        if (path.equals("/selection/websocket-message")) {
+        if (cleanPath.equals("/selection/websocket-message")) {
             if ("GET".equals(method)) {
                 handleGetSelectionWebSocketMessage(out);
             } else if ("POST".equals(method)) {
-                handleSetSelectionWebSocketMessage(body, out);
+                handleModifySelectionWebSocketMessage(body, action, out);
+            } else if ("DELETE".equals(method)) {
+                handleModifySelectionWebSocketMessage(body, "clear", out);
             } else {
                 sendError(out, 405, "Method Not Allowed");
             }
@@ -1602,155 +1618,249 @@ public class InspectorServer {
     }
 
     // =========================================================================
-    // Selection Endpoints
+    // Selection Endpoints (Multi-selection support)
     // =========================================================================
 
     /**
-     * GET /selection/element - Get currently selected UI element.
+     * GET /selection/element - Get all selected UI elements.
      */
-    private void handleGetSelectionElement(OutputStream out) throws IOException {
+    private void handleGetSelectionElements(OutputStream out) throws IOException {
         Map<String, Object> response = new HashMap<>();
-        response.put("selected", selectedElement != null);
-        if (selectedElement != null) {
-            response.put("element", selectedElement);
-        }
+        response.put("count", selectedElements.size());
+        response.put("elements", new ArrayList<>(selectedElements));
         sendJson(out, 200, response);
     }
 
     /**
-     * POST /selection/element - Set currently selected UI element.
+     * POST /selection/element - Modify element selections.
      *
-     * <p>Expects JSON body with element data or null to clear selection.</p>
+     * <p>Query param action: add (default), remove, clear</p>
+     * <p>For add/remove: expects JSON body with element data.</p>
+     * <p>For clear: body is ignored.</p>
      */
     @SuppressWarnings("unchecked")
-    private void handleSetSelectionElement(String body, OutputStream out) throws IOException {
+    private void handleModifySelectionElements(String body, String action, OutputStream out) throws IOException {
         try {
-            if (body == null || body.trim().isEmpty() || body.trim().equals("null")) {
-                selectedElement = null;
-            } else {
-                selectedElement = gson.fromJson(body, Map.class);
+            switch (action) {
+                case "clear":
+                    selectedElements.clear();
+                    break;
+                case "remove":
+                    if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
+                        Map<String, Object> element = gson.fromJson(body, Map.class);
+                        removeElementByBounds(element);
+                    }
+                    break;
+                case "add":
+                default:
+                    if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
+                        Map<String, Object> element = gson.fromJson(body, Map.class);
+                        if (!containsElementByBounds(element)) {
+                            selectedElements.add(element);
+                        }
+                    }
+                    break;
             }
 
             // Broadcast selection change to SSE clients
             Map<String, Object> eventData = new HashMap<>();
             eventData.put("type", "element");
-            eventData.put("selected", selectedElement != null);
-            if (selectedElement != null) {
-                eventData.put("element", selectedElement);
-            }
+            eventData.put("action", action);
+            eventData.put("count", selectedElements.size());
+            eventData.put("elements", new ArrayList<>(selectedElements));
             broadcastSelectionEvent(eventData);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
-            response.put("selected", selectedElement != null);
+            response.put("count", selectedElements.size());
+            response.put("elements", new ArrayList<>(selectedElements));
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            SidekickLog.e(TAG, "Error setting element selection", e);
+            SidekickLog.e(TAG, "Error modifying element selection", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "Invalid JSON: " + e.getMessage());
             sendJson(out, 400, error);
         }
     }
 
+    private boolean containsElementByBounds(Map<String, Object> element) {
+        Object bounds = element.get("bounds");
+        if (bounds == null) return false;
+        for (Map<String, Object> existing : selectedElements) {
+            if (Objects.equals(existing.get("bounds"), bounds)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void removeElementByBounds(Map<String, Object> element) {
+        Object bounds = element.get("bounds");
+        if (bounds == null) return;
+        selectedElements.removeIf(existing -> Objects.equals(existing.get("bounds"), bounds));
+    }
+
     /**
-     * GET /selection/network - Get currently selected network request.
+     * GET /selection/network - Get all selected network requests.
      */
     private void handleGetSelectionNetwork(OutputStream out) throws IOException {
         Map<String, Object> response = new HashMap<>();
-        response.put("selected", selectedNetworkRequest != null);
-        if (selectedNetworkRequest != null) {
-            response.put("request", selectedNetworkRequest);
-        }
+        response.put("count", selectedNetworkRequests.size());
+        response.put("requests", new ArrayList<>(selectedNetworkRequests));
         sendJson(out, 200, response);
     }
 
     /**
-     * POST /selection/network - Set currently selected network request.
+     * POST /selection/network - Modify network request selections.
      *
-     * <p>Expects JSON body with request ID or full request data, or null to clear.</p>
+     * <p>Query param action: add (default), remove, clear</p>
      */
     @SuppressWarnings("unchecked")
-    private void handleSetSelectionNetwork(String body, OutputStream out) throws IOException {
+    private void handleModifySelectionNetwork(String body, String action, OutputStream out) throws IOException {
         try {
-            if (body == null || body.trim().isEmpty() || body.trim().equals("null")) {
-                selectedNetworkRequest = null;
-            } else {
-                selectedNetworkRequest = gson.fromJson(body, Map.class);
+            switch (action) {
+                case "clear":
+                    selectedNetworkRequests.clear();
+                    break;
+                case "remove":
+                    if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
+                        Map<String, Object> request = gson.fromJson(body, Map.class);
+                        removeRequestById(request);
+                    }
+                    break;
+                case "add":
+                default:
+                    if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
+                        Map<String, Object> request = gson.fromJson(body, Map.class);
+                        if (!containsRequestById(request)) {
+                            selectedNetworkRequests.add(request);
+                        }
+                    }
+                    break;
             }
 
             // Broadcast selection change to SSE clients
             Map<String, Object> eventData = new HashMap<>();
             eventData.put("type", "network");
-            eventData.put("selected", selectedNetworkRequest != null);
-            if (selectedNetworkRequest != null) {
-                eventData.put("request", selectedNetworkRequest);
-            }
+            eventData.put("action", action);
+            eventData.put("count", selectedNetworkRequests.size());
+            eventData.put("requests", new ArrayList<>(selectedNetworkRequests));
             broadcastSelectionEvent(eventData);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
-            response.put("selected", selectedNetworkRequest != null);
+            response.put("count", selectedNetworkRequests.size());
+            response.put("requests", new ArrayList<>(selectedNetworkRequests));
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            SidekickLog.e(TAG, "Error setting network selection", e);
+            SidekickLog.e(TAG, "Error modifying network selection", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "Invalid JSON: " + e.getMessage());
             sendJson(out, 400, error);
         }
     }
 
+    private boolean containsRequestById(Map<String, Object> request) {
+        Object id = request.get("id");
+        if (id == null) return false;
+        for (Map<String, Object> existing : selectedNetworkRequests) {
+            if (Objects.equals(existing.get("id"), id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void removeRequestById(Map<String, Object> request) {
+        Object id = request.get("id");
+        if (id == null) return;
+        selectedNetworkRequests.removeIf(existing -> Objects.equals(existing.get("id"), id));
+    }
+
     /**
-     * GET /selection/websocket-message - Get currently selected WebSocket message.
+     * GET /selection/websocket-message - Get all selected WebSocket messages.
      */
     private void handleGetSelectionWebSocketMessage(OutputStream out) throws IOException {
         Map<String, Object> response = new HashMap<>();
-        response.put("selected", selectedWebSocketMessage != null);
-        if (selectedWebSocketMessage != null) {
-            response.put("connectionId", selectedWebSocketMessage.get("connectionId"));
-            response.put("messageIndex", selectedWebSocketMessage.get("messageIndex"));
-            response.put("message", selectedWebSocketMessage.get("message"));
-        }
+        response.put("count", selectedWebSocketMessages.size());
+        response.put("messages", new ArrayList<>(selectedWebSocketMessages));
         sendJson(out, 200, response);
     }
 
     /**
-     * POST /selection/websocket-message - Set currently selected WebSocket message.
+     * POST /selection/websocket-message - Modify WebSocket message selections.
      *
-     * <p>Expects JSON body with { connectionId, messageIndex, message } or null to clear.</p>
+     * <p>Query param action: add (default), remove, clear</p>
+     * <p>Each message selection contains: { connectionId, messageIndex, message }</p>
      */
     @SuppressWarnings("unchecked")
-    private void handleSetSelectionWebSocketMessage(String body, OutputStream out) throws IOException {
+    private void handleModifySelectionWebSocketMessage(String body, String action, OutputStream out) throws IOException {
         try {
-            if (body == null || body.trim().isEmpty() || body.trim().equals("null")) {
-                selectedWebSocketMessage = null;
-            } else {
-                selectedWebSocketMessage = gson.fromJson(body, Map.class);
+            switch (action) {
+                case "clear":
+                    selectedWebSocketMessages.clear();
+                    break;
+                case "remove":
+                    if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
+                        Map<String, Object> selection = gson.fromJson(body, Map.class);
+                        removeWsMessageByKey(selection);
+                    }
+                    break;
+                case "add":
+                default:
+                    if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
+                        Map<String, Object> selection = gson.fromJson(body, Map.class);
+                        if (!containsWsMessageByKey(selection)) {
+                            selectedWebSocketMessages.add(selection);
+                        }
+                    }
+                    break;
             }
 
             // Broadcast selection change to SSE clients
             Map<String, Object> eventData = new HashMap<>();
             eventData.put("type", "websocket-message");
-            eventData.put("selected", selectedWebSocketMessage != null);
-            if (selectedWebSocketMessage != null) {
-                eventData.put("connectionId", selectedWebSocketMessage.get("connectionId"));
-                eventData.put("messageIndex", selectedWebSocketMessage.get("messageIndex"));
-                eventData.put("message", selectedWebSocketMessage.get("message"));
-            }
+            eventData.put("action", action);
+            eventData.put("count", selectedWebSocketMessages.size());
+            eventData.put("messages", new ArrayList<>(selectedWebSocketMessages));
             broadcastSelectionEvent(eventData);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
-            response.put("selected", selectedWebSocketMessage != null);
+            response.put("count", selectedWebSocketMessages.size());
+            response.put("messages", new ArrayList<>(selectedWebSocketMessages));
             sendJson(out, 200, response);
 
         } catch (Exception e) {
-            SidekickLog.e(TAG, "Error setting websocket message selection", e);
+            SidekickLog.e(TAG, "Error modifying websocket message selection", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", "Invalid JSON: " + e.getMessage());
             sendJson(out, 400, error);
         }
+    }
+
+    private boolean containsWsMessageByKey(Map<String, Object> selection) {
+        Object connId = selection.get("connectionId");
+        Object msgIdx = selection.get("messageIndex");
+        if (connId == null || msgIdx == null) return false;
+        for (Map<String, Object> existing : selectedWebSocketMessages) {
+            if (Objects.equals(existing.get("connectionId"), connId) &&
+                Objects.equals(existing.get("messageIndex"), msgIdx)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void removeWsMessageByKey(Map<String, Object> selection) {
+        Object connId = selection.get("connectionId");
+        Object msgIdx = selection.get("messageIndex");
+        if (connId == null || msgIdx == null) return;
+        selectedWebSocketMessages.removeIf(existing ->
+            Objects.equals(existing.get("connectionId"), connId) &&
+            Objects.equals(existing.get("messageIndex"), msgIdx));
     }
 
     /**

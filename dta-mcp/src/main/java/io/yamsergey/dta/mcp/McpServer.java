@@ -354,9 +354,9 @@ public class McpServer {
             }
         ));
 
-        // get_selected_element
+        // get_selected_elements
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("get_selected_element", "Get the currently selected UI element (highlighted on device)",
+            new Tool("get_selected_elements", "Get all selected UI elements (highlighted on device)",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -367,11 +367,11 @@ public class McpServer {
                     String device = getString(args, "device");
 
                     return withSidekick(pkg, device, client -> {
-                        Result<String> result = client.getSelectedElement();
+                        Result<String> result = client.getSelectedElements();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
                         }
-                        return errorResult("Failed to get selected element");
+                        return errorResult("Failed to get selected elements");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
@@ -381,7 +381,7 @@ public class McpServer {
 
         // select_element_at
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("select_element_at", "Select and highlight the UI element at given screen coordinates",
+            new Tool("select_element_at", "Add the UI element at given screen coordinates to selection (highlight on device)",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "x", prop("integer", "X coordinate", true),
@@ -399,12 +399,12 @@ public class McpServer {
                         // First, find the element at coordinates
                         Result<String> hitResult = client.getElementAtCoordinates(x, y);
                         if (hitResult instanceof Success<String> hit) {
-                            // Parse the element and set it as selected
+                            // Parse the element and add it to selection
                             JsonNode hitNode = mapper.readTree(hit.value());
                             if (hitNode.has("element") && !hitNode.get("element").isNull()) {
                                 JsonNode element = hitNode.get("element");
-                                // Set as selected
-                                Result<String> selectResult = client.setSelectedElement(mapper.writeValueAsString(element));
+                                // Add to selection
+                                Result<String> selectResult = client.addSelectedElement(mapper.writeValueAsString(element));
                                 if (selectResult instanceof Success<String>) {
                                     return new CallToolResult(List.of(new McpSchema.TextContent(hit.value())), false);
                                 }
@@ -419,9 +419,9 @@ public class McpServer {
             }
         ));
 
-        // clear_selection
+        // clear_element_selection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_selection", "Clear the current element selection/highlight",
+            new Tool("clear_element_selection", "Clear all element selections/highlights",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -432,11 +432,11 @@ public class McpServer {
                     String device = getString(args, "device");
 
                     return withSidekick(pkg, device, client -> {
-                        Result<String> result = client.clearSelectedElement();
+                        Result<String> result = client.clearSelectedElements();
                         if (result instanceof Success<String> success) {
-                            return jsonResult(Map.of("success", true, "message", "Selection cleared"));
+                            return jsonResult(Map.of("success", true, "message", "Element selection cleared"));
                         }
-                        return errorResult("Failed to clear selection");
+                        return errorResult("Failed to clear element selection");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
@@ -444,9 +444,48 @@ public class McpServer {
             }
         ));
 
-        // get_selected_network_request
+        // remove_selected_element
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("get_selected_network_request", "Get the currently selected network request",
+            new Tool("remove_selected_element", "Remove a UI element from selection by coordinates",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "x", prop("integer", "X coordinate of element to remove", true),
+                    "y", prop("integer", "Y coordinate of element to remove", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    int x = getInt(args, "x");
+                    int y = getInt(args, "y");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        // First, find the element at coordinates
+                        Result<String> hitResult = client.getElementAtCoordinates(x, y);
+                        if (hitResult instanceof Success<String> hit) {
+                            JsonNode hitNode = mapper.readTree(hit.value());
+                            if (hitNode.has("element") && !hitNode.get("element").isNull()) {
+                                JsonNode element = hitNode.get("element");
+                                // Remove from selection
+                                Result<String> removeResult = client.removeSelectedElement(mapper.writeValueAsString(element));
+                                if (removeResult instanceof Success<String> success) {
+                                    return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                                }
+                            }
+                            return jsonResult(Map.of("success", false, "message", "No element found at coordinates"));
+                        }
+                        return errorResult("Failed to find element at coordinates");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // get_selected_network_requests
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("get_selected_network_requests", "Get all selected network requests",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -457,11 +496,11 @@ public class McpServer {
                     String device = getString(args, "device");
 
                     return withSidekick(pkg, device, client -> {
-                        Result<String> result = client.getSelectedNetworkRequest();
+                        Result<String> result = client.getSelectedNetworkRequests();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
                         }
-                        return errorResult("Failed to get selected network request");
+                        return errorResult("Failed to get selected network requests");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
@@ -471,10 +510,10 @@ public class McpServer {
 
         // select_network_request
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("select_network_request", "Select a network request by ID",
+            new Tool("select_network_request", "Add a network request to selection by ID",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
-                    "request_id", prop("string", "Request ID to select", true),
+                    "request_id", prop("string", "Request ID to add to selection", true),
                     "device", prop("string", "Device serial", false)
                 ))),
             (exchange, args) -> {
@@ -486,11 +525,11 @@ public class McpServer {
                     return withSidekick(pkg, device, client -> {
                         // Create selection JSON with the request ID
                         String selectionJson = mapper.writeValueAsString(Map.of("id", requestId));
-                        Result<String> result = client.setSelectedNetworkRequest(selectionJson);
+                        Result<String> result = client.addSelectedNetworkRequest(selectionJson);
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
                         }
-                        return errorResult("Failed to select network request");
+                        return errorResult("Failed to add network request to selection");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
@@ -498,9 +537,9 @@ public class McpServer {
             }
         ));
 
-        // get_selected_websocket_message
+        // get_selected_websocket_messages
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("get_selected_websocket_message", "Get the currently selected WebSocket message",
+            new Tool("get_selected_websocket_messages", "Get all selected WebSocket messages",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -511,11 +550,11 @@ public class McpServer {
                     String device = getString(args, "device");
 
                     return withSidekick(pkg, device, client -> {
-                        Result<String> result = client.getSelectedWebSocketMessage();
+                        Result<String> result = client.getSelectedWebSocketMessages();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
                         }
-                        return errorResult("Failed to get selected websocket message");
+                        return errorResult("Failed to get selected websocket messages");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
@@ -525,7 +564,7 @@ public class McpServer {
 
         // select_websocket_message
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("select_websocket_message", "Select a WebSocket message by connection ID and message index",
+            new Tool("select_websocket_message", "Add a WebSocket message to selection by connection ID and message index",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "connection_id", prop("string", "WebSocket connection ID", true),
@@ -545,11 +584,11 @@ public class McpServer {
                             "connectionId", connectionId,
                             "messageIndex", messageIndex
                         ));
-                        Result<String> result = client.setSelectedWebSocketMessage(selectionJson);
+                        Result<String> result = client.addSelectedWebSocketMessage(selectionJson);
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
                         }
-                        return errorResult("Failed to select websocket message");
+                        return errorResult("Failed to add websocket message to selection");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
@@ -661,7 +700,7 @@ public class McpServer {
 
         // clear_network_selection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_network_selection", "Clear the current network request selection",
+            new Tool("clear_network_selection", "Clear all network request selections",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -672,7 +711,7 @@ public class McpServer {
                     String device = getString(args, "device");
 
                     return withSidekick(pkg, device, client -> {
-                        Result<String> result = client.clearSelectedNetworkRequest();
+                        Result<String> result = client.clearSelectedNetworkRequests();
                         if (result instanceof Success<String> success) {
                             return jsonResult(Map.of("success", true, "message", "Network selection cleared"));
                         }
@@ -684,9 +723,37 @@ public class McpServer {
             }
         ));
 
+        // remove_selected_network_request
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("remove_selected_network_request", "Remove a network request from selection by ID",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "request_id", prop("string", "Request ID to remove from selection", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String requestId = getString(args, "request_id");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        String selectionJson = mapper.writeValueAsString(Map.of("id", requestId));
+                        Result<String> result = client.removeSelectedNetworkRequest(selectionJson);
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to remove network request from selection");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
         // clear_websocket_selection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_websocket_selection", "Clear the current WebSocket message selection",
+            new Tool("clear_websocket_selection", "Clear all WebSocket message selections",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -697,11 +764,44 @@ public class McpServer {
                     String device = getString(args, "device");
 
                     return withSidekick(pkg, device, client -> {
-                        Result<String> result = client.clearSelectedWebSocketMessage();
+                        Result<String> result = client.clearSelectedWebSocketMessages();
                         if (result instanceof Success<String> success) {
                             return jsonResult(Map.of("success", true, "message", "WebSocket selection cleared"));
                         }
                         return errorResult("Failed to clear websocket selection");
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // remove_selected_websocket_message
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("remove_selected_websocket_message", "Remove a WebSocket message from selection",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "connection_id", prop("string", "WebSocket connection ID", true),
+                    "message_index", prop("integer", "Message index (0-based)", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String connectionId = getString(args, "connection_id");
+                    int messageIndex = getInt(args, "message_index");
+                    String device = getString(args, "device");
+
+                    return withSidekick(pkg, device, client -> {
+                        String selectionJson = mapper.writeValueAsString(Map.of(
+                            "connectionId", connectionId,
+                            "messageIndex", messageIndex
+                        ));
+                        Result<String> result = client.removeSelectedWebSocketMessage(selectionJson);
+                        if (result instanceof Success<String> success) {
+                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                        }
+                        return errorResult("Failed to remove websocket message from selection");
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());

@@ -870,6 +870,64 @@
             padding: 4px 8px;
             font-size: 12px;
         }
+        .btn-sm.focus-btn {
+            background: var(--ctp-peach);
+            color: var(--ctp-base);
+        }
+        .btn-sm.focus-btn:not(:disabled) {
+            animation: pulse 1.5s infinite;
+        }
+        .btn-sm.focus-btn:hover:not(:disabled) {
+            background: var(--ctp-yellow);
+        }
+        .btn-sm.focus-btn:disabled {
+            background: var(--ctp-surface1);
+            color: var(--ctp-overlay0);
+        }
+        .focus-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .focus-dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: var(--ctp-surface0);
+            border: 1px solid var(--ctp-surface1);
+            border-radius: 6px;
+            min-width: 180px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            margin-top: 4px;
+        }
+        .focus-dropdown:hover .focus-dropdown-content,
+        .focus-dropdown:focus-within .focus-dropdown-content {
+            display: block;
+        }
+        .focus-dropdown-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--ctp-text);
+            white-space: nowrap;
+        }
+        .focus-dropdown-item:hover {
+            background: var(--ctp-surface1);
+        }
+        .focus-dropdown-item:first-child {
+            border-radius: 6px 6px 0 0;
+        }
+        .focus-dropdown-item:last-child {
+            border-radius: 0 0 6px 6px;
+        }
+        .focus-dropdown-item:only-child {
+            border-radius: 6px;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
 
         /* Match list styles for filtered results */
         .match-list {
@@ -1068,6 +1126,16 @@
                     <div class="panel-header">
                         <span>UI Tree</span>
                         <span v-if="composeTree?.matches" class="meta-text">{{ composeTree.matches.length }} matches</span>
+                        <div class="focus-dropdown">
+                            <button class="btn-sm focus-btn" :disabled="!deviceSelectedElements.length" title="Focus on device-selected elements">
+                                Focus ({{ deviceSelectedElements.length }}) ▾
+                            </button>
+                            <div class="focus-dropdown-content" v-if="deviceSelectedElements.length">
+                                <div class="focus-dropdown-item" v-for="(el, idx) in deviceSelectedElements" :key="idx" @click="focusDeviceElement(idx)">
+                                    {{ el.composable || 'Element' }}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="panel-content" ref="treeContainer">
                         <div v-if="loading" class="loading">Loading...</div>
@@ -1113,6 +1181,14 @@
                 <div class="detail-panel" v-if="selectedNode && showElementDetails">
                     <div class="panel-header">
                         <span>Element Details</span>
+                        <div class="btn-group">
+                            <button class="btn-sm"
+                                    @click="isElementSelectedOnDevice(selectedNode) ? clearDeviceSelection() : syncSelectionToDevice(selectedNode)"
+                                    :disabled="!connected"
+                                    :title="isElementSelectedOnDevice(selectedNode) ? 'Clear device highlight' : 'Highlight this element on device'">
+                                {{ isElementSelectedOnDevice(selectedNode) ? 'Deselect' : 'Select' }}
+                            </button>
+                        </div>
                         <button class="close-btn" @click="showElementDetails = false" title="Close panel">✕</button>
                     </div>
                     <div class="panel-content">
@@ -1185,6 +1261,16 @@
                     <div class="panel-header">
                         <span>Requests</span>
                         <div class="btn-group">
+                            <div class="focus-dropdown">
+                                <button class="btn-sm focus-btn" :disabled="!deviceSelectedRequests.length" title="Focus on device-selected requests">
+                                    Focus ({{ deviceSelectedRequests.length }}) ▾
+                                </button>
+                                <div class="focus-dropdown-content" v-if="deviceSelectedRequests.length">
+                                    <div class="focus-dropdown-item" v-for="(req, idx) in deviceSelectedRequests" :key="idx" @click="focusNetworkRequest(idx)">
+                                        {{ req.method }} {{ truncateUrl(req.url) }}
+                                    </div>
+                                </div>
+                            </div>
                             <button class="secondary btn-sm" @click="loadNetworkRequests" :disabled="!connected">
                                 Refresh
                             </button>
@@ -1226,6 +1312,12 @@
                     <div class="panel-header">
                         <span>Request Details</span>
                         <div class="btn-group">
+                            <button class="btn-sm"
+                                    @click="isRequestSelectedOnDevice(selectedRequest) ? clearNetworkDeviceSelection() : syncNetworkSelectionToDevice(selectedRequest)"
+                                    :disabled="!connected"
+                                    :title="isRequestSelectedOnDevice(selectedRequest) ? 'Clear device selection' : 'Select this request on device'">
+                                {{ isRequestSelectedOnDevice(selectedRequest) ? 'Deselect' : 'Select' }}
+                            </button>
                             <button class="secondary btn-sm" @click="copyRequest">Copy All</button>
                             <button class="secondary btn-sm" @click="exportRequest">Export</button>
                             <button class="close-btn" @click="closeNetworkRequest" title="Close panel">✕</button>
@@ -1323,6 +1415,16 @@
                     <div class="panel-header">
                         <span>Connections</span>
                         <div class="btn-group">
+                            <div class="focus-dropdown">
+                                <button class="btn-sm focus-btn" :disabled="!deviceSelectedMessages.length" title="Focus on device-selected messages">
+                                    Focus ({{ deviceSelectedMessages.length }}) ▾
+                                </button>
+                                <div class="focus-dropdown-content" v-if="deviceSelectedMessages.length">
+                                    <div class="focus-dropdown-item" v-for="(msg, idx) in deviceSelectedMessages" :key="idx" @click="focusWsMessage(idx)">
+                                        Message #{{ msg.messageIndex }}
+                                    </div>
+                                </div>
+                            </div>
                             <button class="secondary btn-sm" @click="loadWsConnections" :disabled="!connected">
                                 Refresh
                             </button>
@@ -1393,6 +1495,12 @@
                     <div class="panel-header">
                         <span>Message Details</span>
                         <div class="btn-group">
+                            <button class="btn-sm"
+                                    @click="isWsMessageSelectedOnDevice(selectedWsMessage) ? clearWsDeviceSelection() : syncWsMessageSelectionToDevice(selectedWsMessage.index, selectedWsMessage.message)"
+                                    :disabled="!connected"
+                                    :title="isWsMessageSelectedOnDevice(selectedWsMessage) ? 'Clear device selection' : 'Select this message on device'">
+                                {{ isWsMessageSelectedOnDevice(selectedWsMessage) ? 'Deselect' : 'Select' }}
+                            </button>
                             <button class="secondary btn-sm" @click="copyWsMessageBody">Copy Body</button>
                             <button class="close-btn" @click="closeWsMessage" title="Close panel">✕</button>
                         </div>
@@ -1691,6 +1799,12 @@
                     webSocketMockingEnabled: true
                 });
 
+                // Pending device selections (from agent/device, not yet focused in UI)
+                // Device selections (can have multiple)
+                const deviceSelectedElements = ref([]);
+                const deviceSelectedRequests = ref([]);
+                const deviceSelectedMessages = ref([]);
+
                 // Context menu state
                 const contextMenu = reactive({
                     visible: false,
@@ -1814,12 +1928,15 @@
                     failureCount.value = 0;
                     connectionStatus.value = 'connecting';
                     try {
+                        // First load all data
                         await Promise.all([
                             loadComposeTree(),
                             refreshScreenshot(),
                             loadNetworkRequests(),
                             loadWsConnections()
                         ]);
+                        // Then load selections (needs tree/requests to be loaded first for matching)
+                        await loadSelections();
                         connectionStatus.value = 'connected';
                     } catch (e) {
                         console.error('Connection failed:', e);
@@ -1829,6 +1946,66 @@
                         }
                     } finally {
                         loading.value = false;
+                    }
+                }
+
+                // Load all selections from backend (for persistence across refresh)
+                async function loadSelections() {
+                    if (!connected.value) return;
+                    const params = new URLSearchParams({
+                        package: selectedApp.value,
+                        device: selectedDevice.value
+                    });
+
+                    try {
+                        // Load element selections
+                        const elemRes = await fetch(api(`/selection/element?${params}`));
+                        const elemData = await elemRes.json();
+                        if (elemData.count > 0 && elemData.elements) {
+                            // Match elements to tree nodes by bounds
+                            const matchedElements = [];
+                            for (const deviceElement of elemData.elements) {
+                                if (deviceElement.bounds && composeTree.value?.root) {
+                                    const match = findNodeByBounds(composeTree.value.root, deviceElement.bounds);
+                                    if (match) {
+                                        matchedElements.push(match);
+                                    }
+                                }
+                            }
+                            deviceSelectedElements.value = matchedElements;
+                        } else {
+                            deviceSelectedElements.value = [];
+                        }
+
+                        // Load network request selections
+                        const netRes = await fetch(api(`/selection/network?${params}`));
+                        const netData = await netRes.json();
+                        if (netData.count > 0 && netData.requests) {
+                            const matchedRequests = [];
+                            for (const deviceReq of netData.requests) {
+                                const match = networkRequests.value.find(r => r.id === deviceReq.id);
+                                if (match) {
+                                    matchedRequests.push(match);
+                                }
+                            }
+                            deviceSelectedRequests.value = matchedRequests;
+                        } else {
+                            deviceSelectedRequests.value = [];
+                        }
+
+                        // Load websocket message selections
+                        const wsRes = await fetch(api(`/selection/websocket-message?${params}`));
+                        const wsData = await wsRes.json();
+                        if (wsData.count > 0 && wsData.messages) {
+                            deviceSelectedMessages.value = wsData.messages.map(m => ({
+                                connectionId: m.connectionId,
+                                messageIndex: m.messageIndex
+                            }));
+                        } else {
+                            deviceSelectedMessages.value = [];
+                        }
+                    } catch (e) {
+                        console.error('Failed to load selections:', e);
                     }
                 }
 
@@ -2300,18 +2477,27 @@
                             }
                         }
                     });
-                    // Sync selection with device (highlight on screen)
-                    if (connected.value && node) {
-                        syncSelectionToDevice(node);
-                    }
+                    // Don't auto-select on device - user must click "Select" button
+                }
+
+                // Helper to compare bounds objects
+                function sameBounds(a, b) {
+                    if (!a || !b) return false;
+                    return a.left === b.left && a.top === b.top &&
+                           a.right === b.right && a.bottom === b.bottom;
                 }
 
                 async function syncSelectionToDevice(node) {
-                    if (!connected.value) return;
+                    if (!connected.value || !node) return;
+                    // Add to local array if not already there
+                    if (!deviceSelectedElements.value.some(el => sameBounds(el.bounds, node.bounds))) {
+                        deviceSelectedElements.value = [...deviceSelectedElements.value, node];
+                    }
                     try {
                         const params = new URLSearchParams({
                             package: selectedApp.value,
-                            device: selectedDevice.value
+                            device: selectedDevice.value,
+                            action: 'add'
                         });
                         await fetch(api(`/selection/element?${params}`), {
                             method: 'POST',
@@ -2323,7 +2509,57 @@
                     }
                 }
 
-                // Poll device selection to sync when agent selects an element
+                async function clearDeviceSelection(element) {
+                    if (!connected.value) return;
+                    const el = element || selectedNode.value;
+                    // Remove from local array
+                    if (el) {
+                        deviceSelectedElements.value = deviceSelectedElements.value.filter(
+                            e => !sameBounds(e.bounds, el.bounds)
+                        );
+                    }
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value,
+                            action: 'remove'
+                        });
+                        await fetch(api(`/selection/element?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(el)
+                        });
+                    } catch (e) {
+                        console.error('Failed to clear selection:', e);
+                    }
+                }
+
+                async function clearAllElementSelections() {
+                    if (!connected.value) return;
+                    deviceSelectedElements.value = [];
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value,
+                            action: 'clear'
+                        });
+                        await fetch(api(`/selection/element?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: 'null'
+                        });
+                    } catch (e) {
+                        console.error('Failed to clear all selections:', e);
+                    }
+                }
+
+                // Check if element is currently selected on device
+                function isElementSelectedOnDevice(element) {
+                    if (!element || !deviceSelectedElements.value.length) return false;
+                    return deviceSelectedElements.value.some(el => sameBounds(el.bounds, element.bounds));
+                }
+
+                // Poll device selection to detect when agent selects an element
                 async function pollDeviceSelection() {
                     if (!connected.value || activeTab.value !== 'compose') return;
                     try {
@@ -2334,21 +2570,33 @@
                         const res = await fetch(api(`/selection/element?${params}`));
                         const data = await res.json();
 
-                        if (data.selected && data.element) {
-                            // Find matching node in our tree by bounds
-                            const deviceElement = data.element;
-                            if (deviceElement.bounds && composeTree.value?.root) {
-                                const match = findNodeByBounds(composeTree.value.root, deviceElement.bounds);
-                                if (match && match !== selectedNode.value) {
-                                    // Update selection without syncing back to device
-                                    selectedNode.value = match;
-                                    showElementDetails.value = true;
-                                    expandPathToNode(match);
+                        // Handle multi-selection response format { count, elements[] }
+                        if (data.count > 0 && data.elements) {
+                            for (const deviceElement of data.elements) {
+                                if (deviceElement.bounds && composeTree.value?.root) {
+                                    const match = findNodeByBounds(composeTree.value.root, deviceElement.bounds);
+                                    if (match) {
+                                        // Add to selections if not already there
+                                        if (!deviceSelectedElements.value.some(el => sameBounds(el.bounds, match.bounds))) {
+                                            deviceSelectedElements.value = [...deviceSelectedElements.value, match];
+                                        }
+                                    }
                                 }
                             }
                         }
+                        // Don't clear on no selection - only user deselect clears
                     } catch (e) {
                         // Ignore polling errors
+                    }
+                }
+
+                // Focus on device-selected element by index
+                function focusDeviceElement(index) {
+                    const el = deviceSelectedElements.value[index];
+                    if (el) {
+                        selectedNode.value = el;
+                        showElementDetails.value = true;
+                        expandPathToNode(el);
                     }
                 }
 
@@ -2409,19 +2657,23 @@
                     try {
                         const res = await fetch(api(`/network/requests/${req.id}?${params}`));
                         selectedRequestDetails.value = await res.json();
-                        // Sync selection with device
-                        syncNetworkSelectionToDevice(req);
+                        // Don't auto-select on device - user must click "Select" button
                     } catch (e) {
                         selectedRequestDetails.value = req;
                     }
                 }
 
                 async function syncNetworkSelectionToDevice(req) {
-                    if (!connected.value) return;
+                    if (!connected.value || !req) return;
+                    // Add to local array if not already there
+                    if (!deviceSelectedRequests.value.some(r => r.id === req.id)) {
+                        deviceSelectedRequests.value = [...deviceSelectedRequests.value, req];
+                    }
                     try {
                         const params = new URLSearchParams({
                             package: selectedApp.value,
-                            device: selectedDevice.value
+                            device: selectedDevice.value,
+                            action: 'add'
                         });
                         await fetch(api(`/selection/network?${params}`), {
                             method: 'POST',
@@ -2433,28 +2685,61 @@
                     }
                 }
 
-                async function closeNetworkRequest() {
-                    selectedRequest.value = null;
-                    selectedRequestDetails.value = null;
-                    // Clear selection on device to prevent polling from re-selecting
-                    if (connected.value) {
-                        try {
-                            const params = new URLSearchParams({
-                                package: selectedApp.value,
-                                device: selectedDevice.value
-                            });
-                            await fetch(api(`/selection/network?${params}`), {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: 'null'
-                            });
-                        } catch (e) {
-                            // Ignore errors
-                        }
+                async function clearNetworkDeviceSelection(request) {
+                    if (!connected.value) return;
+                    const req = request || selectedRequest.value;
+                    // Remove from local array
+                    if (req) {
+                        deviceSelectedRequests.value = deviceSelectedRequests.value.filter(r => r.id !== req.id);
+                    }
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value,
+                            action: 'remove'
+                        });
+                        await fetch(api(`/selection/network?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(req)
+                        });
+                    } catch (e) {
+                        console.error('Failed to clear network selection:', e);
                     }
                 }
 
-                // Poll device network selection to sync when agent selects a request
+                // Check if request is currently selected on device
+                function isRequestSelectedOnDevice(request) {
+                    if (!request || !deviceSelectedRequests.value.length) return false;
+                    return deviceSelectedRequests.value.some(r => r.id === request.id);
+                }
+
+                async function closeNetworkRequest() {
+                    selectedRequest.value = null;
+                    selectedRequestDetails.value = null;
+                    // Just close the details panel, don't clear selections
+                }
+
+                async function clearAllNetworkSelections() {
+                    if (!connected.value) return;
+                    deviceSelectedRequests.value = [];
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value,
+                            action: 'clear'
+                        });
+                        await fetch(api(`/selection/network?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: 'null'
+                        });
+                    } catch (e) {
+                        console.error('Failed to clear all network selections:', e);
+                    }
+                }
+
+                // Poll device network selection to detect when agent selects a request
                 async function pollNetworkSelection() {
                     if (!connected.value || activeTab.value !== 'network') return;
                     try {
@@ -2465,18 +2750,36 @@
                         const res = await fetch(api(`/selection/network?${params}`));
                         const data = await res.json();
 
-                        if (data.selected && data.request) {
-                            // Find matching request in our list by id
-                            const match = networkRequests.value.find(r => r.id === data.request.id);
-                            if (match && match.id !== selectedRequest.value?.id) {
-                                selectedRequest.value = match;
-                                // Load details without syncing back to device
-                                const detailRes = await fetch(api(`/network/requests/${match.id}?${params}`));
-                                selectedRequestDetails.value = await detailRes.json();
+                        // Handle multi-selection response format { count, requests[] }
+                        if (data.count > 0 && data.requests) {
+                            for (const deviceReq of data.requests) {
+                                const match = networkRequests.value.find(r => r.id === deviceReq.id);
+                                if (match) {
+                                    // Add to selections if not already there
+                                    if (!deviceSelectedRequests.value.some(r => r.id === match.id)) {
+                                        deviceSelectedRequests.value = [...deviceSelectedRequests.value, match];
+                                    }
+                                }
                             }
                         }
+                        // Don't clear on no selection - only user deselect clears
                     } catch (e) {
                         // Ignore polling errors
+                    }
+                }
+
+                // Focus on device-selected request by index
+                async function focusNetworkRequest(index) {
+                    const req = deviceSelectedRequests.value[index];
+                    if (req) {
+                        selectedRequest.value = req;
+                        mediaBody.value = null;
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const detailRes = await fetch(api(`/network/requests/${req.id}?${params}`));
+                        selectedRequestDetails.value = await detailRes.json();
                     }
                 }
 
@@ -2608,29 +2911,90 @@
                         message: msg,
                         connectionId: selectedWsConnection.value?.id
                     };
-                    // Sync selection with device
-                    syncWsMessageSelectionToDevice(index, msg);
+                    // Don't auto-select on device - user must click "Select" button
                 }
 
                 async function syncWsMessageSelectionToDevice(index, msg) {
                     if (!connected.value || !selectedWsConnection.value) return;
+                    const selection = {
+                        connectionId: selectedWsConnection.value.id,
+                        messageIndex: index,
+                        message: msg
+                    };
+                    // Add to local array if not already there
+                    if (!deviceSelectedMessages.value.some(m =>
+                        m.connectionId === selection.connectionId && m.messageIndex === selection.messageIndex)) {
+                        deviceSelectedMessages.value = [...deviceSelectedMessages.value, selection];
+                    }
                     try {
                         const params = new URLSearchParams({
                             package: selectedApp.value,
-                            device: selectedDevice.value
+                            device: selectedDevice.value,
+                            action: 'add'
                         });
                         await fetch(api(`/selection/websocket-message?${params}`), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                connectionId: selectedWsConnection.value.id,
-                                messageIndex: index,
-                                message: msg
-                            })
+                            body: JSON.stringify(selection)
                         });
                     } catch (e) {
                         console.error('Failed to sync websocket message selection:', e);
                     }
+                }
+
+                async function clearWsDeviceSelection(wsMessage) {
+                    if (!connected.value) return;
+                    const msg = wsMessage || selectedWsMessage.value;
+                    // Remove from local array
+                    if (msg) {
+                        deviceSelectedMessages.value = deviceSelectedMessages.value.filter(m =>
+                            !(m.connectionId === msg.connectionId && m.messageIndex === msg.index)
+                        );
+                    }
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value,
+                            action: 'remove'
+                        });
+                        const removeSelection = msg ? {
+                            connectionId: msg.connectionId,
+                            messageIndex: msg.index
+                        } : null;
+                        await fetch(api(`/selection/websocket-message?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(removeSelection)
+                        });
+                    } catch (e) {
+                        console.error('Failed to clear ws selection:', e);
+                    }
+                }
+
+                async function clearAllWsSelections() {
+                    if (!connected.value) return;
+                    deviceSelectedMessages.value = [];
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value,
+                            action: 'clear'
+                        });
+                        await fetch(api(`/selection/websocket-message?${params}`), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: 'null'
+                        });
+                    } catch (e) {
+                        console.error('Failed to clear all ws selections:', e);
+                    }
+                }
+
+                // Check if websocket message is currently selected on device
+                function isWsMessageSelectedOnDevice(wsMessage) {
+                    if (!wsMessage || !deviceSelectedMessages.value.length) return false;
+                    return deviceSelectedMessages.value.some(m =>
+                        m.connectionId === wsMessage.connectionId && m.messageIndex === wsMessage.index);
                 }
 
                 // Poll device websocket message selection
@@ -2644,30 +3008,54 @@
                         const res = await fetch(api(`/selection/websocket-message?${params}`));
                         const data = await res.json();
 
-                        if (data.selected && data.connectionId && data.messageIndex !== undefined) {
-                            // Check if we need to switch connection
-                            if (selectedWsConnection.value?.id !== data.connectionId) {
-                                const conn = wsConnections.value.find(c => c.id === data.connectionId);
-                                if (conn) {
-                                    selectedWsConnection.value = conn;
-                                    const connRes = await fetch(api(`/websocket/connections/${conn.id}?${params}`));
-                                    selectedWsDetails.value = await connRes.json();
-                                }
-                            }
-                            // Update message selection if different
-                            if (selectedWsMessage.value?.index !== data.messageIndex ||
-                                selectedWsMessage.value?.connectionId !== data.connectionId) {
-                                if (selectedWsDetails.value?.messages?.[data.messageIndex]) {
-                                    selectedWsMessage.value = {
-                                        index: data.messageIndex,
-                                        message: selectedWsDetails.value.messages[data.messageIndex],
-                                        connectionId: data.connectionId
-                                    };
+                        // Handle multi-selection response format { count, messages[] }
+                        if (data.count > 0 && data.messages) {
+                            for (const deviceMsg of data.messages) {
+                                const selection = {
+                                    connectionId: deviceMsg.connectionId,
+                                    messageIndex: deviceMsg.messageIndex
+                                };
+                                // Add to selections if not already there
+                                if (!deviceSelectedMessages.value.some(m =>
+                                    m.connectionId === selection.connectionId && m.messageIndex === selection.messageIndex)) {
+                                    deviceSelectedMessages.value = [...deviceSelectedMessages.value, selection];
                                 }
                             }
                         }
+                        // Don't clear on no selection - only user deselect clears
                     } catch (e) {
                         // Ignore polling errors
+                    }
+                }
+
+                // Focus on device-selected websocket message by index
+                async function focusWsMessage(index) {
+                    const selection = deviceSelectedMessages.value[index];
+                    if (selection) {
+                        const { connectionId, messageIndex } = selection;
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+
+                        // Switch connection if needed
+                        if (selectedWsConnection.value?.id !== connectionId) {
+                            const conn = wsConnections.value.find(c => c.id === connectionId);
+                            if (conn) {
+                                selectedWsConnection.value = conn;
+                                const connRes = await fetch(api(`/websocket/connections/${conn.id}?${params}`));
+                                selectedWsDetails.value = await connRes.json();
+                            }
+                        }
+
+                        // Select the message
+                        if (selectedWsDetails.value?.messages?.[messageIndex]) {
+                            selectedWsMessage.value = {
+                                index: messageIndex,
+                                message: selectedWsDetails.value.messages[messageIndex],
+                                connectionId: connectionId
+                            };
+                        }
                     }
                 }
 
@@ -2680,22 +3068,7 @@
 
                 async function closeWsMessage() {
                     selectedWsMessage.value = null;
-                    // Clear selection on device to prevent polling from re-selecting
-                    if (connected.value) {
-                        try {
-                            const params = new URLSearchParams({
-                                package: selectedApp.value,
-                                device: selectedDevice.value
-                            });
-                            await fetch(api(`/selection/websocket-message?${params}`), {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: 'null'
-                            });
-                        } catch (e) {
-                            // Ignore errors
-                        }
-                    }
+                    // Just close the details panel, don't clear selections
                 }
 
                 function switchTab(tab) {
@@ -3047,6 +3420,13 @@
                     networkRequests, networkRequestsReversed, selectedRequest, selectedRequestDetails, mediaBody,
                     wsConnections, selectedWsConnection, selectedWsDetails, selectedWsMessage,
                     mockRules, selectedMockRule, mockConfig, contextMenu,
+                    deviceSelectedElements, deviceSelectedRequests, deviceSelectedMessages,
+                    focusDeviceElement, focusNetworkRequest, focusWsMessage,
+                    clearDeviceSelection, clearNetworkDeviceSelection, clearWsDeviceSelection,
+                    clearAllElementSelections, clearAllNetworkSelections, clearAllWsSelections,
+                    syncSelectionToDevice, syncNetworkSelectionToDevice, syncWsMessageSelectionToDevice,
+                    isElementSelectedOnDevice, isRequestSelectedOnDevice, isWsMessageSelectedOnDevice,
+                    loadSelections,
                     sections, wsMsgSections,
                     // Resizable panels
                     networkLayout, networkListPanel, networkPanelWidth, isResizingNetwork,

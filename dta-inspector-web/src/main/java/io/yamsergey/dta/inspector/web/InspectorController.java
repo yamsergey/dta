@@ -302,135 +302,133 @@ public class InspectorController {
     }
 
     // ========================================================================
-    // Selection endpoints
+    // Selection endpoints (multi-selection support)
+    // Query param action: add (default), remove, clear
     // ========================================================================
 
     @GetMapping("/selection/element")
-    public ResponseEntity<?> getSelectedElement(
+    public ResponseEntity<?> getSelectedElements(
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
-            Result<String> result = conn.client().getSelectedElement();
+            Result<String> result = conn.client().getSelectedElements();
 
             if (result instanceof Success<String> success) {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
-            return error("Failed to get selected element");
+            return error("Failed to get selected elements");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
     }
 
     @PostMapping("/selection/element")
-    public ResponseEntity<?> setSelectedElement(
+    public ResponseEntity<?> modifySelectedElements(
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device,
+            @RequestParam(defaultValue = "add") String action,
             @RequestBody(required = false) String elementJson) {
         try {
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
-            Result<String> result;
-
-            if (elementJson == null || elementJson.isBlank() || "null".equals(elementJson)) {
-                result = conn.client().clearSelectedElement();
-            } else {
-                result = conn.client().setSelectedElement(elementJson);
-            }
+            Result<String> result = switch (action) {
+                case "clear" -> conn.client().clearSelectedElements();
+                case "remove" -> conn.client().removeSelectedElement(elementJson);
+                default -> conn.client().addSelectedElement(elementJson);
+            };
 
             if (result instanceof Success<String> success) {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
-            return error("Failed to set selected element");
+            return error("Failed to modify element selection");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
     }
 
     // ========================================================================
-    // Network selection endpoints
+    // Network selection endpoints (multi-selection support)
     // ========================================================================
 
     @GetMapping("/selection/network")
-    public ResponseEntity<?> getSelectedNetworkRequest(
+    public ResponseEntity<?> getSelectedNetworkRequests(
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
-            Result<String> result = conn.client().getSelectedNetworkRequest();
+            Result<String> result = conn.client().getSelectedNetworkRequests();
 
             if (result instanceof Success<String> success) {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
-            return error("Failed to get selected network request");
+            return error("Failed to get selected network requests");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
     }
 
     @PostMapping("/selection/network")
-    public ResponseEntity<?> setSelectedNetworkRequest(
+    public ResponseEntity<?> modifySelectedNetworkRequests(
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device,
+            @RequestParam(defaultValue = "add") String action,
             @RequestBody(required = false) String requestJson) {
         try {
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
-            Result<String> result;
-
-            if (requestJson == null || requestJson.isBlank() || "null".equals(requestJson)) {
-                result = conn.client().clearSelectedNetworkRequest();
-            } else {
-                result = conn.client().setSelectedNetworkRequest(requestJson);
-            }
+            Result<String> result = switch (action) {
+                case "clear" -> conn.client().clearSelectedNetworkRequests();
+                case "remove" -> conn.client().removeSelectedNetworkRequest(requestJson);
+                default -> conn.client().addSelectedNetworkRequest(requestJson);
+            };
 
             if (result instanceof Success<String> success) {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
-            return error("Failed to set selected network request");
+            return error("Failed to modify network request selection");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
     }
 
     // ========================================================================
-    // WebSocket message selection endpoints
+    // WebSocket message selection endpoints (multi-selection support)
     // ========================================================================
 
     @GetMapping("/selection/websocket-message")
-    public ResponseEntity<?> getSelectedWebSocketMessage(
+    public ResponseEntity<?> getSelectedWebSocketMessages(
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
-            Result<String> result = conn.client().getSelectedWebSocketMessage();
+            Result<String> result = conn.client().getSelectedWebSocketMessages();
 
             if (result instanceof Success<String> success) {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
-            return error("Failed to get selected websocket message");
+            return error("Failed to get selected websocket messages");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
     }
 
     @PostMapping("/selection/websocket-message")
-    public ResponseEntity<?> setSelectedWebSocketMessage(
+    public ResponseEntity<?> modifySelectedWebSocketMessages(
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device,
+            @RequestParam(defaultValue = "add") String action,
             @RequestBody(required = false) String selectionJson) {
         try {
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
-            Result<String> result;
-
-            if (selectionJson == null || selectionJson.isBlank() || "null".equals(selectionJson)) {
-                result = conn.client().clearSelectedWebSocketMessage();
-            } else {
-                result = conn.client().setSelectedWebSocketMessage(selectionJson);
-            }
+            Result<String> result = switch (action) {
+                case "clear" -> conn.client().clearSelectedWebSocketMessages();
+                case "remove" -> conn.client().removeSelectedWebSocketMessage(selectionJson);
+                default -> conn.client().addSelectedWebSocketMessage(selectionJson);
+            };
 
             if (result instanceof Success<String> success) {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
-            return error("Failed to set selected websocket message");
+            return error("Failed to modify websocket message selection");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
