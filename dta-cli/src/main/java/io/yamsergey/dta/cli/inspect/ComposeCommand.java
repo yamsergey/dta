@@ -1,5 +1,6 @@
 package io.yamsergey.dta.cli.inspect;
 
+import io.yamsergey.dta.cli.util.VersionChecker;
 import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 import io.yamsergey.dta.tools.sugar.Failure;
@@ -123,6 +124,9 @@ public class ComposeCommand implements Callable<Integer> {
                 printConnectionError();
                 return 1;
             }
+
+            // Check version compatibility
+            VersionChecker.checkAndWarn(client, System.err);
 
             // Fetch compose tree
             System.err.println("Fetching compose tree...");

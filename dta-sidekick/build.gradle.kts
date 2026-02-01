@@ -81,6 +81,40 @@ dependencies {
     compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
 }
 
+// Generate version.properties from centralized version
+val versionPropsDir = layout.buildDirectory.dir("generated/resources")
+val dtaVersionValue = rootProject.findProperty("dtaVersion")?.toString() ?: "0.0.0"
+
+abstract class GenerateVersionPropertiesTask : DefaultTask() {
+    @get:Input
+    abstract val version: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val outDir = outputDir.get().asFile
+        outDir.mkdirs()
+        File(outDir, "version.properties").writeText("version=${version.get()}\n")
+    }
+}
+
+tasks.register<GenerateVersionPropertiesTask>("generateVersionProperties") {
+    version.set(dtaVersionValue)
+    outputDir.set(versionPropsDir)
+}
+
+android.sourceSets {
+    getByName("main") {
+        resources.srcDirs(versionPropsDir)
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn("generateVersionProperties")
+}
+
 android {
     publishing {
         singleVariant("release") {

@@ -1,5 +1,6 @@
 package io.yamsergey.dta.cli.inspect;
 
+import io.yamsergey.dta.cli.util.VersionChecker;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
@@ -114,6 +115,9 @@ public class NetworkCommand implements Callable<Integer> {
                 printConnectionError();
                 return 1;
             }
+
+            // Check version compatibility
+            VersionChecker.checkAndWarn(client, System.err);
 
             // Determine operation
             Result<String> dataResult;

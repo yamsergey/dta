@@ -61,7 +61,24 @@ public class InspectorServer {
 
     private static final String TAG = "InspectorServer";
     private static final String SOCKET_PREFIX = "dta_sidekick_";
+    private static final String VERSION = loadVersion();
     private static volatile InspectorServer instance;
+
+    /**
+     * Loads the version from the generated version.properties file.
+     */
+    private static String loadVersion() {
+        try (java.io.InputStream is = InspectorServer.class.getResourceAsStream("/version.properties")) {
+            if (is != null) {
+                java.util.Properties props = new java.util.Properties();
+                props.load(is);
+                return props.getProperty("version", "unknown");
+            }
+        } catch (Exception e) {
+            SidekickLog.w(TAG, "Failed to load version.properties", e);
+        }
+        return "unknown";
+    }
 
     private final Gson gson;
     private final ExecutorService executor;
@@ -534,7 +551,7 @@ public class InspectorServer {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
         response.put("name", "ADT Sidekick");
-        response.put("version", "2.0.0");
+        response.put("version", VERSION);
         response.put("socketName", socketName);
         response.put("packageName", packageName);
         response.put("sseClients", sseClients.size());

@@ -14,6 +14,32 @@ ext {
     springBootVersion = '3.4.1'
 }
 
+// Generate version.properties from centralized version
+def versionPropsDir = layout.buildDirectory.dir("generated/resources")
+def dtaVersionValue = rootProject.findProperty('dtaVersion') ?: '0.0.0'
+
+tasks.register('generateVersionProperties') {
+    outputs.dir(versionPropsDir)
+    inputs.property('version', dtaVersionValue)
+    doLast {
+        def outDir = versionPropsDir.get().asFile
+        outDir.mkdirs()
+        new File(outDir, "version.properties").text = "version=${dtaVersionValue}\n"
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn 'generateVersionProperties'
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDir versionPropsDir
+        }
+    }
+}
+
 dependencies {
     // Core DTA library
     implementation project(':tools-android')

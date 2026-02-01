@@ -11,6 +11,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
+import io.yamsergey.dta.tools.android.inspect.compose.HealthResponse;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -25,9 +26,10 @@ public class McpServer {
 
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final Map<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
+    private static final String MCP_VERSION = getVersion();
     private static int nextPort = 18640;
 
-    private record ConnectionInfo(String packageName, String device, int port) {}
+    private record ConnectionInfo(String packageName, String device, int port, String sidekickVersion, String versionWarning) {}
 
     public static void main(String[] args) throws Exception {
         // Collect all tool specifications BEFORE building the server
@@ -219,7 +221,7 @@ public class McpServer {
                     String textFilter = getString(args, "text");
                     String typeFilter = getString(args, "type");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getComposeTree();
                         if (result instanceof Success<String> success) {
                             String json = success.value();
@@ -233,6 +235,7 @@ public class McpServer {
                                 String filtered = filter.filter(json);
                                 ObjectNode response = mapper.createObjectNode();
                                 response.put("package", pkg);
+                                if (versionWarning != null) response.put("warning", versionWarning);
                                 response.set("filters", mapper.createObjectNode()
                                     .put("text", textFilter)
                                     .put("type", typeFilter));
@@ -240,7 +243,7 @@ public class McpServer {
                                 return new CallToolResult(List.of(new McpSchema.TextContent(mapper.writeValueAsString(response))), false);
                             }
 
-                            return new CallToolResult(List.of(new McpSchema.TextContent(json)), false);
+                            return resultWithWarning(json, versionWarning);
                         }
                         return errorResult("Failed to get compose tree");
                     });
@@ -262,10 +265,10 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getNetworkRequests();
                         if (result instanceof Success<String> success) {
-                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                            return resultWithWarning(success.value(), versionWarning);
                         }
                         return errorResult("Failed to get network requests");
                     });
@@ -289,7 +292,7 @@ public class McpServer {
                     String requestId = getString(args, "request_id");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getNetworkRequest(requestId);
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -314,10 +317,10 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getWebSocketConnections();
                         if (result instanceof Success<String> success) {
-                            return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
+                            return resultWithWarning(success.value(), versionWarning);
                         }
                         return errorResult("Failed to get websocket connections");
                     });
@@ -341,7 +344,7 @@ public class McpServer {
                     String connectionId = getString(args, "connection_id");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getWebSocketConnection(connectionId);
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -366,7 +369,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getSelectedElements();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -395,7 +398,7 @@ public class McpServer {
                     int y = getInt(args, "y");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         // First, find the element at coordinates
                         Result<String> hitResult = client.getElementAtCoordinates(x, y);
                         if (hitResult instanceof Success<String> hit) {
@@ -431,7 +434,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.clearSelectedElements();
                         if (result instanceof Success<String> success) {
                             return jsonResult(Map.of("success", true, "message", "Element selection cleared"));
@@ -460,7 +463,7 @@ public class McpServer {
                     int y = getInt(args, "y");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         // First, find the element at coordinates
                         Result<String> hitResult = client.getElementAtCoordinates(x, y);
                         if (hitResult instanceof Success<String> hit) {
@@ -495,7 +498,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getSelectedNetworkRequests();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -522,7 +525,7 @@ public class McpServer {
                     String requestId = getString(args, "request_id");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         // Create selection JSON with the request ID
                         String selectionJson = mapper.writeValueAsString(Map.of("id", requestId));
                         Result<String> result = client.addSelectedNetworkRequest(selectionJson);
@@ -549,7 +552,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getSelectedWebSocketMessages();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -578,7 +581,7 @@ public class McpServer {
                     int messageIndex = getInt(args, "message_index");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         // Create selection JSON
                         String selectionJson = mapper.writeValueAsString(Map.of(
                             "connectionId", connectionId,
@@ -608,7 +611,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.clearNetworkRequests();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -633,7 +636,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.clearWebSocketConnections();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -660,7 +663,7 @@ public class McpServer {
                     String requestId = getString(args, "request_id");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getNetworkRequestBody(requestId);
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -685,7 +688,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getNetworkStats();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -710,7 +713,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.clearSelectedNetworkRequests();
                         if (result instanceof Success<String> success) {
                             return jsonResult(Map.of("success", true, "message", "Network selection cleared"));
@@ -737,7 +740,7 @@ public class McpServer {
                     String requestId = getString(args, "request_id");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         String selectionJson = mapper.writeValueAsString(Map.of("id", requestId));
                         Result<String> result = client.removeSelectedNetworkRequest(selectionJson);
                         if (result instanceof Success<String> success) {
@@ -763,7 +766,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.clearSelectedWebSocketMessages();
                         if (result instanceof Success<String> success) {
                             return jsonResult(Map.of("success", true, "message", "WebSocket selection cleared"));
@@ -792,7 +795,7 @@ public class McpServer {
                     int messageIndex = getInt(args, "message_index");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         String selectionJson = mapper.writeValueAsString(Map.of(
                             "connectionId", connectionId,
                             "messageIndex", messageIndex
@@ -827,7 +830,7 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.getMockRules();
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -877,7 +880,7 @@ public class McpServer {
                         return errorResult("Provide either request_id or message_id, not both");
                     }
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         if (fromCaptured) {
                             Result<String> result;
                             if (requestId != null) {
@@ -986,7 +989,7 @@ public class McpServer {
                         }
                     }
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.updateMockRule(ruleId, mapper.writeValueAsString(update));
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -1013,7 +1016,7 @@ public class McpServer {
                     String ruleId = getString(args, "rule_id");
                     String device = getString(args, "device");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         Result<String> result = client.deleteMockRule(ruleId);
                         if (result instanceof Success<String> success) {
                             return new CallToolResult(List.of(new McpSchema.TextContent(success.value())), false);
@@ -1046,7 +1049,7 @@ public class McpServer {
                                        args.containsKey("http_enabled") ||
                                        args.containsKey("websocket_enabled");
 
-                    return withSidekick(pkg, device, client -> {
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
                         if (hasUpdate) {
                             ObjectNode configUpdate = mapper.createObjectNode();
                             if (args.containsKey("enabled")) {
@@ -1084,13 +1087,14 @@ public class McpServer {
 
     @FunctionalInterface
     private interface SidekickAction {
-        CallToolResult execute(SidekickClient client) throws Exception;
+        CallToolResult execute(SidekickClient client, String versionWarning) throws Exception;
     }
 
     private static CallToolResult withSidekick(String packageName, String device, SidekickAction action) throws Exception {
         String key = (device != null ? device : "default") + ":" + packageName;
 
-        ConnectionInfo conn = connections.computeIfAbsent(key, k -> {
+        ConnectionInfo conn = connections.get(key);
+        if (conn == null) {
             int port = nextPort++;
             String socketName = "dta_sidekick_" + packageName;
             try {
@@ -1098,8 +1102,27 @@ public class McpServer {
             } catch (Exception e) {
                 throw new RuntimeException("Failed to setup port forward", e);
             }
-            return new ConnectionInfo(packageName, device, port);
-        });
+
+            // Check version on first connection
+            SidekickClient tempClient = SidekickClient.builder()
+                .packageName(packageName)
+                .port(port)
+                .deviceSerial(device)
+                .build();
+
+            String sidekickVersion = null;
+            String versionWarning = null;
+            Result<HealthResponse> healthResult = tempClient.checkHealthTyped();
+            if (healthResult instanceof Success<HealthResponse> success) {
+                sidekickVersion = success.value().version();
+                if (!isVersionCompatible(MCP_VERSION, sidekickVersion)) {
+                    versionWarning = "Version mismatch: MCP v" + MCP_VERSION + ", Sidekick v" + sidekickVersion;
+                }
+            }
+
+            conn = new ConnectionInfo(packageName, device, port, sidekickVersion, versionWarning);
+            connections.put(key, conn);
+        }
 
         SidekickClient client = SidekickClient.builder()
             .packageName(packageName)
@@ -1107,7 +1130,42 @@ public class McpServer {
             .deviceSerial(device)
             .build();
 
-        return action.execute(client);
+        return action.execute(client, conn.versionWarning());
+    }
+
+    /**
+     * Checks if the tool version is compatible with sidekick version.
+     * Major and minor versions must match.
+     */
+    private static boolean isVersionCompatible(String toolVersion, String sidekickVersion) {
+        if (toolVersion == null || sidekickVersion == null) {
+            return true; // Can't check, assume compatible
+        }
+        if ("unknown".equals(toolVersion) || "unknown".equals(sidekickVersion)) {
+            return true;
+        }
+
+        String[] tool = toolVersion.split("\\.");
+        String[] sidekick = sidekickVersion.split("\\.");
+
+        if (tool.length < 2 || sidekick.length < 2) {
+            return true;
+        }
+
+        return tool[0].equals(sidekick[0]) && tool[1].equals(sidekick[1]);
+    }
+
+    /**
+     * Creates a tool result with an optional version warning.
+     */
+    private static CallToolResult resultWithWarning(String json, String versionWarning) throws Exception {
+        if (versionWarning != null) {
+            // Parse and add warning to JSON
+            ObjectNode node = (ObjectNode) mapper.readTree(json);
+            node.put("warning", versionWarning);
+            return new CallToolResult(List.of(new McpSchema.TextContent(mapper.writeValueAsString(node))), false);
+        }
+        return new CallToolResult(List.of(new McpSchema.TextContent(json)), false);
     }
 
     private static String getString(Map<String, Object> args, String key) {

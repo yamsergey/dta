@@ -138,6 +138,19 @@
         .connection-status.failed .status-dot {
             background: var(--ctp-red);
         }
+        .version-warning-banner {
+            background: rgba(249, 226, 175, 0.15);
+            border-bottom: 1px solid var(--ctp-yellow);
+            color: var(--ctp-yellow);
+            padding: 8px 20px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .version-warning-banner .warning-icon {
+            font-size: 16px;
+        }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
@@ -1066,6 +1079,12 @@
                 </div>
             </header>
 
+            <!-- Version mismatch warning banner -->
+            <div v-if="versionWarning" class="version-warning-banner">
+                <span class="warning-icon">&#9888;</span>
+                {{ versionWarning }}
+            </div>
+
             <div class="tabs">
                 <div class="tab" :class="{ active: activeTab === 'compose' }" @click="switchTab('compose')">
                     Compose
@@ -1753,6 +1772,11 @@
                 const failureCount = ref(0);
                 const MAX_FAILURES = 3;
 
+                // Version tracking
+                const toolVersion = ref(null);
+                const sidekickVersion = ref(null);
+                const versionWarning = ref(null);
+
                 // Compose state
                 const composeTree = ref(null);
                 const fullTree = ref(null); // Unfiltered tree for extracting element names
@@ -1866,6 +1890,47 @@
 
                 const api = (path) => `/api${path}`;
 
+                // Version compatibility check
+                function isVersionCompatible(tool, sidekick) {
+                    if (!tool || !sidekick || tool === 'unknown' || sidekick === 'unknown') return true;
+                    const toolParts = tool.split('.');
+                    const sidekickParts = sidekick.split('.');
+                    if (toolParts.length < 2 || sidekickParts.length < 2) return true;
+                    return toolParts[0] === sidekickParts[0] && toolParts[1] === sidekickParts[1];
+                }
+
+                async function loadToolVersion() {
+                    try {
+                        const res = await fetch(api('/version'));
+                        const data = await res.json();
+                        toolVersion.value = data.version;
+                    } catch (e) {
+                        console.error('Failed to load tool version:', e);
+                    }
+                }
+
+                async function checkConnectionVersion() {
+                    // Fetch connection status which includes version compatibility check
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/connection-status?${params}`));
+                        const data = await res.json();
+
+                        if (data.toolVersion) toolVersion.value = data.toolVersion;
+                        if (data.sidekickVersion) sidekickVersion.value = data.sidekickVersion;
+                        if (data.warning) {
+                            versionWarning.value = data.warning + ' - Some features may not work correctly';
+                        } else {
+                            versionWarning.value = null;
+                        }
+                    } catch (e) {
+                        console.error('Failed to check version:', e);
+                    }
+                }
+
                 // Debounce filter for text input
                 let filterTimeout = null;
                 function debouncedFilter() {
@@ -1937,6 +2002,8 @@
                         ]);
                         // Then load selections (needs tree/requests to be loaded first for matching)
                         await loadSelections();
+                        // Check version compatibility
+                        await checkConnectionVersion();
                         connectionStatus.value = 'connected';
                     } catch (e) {
                         console.error('Connection failed:', e);
@@ -3369,6 +3436,7 @@
                 }
 
                 onMounted(() => {
+                    loadToolVersion();
                     loadDevices();
                     // Poll for data updates (only if not failed)
                     setInterval(() => {
@@ -3413,7 +3481,7 @@
 
                 return {
                     devices, apps, selectedDevice, selectedApp,
-                    connected, loading, activeTab, connectionStatus, connectionStatusText,
+                    connected, loading, activeTab, connectionStatus, connectionStatusText, versionWarning,
                     composeTree, selectedNode, hoveredNode, showElementDetails, textFilter, elementFilter, availableElements,
                     screenshot, imageScale, treeContainer, screenshotImg, screenshotContainer,
                     expandedNodes, detailSections,

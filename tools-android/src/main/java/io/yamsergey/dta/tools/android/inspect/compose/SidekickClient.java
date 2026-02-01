@@ -136,6 +136,55 @@ public class SidekickClient {
     }
 
     /**
+     * Checks the sidekick server health and parses the response.
+     *
+     * @return Result containing typed HealthResponse on success
+     */
+    public Result<HealthResponse> checkHealthTyped() {
+        Result<String> result = httpGet("/health");
+        if (result instanceof Success<String> success) {
+            try {
+                String json = success.value();
+                // Simple JSON parsing without external dependencies
+                String status = extractJsonString(json, "status");
+                String name = extractJsonString(json, "name");
+                String version = extractJsonString(json, "version");
+                String socketName = extractJsonString(json, "socketName");
+                String pkgName = extractJsonString(json, "packageName");
+                int sseClients = extractJsonInt(json, "sseClients", 0);
+
+                return new Success<>(
+                    new HealthResponse(status, name, version, socketName, pkgName, sseClients),
+                    "OK"
+                );
+            } catch (Exception e) {
+                return new Failure<>(null, "Failed to parse health response: " + e.getMessage());
+            }
+        }
+        return new Failure<>(null, result instanceof Failure<String> f ? f.description() : "Unknown error");
+    }
+
+    /**
+     * Extracts a string value from simple JSON.
+     */
+    private String extractJsonString(String json, String key) {
+        String pattern = "\"" + key + "\"\\s*:\\s*\"([^\"]*)\"";
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
+        java.util.regex.Matcher m = p.matcher(json);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
+     * Extracts an int value from simple JSON.
+     */
+    private int extractJsonInt(String json, String key, int defaultValue) {
+        String pattern = "\"" + key + "\"\\s*:\\s*(\\d+)";
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
+        java.util.regex.Matcher m = p.matcher(json);
+        return m.find() ? Integer.parseInt(m.group(1)) : defaultValue;
+    }
+
+    /**
      * Gets the unified Compose tree combining layout and semantics.
      *
      * <p>This provides a cleaner, source-like representation with:

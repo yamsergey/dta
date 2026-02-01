@@ -25,11 +25,93 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class InspectorController {
 
+    private static final String VERSION = loadVersion();
+
     private final SidekickConnectionManager connectionManager;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public InspectorController(SidekickConnectionManager connectionManager) {
         this.connectionManager = connectionManager;
+    }
+
+    private static String loadVersion() {
+        try (var is = InspectorController.class.getResourceAsStream("/version.properties")) {
+            if (is != null) {
+                var props = new java.util.Properties();
+                props.load(is);
+                return props.getProperty("version", "unknown");
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+        return "unknown";
+    }
+
+    /**
+     * Returns the inspector-web tool version.
+     */
+    public static String getVersion() {
+        return VERSION;
+    }
+
+    // ========================================================================
+    // Version endpoint
+    // ========================================================================
+
+    @GetMapping("/version")
+    public ResponseEntity<?> getToolVersion() {
+        return ResponseEntity.ok(Map.of(
+            "name", "dta-inspector-web",
+            "version", VERSION
+        ));
+    }
+
+    @GetMapping("/connection-status")
+    public ResponseEntity<?> getConnectionStatus(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            var healthResult = conn.client().checkHealthTyped();
+
+            ObjectNode result = mapper.createObjectNode();
+            result.put("connected", true);
+            result.put("toolVersion", VERSION);
+
+            if (healthResult instanceof io.yamsergey.dta.tools.sugar.Success<io.yamsergey.dta.tools.android.inspect.compose.HealthResponse> success) {
+                var health = success.value();
+                result.put("sidekickVersion", health.version());
+                result.put("sidekickName", health.name());
+
+                // Check version compatibility
+                if (!isVersionCompatible(VERSION, health.version())) {
+                    result.put("warning", "Version mismatch: Inspector v" + VERSION + ", Sidekick v" + health.version());
+                }
+            }
+
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            ObjectNode result = mapper.createObjectNode();
+            result.put("connected", false);
+            result.put("toolVersion", VERSION);
+            result.put("error", e.getMessage());
+            return ResponseEntity.ok(result);
+        }
+    }
+
+    /**
+     * Checks version compatibility - major and minor must match.
+     */
+    private boolean isVersionCompatible(String toolVersion, String sidekickVersion) {
+        if (toolVersion == null || sidekickVersion == null) return true;
+        if ("unknown".equals(toolVersion) || "unknown".equals(sidekickVersion)) return true;
+
+        String[] tool = toolVersion.split("\\.");
+        String[] sidekick = sidekickVersion.split("\\.");
+
+        if (tool.length < 2 || sidekick.length < 2) return true;
+
+        return tool[0].equals(sidekick[0]) && tool[1].equals(sidekick[1]);
     }
 
     // ========================================================================
