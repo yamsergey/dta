@@ -538,6 +538,13 @@ public class InspectorServer {
             case "/network/requests":
                 handleNetworkRequests(out);
                 break;
+            case "/network/transactions":
+                if ("POST".equals(method)) {
+                    handleNetworkRecordTransaction(body, out);
+                } else {
+                    sendError(out, 405, "Method Not Allowed");
+                }
+                break;
             case "/network/clear":
                 if ("DELETE".equals(method)) {
                     handleNetworkClear(out);
@@ -589,6 +596,7 @@ public class InspectorServer {
                 "/compose/element/{id}",
                 "/network/requests",
                 "/network/requests/{id}",
+                "/network/transactions",
                 "/network/clear",
                 "/network/stats",
                 "/websocket/connections",
@@ -1067,6 +1075,144 @@ public class InspectorServer {
 
         } catch (Exception e) {
             SidekickLog.e(TAG, "Error clearing network requests", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * POST /network/transactions - Record an external HTTP transaction.
+     *
+     * <p>This endpoint allows external tools (like CDP network monitors) to record
+     * HTTP transactions that were not captured by the in-app interceptors.</p>
+     *
+     * <p>Expected JSON format:</p>
+     * <pre>{
+     *   "url": "https://example.com/api",
+     *   "method": "GET",
+     *   "source": "CustomTab",
+     *   "startTime": 1234567890,
+     *   "requestHeaders": {"Content-Type": "application/json"},
+     *   "requestBody": "...",
+     *   "statusCode": 200,
+     *   "statusMessage": "OK",
+     *   "responseHeaders": {"Content-Type": "application/json"},
+     *   "responseBody": "...",
+     *   "duration": 150,
+     *   "error": null
+     * }</pre>
+     */
+    @SuppressWarnings("unchecked")
+    private void handleNetworkRecordTransaction(String body, OutputStream out) throws IOException {
+        try {
+            if (body == null || body.isEmpty()) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Request body is required");
+                sendJson(out, 400, error);
+                return;
+            }
+
+            Map<String, Object> data = gson.fromJson(body, Map.class);
+
+            // Required fields
+            String url = (String) data.get("url");
+            if (url == null || url.isEmpty()) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "url is required");
+                sendJson(out, 400, error);
+                return;
+            }
+
+            // Build request
+            String method = (String) data.getOrDefault("method", "GET");
+            HttpRequest.Builder requestBuilder = HttpRequest.builder()
+                    .url(url)
+                    .method(method);
+
+            // Request headers
+            Map<String, String> requestHeaders = (Map<String, String>) data.get("requestHeaders");
+            if (requestHeaders != null) {
+                for (Map.Entry<String, String> entry : requestHeaders.entrySet()) {
+                    requestBuilder.addHeader(entry.getKey(), entry.getValue());
+                }
+            }
+
+            // Request body
+            String requestBody = (String) data.get("requestBody");
+            if (requestBody != null) {
+                requestBuilder.body(requestBody);
+            }
+
+            HttpRequest request = requestBuilder.build();
+
+            // Build transaction
+            String source = (String) data.getOrDefault("source", "external");
+            Number startTimeNum = (Number) data.get("startTime");
+            long startTime = startTimeNum != null ? startTimeNum.longValue() : System.currentTimeMillis();
+
+            HttpTransaction tx = HttpTransaction.create()
+                    .request(request)
+                    .source(source)
+                    .startTime(startTime)
+                    .build();
+
+            // Check if we have response data
+            Number statusCodeNum = (Number) data.get("statusCode");
+            if (statusCodeNum != null) {
+                int statusCode = statusCodeNum.intValue();
+                String statusMessage = (String) data.getOrDefault("statusMessage", "");
+
+                HttpResponse.Builder responseBuilder = HttpResponse.builder()
+                        .statusCode(statusCode)
+                        .statusMessage(statusMessage);
+
+                // Response headers
+                Map<String, String> responseHeaders = (Map<String, String>) data.get("responseHeaders");
+                if (responseHeaders != null) {
+                    for (Map.Entry<String, String> entry : responseHeaders.entrySet()) {
+                        responseBuilder.addHeader(entry.getKey(), entry.getValue());
+                    }
+                }
+
+                // Response body
+                String responseBody = (String) data.get("responseBody");
+                if (responseBody != null) {
+                    responseBuilder.body(responseBody);
+                }
+
+                // Protocol
+                String protocol = (String) data.get("protocol");
+                if (protocol != null) {
+                    responseBuilder.protocol(protocol);
+                }
+
+                tx.setResponse(responseBuilder.build());
+
+                // Check for error
+                String error = (String) data.get("error");
+                if (error != null && !error.isEmpty()) {
+                    tx.markFailed(error);
+                } else {
+                    tx.markCompleted();
+                }
+            } else {
+                // No response yet - mark as in progress
+                tx.markInProgress();
+            }
+
+            // Record the transaction
+            NetworkInspector.recordTransaction(tx);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", tx.getId());
+            response.put("message", "Transaction recorded");
+            response.put("source", source);
+
+            sendJson(out, 201, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error recording transaction", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);

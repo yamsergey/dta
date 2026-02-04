@@ -2,6 +2,7 @@ package io.yamsergey.dta.tools.android.cdp;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,6 +10,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 
 /**
  * Monitors Chrome Custom Tabs network traffic via CDP.
@@ -66,6 +71,13 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
     private final Consumer<CustomTabNetworkEvent> eventCallback;
     private final ScheduledExecutorService executor;
     private final Map<String, ChromeDevToolsClient> activeClients;
+
+    // Transaction correlation - tracks in-flight requests by CDP requestId
+    private final Map<String, InFlightTransaction> inFlightTransactions = new ConcurrentHashMap<>();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Optional: SidekickClient for posting transactions to sidekick
+    private volatile SidekickClient sidekickClient;
 
     private volatile boolean preConnected;
     private volatile int forwardedPort;
@@ -145,6 +157,26 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         return activeClients.size();
     }
 
+    /**
+     * Sets the SidekickClient to use for posting transactions.
+     *
+     * <p>When set, completed transactions will be automatically posted to the
+     * sidekick server, making them appear in the network inspector alongside
+     * in-app HTTP requests.</p>
+     *
+     * @param client the sidekick client (may be null to disable posting)
+     */
+    public void setSidekickClient(SidekickClient client) {
+        this.sidekickClient = client;
+    }
+
+    /**
+     * Returns the number of in-flight transactions being tracked.
+     */
+    public int getInFlightTransactionCount() {
+        return inFlightTransactions.size();
+    }
+
     @Override
     public void close() {
         // Close all active clients
@@ -197,8 +229,14 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         // Set up network event listener
         client.setNetworkEventListener(cdpEvent -> {
             CustomTabNetworkEvent event = convertEvent(cdpEvent, url);
-            if (eventCallback != null) {
-                eventCallback.accept(event);
+            if (event != null) {
+                // Callback for individual events
+                if (eventCallback != null) {
+                    eventCallback.accept(event);
+                }
+
+                // Correlate events into transactions
+                handleNetworkEvent(event);
             }
         });
 
@@ -315,6 +353,131 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
 
             default -> null;
         };
+    }
+
+    /**
+     * Handles a network event by correlating it with other events for the same request.
+     */
+    private void handleNetworkEvent(CustomTabNetworkEvent event) {
+        String requestId = event.requestId();
+
+        switch (event.type()) {
+            case REQUEST -> {
+                // Start tracking a new in-flight transaction
+                InFlightTransaction tx = new InFlightTransaction();
+                tx.requestId = requestId;
+                tx.url = event.url();
+                tx.method = event.method();
+                tx.requestHeaders = event.requestHeaders();
+                tx.requestBody = event.requestBody();
+                tx.startTime = event.timestamp();
+                tx.customTabUrl = event.customTabUrl();
+                inFlightTransactions.put(requestId, tx);
+            }
+
+            case RESPONSE -> {
+                // Update with response data
+                InFlightTransaction tx = inFlightTransactions.get(requestId);
+                if (tx != null) {
+                    tx.statusCode = event.statusCode();
+                    tx.statusText = event.statusText();
+                    tx.responseHeaders = event.responseHeaders();
+                    // URL might change due to redirects
+                    if (event.url() != null) {
+                        tx.url = event.url();
+                    }
+                }
+            }
+
+            case FINISHED -> {
+                // Complete the transaction and post to sidekick
+                InFlightTransaction tx = inFlightTransactions.remove(requestId);
+                if (tx != null) {
+                    tx.endTime = event.timestamp();
+                    postTransactionToSidekick(tx, null);
+                }
+            }
+
+            case FAILED -> {
+                // Complete with error
+                InFlightTransaction tx = inFlightTransactions.remove(requestId);
+                if (tx != null) {
+                    tx.endTime = event.timestamp();
+                    postTransactionToSidekick(tx, event.statusText()); // statusText contains error for FAILED
+                }
+            }
+        }
+    }
+
+    /**
+     * Posts a completed transaction to sidekick for storage.
+     */
+    private void postTransactionToSidekick(InFlightTransaction tx, String error) {
+        SidekickClient client = sidekickClient;
+        if (client == null) {
+            return;
+        }
+
+        executor.submit(() -> {
+            try {
+                Map<String, Object> data = new HashMap<>();
+                data.put("url", tx.url);
+                data.put("method", tx.method);
+                data.put("source", "CustomTab");
+                data.put("startTime", tx.startTime);
+
+                if (tx.requestHeaders != null && !tx.requestHeaders.isEmpty()) {
+                    data.put("requestHeaders", tx.requestHeaders);
+                }
+                if (tx.requestBody != null) {
+                    data.put("requestBody", tx.requestBody);
+                }
+
+                if (tx.statusCode != null) {
+                    data.put("statusCode", tx.statusCode);
+                    data.put("statusMessage", tx.statusText);
+                }
+                if (tx.responseHeaders != null && !tx.responseHeaders.isEmpty()) {
+                    data.put("responseHeaders", tx.responseHeaders);
+                }
+
+                if (tx.endTime > 0 && tx.startTime > 0) {
+                    data.put("duration", tx.endTime - tx.startTime);
+                }
+
+                if (error != null) {
+                    data.put("error", error);
+                }
+
+                String json = objectMapper.writeValueAsString(data);
+                var result = client.recordTransaction(json);
+                if (!result.isSuccess()) {
+                    System.err.println("Failed to post transaction to sidekick: " + result.description());
+                }
+            } catch (JsonProcessingException e) {
+                System.err.println("Error serializing transaction: " + e.getMessage());
+            } catch (Exception e) {
+                System.err.println("Error posting transaction to sidekick: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Tracks an in-flight HTTP transaction being assembled from CDP events.
+     */
+    private static class InFlightTransaction {
+        String requestId;
+        String customTabUrl;
+        String url;
+        String method;
+        Map<String, String> requestHeaders;
+        String requestBody;
+        long startTime;
+
+        Integer statusCode;
+        String statusText;
+        Map<String, String> responseHeaders;
+        long endTime;
     }
 
     /**
