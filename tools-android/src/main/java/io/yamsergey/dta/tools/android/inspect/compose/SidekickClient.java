@@ -443,6 +443,31 @@ public class SidekickClient {
     }
 
     // ========================================================================
+    // Custom Tabs inspection endpoints
+    // ========================================================================
+
+    /**
+     * Gets all captured Custom Tab events.
+     *
+     * <p>Custom Tab events are recorded when the app opens a URL
+     * in Chrome Custom Tabs.</p>
+     *
+     * @return Result containing events JSON on success
+     */
+    public Result<String> getCustomTabEvents() {
+        return httpGet("/customtabs/events");
+    }
+
+    /**
+     * Clears all captured Custom Tab events.
+     *
+     * @return Result indicating success or failure
+     */
+    public Result<String> clearCustomTabEvents() {
+        return httpDelete("/customtabs/events");
+    }
+
+    // ========================================================================
     // Mock API endpoints
     // ========================================================================
 

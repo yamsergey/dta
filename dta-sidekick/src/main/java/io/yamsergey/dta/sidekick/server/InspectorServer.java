@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.compose.ComposeHitTester;
+import io.yamsergey.dta.sidekick.customtabs.CustomTabEvent;
+import io.yamsergey.dta.sidekick.customtabs.CustomTabsInspector;
 import io.yamsergey.dta.sidekick.mock.MockConfig;
 import io.yamsergey.dta.sidekick.mock.MockDirection;
 import io.yamsergey.dta.sidekick.mock.MockHttpResponse;
@@ -88,6 +90,7 @@ public class InspectorServer {
     // SSE streaming clients
     private final Set<OutputStream> sseClients = ConcurrentHashMap.newKeySet();
     private final NetworkInspector.TransactionListener transactionListener;
+    private final CustomTabsInspector.CustomTabEventListener customTabEventListener;
 
     // Selection state (multi-selection support)
     private final List<Map<String, Object>> selectedElements = Collections.synchronizedList(new ArrayList<>());
@@ -117,6 +120,9 @@ public class InspectorServer {
                 broadcastEvent("transaction_completed", transaction);
             }
         };
+
+        // Create listener for Custom Tab events
+        this.customTabEventListener = event -> broadcastCustomTabEvent(event);
     }
 
     public static InspectorServer getInstance() {
@@ -186,6 +192,9 @@ public class InspectorServer {
         // Register for transaction events
         NetworkInspector.addListener(transactionListener);
 
+        // Register for Custom Tab events
+        CustomTabsInspector.addListener(customTabEventListener);
+
         executor.submit(this::acceptLoop);
         SidekickLog.i(TAG, "Server started on socket: " + socketName);
     }
@@ -207,8 +216,9 @@ public class InspectorServer {
         running.set(false);
         startCalled.set(false); // Reset to allow potential restart (though executor limits this)
 
-        // Unregister listener
+        // Unregister listeners
         NetworkInspector.removeListener(transactionListener);
+        CustomTabsInspector.removeListener(customTabEventListener);
 
         // Close all SSE clients
         for (OutputStream client : sseClients) {
@@ -496,6 +506,18 @@ public class InspectorServer {
             return;
         }
 
+        // Handle Custom Tabs endpoints
+        if (path.equals("/customtabs/events")) {
+            if ("GET".equals(method)) {
+                handleCustomTabsEvents(out);
+            } else if ("DELETE".equals(method)) {
+                handleCustomTabsClear(out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
         switch (path) {
             case "/":
             case "/health":
@@ -572,6 +594,7 @@ public class InspectorServer {
                 "/websocket/connections",
                 "/websocket/connections/{id}",
                 "/websocket/clear",
+                "/customtabs/events",
                 "/selection/element",
                 "/selection/network",
                 "/selection/websocket-message",
@@ -1961,6 +1984,92 @@ public class InspectorServer {
         }
 
         return map;
+    }
+
+    // =========================================================================
+    // Custom Tabs Endpoints
+    // =========================================================================
+
+    /**
+     * GET /customtabs/events - List all captured Custom Tab events.
+     */
+    private void handleCustomTabsEvents(OutputStream out) throws IOException {
+        try {
+            java.util.List<CustomTabEvent> events = CustomTabsInspector.getEvents();
+
+            java.util.List<Map<String, Object>> eventList = new java.util.ArrayList<>();
+            for (CustomTabEvent event : events) {
+                eventList.add(customTabEventToMap(event));
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("count", events.size());
+            response.put("events", eventList);
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error getting custom tab events", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * DELETE /customtabs/events - Clear all captured Custom Tab events.
+     */
+    private void handleCustomTabsClear(OutputStream out) throws IOException {
+        try {
+            int count = CustomTabsInspector.getEventCount();
+            CustomTabsInspector.clearEvents();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("cleared", count);
+            response.put("message", "Cleared " + count + " custom tab events");
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error clearing custom tab events", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * Converts a CustomTabEvent to a Map for JSON serialization.
+     */
+    private Map<String, Object> customTabEventToMap(CustomTabEvent event) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", event.getId());
+        map.put("url", event.getUrl());
+        map.put("headers", event.getHeaders());
+        map.put("timestamp", event.getTimestamp());
+        map.put("packageName", event.getPackageName());
+        return map;
+    }
+
+    /**
+     * Broadcasts a Custom Tab event to all connected SSE clients.
+     */
+    private void broadcastCustomTabEvent(CustomTabEvent event) {
+        if (sseClients.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> data = customTabEventToMap(event);
+        data.put("eventType", "customtab_opened");
+
+        for (OutputStream client : sseClients) {
+            try {
+                sendSseEvent(client, "customtab_opened", data);
+            } catch (IOException e) {
+                // Client disconnected, will be cleaned up
+                sseClients.remove(client);
+            }
+        }
     }
 
     // =========================================================================
