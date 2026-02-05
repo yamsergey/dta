@@ -43,7 +43,8 @@ android {
 
 dependencies {
     // DTA Sidekick for compose inspection (debug only)
-    debugImplementation("com.github.yamsergey.dta:dta-sidekick:0.9.3")
+    // Use mavenLocal version for testing new features
+    debugImplementation("com.github.yamsergey.dta:dta-sidekick:0.9.4")
     // implementation("com.github.yamsergey.dta:dta-sidekick:0.9.2")
     // Network - HTTP
     implementation(libs.okhttp)
@@ -58,6 +59,9 @@ dependencies {
 
     // Fragments
     implementation(libs.androidx.fragment.ktx)
+
+    // Chrome Custom Tabs
+    implementation(libs.androidx.browser)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

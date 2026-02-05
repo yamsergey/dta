@@ -1175,10 +1175,15 @@ public class InspectorServer {
                     }
                 }
 
-                // Response body
+                // Response body (may be base64 encoded for binary content)
                 String responseBody = (String) data.get("responseBody");
                 if (responseBody != null) {
-                    responseBuilder.body(responseBody);
+                    Boolean isBase64 = (Boolean) data.get("responseBodyBase64");
+                    if (!Boolean.TRUE.equals(isBase64)) {
+                        // Only store text content, skip binary (base64) content
+                        responseBuilder.body(responseBody);
+                    }
+                    // Binary content is intentionally skipped - not useful for inspection
                 }
 
                 // Protocol

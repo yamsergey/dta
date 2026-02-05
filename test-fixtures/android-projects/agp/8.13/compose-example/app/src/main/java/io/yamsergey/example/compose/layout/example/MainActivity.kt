@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import io.yamsergey.example.compose.layout.example.ui.customtabs.CustomTabsScreen
 import io.yamsergey.example.compose.layout.example.ui.fragments.FragmentDemoActivity
 import io.yamsergey.example.compose.layout.example.ui.fragments.FragmentsScreen
 import io.yamsergey.example.compose.layout.example.ui.network.NetworkScreen
@@ -53,6 +54,7 @@ fun AppNavigation() {
                     modifier = Modifier.padding(innerPadding),
                     onNavigateToNetwork = { navController.navigate("network") },
                     onNavigateToWebSocket = { navController.navigate("websocket") },
+                    onNavigateToCustomTabs = { navController.navigate("customtabs") },
                     onNavigateToOverlays = { navController.navigate("overlays") },
                     onNavigateToFragments = { navController.navigate("fragments") }
                 )
@@ -65,6 +67,11 @@ fun AppNavigation() {
         }
         composable("websocket") {
             WebSocketScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable("customtabs") {
+            CustomTabsScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -90,6 +97,7 @@ fun MainContent(
     modifier: Modifier = Modifier,
     onNavigateToNetwork: () -> Unit = {},
     onNavigateToWebSocket: () -> Unit = {},
+    onNavigateToCustomTabs: () -> Unit = {},
     onNavigateToOverlays: () -> Unit = {},
     onNavigateToFragments: () -> Unit = {}
 ) {
@@ -125,6 +133,14 @@ fun MainContent(
             ) {
                 Text("WebSocket Demo")
             }
+        }
+
+        // Custom Tabs Demo Button
+        Button(
+            onClick = onNavigateToCustomTabs,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Custom Tabs Demo (Chrome)")
         }
 
         // Overlays Demo Button

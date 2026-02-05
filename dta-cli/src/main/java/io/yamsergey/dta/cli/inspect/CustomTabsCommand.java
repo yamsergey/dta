@@ -1,6 +1,9 @@
 package io.yamsergey.dta.cli.inspect;
 
 import io.yamsergey.dta.cli.util.VersionChecker;
+import io.yamsergey.dta.tools.android.cdp.CdpTarget;
+import io.yamsergey.dta.tools.android.cdp.ChromeDevToolsClient;
+import io.yamsergey.dta.tools.android.cdp.CustomTabsNetworkMonitor;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
@@ -11,6 +14,7 @@ import picocli.CommandLine.Parameters;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
@@ -81,8 +85,20 @@ public class CustomTabsCommand implements Callable<Integer> {
             description = "Clear all captured Custom Tab events.")
     private boolean clearEvents;
 
+    @Option(names = {"--watch"},
+            description = "Watch mode: monitor Custom Tab network traffic via Chrome DevTools Protocol (CDP).")
+    private boolean watchMode;
+
+    @Option(names = {"--cdp-port"},
+            defaultValue = "9222",
+            description = "Local port for Chrome DevTools Protocol (default: 9222).")
+    private int cdpPort;
+
     @Override
     public Integer call() throws Exception {
+        if (watchMode) {
+            return runWatchMode();
+        }
         // Build the client
         SidekickClient client = SidekickClient.builder()
                 .packageName(packageName)
@@ -157,6 +173,140 @@ public class CustomTabsCommand implements Callable<Integer> {
 
         } finally {
             client.removePortForwarding();
+        }
+    }
+
+    /**
+     * Runs in watch mode: monitors Custom Tab network traffic via CDP.
+     */
+    private Integer runWatchMode() throws Exception {
+        System.err.println("=== Custom Tabs Network Monitor (CDP) ===");
+        System.err.println();
+
+        // Build the sidekick client
+        SidekickClient sidekickClient = SidekickClient.builder()
+                .packageName(packageName)
+                .port(port)
+                .adbPath(adbPath)
+                .deviceSerial(deviceSerial)
+                .timeoutMs(timeoutSeconds * 1000)
+                .build();
+
+        try {
+            // Set up port forwarding to sidekick
+            System.err.println("Setting up port forwarding to sidekick...");
+            Result<Void> forwardResult = sidekickClient.setupPortForwarding();
+            if (forwardResult instanceof Failure<Void> failure) {
+                System.err.println("Error: " + failure.description());
+                return 1;
+            }
+
+            // Check sidekick health
+            System.err.println("Checking sidekick server...");
+            Result<String> healthResult = sidekickClient.checkHealth();
+            if (healthResult instanceof Failure<String> failure) {
+                printConnectionError();
+                return 1;
+            }
+            System.err.println("Sidekick: OK");
+
+            // Set up port forwarding to Chrome DevTools
+            System.err.println("Setting up port forwarding to Chrome DevTools...");
+            ProcessBuilder pb = new ProcessBuilder(
+                adbPath, "forward", "tcp:" + cdpPort, "localabstract:chrome_devtools_remote"
+            );
+            Process process = pb.start();
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                System.err.println("Error: Failed to set up Chrome DevTools port forwarding");
+                System.err.println("Make sure Chrome is running on the device");
+                return 1;
+            }
+
+            // Connect to Chrome DevTools
+            System.err.println("Connecting to Chrome DevTools on port " + cdpPort + "...");
+            ChromeDevToolsClient cdpClient = new ChromeDevToolsClient("localhost", cdpPort);
+
+            // List available targets
+            List<CdpTarget> targets = cdpClient.listTargets();
+            System.err.println("Found " + targets.size() + " Chrome target(s)");
+
+            if (targets.isEmpty()) {
+                System.err.println("No Chrome tabs found. Open a Custom Tab first.");
+                return 1;
+            }
+
+            // Find first page target (Custom Tab)
+            CdpTarget customTab = targets.stream()
+                    .filter(CdpTarget::isPage)
+                    .findFirst()
+                    .orElse(null);
+
+            if (customTab == null) {
+                System.err.println("No page targets found.");
+                return 1;
+            }
+
+            System.err.println("Attaching to: " + customTab.title() + " (" + customTab.url() + ")");
+
+            // Create network monitor that will correlate events and post to sidekick
+            CustomTabsNetworkMonitor monitor = new CustomTabsNetworkMonitor(
+                deviceSerial,
+                event -> {
+                    // Print to console when events arrive
+                    if (event != null) {
+                        String type = event.type().name();
+                        System.out.println("[CDP] " + type + ": " + event.requestId());
+                        if (event.url() != null) {
+                            System.out.println("       URL: " + event.url());
+                        }
+                        if (event.method() != null) {
+                            System.out.println("       Method: " + event.method());
+                        }
+                        if (event.statusCode() != null) {
+                            System.out.println("       Status: " + event.statusCode() + " " + event.statusText());
+                        }
+                    }
+                }
+            );
+
+            // Enable posting to sidekick so events appear in inspector-web
+            monitor.setSidekickClient(sidekickClient);
+            System.err.println("Completed transactions will be posted to sidekick (visible in inspector-web)");
+
+            // Attach and enable network monitoring
+            cdpClient.attachToTarget(customTab);
+
+            // Enable response body fetching
+            monitor.setCdpClient(cdpClient);
+
+            // Wire CDP events through the monitor for correlation and sidekick posting
+            cdpClient.setNetworkEventListener(cdpEvent -> {
+                // Feed events to monitor - it will correlate request/response/finished
+                // and post completed transactions to sidekick
+                monitor.onCdpEvent(cdpEvent, customTab.url());
+            });
+
+            cdpClient.enableNetwork().join();
+
+            System.err.println();
+            System.err.println("=== Monitoring network traffic (Ctrl+C to stop) ===");
+            System.err.println();
+
+            // Wait for interrupt
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.err.println("\nStopping monitor...");
+                try {
+                    cdpClient.close();
+                } catch (Exception ignored) {}
+            }));
+
+            // Keep running until interrupted
+            Thread.currentThread().join();
+            return 0;
+
+        } finally {
+            sidekickClient.removePortForwarding();
         }
     }
 

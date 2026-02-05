@@ -79,6 +79,9 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
     // Optional: SidekickClient for posting transactions to sidekick
     private volatile SidekickClient sidekickClient;
 
+    // Optional: ChromeDevToolsClient for fetching response bodies
+    private volatile ChromeDevToolsClient cdpClient;
+
     private volatile boolean preConnected;
     private volatile int forwardedPort;
     private volatile String chromeSocketName;
@@ -171,10 +174,43 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
     }
 
     /**
+     * Sets the Chrome DevTools client for fetching response bodies.
+     *
+     * <p>When set, the monitor will fetch response body content for completed
+     * requests before posting them to sidekick.</p>
+     *
+     * @param client the CDP client (may be null to disable body fetching)
+     */
+    public void setCdpClient(ChromeDevToolsClient client) {
+        this.cdpClient = client;
+    }
+
+    /**
      * Returns the number of in-flight transactions being tracked.
      */
     public int getInFlightTransactionCount() {
         return inFlightTransactions.size();
+    }
+
+    /**
+     * Processes a CDP network event directly.
+     *
+     * <p>Use this method when you have a CDP client and want to feed events
+     * through the monitor for correlation and sidekick posting.</p>
+     *
+     * @param cdpEvent the CDP network event
+     * @param customTabUrl the URL that was opened in the Custom Tab
+     */
+    public void onCdpEvent(CdpNetworkEvent cdpEvent, String customTabUrl) {
+        CustomTabNetworkEvent event = convertEvent(cdpEvent, customTabUrl);
+        if (event != null) {
+            // Notify callback
+            if (eventCallback != null) {
+                eventCallback.accept(event);
+            }
+            // Correlate and post to sidekick
+            handleNetworkEvent(event);
+        }
     }
 
     @Override
@@ -394,12 +430,13 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 InFlightTransaction tx = inFlightTransactions.remove(requestId);
                 if (tx != null) {
                     tx.endTime = event.timestamp();
-                    postTransactionToSidekick(tx, null);
+                    // Try to fetch response body before posting
+                    fetchResponseBodyAndPost(tx, requestId, null);
                 }
             }
 
             case FAILED -> {
-                // Complete with error
+                // Complete with error - no body fetch for failed requests
                 InFlightTransaction tx = inFlightTransactions.remove(requestId);
                 if (tx != null) {
                     tx.endTime = event.timestamp();
@@ -407,6 +444,35 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 }
             }
         }
+    }
+
+    /**
+     * Fetches response body from CDP and then posts the transaction to sidekick.
+     */
+    private void fetchResponseBodyAndPost(InFlightTransaction tx, String requestId, String error) {
+        ChromeDevToolsClient client = cdpClient;
+        if (client == null) {
+            // No CDP client available, post without body
+            postTransactionToSidekick(tx, error);
+            return;
+        }
+
+        // Fetch response body asynchronously
+        client.getResponseBody(requestId)
+            .orTimeout(5, TimeUnit.SECONDS)
+            .whenComplete((body, ex) -> {
+                if (ex == null && body != null && !body.base64Encoded()) {
+                    // Only store text content (non-base64)
+                    // Skip binary content and large bodies (>500KB) to avoid JSON issues
+                    String content = body.body();
+                    if (content != null && content.length() <= 500_000) {
+                        tx.responseBody = content;
+                        tx.responseBodyBase64 = false;
+                    }
+                }
+                // Post even if body fetch failed or was skipped
+                postTransactionToSidekick(tx, error);
+            });
     }
 
     /**
@@ -439,6 +505,12 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 }
                 if (tx.responseHeaders != null && !tx.responseHeaders.isEmpty()) {
                     data.put("responseHeaders", tx.responseHeaders);
+                }
+                if (tx.responseBody != null && !tx.responseBody.isEmpty()) {
+                    data.put("responseBody", tx.responseBody);
+                    if (tx.responseBodyBase64) {
+                        data.put("responseBodyBase64", true);
+                    }
                 }
 
                 if (tx.endTime > 0 && tx.startTime > 0) {
@@ -477,6 +549,8 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         Integer statusCode;
         String statusText;
         Map<String, String> responseHeaders;
+        String responseBody;
+        boolean responseBodyBase64;
         long endTime;
     }
 

@@ -110,11 +110,14 @@ public class CustomTabsLaunchHook implements MethodHook {
             }
 
             // Try to get the headers bundle
-            // Key is "android.support.customtabs.extra.EXTRA_HEADERS" or
-            // "androidx.browser.customtabs.extra.EXTRA_HEADERS"
+            // Keys can be:
+            // - "android.support.customtabs.extra.EXTRA_HEADERS" (old support lib)
+            // - "androidx.browser.customtabs.extra.EXTRA_HEADERS" (androidx)
+            // - "com.android.browser.headers" (Browser.EXTRA_HEADERS)
             String[] headerKeys = {
                 "android.support.customtabs.extra.EXTRA_HEADERS",
-                "androidx.browser.customtabs.extra.EXTRA_HEADERS"
+                "androidx.browser.customtabs.extra.EXTRA_HEADERS",
+                "com.android.browser.headers"
             };
 
             for (String key : headerKeys) {
