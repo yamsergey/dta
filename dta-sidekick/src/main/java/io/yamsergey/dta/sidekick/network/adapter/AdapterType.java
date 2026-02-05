@@ -12,5 +12,10 @@ public enum AdapterType {
     /**
      * WebSocket connection adapters
      */
-    WEBSOCKET
+    WEBSOCKET,
+
+    /**
+     * Chrome Custom Tabs adapter (for detecting Custom Tab launches)
+     */
+    CUSTOM_TABS
 }

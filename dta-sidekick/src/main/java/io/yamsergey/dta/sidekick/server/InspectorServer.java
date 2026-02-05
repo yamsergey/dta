@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.compose.ComposeHitTester;
+import io.yamsergey.dta.sidekick.customtabs.CustomTabEvent;
+import io.yamsergey.dta.sidekick.customtabs.CustomTabsInspector;
 import io.yamsergey.dta.sidekick.mock.MockConfig;
 import io.yamsergey.dta.sidekick.mock.MockDirection;
 import io.yamsergey.dta.sidekick.mock.MockHttpResponse;
@@ -88,6 +90,7 @@ public class InspectorServer {
     // SSE streaming clients
     private final Set<OutputStream> sseClients = ConcurrentHashMap.newKeySet();
     private final NetworkInspector.TransactionListener transactionListener;
+    private final CustomTabsInspector.CustomTabEventListener customTabEventListener;
 
     // Selection state (multi-selection support)
     private final List<Map<String, Object>> selectedElements = Collections.synchronizedList(new ArrayList<>());
@@ -117,6 +120,9 @@ public class InspectorServer {
                 broadcastEvent("transaction_completed", transaction);
             }
         };
+
+        // Create listener for Custom Tab events
+        this.customTabEventListener = event -> broadcastCustomTabEvent(event);
     }
 
     public static InspectorServer getInstance() {
@@ -186,6 +192,9 @@ public class InspectorServer {
         // Register for transaction events
         NetworkInspector.addListener(transactionListener);
 
+        // Register for Custom Tab events
+        CustomTabsInspector.addListener(customTabEventListener);
+
         executor.submit(this::acceptLoop);
         SidekickLog.i(TAG, "Server started on socket: " + socketName);
     }
@@ -207,8 +216,9 @@ public class InspectorServer {
         running.set(false);
         startCalled.set(false); // Reset to allow potential restart (though executor limits this)
 
-        // Unregister listener
+        // Unregister listeners
         NetworkInspector.removeListener(transactionListener);
+        CustomTabsInspector.removeListener(customTabEventListener);
 
         // Close all SSE clients
         for (OutputStream client : sseClients) {
@@ -496,6 +506,18 @@ public class InspectorServer {
             return;
         }
 
+        // Handle Custom Tabs endpoints
+        if (path.equals("/customtabs/events")) {
+            if ("GET".equals(method)) {
+                handleCustomTabsEvents(out);
+            } else if ("DELETE".equals(method)) {
+                handleCustomTabsClear(out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
         switch (path) {
             case "/":
             case "/health":
@@ -515,6 +537,13 @@ public class InspectorServer {
                 break;
             case "/network/requests":
                 handleNetworkRequests(out);
+                break;
+            case "/network/transactions":
+                if ("POST".equals(method)) {
+                    handleNetworkRecordTransaction(body, out);
+                } else {
+                    sendError(out, 405, "Method Not Allowed");
+                }
                 break;
             case "/network/clear":
                 if ("DELETE".equals(method)) {
@@ -567,11 +596,13 @@ public class InspectorServer {
                 "/compose/element/{id}",
                 "/network/requests",
                 "/network/requests/{id}",
+                "/network/transactions",
                 "/network/clear",
                 "/network/stats",
                 "/websocket/connections",
                 "/websocket/connections/{id}",
                 "/websocket/clear",
+                "/customtabs/events",
                 "/selection/element",
                 "/selection/network",
                 "/selection/websocket-message",
@@ -1044,6 +1075,149 @@ public class InspectorServer {
 
         } catch (Exception e) {
             SidekickLog.e(TAG, "Error clearing network requests", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * POST /network/transactions - Record an external HTTP transaction.
+     *
+     * <p>This endpoint allows external tools (like CDP network monitors) to record
+     * HTTP transactions that were not captured by the in-app interceptors.</p>
+     *
+     * <p>Expected JSON format:</p>
+     * <pre>{
+     *   "url": "https://example.com/api",
+     *   "method": "GET",
+     *   "source": "CustomTab",
+     *   "startTime": 1234567890,
+     *   "requestHeaders": {"Content-Type": "application/json"},
+     *   "requestBody": "...",
+     *   "statusCode": 200,
+     *   "statusMessage": "OK",
+     *   "responseHeaders": {"Content-Type": "application/json"},
+     *   "responseBody": "...",
+     *   "duration": 150,
+     *   "error": null
+     * }</pre>
+     */
+    @SuppressWarnings("unchecked")
+    private void handleNetworkRecordTransaction(String body, OutputStream out) throws IOException {
+        try {
+            if (body == null || body.isEmpty()) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Request body is required");
+                sendJson(out, 400, error);
+                return;
+            }
+
+            Map<String, Object> data = gson.fromJson(body, Map.class);
+
+            // Required fields
+            String url = (String) data.get("url");
+            if (url == null || url.isEmpty()) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "url is required");
+                sendJson(out, 400, error);
+                return;
+            }
+
+            // Build request
+            String method = (String) data.getOrDefault("method", "GET");
+            HttpRequest.Builder requestBuilder = HttpRequest.builder()
+                    .url(url)
+                    .method(method);
+
+            // Request headers
+            Map<String, String> requestHeaders = (Map<String, String>) data.get("requestHeaders");
+            if (requestHeaders != null) {
+                for (Map.Entry<String, String> entry : requestHeaders.entrySet()) {
+                    requestBuilder.addHeader(entry.getKey(), entry.getValue());
+                }
+            }
+
+            // Request body
+            String requestBody = (String) data.get("requestBody");
+            if (requestBody != null) {
+                requestBuilder.body(requestBody);
+            }
+
+            HttpRequest request = requestBuilder.build();
+
+            // Build transaction
+            String source = (String) data.getOrDefault("source", "external");
+            Number startTimeNum = (Number) data.get("startTime");
+            long startTime = startTimeNum != null ? startTimeNum.longValue() : System.currentTimeMillis();
+
+            HttpTransaction tx = HttpTransaction.create()
+                    .request(request)
+                    .source(source)
+                    .startTime(startTime)
+                    .build();
+
+            // Check if we have response data
+            Number statusCodeNum = (Number) data.get("statusCode");
+            if (statusCodeNum != null) {
+                int statusCode = statusCodeNum.intValue();
+                String statusMessage = (String) data.getOrDefault("statusMessage", "");
+
+                HttpResponse.Builder responseBuilder = HttpResponse.builder()
+                        .statusCode(statusCode)
+                        .statusMessage(statusMessage);
+
+                // Response headers
+                Map<String, String> responseHeaders = (Map<String, String>) data.get("responseHeaders");
+                if (responseHeaders != null) {
+                    for (Map.Entry<String, String> entry : responseHeaders.entrySet()) {
+                        responseBuilder.addHeader(entry.getKey(), entry.getValue());
+                    }
+                }
+
+                // Response body (may be base64 encoded for binary content)
+                String responseBody = (String) data.get("responseBody");
+                if (responseBody != null) {
+                    Boolean isBase64 = (Boolean) data.get("responseBodyBase64");
+                    if (!Boolean.TRUE.equals(isBase64)) {
+                        // Only store text content, skip binary (base64) content
+                        responseBuilder.body(responseBody);
+                    }
+                    // Binary content is intentionally skipped - not useful for inspection
+                }
+
+                // Protocol
+                String protocol = (String) data.get("protocol");
+                if (protocol != null) {
+                    responseBuilder.protocol(protocol);
+                }
+
+                tx.setResponse(responseBuilder.build());
+
+                // Check for error
+                String error = (String) data.get("error");
+                if (error != null && !error.isEmpty()) {
+                    tx.markFailed(error);
+                } else {
+                    tx.markCompleted();
+                }
+            } else {
+                // No response yet - mark as in progress
+                tx.markInProgress();
+            }
+
+            // Record the transaction
+            NetworkInspector.recordTransaction(tx);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("id", tx.getId());
+            response.put("message", "Transaction recorded");
+            response.put("source", source);
+
+            sendJson(out, 201, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error recording transaction", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
@@ -1961,6 +2135,92 @@ public class InspectorServer {
         }
 
         return map;
+    }
+
+    // =========================================================================
+    // Custom Tabs Endpoints
+    // =========================================================================
+
+    /**
+     * GET /customtabs/events - List all captured Custom Tab events.
+     */
+    private void handleCustomTabsEvents(OutputStream out) throws IOException {
+        try {
+            java.util.List<CustomTabEvent> events = CustomTabsInspector.getEvents();
+
+            java.util.List<Map<String, Object>> eventList = new java.util.ArrayList<>();
+            for (CustomTabEvent event : events) {
+                eventList.add(customTabEventToMap(event));
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("count", events.size());
+            response.put("events", eventList);
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error getting custom tab events", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * DELETE /customtabs/events - Clear all captured Custom Tab events.
+     */
+    private void handleCustomTabsClear(OutputStream out) throws IOException {
+        try {
+            int count = CustomTabsInspector.getEventCount();
+            CustomTabsInspector.clearEvents();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("cleared", count);
+            response.put("message", "Cleared " + count + " custom tab events");
+
+            sendJson(out, 200, response);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error clearing custom tab events", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * Converts a CustomTabEvent to a Map for JSON serialization.
+     */
+    private Map<String, Object> customTabEventToMap(CustomTabEvent event) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", event.getId());
+        map.put("url", event.getUrl());
+        map.put("headers", event.getHeaders());
+        map.put("timestamp", event.getTimestamp());
+        map.put("packageName", event.getPackageName());
+        return map;
+    }
+
+    /**
+     * Broadcasts a Custom Tab event to all connected SSE clients.
+     */
+    private void broadcastCustomTabEvent(CustomTabEvent event) {
+        if (sseClients.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> data = customTabEventToMap(event);
+        data.put("eventType", "customtab_opened");
+
+        for (OutputStream client : sseClients) {
+            try {
+                sendSseEvent(client, "customtab_opened", data);
+            } catch (IOException e) {
+                // Client disconnected, will be cleaned up
+                sseClients.remove(client);
+            }
+        }
     }
 
     // =========================================================================

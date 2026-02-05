@@ -10,6 +10,7 @@ import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
 import io.yamsergey.dta.tools.android.inspect.compose.HealthResponse;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
@@ -37,6 +38,7 @@ public class McpServer {
         collectDeviceTools(tools);
         collectAppTools(tools);
         collectMockTools(tools);
+        collectCdpTools(tools);
 
         // Build server with all tools registered upfront
         var server = io.modelcontextprotocol.server.McpServer.sync(
@@ -1076,6 +1078,122 @@ public class McpServer {
                     });
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+    }
+
+    private static final int DEFAULT_CDP_PORT = 9222;
+
+    private static void collectCdpTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        // cdp_watch_start
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("cdp_watch_start", "Start watching Custom Tabs network traffic via Chrome DevTools Protocol. Traffic will be captured automatically and stored alongside regular HTTP requests.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial (optional)", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    // Check if already watching
+                    if (CdpWatcherManager.getInstance().isWatching(pkg, device)) {
+                        var info = CdpWatcherManager.getInstance().getWatcherInfo(pkg, device);
+                        ObjectNode result = mapper.createObjectNode();
+                        result.put("status", "already_running");
+                        result.put("message", "CDP watcher already active");
+                        if (info != null && info.currentTabUrl() != null) {
+                            result.put("currentTabUrl", info.currentTabUrl());
+                        }
+                        return new CallToolResult(List.of(new McpSchema.TextContent(mapper.writeValueAsString(result))), false);
+                    }
+
+                    // Setup port forwarding for Chrome DevTools
+                    AdbUtils.setupCdpPortForward(device, DEFAULT_CDP_PORT);
+
+                    // Get sidekick client
+                    return withSidekick(pkg, device, (client, versionWarning) -> {
+                        boolean started = CdpWatcherManager.getInstance().startWatcher(
+                            pkg, device, DEFAULT_CDP_PORT, client, null);
+
+                        ObjectNode result = mapper.createObjectNode();
+                        if (started) {
+                            result.put("status", "started");
+                            result.put("message", "CDP watcher started. Custom Tab network traffic will be captured automatically.");
+                        } else {
+                            result.put("status", "already_running");
+                            result.put("message", "CDP watcher already active");
+                        }
+                        if (versionWarning != null) {
+                            result.put("warning", versionWarning);
+                        }
+                        return new CallToolResult(List.of(new McpSchema.TextContent(mapper.writeValueAsString(result))), false);
+                    });
+                } catch (Exception e) {
+                    return errorResult("Failed to start CDP watcher: " + e.getMessage());
+                }
+            }
+        ));
+
+        // cdp_watch_stop
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("cdp_watch_stop", "Stop watching Custom Tabs network traffic",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial (optional)", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    boolean stopped = CdpWatcherManager.getInstance().stopWatcher(pkg, device);
+
+                    ObjectNode result = mapper.createObjectNode();
+                    if (stopped) {
+                        result.put("status", "stopped");
+                        result.put("message", "CDP watcher stopped");
+                    } else {
+                        result.put("status", "not_running");
+                        result.put("message", "No CDP watcher was running");
+                    }
+                    return new CallToolResult(List.of(new McpSchema.TextContent(mapper.writeValueAsString(result))), false);
+                } catch (Exception e) {
+                    return errorResult("Failed to stop CDP watcher: " + e.getMessage());
+                }
+            }
+        ));
+
+        // cdp_watch_status
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("cdp_watch_status", "Check if Custom Tabs network watching is active",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial (optional)", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    var info = CdpWatcherManager.getInstance().getWatcherInfo(pkg, device);
+
+                    ObjectNode result = mapper.createObjectNode();
+                    if (info != null) {
+                        result.put("watching", true);
+                        result.put("connected", info.isConnected());
+                        if (info.currentTabUrl() != null) {
+                            result.put("currentTabUrl", info.currentTabUrl());
+                        }
+                        result.put("startTime", info.startTime());
+                    } else {
+                        result.put("watching", false);
+                    }
+                    return new CallToolResult(List.of(new McpSchema.TextContent(mapper.writeValueAsString(result))), false);
+                } catch (Exception e) {
+                    return errorResult("Failed to get CDP watcher status: " + e.getMessage());
                 }
             }
         ));

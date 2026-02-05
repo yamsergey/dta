@@ -682,6 +682,77 @@ public class InspectorController {
     }
 
     // ========================================================================
+    // CDP Watcher endpoints
+    // ========================================================================
+
+    @PostMapping("/cdp/watch/start")
+    public ResponseEntity<?> startCdpWatcher(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean started = connectionManager.startCdpWatcher(packageName, device);
+            if (started) {
+                return ResponseEntity.ok(Map.of(
+                    "status", "started",
+                    "message", "CDP watcher started for Custom Tabs"
+                ));
+            } else {
+                return ResponseEntity.ok(Map.of(
+                    "status", "already_running",
+                    "message", "CDP watcher already active"
+                ));
+            }
+        } catch (Exception e) {
+            return error("Failed to start CDP watcher: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/cdp/watch/stop")
+    public ResponseEntity<?> stopCdpWatcher(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean stopped = connectionManager.stopCdpWatcher(packageName, device);
+            if (stopped) {
+                return ResponseEntity.ok(Map.of(
+                    "status", "stopped",
+                    "message", "CDP watcher stopped"
+                ));
+            } else {
+                return ResponseEntity.ok(Map.of(
+                    "status", "not_running",
+                    "message", "No CDP watcher was running"
+                ));
+            }
+        } catch (Exception e) {
+            return error("Failed to stop CDP watcher: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/cdp/watch/status")
+    public ResponseEntity<?> getCdpWatcherStatus(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            var info = connectionManager.getCdpWatcherInfo(packageName, device);
+            if (info != null) {
+                return ResponseEntity.ok(Map.of(
+                    "watching", true,
+                    "currentTabUrl", info.currentTabUrl() != null ? info.currentTabUrl() : "",
+                    "connected", info.isConnected(),
+                    "startTime", info.startTime()
+                ));
+            } else {
+                return ResponseEntity.ok(Map.of(
+                    "watching", false
+                ));
+            }
+        } catch (Exception e) {
+            return error("Failed to get CDP watcher status: " + e.getMessage());
+        }
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
 
