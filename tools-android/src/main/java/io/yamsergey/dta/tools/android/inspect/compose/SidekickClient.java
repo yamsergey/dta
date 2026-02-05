@@ -443,6 +443,45 @@ public class SidekickClient {
     }
 
     // ========================================================================
+    // Custom Tabs inspection endpoints
+    // ========================================================================
+
+    /**
+     * Gets all captured Custom Tab events.
+     *
+     * <p>Custom Tab events are recorded when the app opens a URL
+     * in Chrome Custom Tabs.</p>
+     *
+     * @return Result containing events JSON on success
+     */
+    public Result<String> getCustomTabEvents() {
+        return httpGet("/customtabs/events");
+    }
+
+    /**
+     * Clears all captured Custom Tab events.
+     *
+     * @return Result indicating success or failure
+     */
+    public Result<String> clearCustomTabEvents() {
+        return httpDelete("/customtabs/events");
+    }
+
+    /**
+     * Records an external HTTP transaction to the sidekick's network inspector.
+     *
+     * <p>This method allows recording network events from external sources
+     * (like Chrome Custom Tabs via CDP) into the sidekick's transaction store,
+     * so they appear alongside in-app HTTP requests.</p>
+     *
+     * @param transactionJson JSON representation of the transaction
+     * @return Result containing the recorded transaction ID on success
+     */
+    public Result<String> recordTransaction(String transactionJson) {
+        return httpPost("/network/transactions", transactionJson);
+    }
+
+    // ========================================================================
     // Mock API endpoints
     // ========================================================================
 

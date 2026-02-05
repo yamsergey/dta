@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import io.yamsergey.dta.sidekick.customtabs.CustomTabsAdapter;
 import io.yamsergey.dta.sidekick.jvmti.JvmtiAgent;
 import io.yamsergey.dta.sidekick.jvmti.MethodHook;
 import io.yamsergey.dta.sidekick.network.adapter.http.OkHttpAdapter;
@@ -98,6 +99,9 @@ public final class NetworkInterceptorManager {
         registerAdapterInternal(new OkHttpWebSocketAdapter());
         registerAdapterInternal(new JavaWebSocketAdapter());
         registerAdapterInternal(new NvWebSocketAdapter());
+
+        // Custom Tabs adapter
+        registerAdapterInternal(new CustomTabsAdapter());
     }
 
     /**

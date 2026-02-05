@@ -345,6 +345,44 @@
         .method-PUT { background: var(--ctp-yellow); color: var(--ctp-crust); }
         .method-DELETE { background: var(--ctp-red); color: var(--ctp-crust); }
         .method-PATCH { background: var(--ctp-mauve); color: var(--ctp-crust); }
+        .source-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: var(--ctp-sapphire);
+            color: var(--ctp-crust);
+        }
+        .source-badge.customtab {
+            background: var(--ctp-sky);
+        }
+        .info-message {
+            background: var(--ctp-surface0);
+            border-left: 3px solid var(--ctp-sky);
+            padding: 12px;
+            border-radius: 0 4px 4px 0;
+            font-size: 13px;
+            color: var(--ctp-subtext1);
+        }
+        .info-message p {
+            margin: 0 0 8px 0;
+        }
+        .info-message p:last-child {
+            margin-bottom: 0;
+        }
+        .info-message .info-details {
+            font-size: 12px;
+            color: var(--ctp-overlay1);
+        }
+        .info-message ul {
+            margin: 6px 0 0 20px;
+            padding: 0;
+        }
+        .info-message li {
+            margin: 4px 0;
+        }
         .status-OPEN { background: var(--ctp-green); color: var(--ctp-crust); }
         .status-CLOSED { background: var(--ctp-red); color: var(--ctp-crust); }
         .status-CONNECTING { background: var(--ctp-yellow); color: var(--ctp-crust); }
@@ -1024,6 +1062,13 @@
         .context-menu-item:hover {
             background: var(--ctp-surface1);
         }
+        .context-menu-item.disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        .context-menu-item.disabled:hover {
+            background: transparent;
+        }
         .context-menu-icon {
             width: 16px;
             text-align: center;
@@ -1311,6 +1356,7 @@
                                  @click="selectRequest(req)"
                                  @contextmenu.prevent="showRequestContextMenu($event, req)">
                                 <span v-if="req.mocked" class="mock-badge" title="Mocked">M</span>
+                                <span v-if="req.source === 'CustomTab'" class="source-badge customtab" title="Chrome Custom Tab">Chrome</span>
                                 <span class="method-badge" :class="'method-' + req.method">
                                     {{ req.method }}
                                 </span>
@@ -1420,6 +1466,26 @@
                                         <img :src="mediaBody.data" :alt="selectedRequestDetails.url" />
                                         <span class="media-info">{{ mediaBody.contentType }} - {{ formatSize(mediaBody.size) }}</span>
                                     </template>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Info message for CustomTab requests without body -->
+                        <div class="detail-section" v-if="!selectedRequestDetails.responseBody && selectedRequest?.source === 'CustomTab' && !isImageContentType(selectedRequestDetails.responseContentType)">
+                            <div class="detail-section-header">
+                                <span class="toggle">ℹ</span>
+                                Response Body
+                            </div>
+                            <div class="detail-section-content" style="display: block;">
+                                <div class="info-message">
+                                    <p>Response body not available for this Chrome Custom Tab request.</p>
+                                    <p class="info-details">
+                                        This can happen when:
+                                        <ul>
+                                            <li>Binary content (images, fonts, etc.) - skipped to save memory</li>
+                                            <li>Large files (>500KB) - skipped to avoid performance issues</li>
+                                            <li>Request failed before response was received</li>
+                                        </ul>
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -1681,9 +1747,14 @@
                  class="context-menu"
                  :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
                  @click.stop>
-                <div class="context-menu-item" @click="contextMenuCreateMock">
+                <div v-if="contextMenu.item?.source !== 'CustomTab'"
+                     class="context-menu-item" @click="contextMenuCreateMock">
                     <span class="context-menu-icon">+</span>
                     Create Mock Rule
+                </div>
+                <div v-else class="context-menu-item disabled" title="Cannot mock Chrome Custom Tab requests">
+                    <span class="context-menu-icon">+</span>
+                    Create Mock Rule (N/A for Chrome)
                 </div>
             </div>
 

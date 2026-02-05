@@ -157,6 +157,13 @@ public class AdbUtils {
     }
 
     /**
+     * Sets up port forwarding to Chrome DevTools Protocol socket.
+     */
+    public static boolean setupCdpPortForward(String deviceSerial, int localPort) throws IOException, InterruptedException {
+        return setupPortForward(deviceSerial, localPort, "chrome_devtools_remote");
+    }
+
+    /**
      * Removes port forwarding.
      */
     public static void removePortForward(String deviceSerial, int localPort) {
