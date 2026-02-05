@@ -1335,6 +1335,13 @@
                                     </div>
                                 </div>
                             </div>
+                            <button class="btn-sm"
+                                    :class="cdpWatching ? 'primary' : 'secondary'"
+                                    @click="toggleCdpWatcher"
+                                    :disabled="!connected"
+                                    :title="cdpWatching ? 'Stop watching Chrome Custom Tabs' : 'Watch Chrome Custom Tabs network traffic'">
+                                {{ cdpWatching ? 'Chrome ✓' : 'Chrome' }}
+                            </button>
                             <button class="secondary btn-sm" @click="loadNetworkRequests" :disabled="!connected">
                                 Refresh
                             </button>
@@ -1943,6 +1950,10 @@
                 const wsPanelWidth = ref(500);
                 const isResizingWs = ref(false);
 
+                // CDP watcher state for Chrome Custom Tabs
+                const cdpWatching = ref(false);
+                const cdpCurrentUrl = ref(null);
+
                 const networkRequestsReversed = computed(() => [...networkRequests.value].reverse());
 
                 // Extract unique element names from the full tree
@@ -1999,6 +2010,64 @@
                         }
                     } catch (e) {
                         console.error('Failed to check version:', e);
+                    }
+                }
+
+                // CDP watcher for Chrome Custom Tabs
+                async function startCdpWatcher() {
+                    if (!connected.value) return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/cdp/watch/start?${params}`), { method: 'POST' });
+                        const data = await res.json();
+                        if (data.status === 'started' || data.status === 'already_running') {
+                            cdpWatching.value = true;
+                        }
+                    } catch (e) {
+                        console.error('Failed to start CDP watcher:', e);
+                    }
+                }
+
+                async function stopCdpWatcher() {
+                    if (!connected.value) return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/cdp/watch/stop?${params}`), { method: 'POST' });
+                        cdpWatching.value = false;
+                        cdpCurrentUrl.value = null;
+                    } catch (e) {
+                        console.error('Failed to stop CDP watcher:', e);
+                    }
+                }
+
+                async function checkCdpWatcherStatus() {
+                    if (!connected.value) return;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/cdp/watch/status?${params}`));
+                        const data = await res.json();
+                        cdpWatching.value = data.watching;
+                        cdpCurrentUrl.value = data.currentTabUrl || null;
+                    } catch (e) {
+                        // Silently fail - CDP may not be available
+                        cdpWatching.value = false;
+                    }
+                }
+
+                function toggleCdpWatcher() {
+                    if (cdpWatching.value) {
+                        stopCdpWatcher();
+                    } else {
+                        startCdpWatcher();
                     }
                 }
 
@@ -2075,6 +2144,8 @@
                         await loadSelections();
                         // Check version compatibility
                         await checkConnectionVersion();
+                        // Auto-start CDP watcher for Chrome Custom Tabs
+                        await startCdpWatcher();
                         connectionStatus.value = 'connected';
                     } catch (e) {
                         console.error('Connection failed:', e);
@@ -3575,6 +3646,8 @@
                     // WebSocket resizable panels
                     wsLayout, wsPanelWidth, isResizingWs,
                     startWsResize, backToConnections, truncateUrl, closeWsMessage,
+                    // CDP watcher for Chrome Custom Tabs
+                    cdpWatching, cdpCurrentUrl, toggleCdpWatcher,
                     loadApps, connect, refresh, refreshScreenshot,
                     onImageLoad, getHighlightStyle, onScreenshotClick,
                     selectNode, hoverNode, toggleNode, selectRequest, closeNetworkRequest, selectWsConnection, selectWsMessage, switchTab,
