@@ -44,7 +44,7 @@ android {
 dependencies {
     // DTA Sidekick for compose inspection (debug only)
     // Use mavenLocal version for testing new features
-    debugImplementation("com.github.yamsergey.dta:dta-sidekick:0.9.4")
+    debugImplementation("com.github.yamsergey.dta:dta-sidekick:0.9.5")
     // implementation("com.github.yamsergey.dta:dta-sidekick:0.9.2")
     // Network - HTTP
     implementation(libs.okhttp)
