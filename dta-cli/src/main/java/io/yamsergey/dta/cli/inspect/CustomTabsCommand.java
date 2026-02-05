@@ -178,6 +178,7 @@ public class CustomTabsCommand implements Callable<Integer> {
 
     /**
      * Runs in watch mode: monitors Custom Tab network traffic via CDP.
+     * Automatically detects and attaches to Custom Tabs when they open.
      */
     private Integer runWatchMode() throws Exception {
         System.err.println("=== Custom Tabs Network Monitor (CDP) ===");
@@ -212,48 +213,21 @@ public class CustomTabsCommand implements Callable<Integer> {
 
             // Set up port forwarding to Chrome DevTools
             System.err.println("Setting up port forwarding to Chrome DevTools...");
-            ProcessBuilder pb = new ProcessBuilder(
-                adbPath, "forward", "tcp:" + cdpPort, "localabstract:chrome_devtools_remote"
-            );
-            Process process = pb.start();
-            int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                System.err.println("Error: Failed to set up Chrome DevTools port forwarding");
-                System.err.println("Make sure Chrome is running on the device");
-                return 1;
-            }
+            setupCdpPortForwarding();
 
-            // Connect to Chrome DevTools
-            System.err.println("Connecting to Chrome DevTools on port " + cdpPort + "...");
-            ChromeDevToolsClient cdpClient = new ChromeDevToolsClient("localhost", cdpPort);
+            System.err.println();
+            System.err.println("=== Watching for Custom Tabs (Ctrl+C to stop) ===");
+            System.err.println("Open a Custom Tab in your app to start capturing traffic.");
+            System.err.println();
 
-            // List available targets
-            List<CdpTarget> targets = cdpClient.listTargets();
-            System.err.println("Found " + targets.size() + " Chrome target(s)");
+            // Track currently attached tab
+            final String[] currentTabId = {null};
+            final ChromeDevToolsClient[] currentClient = {null};
 
-            if (targets.isEmpty()) {
-                System.err.println("No Chrome tabs found. Open a Custom Tab first.");
-                return 1;
-            }
-
-            // Find first page target (Custom Tab)
-            CdpTarget customTab = targets.stream()
-                    .filter(CdpTarget::isPage)
-                    .findFirst()
-                    .orElse(null);
-
-            if (customTab == null) {
-                System.err.println("No page targets found.");
-                return 1;
-            }
-
-            System.err.println("Attaching to: " + customTab.title() + " (" + customTab.url() + ")");
-
-            // Create network monitor that will correlate events and post to sidekick
+            // Create network monitor
             CustomTabsNetworkMonitor monitor = new CustomTabsNetworkMonitor(
                 deviceSerial,
                 event -> {
-                    // Print to console when events arrive
                     if (event != null) {
                         String type = event.type().name();
                         System.out.println("[CDP] " + type + ": " + event.requestId());
@@ -269,44 +243,112 @@ public class CustomTabsCommand implements Callable<Integer> {
                     }
                 }
             );
-
-            // Enable posting to sidekick so events appear in inspector-web
             monitor.setSidekickClient(sidekickClient);
-            System.err.println("Completed transactions will be posted to sidekick (visible in inspector-web)");
 
-            // Attach and enable network monitoring
-            cdpClient.attachToTarget(customTab);
-
-            // Enable response body fetching
-            monitor.setCdpClient(cdpClient);
-
-            // Wire CDP events through the monitor for correlation and sidekick posting
-            cdpClient.setNetworkEventListener(cdpEvent -> {
-                // Feed events to monitor - it will correlate request/response/finished
-                // and post completed transactions to sidekick
-                monitor.onCdpEvent(cdpEvent, customTab.url());
-            });
-
-            cdpClient.enableNetwork().join();
-
-            System.err.println();
-            System.err.println("=== Monitoring network traffic (Ctrl+C to stop) ===");
-            System.err.println();
-
-            // Wait for interrupt
+            // Shutdown hook
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.err.println("\nStopping monitor...");
-                try {
-                    cdpClient.close();
-                } catch (Exception ignored) {}
+                if (currentClient[0] != null) {
+                    try {
+                        currentClient[0].close();
+                    } catch (Exception ignored) {}
+                }
             }));
 
-            // Keep running until interrupted
-            Thread.currentThread().join();
+            // Poll for Custom Tabs
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    CdpTarget tab = findCustomTab();
+
+                    if (tab != null && !tab.id().equals(currentTabId[0])) {
+                        // New tab detected - attach to it
+                        if (currentClient[0] != null) {
+                            try {
+                                currentClient[0].close();
+                            } catch (Exception ignored) {}
+                        }
+
+                        System.err.println();
+                        System.err.println(">>> Custom Tab detected: " + tab.title());
+                        System.err.println("    URL: " + tab.url());
+
+                        ChromeDevToolsClient cdpClient = new ChromeDevToolsClient("localhost", cdpPort);
+                        cdpClient.attachToTarget(tab);
+                        monitor.setCdpClient(cdpClient);
+
+                        final String tabUrl = tab.url();
+                        cdpClient.setNetworkEventListener(cdpEvent -> {
+                            monitor.onCdpEvent(cdpEvent, tabUrl);
+                        });
+
+                        cdpClient.enableNetwork().join();
+
+                        currentTabId[0] = tab.id();
+                        currentClient[0] = cdpClient;
+
+                        System.err.println("    Capturing network traffic...");
+                        System.err.println();
+                    } else if (tab == null && currentTabId[0] != null) {
+                        // Tab closed
+                        System.err.println();
+                        System.err.println(">>> Custom Tab closed");
+                        System.err.println("    Waiting for new Custom Tab...");
+                        System.err.println();
+
+                        if (currentClient[0] != null) {
+                            try {
+                                currentClient[0].close();
+                            } catch (Exception ignored) {}
+                        }
+                        currentTabId[0] = null;
+                        currentClient[0] = null;
+                        monitor.setCdpClient(null);
+                    }
+
+                    Thread.sleep(500); // Poll every 500ms
+                } catch (InterruptedException e) {
+                    break;
+                } catch (Exception e) {
+                    // Connection errors are expected when Chrome isn't running
+                    if (currentTabId[0] != null) {
+                        currentTabId[0] = null;
+                        currentClient[0] = null;
+                        monitor.setCdpClient(null);
+                    }
+                    Thread.sleep(1000); // Wait longer on errors
+                }
+            }
+
             return 0;
 
         } finally {
             sidekickClient.removePortForwarding();
+        }
+    }
+
+    /**
+     * Sets up ADB port forwarding to Chrome DevTools.
+     */
+    private void setupCdpPortForwarding() throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(
+            adbPath, "forward", "tcp:" + cdpPort, "localabstract:chrome_devtools_remote"
+        );
+        pb.start().waitFor();
+    }
+
+    /**
+     * Finds the first Custom Tab page target.
+     */
+    private CdpTarget findCustomTab() {
+        try {
+            ChromeDevToolsClient client = new ChromeDevToolsClient("localhost", cdpPort);
+            List<CdpTarget> targets = client.listTargets();
+            return targets.stream()
+                    .filter(CdpTarget::isPage)
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception e) {
+            return null;
         }
     }
 
