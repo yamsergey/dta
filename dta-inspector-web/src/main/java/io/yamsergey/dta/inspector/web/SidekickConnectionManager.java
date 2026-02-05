@@ -1,5 +1,6 @@
 package io.yamsergey.dta.inspector.web;
 
+import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -181,5 +182,62 @@ public class SidekickConnectionManager {
 
     private String readStream(InputStream is) throws IOException {
         return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+    }
+
+    // ========================================================================
+    // CDP Watcher Management
+    // ========================================================================
+
+    private static final int DEFAULT_CDP_PORT = 9222;
+
+    /**
+     * Starts CDP watching for Custom Tabs network traffic.
+     *
+     * @return true if watcher was started, false if already running
+     */
+    public boolean startCdpWatcher(String packageName, String device) throws Exception {
+        // Ensure sidekick connection exists
+        ConnectionInfo conn = getConnection(packageName, device);
+
+        // Set up Chrome DevTools port forwarding
+        setupCdpPortForward(device);
+
+        // Start watcher
+        return CdpWatcherManager.getInstance().startWatcher(
+            packageName,
+            device,
+            DEFAULT_CDP_PORT,
+            conn.client(),
+            null  // No event callback for inspector-web
+        );
+    }
+
+    /**
+     * Stops CDP watching.
+     *
+     * @return true if watcher was stopped, false if not running
+     */
+    public boolean stopCdpWatcher(String packageName, String device) {
+        return CdpWatcherManager.getInstance().stopWatcher(packageName, device);
+    }
+
+    /**
+     * Checks if CDP watching is active.
+     */
+    public boolean isCdpWatching(String packageName, String device) {
+        return CdpWatcherManager.getInstance().isWatching(packageName, device);
+    }
+
+    /**
+     * Gets CDP watcher info.
+     */
+    public CdpWatcherManager.WatcherInfo getCdpWatcherInfo(String packageName, String device) {
+        return CdpWatcherManager.getInstance().getWatcherInfo(packageName, device);
+    }
+
+    private void setupCdpPortForward(String device) throws IOException, InterruptedException {
+        List<String> cmd = buildAdbCommand(device, "forward", "tcp:" + DEFAULT_CDP_PORT,
+            "localabstract:chrome_devtools_remote");
+        new ProcessBuilder(cmd).start().waitFor();
     }
 }
