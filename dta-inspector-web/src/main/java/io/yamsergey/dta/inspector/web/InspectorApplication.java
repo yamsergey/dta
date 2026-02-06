@@ -23,8 +23,24 @@ public class InspectorApplication {
      * This method blocks forever - the server runs until interrupted.
      */
     public static void start(int port) {
+        start(port, null);
+    }
+
+    /**
+     * Starts the inspector with optional port and log file configuration.
+     * This method blocks forever - the server runs until interrupted.
+     *
+     * @param port the server port
+     * @param logFile path to log file, or null to disable file logging
+     */
+    public static void start(int port, String logFile) {
         SpringApplication app = new SpringApplication(InspectorApplication.class);
-        app.setDefaultProperties(java.util.Map.of("server.port", String.valueOf(port)));
+        var props = new java.util.HashMap<String, Object>();
+        props.put("server.port", String.valueOf(port));
+        if (logFile != null && !logFile.isEmpty()) {
+            props.put("logging.file.name", logFile);
+        }
+        app.setDefaultProperties(props);
         var context = app.run();
 
         // Register shutdown hook to close context on JVM shutdown
