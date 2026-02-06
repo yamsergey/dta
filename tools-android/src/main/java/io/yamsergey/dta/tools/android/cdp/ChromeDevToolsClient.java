@@ -368,6 +368,25 @@ public class ChromeDevToolsClient implements AutoCloseable {
 
     private CdpNetworkEvent.RequestWillBeSent parseRequestWillBeSent(JsonNode params) {
         JsonNode request = params.path("request");
+        JsonNode redirectResponseNode = params.path("redirectResponse");
+
+        CdpNetworkEvent.RedirectResponse redirectResponse = null;
+        if (!redirectResponseNode.isMissingNode()) {
+            redirectResponse = new CdpNetworkEvent.RedirectResponse(
+                redirectResponseNode.path("url").asText(),
+                redirectResponseNode.path("status").asInt(),
+                redirectResponseNode.path("statusText").asText(),
+                parseHeaders(redirectResponseNode.path("headers"))
+            );
+        }
+
+        // Extract resource type (e.g., Document, Script, Stylesheet, Image, Font, XHR, Fetch)
+        JsonNode typeNode = params.path("type");
+        String resourceType = typeNode.isMissingNode() ? null : typeNode.asText();
+        if (resourceType != null && resourceType.isEmpty()) {
+            resourceType = null;
+        }
+
         return new CdpNetworkEvent.RequestWillBeSent(
             params.path("requestId").asText(),
             params.path("loaderId").asText(),
@@ -377,7 +396,8 @@ public class ChromeDevToolsClient implements AutoCloseable {
             parseHeaders(request.path("headers")),
             request.path("postData").asText(null),
             (long) (params.path("timestamp").asDouble() * 1000),
-            params.path("type").asText()
+            resourceType,
+            redirectResponse
         );
     }
 

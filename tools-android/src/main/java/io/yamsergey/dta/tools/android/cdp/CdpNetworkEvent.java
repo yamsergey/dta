@@ -20,17 +20,33 @@ public sealed interface CdpNetworkEvent {
     long timestamp();
 
     /**
+     * Redirect response data included in RequestWillBeSent when a redirect occurred.
+     *
+     * @param url        the URL that was redirected from
+     * @param status     HTTP status code (301, 302, 307, 308)
+     * @param statusText HTTP status text
+     * @param headers    response headers from the redirect
+     */
+    record RedirectResponse(
+        String url,
+        int status,
+        String statusText,
+        Map<String, String> headers
+    ) {}
+
+    /**
      * Fired when page is about to send HTTP request.
      *
-     * @param requestId   unique request identifier
-     * @param loaderId    loader identifier
-     * @param documentURL URL of the document this request is loaded for
-     * @param url         request URL
-     * @param method      HTTP method (GET, POST, etc.)
-     * @param headers     request headers
-     * @param postData    HTTP POST request body (may be null)
-     * @param timestamp   event timestamp
-     * @param type        resource type (Document, Stylesheet, Image, etc.)
+     * @param requestId        unique request identifier
+     * @param loaderId         loader identifier
+     * @param documentURL      URL of the document this request is loaded for
+     * @param url              request URL
+     * @param method           HTTP method (GET, POST, etc.)
+     * @param headers          request headers
+     * @param postData         HTTP POST request body (may be null)
+     * @param timestamp        event timestamp
+     * @param type             resource type (Document, Stylesheet, Image, etc.)
+     * @param redirectResponse if this request is due to a redirect, contains the redirect response
      */
     record RequestWillBeSent(
         String requestId,
@@ -41,7 +57,8 @@ public sealed interface CdpNetworkEvent {
         Map<String, String> headers,
         String postData,
         long timestamp,
-        String type
+        String type,
+        RedirectResponse redirectResponse
     ) implements CdpNetworkEvent {}
 
     /**

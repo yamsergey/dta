@@ -191,6 +191,60 @@ fun CustomTabsScreen(
                 }
             }
 
+            // Redirect test section
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Redirect Tests",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Test redirect handling. Each redirect should appear as a separate request in the inspector.",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                // HTTP to HTTPS redirect
+                                launchCustomTab(context, "http://github.com", primaryColor.toArgb())
+                                launchCount++
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("HTTP → HTTPS (github.com)")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                // Multiple redirects via httpbin
+                                launchCustomTab(context, "https://httpbin.org/redirect/3", primaryColor.toArgb())
+                                launchCount++
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("3 Chained Redirects (httpbin)")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                // Redirect to different domain
+                                launchCustomTab(context, "https://httpbin.org/redirect-to?url=https://example.com", primaryColor.toArgb())
+                                launchCount++
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Cross-Domain Redirect")
+                        }
+                    }
+                }
+            }
+
             // Custom headers section
             item {
                 Card(

@@ -916,6 +916,56 @@
         .btn-group {
             display: flex;
             gap: 8px;
+            align-items: center;
+        }
+        .resource-filters {
+            display: flex;
+            gap: 2px;
+            padding: 2px;
+            background: var(--ctp-surface0);
+            border-radius: 4px;
+        }
+        .filter-btn {
+            padding: 2px 6px;
+            font-size: 10px;
+            background: transparent;
+            border: none;
+            color: var(--ctp-subtext0);
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.15s;
+        }
+        .filter-btn:hover {
+            background: var(--ctp-surface1);
+            color: var(--ctp-text);
+        }
+        .filter-btn.active {
+            background: var(--ctp-blue);
+            color: var(--ctp-base);
+        }
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+        .breadcrumb-link {
+            color: var(--ctp-blue);
+            cursor: pointer;
+        }
+        .breadcrumb-link:hover {
+            text-decoration: underline;
+        }
+        .breadcrumb-sep {
+            color: var(--ctp-overlay0);
+        }
+        .breadcrumb-current {
+            color: var(--ctp-text);
+            font-weight: 500;
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .btn-sm {
             padding: 4px 8px;
@@ -1320,8 +1370,9 @@
             </div>
 
             <!-- Network Tab -->
-            <div class="main network-layout" v-show="activeTab === 'network'" ref="networkLayout">
-                <div class="panel resizable-panel" :style="{ width: networkPanelWidth + 'px' }" ref="networkListPanel">
+            <div class="main" v-show="activeTab === 'network'">
+                <!-- Request List View -->
+                <div class="panel" v-if="!selectedRequestDetails">
                     <div class="panel-header">
                         <span>Requests</span>
                         <div class="btn-group">
@@ -1342,6 +1393,16 @@
                                     :title="cdpWatching ? 'Stop watching Chrome Custom Tabs' : 'Watch Chrome Custom Tabs network traffic'">
                                 {{ cdpWatching ? 'Chrome ✓' : 'Chrome' }}
                             </button>
+                            <div class="resource-filters" v-if="hasCustomTabRequests">
+                                <button class="filter-btn" :class="{ active: resourceFilters.fetchXhr }" @click="resourceFilters.fetchXhr = !resourceFilters.fetchXhr" title="Fetch/XHR">Fetch/XHR</button>
+                                <button class="filter-btn" :class="{ active: resourceFilters.doc }" @click="resourceFilters.doc = !resourceFilters.doc" title="Document">Doc</button>
+                                <button class="filter-btn" :class="{ active: resourceFilters.js }" @click="resourceFilters.js = !resourceFilters.js" title="JavaScript">JS</button>
+                                <button class="filter-btn" :class="{ active: resourceFilters.css }" @click="resourceFilters.css = !resourceFilters.css" title="Stylesheets">CSS</button>
+                                <button class="filter-btn" :class="{ active: resourceFilters.img }" @click="resourceFilters.img = !resourceFilters.img" title="Images">Img</button>
+                                <button class="filter-btn" :class="{ active: resourceFilters.font }" @click="resourceFilters.font = !resourceFilters.font" title="Fonts">Font</button>
+                                <button class="filter-btn" :class="{ active: resourceFilters.media }" @click="resourceFilters.media = !resourceFilters.media" title="Media">Media</button>
+                                <button class="filter-btn" :class="{ active: resourceFilters.other }" @click="resourceFilters.other = !resourceFilters.other" title="Other">Other</button>
+                            </div>
                             <button class="secondary btn-sm" @click="loadNetworkRequests" :disabled="!connected">
                                 Refresh
                             </button>
@@ -1359,7 +1420,7 @@
                         <div v-else>
                             <div v-for="req in networkRequestsReversed" :key="req.id"
                                  class="request-item"
-                                 :class="{ selected: selectedRequest?.id === req.id, mocked: req.mocked }"
+                                 :class="{ mocked: req.mocked }"
                                  @click="selectRequest(req)"
                                  @contextmenu.prevent="showRequestContextMenu($event, req)">
                                 <span v-if="req.mocked" class="mock-badge" title="Mocked">M</span>
@@ -1376,13 +1437,15 @@
                         </div>
                     </div>
                 </div>
-                <div class="resize-handle"
-                     v-if="selectedRequestDetails"
-                     @mousedown="startNetworkResize"
-                     :class="{ dragging: isResizingNetwork }"></div>
-                <div class="detail-panel" style="flex: 1; width: auto; max-width: none;" v-if="selectedRequestDetails">
+
+                <!-- Request Detail View -->
+                <div class="panel" v-if="selectedRequestDetails">
                     <div class="panel-header">
-                        <span>Request Details</span>
+                        <div class="breadcrumb">
+                            <span class="breadcrumb-link" @click="closeNetworkRequest">Requests</span>
+                            <span class="breadcrumb-sep">›</span>
+                            <span class="breadcrumb-current">{{ selectedRequest?.method }} {{ truncateUrl(selectedRequest?.url, 50) }}</span>
+                        </div>
                         <div class="btn-group">
                             <button class="btn-sm"
                                     @click="isRequestSelectedOnDevice(selectedRequest) ? clearNetworkDeviceSelection() : syncNetworkSelectionToDevice(selectedRequest)"
@@ -1392,7 +1455,6 @@
                             </button>
                             <button class="secondary btn-sm" @click="copyRequest">Copy All</button>
                             <button class="secondary btn-sm" @click="exportRequest">Export</button>
-                            <button class="close-btn" @click="closeNetworkRequest" title="Close panel">✕</button>
                         </div>
                     </div>
                     <div class="panel-content">
@@ -1954,7 +2016,62 @@
                 const cdpWatching = ref(false);
                 const cdpCurrentUrl = ref(null);
 
-                const networkRequestsReversed = computed(() => [...networkRequests.value].reverse());
+                // Resource type filters for Chrome Custom Tab requests
+                const resourceFilters = reactive({
+                    fetchXhr: true,
+                    doc: true,
+                    js: false,
+                    css: false,
+                    img: false,
+                    font: false,
+                    media: false,
+                    other: false
+                });
+
+                // Check if there are any CustomTab requests
+                const hasCustomTabRequests = computed(() =>
+                    networkRequests.value.some(req => req.source === 'CustomTab')
+                );
+
+                // Map CDP resource types to our filter categories
+                function getResourceCategory(resourceType) {
+                    if (!resourceType) return 'other';
+                    switch (resourceType) {
+                        case 'XHR':
+                        case 'Fetch':
+                            return 'fetchXhr';
+                        case 'Document':
+                            return 'doc';
+                        case 'Script':
+                            return 'js';
+                        case 'Stylesheet':
+                            return 'css';
+                        case 'Image':
+                            return 'img';
+                        case 'Font':
+                            return 'font';
+                        case 'Media':
+                            return 'media';
+                        default:
+                            return 'other';
+                    }
+                }
+
+                const networkRequestsReversed = computed(() => {
+                    let requests = [...networkRequests.value].reverse();
+                    // Check if any filter is active
+                    const anyFilterActive = Object.values(resourceFilters).some(v => v);
+                    if (anyFilterActive) {
+                        requests = requests.filter(req => {
+                            // Always show non-CustomTab requests
+                            if (req.source !== 'CustomTab') return true;
+                            // Filter CustomTab requests by resource type
+                            const category = getResourceCategory(req.resourceType);
+                            return resourceFilters[category];
+                        });
+                    }
+                    return requests;
+                });
 
                 // Extract unique element names from the full tree
                 const availableElements = computed(() => {
@@ -3085,17 +3202,18 @@
                     }
                 }
 
-                function truncateUrl(url) {
+                function truncateUrl(url, maxLen = 50) {
                     if (!url) return '';
                     try {
                         const parsed = new URL(url);
                         const path = parsed.pathname + parsed.search;
-                        if (path.length > 40) {
-                            return parsed.host + path.slice(0, 37) + '...';
+                        const full = parsed.host + path;
+                        if (full.length > maxLen) {
+                            return full.slice(0, maxLen - 3) + '...';
                         }
-                        return parsed.host + path;
+                        return full;
                     } catch {
-                        return url.length > 50 ? url.slice(0, 47) + '...' : url;
+                        return url.length > maxLen ? url.slice(0, maxLen - 3) + '...' : url;
                     }
                 }
 
@@ -3648,6 +3766,7 @@
                     startWsResize, backToConnections, truncateUrl, closeWsMessage,
                     // CDP watcher for Chrome Custom Tabs
                     cdpWatching, cdpCurrentUrl, toggleCdpWatcher,
+                    resourceFilters, hasCustomTabRequests,
                     loadApps, connect, refresh, refreshScreenshot,
                     onImageLoad, getHighlightStyle, onScreenshotClick,
                     selectNode, hoverNode, toggleNode, selectRequest, closeNetworkRequest, selectWsConnection, selectWsMessage, switchTab,

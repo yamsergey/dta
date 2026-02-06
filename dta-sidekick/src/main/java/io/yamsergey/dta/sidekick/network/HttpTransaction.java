@@ -66,6 +66,7 @@ public final class HttpTransaction {
     private volatile Status status;
     private volatile String error;
     private volatile String source;
+    private volatile String resourceType;
     private volatile boolean mocked;
     private volatile String mockRuleId;
 
@@ -153,6 +154,14 @@ public final class HttpTransaction {
     }
 
     /**
+     * Gets the CDP resource type (e.g., "Document", "XHR", "Script", "Stylesheet", "Image", "Font").
+     * Only set for Custom Tab requests captured via Chrome DevTools Protocol.
+     */
+    public String getResourceType() {
+        return resourceType;
+    }
+
+    /**
      * Returns true if this transaction was mocked (response came from a mock rule).
      */
     public boolean isMocked() {
@@ -191,6 +200,14 @@ public final class HttpTransaction {
      */
     public HttpTransaction setSource(String source) {
         this.source = source;
+        return this;
+    }
+
+    /**
+     * Sets the CDP resource type.
+     */
+    public HttpTransaction setResourceType(String resourceType) {
+        this.resourceType = resourceType;
         return this;
     }
 

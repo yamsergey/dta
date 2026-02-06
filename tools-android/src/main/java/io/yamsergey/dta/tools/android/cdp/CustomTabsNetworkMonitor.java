@@ -329,19 +329,45 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
 
     private CustomTabNetworkEvent convertEvent(CdpNetworkEvent cdpEvent, String customTabUrl) {
         return switch (cdpEvent) {
-            case CdpNetworkEvent.RequestWillBeSent req -> new CustomTabNetworkEvent(
-                CustomTabNetworkEvent.Type.REQUEST,
-                req.requestId(),
-                customTabUrl,
-                req.url(),
-                req.method(),
-                null,
-                null,
-                req.headers(),
-                null,
-                req.postData(),
-                req.timestamp()
-            );
+            case CdpNetworkEvent.RequestWillBeSent req -> {
+                // Check if this is a redirect - if so, complete the previous request first
+                if (req.redirectResponse() != null) {
+                    var redirect = req.redirectResponse();
+                    // Complete the redirected request as a separate transaction
+                    InFlightTransaction redirectTx = inFlightTransactions.remove(req.requestId());
+                    if (redirectTx == null) {
+                        // No existing transaction - this happens when CDP attaches after initial request
+                        // Create a synthetic transaction from the redirect response
+                        redirectTx = new InFlightTransaction();
+                        redirectTx.requestId = req.requestId() + "-redirect";
+                        redirectTx.url = redirect.url();
+                        redirectTx.method = req.method(); // Original method
+                        redirectTx.resourceType = req.type(); // Resource type from new request
+                        redirectTx.startTime = req.timestamp(); // Approximate
+                        redirectTx.customTabUrl = customTabUrl;
+                    }
+                    redirectTx.statusCode = redirect.status();
+                    redirectTx.statusText = redirect.statusText();
+                    redirectTx.responseHeaders = redirect.headers();
+                    redirectTx.endTime = req.timestamp();
+                    // Post the redirect as completed (no body for redirects)
+                    postTransactionToSidekick(redirectTx, null);
+                }
+                yield new CustomTabNetworkEvent(
+                    CustomTabNetworkEvent.Type.REQUEST,
+                    req.requestId(),
+                    customTabUrl,
+                    req.url(),
+                    req.method(),
+                    null,
+                    null,
+                    req.headers(),
+                    null,
+                    req.postData(),
+                    req.type(),
+                    req.timestamp()
+                );
+            }
 
             case CdpNetworkEvent.ResponseReceived resp -> new CustomTabNetworkEvent(
                 CustomTabNetworkEvent.Type.RESPONSE,
@@ -354,6 +380,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 null,
                 resp.headers(),
                 null,
+                null,
                 resp.timestamp()
             );
 
@@ -361,6 +388,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 CustomTabNetworkEvent.Type.FINISHED,
                 fin.requestId(),
                 customTabUrl,
+                null,
                 null,
                 null,
                 null,
@@ -379,6 +407,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 null,
                 null,
                 fail.errorText(),
+                null,
                 null,
                 null,
                 null,
@@ -404,6 +433,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 tx.requestId = requestId;
                 tx.url = event.url();
                 tx.method = event.method();
+                tx.resourceType = event.resourceType();
                 tx.requestHeaders = event.requestHeaders();
                 tx.requestBody = event.requestBody();
                 tx.startTime = event.timestamp();
@@ -490,6 +520,9 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 data.put("url", tx.url);
                 data.put("method", tx.method);
                 data.put("source", "CustomTab");
+                if (tx.resourceType != null) {
+                    data.put("resourceType", tx.resourceType);
+                }
                 data.put("startTime", tx.startTime);
 
                 if (tx.requestHeaders != null && !tx.requestHeaders.isEmpty()) {
@@ -542,6 +575,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         String customTabUrl;
         String url;
         String method;
+        String resourceType;
         Map<String, String> requestHeaders;
         String requestBody;
         long startTime;
@@ -567,6 +601,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
      * @param requestHeaders  request headers
      * @param responseHeaders response headers
      * @param requestBody     request body (POST data)
+     * @param resourceType    CDP resource type (Document, XHR, Fetch, Script, Stylesheet, Image, Font, Media, etc.)
      * @param timestamp       event timestamp
      */
     public record CustomTabNetworkEvent(
@@ -580,6 +615,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         Map<String, String> requestHeaders,
         Map<String, String> responseHeaders,
         String requestBody,
+        String resourceType,
         long timestamp
     ) {
         public enum Type {

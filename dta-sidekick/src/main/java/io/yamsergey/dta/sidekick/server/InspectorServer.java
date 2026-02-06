@@ -1157,6 +1157,12 @@ public class InspectorServer {
                     .startTime(startTime)
                     .build();
 
+            // Set resource type if present (for CDP/Custom Tab requests)
+            String resourceType = (String) data.get("resourceType");
+            if (resourceType != null) {
+                tx.setResourceType(resourceType);
+            }
+
             // Check if we have response data
             Number statusCodeNum = (Number) data.get("statusCode");
             if (statusCodeNum != null) {
@@ -2334,6 +2340,10 @@ public class InspectorServer {
         map.put("duration", tx.getDuration());
         map.put("source", tx.getSource());
         map.put("mocked", tx.isMocked());
+
+        if (tx.getResourceType() != null) {
+            map.put("resourceType", tx.getResourceType());
+        }
 
         if (tx.getMockRuleId() != null) {
             map.put("mockRuleId", tx.getMockRuleId());
