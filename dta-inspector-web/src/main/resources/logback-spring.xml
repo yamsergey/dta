@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Spring Boot base configuration:
+         - Console appender (always on, Spring Boot default format)
+         - File appender (activated when logging.file.name is set)
+
+         Enable file logging with:
+           ./gradlew :dta-inspector-web:bootRun - -args='- -logging.file.name=/tmp/inspector.log'
+         Or env var:
+           LOGGING_FILE_NAME=/tmp/inspector.log -->
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+
+    <!-- Application loggers -->
+    <logger name="io.yamsergey.dta" level="DEBUG"/>
+
+    <!-- Third-party / Spring loggers -->
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.apache" level="WARN"/>
+
+</configuration>

@@ -10,6 +10,8 @@ import io.yamsergey.dta.inspector.web.SidekickConnectionManager.SidekickSocket;
 import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +26,8 @@ import java.util.Map;
 @RequestMapping("/api")
 @CrossOrigin(origins = "*")
 public class InspectorController {
+
+    private static final Logger log = LoggerFactory.getLogger(InspectorController.class);
 
     private static final String VERSION = loadVersion();
 
@@ -692,6 +696,7 @@ public class InspectorController {
         try {
             boolean started = connectionManager.startCdpWatcher(packageName, device);
             if (started) {
+                log.info("CDP watcher started for package={}, device={}", packageName, device);
                 return ResponseEntity.ok(Map.of(
                     "status", "started",
                     "message", "CDP watcher started for Custom Tabs"
@@ -703,6 +708,7 @@ public class InspectorController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Failed to start CDP watcher for package={}: {}", packageName, e.getMessage(), e);
             return error("Failed to start CDP watcher: " + e.getMessage());
         }
     }
@@ -714,6 +720,7 @@ public class InspectorController {
         try {
             boolean stopped = connectionManager.stopCdpWatcher(packageName, device);
             if (stopped) {
+                log.info("CDP watcher stopped for package={}, device={}", packageName, device);
                 return ResponseEntity.ok(Map.of(
                     "status", "stopped",
                     "message", "CDP watcher stopped"
@@ -725,6 +732,7 @@ public class InspectorController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Failed to stop CDP watcher for package={}: {}", packageName, e.getMessage(), e);
             return error("Failed to stop CDP watcher: " + e.getMessage());
         }
     }

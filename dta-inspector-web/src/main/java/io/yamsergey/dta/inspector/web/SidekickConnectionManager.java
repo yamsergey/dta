@@ -4,6 +4,8 @@ import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
@@ -17,6 +19,8 @@ import java.util.regex.*;
  */
 @Component
 public class SidekickConnectionManager {
+
+    private static final Logger log = LoggerFactory.getLogger(SidekickConnectionManager.class);
 
     private static final String ADB = "adb";
     private final Map<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
@@ -92,9 +96,11 @@ public class SidekickConnectionManager {
             // Verify connection is still valid
             Result<String> health = existing.client().checkHealth();
             if (health instanceof Success) {
+                log.debug("Reusing existing connection for {}", key);
                 return existing;
             }
             // Connection stale, remove and recreate
+            log.info("Connection stale for {}, reconnecting", key);
             connections.remove(key);
             removePortForward(device, existing.port());
         }
@@ -103,6 +109,7 @@ public class SidekickConnectionManager {
         int port = nextPort++;
         String socketName = "dta_sidekick_" + packageName;
 
+        log.debug("Setting up port forward tcp:{} -> localabstract:{}", port, socketName);
         if (!setupPortForward(device, port, socketName)) {
             throw new RuntimeException("Failed to set up port forwarding for " + socketName);
         }
@@ -121,6 +128,7 @@ public class SidekickConnectionManager {
             throw new RuntimeException("Failed to connect to sidekick: " + packageName);
         }
 
+        log.info("New connection created for {} on port {}", key, port);
         ConnectionInfo conn = new ConnectionInfo(packageName, device, port, client);
         connections.put(key, conn);
         return conn;
@@ -200,6 +208,7 @@ public class SidekickConnectionManager {
         ConnectionInfo conn = getConnection(packageName, device);
 
         // Set up Chrome DevTools port forwarding
+        log.debug("Setting up CDP port forward for device={}", device);
         setupCdpPortForward(device);
 
         // Start watcher

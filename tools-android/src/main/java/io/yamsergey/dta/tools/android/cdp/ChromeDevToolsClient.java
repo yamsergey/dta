@@ -22,6 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Client for Chrome DevTools Protocol (CDP) over WebSocket.
  *
@@ -55,6 +58,8 @@ import java.util.function.Consumer;
  * }</pre>
  */
 public class ChromeDevToolsClient implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(ChromeDevToolsClient.class);
 
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration WS_TIMEOUT = Duration.ofSeconds(30);
@@ -339,8 +344,7 @@ public class ChromeDevToolsClient implements AutoCloseable {
             }
 
         } catch (Exception e) {
-            // Log but don't crash
-            System.err.println("Error handling CDP message: " + e.getMessage());
+            log.error("Error handling CDP message: {}", e.getMessage(), e);
         }
     }
 

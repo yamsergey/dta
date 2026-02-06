@@ -14,6 +14,8 @@ import java.util.function.Consumer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Monitors Chrome Custom Tabs network traffic via CDP.
@@ -62,6 +64,8 @@ import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
  * }</pre>
  */
 public class CustomTabsNetworkMonitor implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(CustomTabsNetworkMonitor.class);
 
     private static final Duration TAB_POLL_INTERVAL = Duration.ofMillis(200);
     private static final Duration TAB_POLL_TIMEOUT = Duration.ofSeconds(10);
@@ -125,8 +129,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         }
 
         preConnected = true;
-        System.out.println("CustomTabsNetworkMonitor pre-connected to " +
-            chromeSocketName + " on port " + forwardedPort);
+        log.info("Pre-connected to {} on port {}", chromeSocketName, forwardedPort);
     }
 
     /**
@@ -141,7 +144,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
             try {
                 captureCustomTabTraffic(url, headers, timestamp);
             } catch (Exception e) {
-                System.err.println("Failed to capture Custom Tab traffic: " + e.getMessage());
+                log.error("Failed to capture Custom Tab traffic: {}", e.getMessage(), e);
             }
         });
     }
@@ -251,12 +254,12 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         // Find the tab by URL
         CdpTarget target = waitForTab(client, url, TAB_POLL_TIMEOUT);
         if (target == null) {
-            System.err.println("Could not find Custom Tab for URL: " + url);
+            log.warn("Could not find Custom Tab for URL: {}", url);
             client.close();
             return;
         }
 
-        System.out.println("Found Custom Tab: " + target.title() + " (" + target.url() + ")");
+        log.info("Found Custom Tab: {} ({})", target.title(), target.url());
 
         // Track this client
         String clientId = target.id();
@@ -280,7 +283,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         client.attachToTarget(target);
         client.enableNetwork().join();
 
-        System.out.println("Network capture enabled for Custom Tab: " + url);
+        log.info("Network capture enabled for Custom Tab: {}", url);
     }
 
     private CdpTarget waitForTab(ChromeDevToolsClient client, String url, Duration timeout)
@@ -557,12 +560,12 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 String json = objectMapper.writeValueAsString(data);
                 var result = client.recordTransaction(json);
                 if (!result.isSuccess()) {
-                    System.err.println("Failed to post transaction to sidekick: " + result.description());
+                    log.error("Failed to post transaction to sidekick: {}", result.description());
                 }
             } catch (JsonProcessingException e) {
-                System.err.println("Error serializing transaction: " + e.getMessage());
+                log.error("Error serializing transaction: {}", e.getMessage(), e);
             } catch (Exception e) {
-                System.err.println("Error posting transaction to sidekick: " + e.getMessage());
+                log.error("Error posting transaction to sidekick: {}", e.getMessage(), e);
             }
         });
     }

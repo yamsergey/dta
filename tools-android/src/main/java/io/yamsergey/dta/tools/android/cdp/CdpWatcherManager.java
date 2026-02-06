@@ -1,6 +1,8 @@
 package io.yamsergey.dta.tools.android.cdp;
 
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -16,6 +18,8 @@ import java.util.function.Consumer;
  * might try to start watching the same app.</p>
  */
 public class CdpWatcherManager {
+
+    private static final Logger log = LoggerFactory.getLogger(CdpWatcherManager.class);
 
     private static final CdpWatcherManager INSTANCE = new CdpWatcherManager();
 
@@ -167,6 +171,7 @@ public class CdpWatcherManager {
                 watcherThread = new Thread(this::watchLoop, "cdp-watcher-" + packageName);
                 watcherThread.setDaemon(true);
                 watcherThread.start();
+                log.info("CDP watcher started for {}", packageName);
             }
         }
 
@@ -180,6 +185,7 @@ public class CdpWatcherManager {
                     currentClient.close();
                 } catch (Exception ignored) {}
             }
+            log.info("CDP watcher stopped for {}", packageName);
         }
 
         WatcherInfo getInfo() {
@@ -192,15 +198,23 @@ public class CdpWatcherManager {
             );
         }
 
+        private static final long FAST_POLL_MS = 100;
+        private static final long NORMAL_POLL_MS = 500;
+        private static final long FAST_POLL_DURATION_MS = 5_000;
+
         private void watchLoop() {
             String currentTabId = null;
+            long loopStartTime = System.currentTimeMillis();
+            boolean tabFoundOnce = false;
 
             while (running.get() && !Thread.currentThread().isInterrupted()) {
                 try {
+                    log.debug("Polling for Custom Tab (port={})", cdpPort);
                     CdpTarget tab = findCustomTab();
 
                     if (tab != null && !tab.id().equals(currentTabId)) {
                         // New tab detected
+                        log.info("Custom Tab detected: {} ({})", tab.title(), tab.url());
                         closeCurrentClient();
 
                         ChromeDevToolsClient client = new ChromeDevToolsClient("localhost", cdpPort);
@@ -213,21 +227,29 @@ public class CdpWatcherManager {
                         });
 
                         client.enableNetwork().join();
+                        log.info("Network.enable completed for tab: {}", tab.url());
 
                         currentTabId = tab.id();
                         currentClient = client;
+                        tabFoundOnce = true;
 
                     } else if (tab == null && currentTabId != null) {
                         // Tab closed
+                        log.info("Custom Tab closed, detaching");
                         closeCurrentClient();
                         currentTabId = null;
                         currentTabUrl = null;
                     }
 
-                    Thread.sleep(500);
+                    // Use faster polling during initial detection phase
+                    long elapsed = System.currentTimeMillis() - loopStartTime;
+                    long sleepMs = (!tabFoundOnce && elapsed < FAST_POLL_DURATION_MS)
+                        ? FAST_POLL_MS : NORMAL_POLL_MS;
+                    Thread.sleep(sleepMs);
                 } catch (InterruptedException e) {
                     break;
                 } catch (Exception e) {
+                    log.warn("CDP watcher error, retrying: {}", e.getMessage());
                     // Connection errors when Chrome isn't running
                     if (currentTabId != null) {
                         closeCurrentClient();
