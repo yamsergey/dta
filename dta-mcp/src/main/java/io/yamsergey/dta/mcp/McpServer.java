@@ -14,9 +14,14 @@ import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
 import io.yamsergey.dta.tools.android.inspect.compose.HealthResponse;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshot;
+import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshotCapture;
+import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -115,6 +120,70 @@ public class McpServer {
                     return new CallToolResult(List.of(imageContent), false);
                 } catch (Exception e) {
                     return errorResult("Failed to capture screenshot: " + e.getMessage());
+                }
+            }
+        ));
+
+        // scroll_screenshot
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("scroll_screenshot", "Capture a scrolling/long screenshot of scrollable content. " +
+                "Auto-detects scrollable views and stitches multiple screenshots into one tall image.",
+                schema(Map.of(
+                    "device", prop("string", "Device serial (optional)", false),
+                    "view_id", prop("string", "Resource ID of scrollable view (e.g., 'com.app:id/recycler'). Auto-detects if omitted.", false),
+                    "scroll_to_top", prop("boolean", "Scroll to top before capturing (default: false)", false),
+                    "max_captures", prop("integer", "Maximum screenshots to capture (default: 30)", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String device = getString(args, "device");
+                    String viewId = getString(args, "view_id");
+                    boolean scrollToTop = Boolean.TRUE.equals(args.get("scroll_to_top"));
+                    int maxCaptures = getInt(args, "max_captures", 30);
+
+                    File tempFile = Files.createTempFile("scroll_screenshot_", ".png").toFile();
+                    tempFile.deleteOnExit();
+
+                    ScrollScreenshotCapture.ScrollScreenshotCaptureBuilder builder =
+                        ScrollScreenshotCapture.builder()
+                            .outputFile(tempFile)
+                            .scrollToTop(scrollToTop)
+                            .maxCaptures(maxCaptures);
+
+                    if (device != null && !device.isEmpty()) {
+                        builder.deviceSerial(device);
+                    }
+                    if (viewId != null && !viewId.isEmpty()) {
+                        builder.targetViewId(viewId);
+                    }
+
+                    Result<ScrollScreenshot> result = builder.build().capture();
+
+                    if (result instanceof Success<ScrollScreenshot> success) {
+                        ScrollScreenshot screenshot = success.value();
+                        byte[] imageBytes = Files.readAllBytes(tempFile.toPath());
+                        String base64 = Base64.getEncoder().encodeToString(imageBytes);
+                        tempFile.delete();
+
+                        // Return image with metadata as text
+                        var imageContent = new McpSchema.ImageContent(List.of(), null, base64, "image/png");
+                        String metadata = mapper.writeValueAsString(Map.of(
+                            "width", screenshot.getWidth(),
+                            "height", screenshot.getHeight(),
+                            "captures", screenshot.getCaptureCount(),
+                            "reachedEnd", screenshot.isReachedScrollEnd(),
+                            "scrollableView", screenshot.getScrollableViewId() != null ? screenshot.getScrollableViewId() : ""
+                        ));
+                        var textContent = new McpSchema.TextContent(metadata);
+                        return new CallToolResult(List.of(imageContent, textContent), false);
+                    } else if (result instanceof Failure<ScrollScreenshot> failure) {
+                        tempFile.delete();
+                        return errorResult("Scroll screenshot failed: " + failure.description());
+                    }
+                    tempFile.delete();
+                    return errorResult("Scroll screenshot failed: unknown error");
+                } catch (Exception e) {
+                    return errorResult("Failed to capture scroll screenshot: " + e.getMessage());
                 }
             }
         ));

@@ -24,6 +24,7 @@ import picocli.CommandLine.Command;
          subcommands = {
              LayoutCommand.class,
              ScreenshotCommand.class,
+             ScrollScreenshotCommand.class,
              LogcatCommand.class,
              ComposeCommand.class,
              NetworkCommand.class,

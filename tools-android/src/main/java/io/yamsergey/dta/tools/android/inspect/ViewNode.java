@@ -138,5 +138,20 @@ public class ViewNode {
         public int getCenterY() {
             return (top + bottom) / 2;
         }
+
+        /**
+         * Returns a new Bounds with the bottom reduced by the specified margin.
+         *
+         * @param margin the number of pixels to subtract from the bottom
+         * @return new Bounds with adjusted bottom
+         */
+        public Bounds withBottomMargin(int margin) {
+            return Bounds.builder()
+                .left(left)
+                .top(top)
+                .right(right)
+                .bottom(bottom - margin)
+                .build();
+        }
     }
 }
