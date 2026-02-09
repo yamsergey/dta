@@ -34,12 +34,16 @@ public class InspectorApplication {
      * @param logFile path to log file, or null to disable file logging
      */
     public static void start(int port, String logFile) {
+        // Set logging.file.name as a system property so Logback picks it up
+        // during Spring Boot's logging initialization. Using setDefaultProperties()
+        // is too late - the LoggingApplicationListener doesn't see it in time.
+        if (logFile != null && !logFile.isEmpty()) {
+            System.setProperty("logging.file.name", logFile);
+        }
+
         SpringApplication app = new SpringApplication(InspectorApplication.class);
         var props = new java.util.HashMap<String, Object>();
         props.put("server.port", String.valueOf(port));
-        if (logFile != null && !logFile.isEmpty()) {
-            props.put("logging.file.name", logFile);
-        }
         app.setDefaultProperties(props);
         var context = app.run();
 

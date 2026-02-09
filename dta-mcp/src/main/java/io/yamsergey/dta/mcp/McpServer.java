@@ -72,6 +72,7 @@ public class McpServer {
                     for (var device : devices) {
                         ObjectNode d = devicesArray.addObject();
                         d.put("serial", device.serial());
+                        d.put("name", device.serial());
                         d.put("state", device.state());
                         if (device.model() != null) d.put("model", device.model());
                         if (device.product() != null) d.put("product", device.product());
