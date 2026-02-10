@@ -138,13 +138,39 @@ public final class WebSocketInspector {
     }
 
     /**
-     * Clears all captured connections.
+     * Clears all captured connections and their messages.
+     *
+     * <p>Active (open) connections are re-registered so that future messages
+     * continue to be captured. Closed/failed connections are discarded entirely.</p>
      */
     public static void clearConnections() {
+        // Collect active connections that still have object mappings
+        List<WebSocketConnection> activeToRestore = new ArrayList<>();
+        Map<Object, String> mappingsToRestore = new ConcurrentHashMap<>();
+
+        for (Map.Entry<Object, String> entry : objectToConnectionId.entrySet()) {
+            WebSocketConnection conn = connectionsById.get(entry.getValue());
+            if (conn != null && conn.isOpen()) {
+                // Create a fresh connection for continued capture
+                WebSocketConnection fresh = new WebSocketConnection(conn.getUrl(), conn.getSource());
+                fresh.markConnected();
+                activeToRestore.add(fresh);
+                mappingsToRestore.put(entry.getKey(), fresh.getId());
+            }
+        }
+
         connections.clear();
         connectionsById.clear();
         objectToConnectionId.clear();
-        SidekickLog.d(TAG, "Cleared all connections");
+
+        // Restore active connections so future messages are captured
+        for (WebSocketConnection fresh : activeToRestore) {
+            connections.add(fresh);
+            connectionsById.put(fresh.getId(), fresh);
+        }
+        objectToConnectionId.putAll(mappingsToRestore);
+
+        SidekickLog.d(TAG, "Cleared connections, restored " + activeToRestore.size() + " active");
     }
 
     /**
