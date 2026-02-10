@@ -12,6 +12,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.*;
 
 /**
@@ -23,6 +24,7 @@ public class SidekickConnectionManager {
     private static final Logger log = LoggerFactory.getLogger(SidekickConnectionManager.class);
 
     private static final String ADB = "adb";
+    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private final Map<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
     private int nextPort = 18640;
 
@@ -34,11 +36,7 @@ public class SidekickConnectionManager {
      * Lists connected Android devices.
      */
     public List<Device> listDevices() throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(ADB, "devices", "-l");
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        String output = readStream(process.getInputStream());
-        process.waitFor();
+        String output = runAdb(null, "devices", "-l");
 
         List<Device> devices = new ArrayList<>();
         Pattern pattern = Pattern.compile("^(\\S+)\\s+(device|offline|unauthorized)\\s*(.*)$", Pattern.MULTILINE);
@@ -62,12 +60,7 @@ public class SidekickConnectionManager {
      * Discovers sidekick sockets on a device.
      */
     public List<SidekickSocket> discoverSockets(String deviceSerial) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "cat", "/proc/net/unix");
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        String output = readStream(process.getInputStream());
-        process.waitFor();
+        String output = runAdb(deviceSerial, "shell", "cat", "/proc/net/unix");
 
         List<SidekickSocket> sockets = new ArrayList<>();
         Pattern pattern = Pattern.compile("@(dta_sidekick_([\\w.]+))");
@@ -138,34 +131,25 @@ public class SidekickConnectionManager {
      * Takes a screenshot from the device.
      */
     public byte[] captureScreenshot(String device) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(device, "exec-out", "screencap", "-p");
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process process = pb.start();
-        byte[] data = process.getInputStream().readAllBytes();
-        process.waitFor();
-        return data;
+        return runAdbBytes(device, "exec-out", "screencap", "-p");
     }
 
     /**
      * Executes a tap on the device.
      */
     public boolean tap(String device, int x, int y) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(device, "shell", "input", "tap",
-            String.valueOf(x), String.valueOf(y));
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        return pb.start().waitFor() == 0;
+        runAdb(device, "shell", "input", "tap", String.valueOf(x), String.valueOf(y));
+        return true;
     }
 
     private boolean setupPortForward(String device, int port, String socketName) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(device, "forward", "tcp:" + port, "localabstract:" + socketName);
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        return pb.start().waitFor() == 0;
+        runAdb(device, "forward", "tcp:" + port, "localabstract:" + socketName);
+        return true;
     }
 
     private void removePortForward(String device, int port) {
         try {
-            List<String> cmd = buildAdbCommand(device, "forward", "--remove", "tcp:" + port);
-            new ProcessBuilder(cmd).start().waitFor();
+            runAdb(device, "forward", "--remove", "tcp:" + port);
         } catch (Exception e) {
             // Ignore cleanup errors
         }
@@ -182,14 +166,40 @@ public class SidekickConnectionManager {
         return cmd;
     }
 
+    /**
+     * Runs an ADB command, drains all output, and waits with a timeout.
+     * Returns stdout as a String. Throws on timeout.
+     */
+    private String runAdb(String device, String... args) throws IOException, InterruptedException {
+        return new String(runAdbBytes(device, args), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Runs an ADB command, drains all output, and waits with a timeout.
+     * Returns stdout as raw bytes. Throws on timeout.
+     */
+    private byte[] runAdbBytes(String device, String... args) throws IOException, InterruptedException {
+        List<String> cmd = buildAdbCommand(device, args);
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        try {
+            byte[] data = process.getInputStream().readAllBytes();
+            if (!process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IOException("ADB command timed out: " + String.join(" ", cmd));
+            }
+            return data;
+        } catch (IOException | InterruptedException e) {
+            process.destroyForcibly();
+            throw e;
+        }
+    }
+
     private String extractProp(String props, String name) {
         Pattern p = Pattern.compile(name + ":(\\S+)");
         Matcher m = p.matcher(props);
         return m.find() ? m.group(1) : null;
-    }
-
-    private String readStream(InputStream is) throws IOException {
-        return new String(is.readAllBytes(), StandardCharsets.UTF_8);
     }
 
     // ========================================================================
@@ -245,8 +255,6 @@ public class SidekickConnectionManager {
     }
 
     private void setupCdpPortForward(String device) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(device, "forward", "tcp:" + DEFAULT_CDP_PORT,
-            "localabstract:chrome_devtools_remote");
-        new ProcessBuilder(cmd).start().waitFor();
+        runAdb(device, "forward", "tcp:" + DEFAULT_CDP_PORT, "localabstract:chrome_devtools_remote");
     }
 }

@@ -3,6 +3,7 @@ package io.yamsergey.dta.mcp;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.*;
 
 /**
@@ -11,6 +12,7 @@ import java.util.regex.*;
 public class AdbUtils {
 
     private static final String ADB = "adb";
+    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
 
     /**
      * Represents a connected Android device.
@@ -26,11 +28,7 @@ public class AdbUtils {
      * Lists connected devices.
      */
     public static List<Device> listDevices() throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(ADB, "devices", "-l");
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        String output = readStream(process.getInputStream());
-        process.waitFor();
+        String output = runAdb(null, "devices", "-l");
 
         List<Device> devices = new ArrayList<>();
         Pattern pattern = Pattern.compile("^(\\S+)\\s+(device|offline|unauthorized)\\s*(.*)$", Pattern.MULTILINE);
@@ -54,12 +52,7 @@ public class AdbUtils {
      * Discovers sidekick sockets on a device.
      */
     public static List<SidekickSocket> discoverSidekickSockets(String deviceSerial) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "cat", "/proc/net/unix");
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        String output = readStream(process.getInputStream());
-        process.waitFor();
+        String output = runAdb(deviceSerial, "shell", "cat", "/proc/net/unix");
 
         List<SidekickSocket> sockets = new ArrayList<>();
         Pattern pattern = Pattern.compile("@(dta_sidekick_([\\w.]+))");
@@ -81,35 +74,24 @@ public class AdbUtils {
      * Captures a screenshot from the device.
      */
     public static byte[] captureScreenshot(String deviceSerial) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(deviceSerial, "exec-out", "screencap", "-p");
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process process = pb.start();
-
-        byte[] data = process.getInputStream().readAllBytes();
-        process.waitFor();
-
-        return data;
+        return runAdbBytes(deviceSerial, "exec-out", "screencap", "-p");
     }
 
     /**
      * Taps at screen coordinates.
      */
     public static boolean tap(String deviceSerial, int x, int y) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "input", "tap", String.valueOf(x), String.valueOf(y));
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process process = pb.start();
-        return process.waitFor() == 0;
+        runAdb(deviceSerial, "shell", "input", "tap", String.valueOf(x), String.valueOf(y));
+        return true;
     }
 
     /**
      * Swipes from one point to another.
      */
     public static boolean swipe(String deviceSerial, int x1, int y1, int x2, int y2, int durationMs) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "input", "swipe",
+        runAdb(deviceSerial, "shell", "input", "swipe",
             String.valueOf(x1), String.valueOf(y1), String.valueOf(x2), String.valueOf(y2), String.valueOf(durationMs));
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process process = pb.start();
-        return process.waitFor() == 0;
+        return true;
     }
 
     /**
@@ -118,10 +100,8 @@ public class AdbUtils {
     public static boolean inputText(String deviceSerial, String text) throws IOException, InterruptedException {
         // Escape special characters for shell
         String escaped = text.replace(" ", "%s").replace("\"", "\\\"").replace("'", "\\'");
-        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "input", "text", escaped);
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process process = pb.start();
-        return process.waitFor() == 0;
+        runAdb(deviceSerial, "shell", "input", "text", escaped);
+        return true;
     }
 
     /**
@@ -140,20 +120,16 @@ public class AdbUtils {
             default -> keyCode;
         };
 
-        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "input", "keyevent", code);
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process process = pb.start();
-        return process.waitFor() == 0;
+        runAdb(deviceSerial, "shell", "input", "keyevent", code);
+        return true;
     }
 
     /**
      * Sets up port forwarding to a Unix domain socket.
      */
     public static boolean setupPortForward(String deviceSerial, int localPort, String socketName) throws IOException, InterruptedException {
-        List<String> cmd = buildAdbCommand(deviceSerial, "forward", "tcp:" + localPort, "localabstract:" + socketName);
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        Process process = pb.start();
-        return process.waitFor() == 0;
+        runAdb(deviceSerial, "forward", "tcp:" + localPort, "localabstract:" + socketName);
+        return true;
     }
 
     /**
@@ -168,9 +144,7 @@ public class AdbUtils {
      */
     public static void removePortForward(String deviceSerial, int localPort) {
         try {
-            List<String> cmd = buildAdbCommand(deviceSerial, "forward", "--remove", "tcp:" + localPort);
-            ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.start().waitFor();
+            runAdb(deviceSerial, "forward", "--remove", "tcp:" + localPort);
         } catch (Exception e) {
             // Ignore cleanup errors
         }
@@ -187,13 +161,39 @@ public class AdbUtils {
         return cmd;
     }
 
+    /**
+     * Runs an ADB command, drains all output, and waits with a timeout.
+     * Returns stdout as a String. Throws on timeout or non-zero exit.
+     */
+    private static String runAdb(String deviceSerial, String... args) throws IOException, InterruptedException {
+        return new String(runAdbBytes(deviceSerial, args), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Runs an ADB command, drains all output, and waits with a timeout.
+     * Returns stdout as raw bytes. Throws on timeout.
+     */
+    private static byte[] runAdbBytes(String deviceSerial, String... args) throws IOException, InterruptedException {
+        List<String> cmd = buildAdbCommand(deviceSerial, args);
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        try {
+            byte[] data = process.getInputStream().readAllBytes();
+            if (!process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IOException("ADB command timed out: " + String.join(" ", cmd));
+            }
+            return data;
+        } catch (IOException | InterruptedException e) {
+            process.destroyForcibly();
+            throw e;
+        }
+    }
+
     private static String extractProp(String props, String name) {
         Pattern p = Pattern.compile(name + ":(\\S+)");
         Matcher m = p.matcher(props);
         return m.find() ? m.group(1) : null;
-    }
-
-    private static String readStream(InputStream is) throws IOException {
-        return new String(is.readAllBytes(), StandardCharsets.UTF_8);
     }
 }
