@@ -20,6 +20,13 @@ import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.FileAppender;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.nio.file.Files;
 import java.util.*;
@@ -30,6 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class McpServer {
 
+    private static final Logger log = LoggerFactory.getLogger(McpServer.class);
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final Map<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
     private static final String MCP_VERSION = getVersion();
@@ -38,6 +46,22 @@ public class McpServer {
     private record ConnectionInfo(String packageName, String device, int port, String sidekickVersion, String versionWarning) {}
 
     public static void main(String[] args) throws Exception {
+        start(null, null);
+    }
+
+    /**
+     * Starts the MCP server with optional file logging.
+     *
+     * @param logFile  path to log file, or null to skip file logging
+     * @param logLevel log level (TRACE, DEBUG, INFO, WARN, ERROR), or null for DEBUG
+     */
+    public static void start(String logFile, String logLevel) throws Exception {
+        if (logFile != null && !logFile.isEmpty()) {
+            configureFileLogging(logFile, logLevel);
+        }
+
+        log.info("Starting DTA MCP server v{}", MCP_VERSION);
+
         // Collect all tool specifications BEFORE building the server
         List<McpServerFeatures.SyncToolSpecification> tools = new ArrayList<>();
         collectDeviceTools(tools);
@@ -55,8 +79,34 @@ public class McpServer {
             .tools(tools)
             .build();
 
+        log.info("MCP server started with {} tools", tools.size());
+
         // Keep server running
         Thread.currentThread().join();
+    }
+
+    private static void configureFileLogging(String logFile, String logLevel) {
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+
+        PatternLayoutEncoder encoder = new PatternLayoutEncoder();
+        encoder.setContext(context);
+        encoder.setPattern("%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n");
+        encoder.start();
+
+        FileAppender<ILoggingEvent> fileAppender = new FileAppender<>();
+        fileAppender.setContext(context);
+        fileAppender.setName("FILE");
+        fileAppender.setFile(logFile);
+        fileAppender.setEncoder(encoder);
+        fileAppender.start();
+
+        ch.qos.logback.classic.Level level = logLevel != null
+            ? ch.qos.logback.classic.Level.valueOf(logLevel.toUpperCase())
+            : ch.qos.logback.classic.Level.DEBUG;
+
+        ch.qos.logback.classic.Logger root = context.getLogger(ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME);
+        root.addAppender(fileAppender);
+        root.setLevel(level);
     }
 
     private static void collectDeviceTools(List<McpServerFeatures.SyncToolSpecification> tools) {
@@ -1285,9 +1335,11 @@ public class McpServer {
         if (conn == null) {
             int port = nextPort++;
             String socketName = "dta_sidekick_" + packageName;
+            log.info("Setting up new connection: {} port={}", key, port);
             try {
                 AdbUtils.setupPortForward(device, port, socketName);
             } catch (Exception e) {
+                log.error("Failed to setup port forward for {}: {}", key, e.getMessage());
                 throw new RuntimeException("Failed to setup port forward", e);
             }
 

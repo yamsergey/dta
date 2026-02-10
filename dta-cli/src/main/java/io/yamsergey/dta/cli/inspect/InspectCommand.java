@@ -30,7 +30,8 @@ import picocli.CommandLine.Command;
              NetworkCommand.class,
              WebSocketCommand.class,
              CustomTabsCommand.class,
-             PackagesCommand.class
+             PackagesCommand.class,
+             LogPullCommand.class
          })
 public class InspectCommand implements Runnable {
 

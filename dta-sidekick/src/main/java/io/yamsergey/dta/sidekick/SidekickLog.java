@@ -2,6 +2,14 @@ package io.yamsergey.dta.sidekick;
 
 import android.util.Log;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
 /**
  * Logging utility for Sidekick.
  *
@@ -9,111 +17,120 @@ import android.util.Log;
  * Enable it via {@link SidekickConfig.Builder#enableDebugLogging()}.</p>
  *
  * <p>Error logging (Log.e) is always enabled regardless of the debug setting.</p>
+ *
+ * <p>File logging can be enabled via {@link SidekickConfig.Builder#enableFileLogging()}.
+ * Logs are written to {@code <cacheDir>/sidekick.log} and can be pulled with:
+ * {@code dta-cli inspect log-pull --package com.example.app}</p>
  */
 public final class SidekickLog {
 
+    public static final String LOG_FILE_NAME = "sidekick.log";
+
     private static volatile boolean debugEnabled = false;
+    private static volatile PrintWriter fileWriter = null;
+    private static final SimpleDateFormat DATE_FORMAT =
+        new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
 
     private SidekickLog() {}
 
-    /**
-     * Sets whether debug logging is enabled.
-     * Called internally by Sidekick configuration.
-     */
     public static void setDebugEnabled(boolean enabled) {
         debugEnabled = enabled;
     }
 
-    /**
-     * Returns whether debug logging is enabled.
-     */
     public static boolean isDebugEnabled() {
         return debugEnabled;
     }
 
     /**
-     * Logs a debug message if debug logging is enabled.
+     * Starts writing all log messages to a file.
+     * Debug logging is automatically enabled when file logging is active.
      */
+    public static synchronized void startFileLogging(File file) {
+        stopFileLogging();
+        try {
+            fileWriter = new PrintWriter(new BufferedWriter(new FileWriter(file, false)), true);
+            debugEnabled = true;
+            writeToFile("I", "SidekickLog", "File logging started: " + file.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e("SidekickLog", "Failed to start file logging", e);
+            fileWriter = null;
+        }
+    }
+
+    /**
+     * Stops file logging.
+     */
+    public static synchronized void stopFileLogging() {
+        PrintWriter pw = fileWriter;
+        if (pw != null) {
+            writeToFile("I", "SidekickLog", "File logging stopped");
+            pw.close();
+            fileWriter = null;
+        }
+    }
+
     public static void d(String tag, String msg) {
-        if (debugEnabled) {
-            Log.d(tag, msg);
-        }
+        if (debugEnabled) Log.d(tag, msg);
+        writeToFile("D", tag, msg);
     }
 
-    /**
-     * Logs a debug message with throwable if debug logging is enabled.
-     */
     public static void d(String tag, String msg, Throwable tr) {
-        if (debugEnabled) {
-            Log.d(tag, msg, tr);
-        }
+        if (debugEnabled) Log.d(tag, msg, tr);
+        writeToFile("D", tag, msg, tr);
     }
 
-    /**
-     * Logs an info message if debug logging is enabled.
-     */
     public static void i(String tag, String msg) {
-        if (debugEnabled) {
-            Log.i(tag, msg);
-        }
+        if (debugEnabled) Log.i(tag, msg);
+        writeToFile("I", tag, msg);
     }
 
-    /**
-     * Logs an info message with throwable if debug logging is enabled.
-     */
     public static void i(String tag, String msg, Throwable tr) {
-        if (debugEnabled) {
-            Log.i(tag, msg, tr);
-        }
+        if (debugEnabled) Log.i(tag, msg, tr);
+        writeToFile("I", tag, msg, tr);
     }
 
-    /**
-     * Logs a warning message if debug logging is enabled.
-     */
     public static void w(String tag, String msg) {
-        if (debugEnabled) {
-            Log.w(tag, msg);
-        }
+        if (debugEnabled) Log.w(tag, msg);
+        writeToFile("W", tag, msg);
     }
 
-    /**
-     * Logs a warning message with throwable if debug logging is enabled.
-     */
     public static void w(String tag, String msg, Throwable tr) {
-        if (debugEnabled) {
-            Log.w(tag, msg, tr);
-        }
+        if (debugEnabled) Log.w(tag, msg, tr);
+        writeToFile("W", tag, msg, tr);
     }
 
-    /**
-     * Logs an error message. Always enabled regardless of debug setting.
-     */
     public static void e(String tag, String msg) {
         Log.e(tag, msg);
+        writeToFile("E", tag, msg);
     }
 
-    /**
-     * Logs an error message with throwable. Always enabled regardless of debug setting.
-     */
     public static void e(String tag, String msg, Throwable tr) {
         Log.e(tag, msg, tr);
+        writeToFile("E", tag, msg, tr);
     }
 
-    /**
-     * Logs a verbose message if debug logging is enabled.
-     */
     public static void v(String tag, String msg) {
-        if (debugEnabled) {
-            Log.v(tag, msg);
+        if (debugEnabled) Log.v(tag, msg);
+        writeToFile("V", tag, msg);
+    }
+
+    public static void v(String tag, String msg, Throwable tr) {
+        if (debugEnabled) Log.v(tag, msg, tr);
+        writeToFile("V", tag, msg, tr);
+    }
+
+    private static void writeToFile(String level, String tag, String msg) {
+        PrintWriter pw = fileWriter;
+        if (pw != null) {
+            pw.println(DATE_FORMAT.format(new Date()) + " " + level + "/" + tag + ": " + msg);
         }
     }
 
-    /**
-     * Logs a verbose message with throwable if debug logging is enabled.
-     */
-    public static void v(String tag, String msg, Throwable tr) {
-        if (debugEnabled) {
-            Log.v(tag, msg, tr);
+    private static void writeToFile(String level, String tag, String msg, Throwable tr) {
+        PrintWriter pw = fileWriter;
+        if (pw != null) {
+            pw.println(DATE_FORMAT.format(new Date()) + " " + level + "/" + tag + ": " + msg);
+            if (tr != null) tr.printStackTrace(pw);
         }
     }
 }

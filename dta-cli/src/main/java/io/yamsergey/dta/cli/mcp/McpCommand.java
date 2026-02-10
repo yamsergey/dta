@@ -2,6 +2,7 @@ package io.yamsergey.dta.cli.mcp;
 
 import io.yamsergey.dta.mcp.McpServer;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
@@ -15,6 +16,9 @@ import java.util.concurrent.Callable;
  * <pre>
  * # Start MCP server (uses stdin/stdout)
  * dta-cli mcp
+ *
+ * # Start MCP server with file logging
+ * dta-cli mcp --log-file /tmp/dta-mcp.log
  * </pre>
  *
  * <p>Claude Desktop configuration (claude_desktop_config.json):</p>
@@ -23,7 +27,7 @@ import java.util.concurrent.Callable;
  *   "mcpServers": {
  *     "dta": {
  *       "command": "/path/to/dta-cli",
- *       "args": ["mcp"]
+ *       "args": ["mcp", "--log-file", "/tmp/dta-mcp.log"]
  *     }
  *   }
  * }
@@ -33,10 +37,17 @@ import java.util.concurrent.Callable;
          description = "Start the DTA MCP server (Model Context Protocol)")
 public class McpCommand implements Callable<Integer> {
 
+    @Option(names = {"--log-file"},
+            description = "Path to log file (enables file logging)")
+    private String logFile;
+
+    @Option(names = {"--log-level"},
+            description = "Log level: TRACE, DEBUG, INFO, WARN, ERROR (default: DEBUG when --log-file is set)")
+    private String logLevel;
+
     @Override
     public Integer call() throws Exception {
-        // Start the MCP server - this blocks until interrupted
-        McpServer.main(new String[]{});
+        McpServer.start(logFile, logLevel);
         return 0;
     }
 }

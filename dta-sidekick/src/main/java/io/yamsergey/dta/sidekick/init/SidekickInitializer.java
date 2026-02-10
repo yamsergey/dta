@@ -8,6 +8,7 @@ import io.yamsergey.dta.sidekick.SidekickLog;
 import androidx.annotation.NonNull;
 import androidx.startup.Initializer;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.List;
 
@@ -83,6 +84,13 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
 
         // Initialize JVMTI agent for method hooking (API 28+)
         initializeJvmtiAgent(context);
+
+        // Start file logging if configured (must happen before server start)
+        if (Sidekick.getConfig().isFileLoggingEnabled()) {
+            File logFile = new File(context.getCacheDir(), SidekickLog.LOG_FILE_NAME);
+            SidekickLog.startFileLogging(logFile);
+            SidekickLog.i(TAG, "File logging enabled: " + logFile.getAbsolutePath());
+        }
 
         // Start the server on Unix domain socket
         InspectorServer server = InspectorServer.getInstance();

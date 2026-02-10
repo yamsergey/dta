@@ -1,5 +1,8 @@
 package io.yamsergey.dta.mcp;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -11,6 +14,7 @@ import java.util.regex.*;
  */
 public class AdbUtils {
 
+    private static final Logger log = LoggerFactory.getLogger(AdbUtils.class);
     private static final String ADB = "adb";
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
 
@@ -175,6 +179,10 @@ public class AdbUtils {
      */
     private static byte[] runAdbBytes(String deviceSerial, String... args) throws IOException, InterruptedException {
         List<String> cmd = buildAdbCommand(deviceSerial, args);
+        String cmdStr = String.join(" ", cmd);
+        log.debug("ADB exec: {}", cmdStr);
+        long start = System.currentTimeMillis();
+
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process process = pb.start();
@@ -182,11 +190,17 @@ public class AdbUtils {
             byte[] data = process.getInputStream().readAllBytes();
             if (!process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
-                throw new IOException("ADB command timed out: " + String.join(" ", cmd));
+                long elapsed = System.currentTimeMillis() - start;
+                log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
+                throw new IOException("ADB command timed out: " + cmdStr);
             }
+            long elapsed = System.currentTimeMillis() - start;
+            log.debug("ADB done in {}ms ({} bytes): {}", elapsed, data.length, cmdStr);
             return data;
         } catch (IOException | InterruptedException e) {
             process.destroyForcibly();
+            long elapsed = System.currentTimeMillis() - start;
+            log.error("ADB failed after {}ms: {} - {}", elapsed, cmdStr, e.getMessage());
             throw e;
         }
     }

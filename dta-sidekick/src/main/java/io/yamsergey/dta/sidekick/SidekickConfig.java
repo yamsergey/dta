@@ -39,6 +39,7 @@ public final class SidekickConfig {
 
     // Debug logging (disabled by default)
     private final boolean debugLoggingEnabled;
+    private final boolean fileLoggingEnabled;
 
     // Adapter enable/disable flags
     private final boolean okHttpEnabled;
@@ -59,6 +60,7 @@ public final class SidekickConfig {
 
     private SidekickConfig(Builder builder) {
         this.debugLoggingEnabled = builder.debugLoggingEnabled;
+        this.fileLoggingEnabled = builder.fileLoggingEnabled;
         this.okHttpEnabled = builder.okHttpEnabled;
         this.urlConnectionEnabled = builder.urlConnectionEnabled;
         this.okHttpWebSocketEnabled = builder.okHttpWebSocketEnabled;
@@ -93,6 +95,13 @@ public final class SidekickConfig {
      */
     public boolean isDebugLoggingEnabled() {
         return debugLoggingEnabled;
+    }
+
+    /**
+     * Returns whether file logging is enabled.
+     */
+    public boolean isFileLoggingEnabled() {
+        return fileLoggingEnabled;
     }
 
     public boolean isOkHttpEnabled() {
@@ -182,6 +191,7 @@ public final class SidekickConfig {
 
     public static final class Builder {
         private boolean debugLoggingEnabled = false;
+        private boolean fileLoggingEnabled = false;
         private boolean okHttpEnabled = true;
         private boolean urlConnectionEnabled = true;
         private boolean okHttpWebSocketEnabled = true;
@@ -215,6 +225,20 @@ public final class SidekickConfig {
          */
         public Builder disableDebugLogging() {
             this.debugLoggingEnabled = false;
+            return this;
+        }
+
+        /**
+         * Enables file logging to {@code <cacheDir>/sidekick.log}.
+         *
+         * <p>Debug logging is automatically enabled when file logging is active.
+         * Pull the log file with:</p>
+         * <pre>{@code
+         * dta-cli inspect log-pull --package com.example.app
+         * }</pre>
+         */
+        public Builder enableFileLogging() {
+            this.fileLoggingEnabled = true;
             return this;
         }
 
