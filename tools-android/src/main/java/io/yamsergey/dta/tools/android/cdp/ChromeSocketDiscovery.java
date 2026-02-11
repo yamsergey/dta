@@ -1,5 +1,8 @@
 package io.yamsergey.dta.tools.android.cdp;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -9,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -26,6 +30,7 @@ import java.util.regex.Pattern;
  */
 public final class ChromeSocketDiscovery {
 
+    private static final Logger log = LoggerFactory.getLogger(ChromeSocketDiscovery.class);
     private static final String ADB = "adb";
 
     // Pattern to match DevTools sockets in /proc/net/unix output
@@ -47,13 +52,23 @@ public final class ChromeSocketDiscovery {
             throws IOException, InterruptedException {
 
         List<String> cmd = buildAdbCommand(deviceSerial, "shell", "cat", "/proc/net/unix");
+        String cmdStr = String.join(" ", cmd);
+        log.debug("ADB exec: {}", cmdStr);
+        long start = System.currentTimeMillis();
+
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
         String output = readStream(process.getInputStream());
-        process.waitFor();
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            long elapsed = System.currentTimeMillis() - start;
+            log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
+            throw new IOException("ADB command timed out after 30 seconds");
+        }
 
+        long elapsed = System.currentTimeMillis() - start;
         Set<String> sockets = new HashSet<>();
         Matcher matcher = DEVTOOLS_SOCKET_PATTERN.matcher(output);
 
@@ -61,6 +76,7 @@ public final class ChromeSocketDiscovery {
             sockets.add(matcher.group(1));
         }
 
+        log.debug("Found {} DevTools sockets in {}ms", sockets.size(), elapsed);
         return new ArrayList<>(sockets);
     }
 
@@ -132,9 +148,19 @@ public final class ChromeSocketDiscovery {
 
         List<String> cmd = buildAdbCommand(deviceSerial,
             "forward", "tcp:" + localPort, "localabstract:" + socketName);
+        log.debug("Setting up port forward: tcp:{} -> localabstract:{}", localPort, socketName);
         ProcessBuilder pb = new ProcessBuilder(cmd);
         Process process = pb.start();
-        return process.waitFor() == 0;
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            log.error("Port forwarding timed out: tcp:{} -> {}", localPort, socketName);
+            throw new IOException("ADB port forwarding timed out after 30 seconds");
+        }
+        boolean success = process.exitValue() == 0;
+        if (!success) {
+            log.error("Port forwarding failed (exit {}): tcp:{} -> {}", process.exitValue(), localPort, socketName);
+        }
+        return success;
     }
 
     /**
@@ -148,7 +174,10 @@ public final class ChromeSocketDiscovery {
             List<String> cmd = buildAdbCommand(deviceSerial,
                 "forward", "--remove", "tcp:" + localPort);
             ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.start().waitFor();
+            Process process = pb.start();
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
         } catch (Exception ignored) {
             // Ignore cleanup errors
         }

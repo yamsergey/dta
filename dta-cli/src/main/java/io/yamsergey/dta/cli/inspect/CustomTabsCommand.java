@@ -16,6 +16,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 
 /**
  * CLI command for inspecting Chrome Custom Tabs events from an Android application.
@@ -333,7 +334,11 @@ public class CustomTabsCommand implements Callable<Integer> {
         ProcessBuilder pb = new ProcessBuilder(
             adbPath, "forward", "tcp:" + cdpPort, "localabstract:chrome_devtools_remote"
         );
-        pb.start().waitFor();
+        Process process = pb.start();
+        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new Exception("ADB CDP port forwarding timed out after 30 seconds");
+        }
     }
 
     /**

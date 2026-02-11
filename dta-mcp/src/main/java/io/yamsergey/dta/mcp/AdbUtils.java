@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.regex.*;
 
 /**
@@ -137,6 +137,15 @@ public class AdbUtils {
     }
 
     /**
+     * Sets up port forwarding with automatic port allocation (tcp:0).
+     * Returns the port assigned by ADB.
+     */
+    public static int setupPortForwardAuto(String deviceSerial, String socketName) throws IOException, InterruptedException {
+        String output = runAdb(deviceSerial, "forward", "tcp:0", "localabstract:" + socketName);
+        return Integer.parseInt(output.trim());
+    }
+
+    /**
      * Sets up port forwarding to Chrome DevTools Protocol socket.
      */
     public static boolean setupCdpPortForward(String deviceSerial, int localPort) throws IOException, InterruptedException {
@@ -186,22 +195,36 @@ public class AdbUtils {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process process = pb.start();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            byte[] data = process.getInputStream().readAllBytes();
+            Future<byte[]> future = executor.submit(
+                () -> process.getInputStream().readAllBytes()
+            );
             if (!process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 long elapsed = System.currentTimeMillis() - start;
                 log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
                 throw new IOException("ADB command timed out: " + cmdStr);
             }
+            byte[] data = future.get(5, TimeUnit.SECONDS);
             long elapsed = System.currentTimeMillis() - start;
             log.debug("ADB done in {}ms ({} bytes): {}", elapsed, data.length, cmdStr);
             return data;
+        } catch (ExecutionException e) {
+            process.destroyForcibly();
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException io) throw io;
+            throw new IOException("Failed to read ADB output", cause);
+        } catch (TimeoutException e) {
+            process.destroyForcibly();
+            throw new IOException("Timed out reading ADB output: " + cmdStr);
         } catch (IOException | InterruptedException e) {
             process.destroyForcibly();
             long elapsed = System.currentTimeMillis() - start;
             log.error("ADB failed after {}ms: {} - {}", elapsed, cmdStr, e.getMessage());
             throw e;
+        } finally {
+            executor.shutdownNow();
         }
     }
 

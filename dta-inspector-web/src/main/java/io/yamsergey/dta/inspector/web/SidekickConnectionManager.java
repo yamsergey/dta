@@ -12,7 +12,6 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.*;
 
 /**
@@ -25,9 +24,10 @@ public class SidekickConnectionManager {
 
     private static final String ADB = "adb";
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+    private static final long RECONNECT_COOLDOWN_MS = 10_000;
     private final Map<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> connectionLocks = new ConcurrentHashMap<>();
-    private final AtomicInteger nextPort = new AtomicInteger(18640);
+    private final ConcurrentHashMap<String, Long> failedConnectionTimestamps = new ConcurrentHashMap<>();
 
     public record Device(String serial, String state, String model, String product) {}
     public record SidekickSocket(String socketName, String packageName) {}
@@ -84,6 +84,20 @@ public class SidekickConnectionManager {
      */
     public ConnectionInfo getConnection(String packageName, String device) throws Exception {
         String key = (device != null ? device : "default") + ":" + packageName;
+
+        // Check cooldown before acquiring lock to fail fast
+        Long failedAt = failedConnectionTimestamps.get(key);
+        if (failedAt != null) {
+            long elapsed = System.currentTimeMillis() - failedAt;
+            if (elapsed < RECONNECT_COOLDOWN_MS) {
+                long retryInSeconds = (RECONNECT_COOLDOWN_MS - elapsed + 999) / 1000;
+                log.debug("Connection cooldown active for {} ({}s remaining)", key, retryInSeconds);
+                throw new RuntimeException(
+                    "Connection to " + packageName + " failed recently, retry in " + retryInSeconds + "s");
+            }
+            failedConnectionTimestamps.remove(key);
+        }
+
         Object lock = connectionLocks.computeIfAbsent(key, k -> new Object());
         synchronized (lock) {
             ConnectionInfo existing = connections.get(key);
@@ -95,19 +109,21 @@ public class SidekickConnectionManager {
                     return existing;
                 }
                 // Connection stale, remove and recreate
-                log.info("Connection stale for {}, reconnecting", key);
+                log.warn("Health check failed for {}: {}", key, health);
                 connections.remove(key);
                 removePortForward(device, existing.port());
             }
 
-            // Create new connection
-            int port = nextPort.getAndIncrement();
+            // Create new connection with auto-allocated port
             String socketName = "dta_sidekick_" + packageName;
-
-            log.debug("Setting up port forward tcp:{} -> localabstract:{}", port, socketName);
-            if (!setupPortForward(device, port, socketName)) {
-                throw new RuntimeException("Failed to set up port forwarding for " + socketName);
+            int port;
+            try {
+                port = setupPortForwardAuto(device, socketName);
+            } catch (Exception e) {
+                failedConnectionTimestamps.put(key, System.currentTimeMillis());
+                throw e;
             }
+            log.debug("Port forward established tcp:{} -> localabstract:{}", port, socketName);
 
             SidekickClient client = SidekickClient.builder()
                 .packageName(packageName)
@@ -119,10 +135,13 @@ public class SidekickConnectionManager {
             // Verify connection
             Result<String> health = client.checkHealth();
             if (!(health instanceof Success)) {
+                log.error("New connection health check failed for {} on port {}: {}", key, port, health);
                 removePortForward(device, port);
+                failedConnectionTimestamps.put(key, System.currentTimeMillis());
                 throw new RuntimeException("Failed to connect to sidekick: " + packageName);
             }
 
+            failedConnectionTimestamps.remove(key);
             log.info("New connection created for {} on port {}", key, port);
             ConnectionInfo conn = new ConnectionInfo(packageName, device, port, client);
             connections.put(key, conn);
@@ -145,9 +164,9 @@ public class SidekickConnectionManager {
         return true;
     }
 
-    private boolean setupPortForward(String device, int port, String socketName) throws IOException, InterruptedException {
-        runAdb(device, "forward", "tcp:" + port, "localabstract:" + socketName);
-        return true;
+    private int setupPortForwardAuto(String device, String socketName) throws IOException, InterruptedException {
+        String output = runAdb(device, "forward", "tcp:0", "localabstract:" + socketName);
+        return Integer.parseInt(output.trim());
     }
 
     private void removePortForward(String device, int port) {
@@ -183,6 +202,10 @@ public class SidekickConnectionManager {
      */
     private byte[] runAdbBytes(String device, String... args) throws IOException, InterruptedException {
         List<String> cmd = buildAdbCommand(device, args);
+        String cmdStr = String.join(" ", cmd);
+        log.debug("ADB exec: {}", cmdStr);
+        long start = System.currentTimeMillis();
+
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.redirectErrorStream(true);
         Process process = pb.start();
@@ -193,9 +216,14 @@ public class SidekickConnectionManager {
             );
             if (!process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
-                throw new IOException("ADB command timed out: " + String.join(" ", cmd));
+                long elapsed = System.currentTimeMillis() - start;
+                log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
+                throw new IOException("ADB command timed out: " + cmdStr);
             }
-            return future.get(5, TimeUnit.SECONDS);
+            byte[] data = future.get(5, TimeUnit.SECONDS);
+            long elapsed = System.currentTimeMillis() - start;
+            log.debug("ADB done in {}ms ({} bytes): {}", elapsed, data.length, cmdStr);
+            return data;
         } catch (ExecutionException e) {
             process.destroyForcibly();
             Throwable cause = e.getCause();
@@ -203,9 +231,13 @@ public class SidekickConnectionManager {
             throw new IOException("Failed to read ADB output", cause);
         } catch (TimeoutException e) {
             process.destroyForcibly();
-            throw new IOException("Timed out reading ADB output: " + String.join(" ", cmd));
+            long elapsed = System.currentTimeMillis() - start;
+            log.error("ADB read timed out after {}ms: {}", elapsed, cmdStr);
+            throw new IOException("Timed out reading ADB output: " + cmdStr);
         } catch (IOException | InterruptedException e) {
             process.destroyForcibly();
+            long elapsed = System.currentTimeMillis() - start;
+            log.error("ADB failed after {}ms: {} - {}", elapsed, cmdStr, e.getMessage());
             throw e;
         } finally {
             executor.shutdownNow();

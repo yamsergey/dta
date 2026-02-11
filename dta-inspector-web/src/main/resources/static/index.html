@@ -2338,7 +2338,7 @@
                 async function refreshScreenshot() {
                     if (!connected.value) return;
                     try {
-                        const res = await fetch(api(`/screenshot?device=${selectedDevice.value}`));
+                        const res = await fetch(api(`/screenshot?package=${selectedApp.value}&device=${selectedDevice.value}`));
                         if (res.ok) {
                             const blob = await res.blob();
                             screenshot.value = URL.createObjectURL(blob);

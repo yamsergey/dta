@@ -160,12 +160,18 @@ public class InspectorController {
     }
 
     @GetMapping(value = "/screenshot", produces = MediaType.IMAGE_PNG_VALUE)
-    public ResponseEntity<byte[]> screenshot(@RequestParam(required = false) String device) {
+    public ResponseEntity<byte[]> screenshot(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
         try {
-            byte[] data = connectionManager.captureScreenshot(device);
-            return ResponseEntity.ok()
-                .contentType(MediaType.IMAGE_PNG)
-                .body(data);
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<byte[]> result = conn.client().getScreenshot();
+            if (result instanceof Success<byte[]> success) {
+                return ResponseEntity.ok()
+                    .contentType(MediaType.IMAGE_PNG)
+                    .body(success.value());
+            }
+            return ResponseEntity.internalServerError().build();
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }

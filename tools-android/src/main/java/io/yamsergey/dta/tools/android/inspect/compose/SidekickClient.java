@@ -4,6 +4,8 @@ import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 import lombok.Builder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * HTTP client for communicating with the ADT Sidekick server running in an Android app.
@@ -38,6 +41,7 @@ import java.util.Map;
 @Builder
 public class SidekickClient {
 
+    private static final Logger log = LoggerFactory.getLogger(SidekickClient.class);
     private static final int DEFAULT_PORT = 8642;
     private static final int DEFAULT_TIMEOUT_MS = 30000;
     private static final String SOCKET_PREFIX = "dta_sidekick_";
@@ -96,19 +100,28 @@ public class SidekickClient {
         try {
             String socketName = getSocketName();
             List<String> command = buildAdbCommand("forward", "tcp:" + port, "localabstract:" + socketName);
+            log.debug("Setting up port forward: tcp:{} -> localabstract:{}", port, socketName);
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
-            int exitCode = process.waitFor();
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                log.error("Port forwarding timed out: tcp:{} -> {}", port, socketName);
+                return new Failure<>(null, "ADB port forwarding timed out after 30 seconds");
+            }
+            int exitCode = process.exitValue();
             if (exitCode != 0) {
                 String output = readStream(process.getInputStream());
+                log.error("Port forwarding failed (exit {}): {}", exitCode, output);
                 return new Failure<>(null, "Port forwarding failed: " + output);
             }
 
+            log.info("Port forward established: tcp:{} -> {}", port, socketName);
             return new Success<>(null, "Port forwarding established: tcp:" + port + " -> " + socketName);
 
         } catch (Exception e) {
+            log.error("Port forwarding error: {}", e.getMessage());
             return new Failure<>(null, "Failed to set up port forwarding: " + e.getMessage());
         }
     }
@@ -119,10 +132,15 @@ public class SidekickClient {
     public void removePortForwarding() {
         try {
             List<String> command = buildAdbCommand("forward", "--remove", "tcp:" + port);
+            log.debug("Removing port forward: tcp:{}", port);
             ProcessBuilder pb = new ProcessBuilder(command);
-            pb.start().waitFor();
+            Process process = pb.start();
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                log.warn("Port forward removal timed out: tcp:{}", port);
+            }
         } catch (Exception e) {
-            // Ignore cleanup errors
+            log.debug("Port forward removal error (ignored): {}", e.getMessage());
         }
     }
 
@@ -200,6 +218,15 @@ public class SidekickClient {
      */
     public Result<String> getComposeTree() {
         return httpGet("/compose/tree");
+    }
+
+    /**
+     * Takes a screenshot of the current Compose UI.
+     *
+     * @return Result containing PNG image bytes on success
+     */
+    public Result<byte[]> getScreenshot() {
+        return httpGetBytes("/compose/screenshot");
     }
 
     // ========================================================================
@@ -594,6 +621,43 @@ public class SidekickClient {
             int responseCode = connection.getResponseCode();
             if (responseCode == 200) {
                 String body = readStream(connection.getInputStream());
+                return new Success<>(body, "OK");
+            } else {
+                String error = readStream(connection.getErrorStream());
+                return new Failure<>(null, "HTTP " + responseCode + ": " + error);
+            }
+
+        } catch (java.net.ConnectException e) {
+            return new Failure<>(null,
+                "Cannot connect to sidekick server on port " + port + ". " +
+                "Make sure the app is running and includes the dta-sidekick dependency.");
+        } catch (Exception e) {
+            return new Failure<>(null, "HTTP request failed: " + e.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Makes an HTTP GET request to the sidekick server, returning raw bytes.
+     *
+     * @param path the endpoint path
+     * @return Result containing response bytes on success
+     */
+    private Result<byte[]> httpGetBytes(String path) {
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL("http://localhost:" + port + path);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                byte[] body = connection.getInputStream().readAllBytes();
                 return new Success<>(body, "OK");
             } else {
                 String error = readStream(connection.getErrorStream());

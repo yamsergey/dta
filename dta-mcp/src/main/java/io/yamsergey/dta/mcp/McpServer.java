@@ -37,7 +37,7 @@ public class McpServer {
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final Map<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
     private static final String MCP_VERSION = getVersion();
-    private static int nextPort = 18640;
+    // Port is auto-allocated by ADB (tcp:0) to avoid conflicts with other tools
 
     private record ConnectionInfo(String packageName, String device, int port, String sidekickVersion, String versionWarning) {}
 
@@ -1303,43 +1303,62 @@ public class McpServer {
 
     private static CallToolResult withSidekick(String packageName, String device, SidekickAction action) throws Exception {
         String key = (device != null ? device : "default") + ":" + packageName;
+        String socketName = "dta_sidekick_" + packageName;
 
         ConnectionInfo conn = connections.get(key);
-        if (conn == null) {
-            int port = nextPort++;
-            String socketName = "dta_sidekick_" + packageName;
-            log.info("Setting up new connection: {} port={}", key, port);
-            try {
-                AdbUtils.setupPortForward(device, port, socketName);
-            } catch (Exception e) {
-                log.error("Failed to setup port forward for {}: {}", key, e.getMessage());
-                throw new RuntimeException("Failed to setup port forward", e);
-            }
 
-            // Check version on first connection
-            SidekickClient tempClient = SidekickClient.builder()
+        // Verify existing connection is still alive
+        if (conn != null) {
+            SidekickClient client = SidekickClient.builder()
                 .packageName(packageName)
-                .port(port)
+                .port(conn.port())
                 .deviceSerial(device)
                 .build();
-
-            String sidekickVersion = null;
-            String versionWarning = null;
-            Result<HealthResponse> healthResult = tempClient.checkHealthTyped();
-            if (healthResult instanceof Success<HealthResponse> success) {
-                sidekickVersion = success.value().version();
-                if (!isVersionCompatible(MCP_VERSION, sidekickVersion)) {
-                    versionWarning = "Version mismatch: MCP v" + MCP_VERSION + ", Sidekick v" + sidekickVersion;
-                }
+            Result<String> health = client.checkHealth();
+            if (health instanceof Success) {
+                return action.execute(client, conn.versionWarning());
             }
-
-            conn = new ConnectionInfo(packageName, device, port, sidekickVersion, versionWarning);
-            connections.put(key, conn);
+            // Connection stale, remove and recreate
+            log.info("Connection stale for {}, reconnecting", key);
+            AdbUtils.removePortForward(device, conn.port());
+            connections.remove(key);
+            conn = null;
         }
+
+        // Create new connection with auto-allocated port
+        int port;
+        log.info("Setting up new connection: {}", key);
+        try {
+            port = AdbUtils.setupPortForwardAuto(device, socketName);
+            log.info("Port forward established: {} port={}", key, port);
+        } catch (Exception e) {
+            log.error("Failed to setup port forward for {}: {}", key, e.getMessage());
+            throw new RuntimeException("Failed to setup port forward", e);
+        }
+
+        // Check version on first connection
+        SidekickClient tempClient = SidekickClient.builder()
+            .packageName(packageName)
+            .port(port)
+            .deviceSerial(device)
+            .build();
+
+        String sidekickVersion = null;
+        String versionWarning = null;
+        Result<HealthResponse> healthResult = tempClient.checkHealthTyped();
+        if (healthResult instanceof Success<HealthResponse> success) {
+            sidekickVersion = success.value().version();
+            if (!isVersionCompatible(MCP_VERSION, sidekickVersion)) {
+                versionWarning = "Version mismatch: MCP v" + MCP_VERSION + ", Sidekick v" + sidekickVersion;
+            }
+        }
+
+        conn = new ConnectionInfo(packageName, device, port, sidekickVersion, versionWarning);
+        connections.put(key, conn);
 
         SidekickClient client = SidekickClient.builder()
             .packageName(packageName)
-            .port(conn.port())
+            .port(port)
             .deviceSerial(device)
             .build();
 
