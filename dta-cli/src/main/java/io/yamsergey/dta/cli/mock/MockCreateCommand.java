@@ -2,6 +2,7 @@ package io.yamsergey.dta.cli.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -37,11 +38,6 @@ public class MockCreateCommand implements Callable<Integer> {
     @Option(names = {"--device", "-d"},
             description = "Device serial number")
     private String deviceSerial;
-
-    @Option(names = {"--port"},
-            defaultValue = "18640",
-            description = "Local port for ADB forwarding (default: 18640)")
-    private int port;
 
     // === Create from captured ===
 
@@ -107,27 +103,13 @@ public class MockCreateCommand implements Callable<Integer> {
             return 1;
         }
 
-        // Setup port forwarding
-        SidekickClient client = SidekickClient.builder()
-                .packageName(packageName)
-                .port(port)
-                .deviceSerial(deviceSerial)
-                .build();
+        var conn = SidekickConnectionManager.getInstance().getConnection(packageName, deviceSerial);
+        var client = conn.client();
 
-        Result<Void> setup = client.setupPortForwarding();
-        if (setup instanceof Failure) {
-            System.err.println("Error: " + ((Failure<?>) setup).description());
-            return 1;
-        }
-
-        try {
-            if (fromCaptured) {
-                return createFromCaptured(client);
-            } else {
-                return createFromScratch(client);
-            }
-        } finally {
-            client.removePortForwarding();
+        if (fromCaptured) {
+            return createFromCaptured(client);
+        } else {
+            return createFromScratch(client);
         }
     }
 

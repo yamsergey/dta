@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.yamsergey.dta.inspector.web.SidekickConnectionManager.ConnectionInfo;
-import io.yamsergey.dta.inspector.web.SidekickConnectionManager.Device;
-import io.yamsergey.dta.inspector.web.SidekickConnectionManager.SidekickSocket;
+import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.Device;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.SidekickSocket;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 import org.slf4j.Logger;
@@ -30,13 +32,10 @@ public class InspectorController {
     private static final Logger log = LoggerFactory.getLogger(InspectorController.class);
 
     private static final String VERSION = loadVersion();
+    private static final int DEFAULT_CDP_PORT = 9222;
 
-    private final SidekickConnectionManager connectionManager;
+    private final SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
     private final ObjectMapper mapper = new ObjectMapper();
-
-    public InspectorController(SidekickConnectionManager connectionManager) {
-        this.connectionManager = connectionManager;
-    }
 
     private static String loadVersion() {
         try (var is = InspectorController.class.getResourceAsStream("/version.properties")) {
@@ -88,7 +87,7 @@ public class InspectorController {
                 result.put("sidekickName", health.name());
 
                 // Check version compatibility
-                if (!isVersionCompatible(VERSION, health.version())) {
+                if (!SidekickConnectionManager.isVersionCompatible(VERSION, health.version())) {
                     result.put("warning", "Version mismatch: Inspector v" + VERSION + ", Sidekick v" + health.version());
                 }
             }
@@ -101,21 +100,6 @@ public class InspectorController {
             result.put("error", e.getMessage());
             return ResponseEntity.ok(result);
         }
-    }
-
-    /**
-     * Checks version compatibility - major and minor must match.
-     */
-    private boolean isVersionCompatible(String toolVersion, String sidekickVersion) {
-        if (toolVersion == null || sidekickVersion == null) return true;
-        if ("unknown".equals(toolVersion) || "unknown".equals(sidekickVersion)) return true;
-
-        String[] tool = toolVersion.split("\\.");
-        String[] sidekick = sidekickVersion.split("\\.");
-
-        if (tool.length < 2 || sidekick.length < 2) return true;
-
-        return tool[0].equals(sidekick[0]) && tool[1].equals(sidekick[1]);
     }
 
     // ========================================================================
@@ -145,7 +129,7 @@ public class InspectorController {
     @GetMapping("/apps")
     public ResponseEntity<?> listApps(@RequestParam(required = false) String device) {
         try {
-            List<SidekickSocket> sockets = connectionManager.discoverSockets(device);
+            List<SidekickSocket> sockets = connectionManager.findSidekickSockets(device);
             ObjectNode result = mapper.createObjectNode();
             ArrayNode appsArray = result.putArray("apps");
             for (SidekickSocket socket : sockets) {
@@ -701,7 +685,15 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            boolean started = connectionManager.startCdpWatcher(packageName, device);
+            // Ensure sidekick connection exists
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+
+            // Set up Chrome DevTools port forwarding
+            connectionManager.setupCdpPortForward(device, DEFAULT_CDP_PORT);
+
+            boolean started = CdpWatcherManager.getInstance().startWatcher(
+                packageName, device, DEFAULT_CDP_PORT, conn.client(), null);
+
             if (started) {
                 log.info("CDP watcher started for package={}, device={}", packageName, device);
                 return ResponseEntity.ok(Map.of(
@@ -725,7 +717,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            boolean stopped = connectionManager.stopCdpWatcher(packageName, device);
+            boolean stopped = CdpWatcherManager.getInstance().stopWatcher(packageName, device);
             if (stopped) {
                 log.info("CDP watcher stopped for package={}, device={}", packageName, device);
                 return ResponseEntity.ok(Map.of(
@@ -749,7 +741,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            var info = connectionManager.getCdpWatcherInfo(packageName, device);
+            var info = CdpWatcherManager.getInstance().getWatcherInfo(packageName, device);
             if (info != null) {
                 return ResponseEntity.ok(Map.of(
                     "watching", true,

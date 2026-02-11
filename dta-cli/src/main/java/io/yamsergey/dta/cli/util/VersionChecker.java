@@ -3,6 +3,7 @@ package io.yamsergey.dta.cli.util;
 import io.yamsergey.dta.cli.App;
 import io.yamsergey.dta.tools.android.inspect.compose.HealthResponse;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 
@@ -61,6 +62,27 @@ public class VersionChecker {
 
         HealthResponse health = success.value();
         String sidekickVersion = health.version();
+
+        if (!isCompatible(toolVersion, sidekickVersion)) {
+            printWarning(out, "CLI", toolVersion, sidekickVersion);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Checks version compatibility using the connection info from SidekickConnectionManager.
+     * Uses the sidekick version already stored in the connection info, avoiding an extra
+     * health check round-trip.
+     *
+     * @param conn the connection info containing the sidekick version
+     * @param out the output stream for warnings
+     * @return true if compatible (or unable to check), false if mismatch
+     */
+    public static boolean checkAndWarnFromConn(ConnectionInfo conn, PrintStream out) {
+        String toolVersion = App.getVersion();
+        String sidekickVersion = conn.sidekickVersion();
 
         if (!isCompatible(toolVersion, sidekickVersion)) {
             printWarning(out, "CLI", toolVersion, sidekickVersion);

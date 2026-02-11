@@ -12,8 +12,9 @@ import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
-import io.yamsergey.dta.tools.android.inspect.compose.HealthResponse;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshot;
 import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshotCapture;
 import io.yamsergey.dta.tools.sugar.Failure;
@@ -26,7 +27,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * DTA MCP Server - Provides Android development tools via Model Context Protocol.
@@ -35,11 +35,9 @@ public class McpServer {
 
     private static final Logger log = LoggerFactory.getLogger(McpServer.class);
     private static final ObjectMapper mapper = new ObjectMapper();
-    private static final Map<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
     private static final String MCP_VERSION = getVersion();
-    // Port is auto-allocated by ADB (tcp:0) to avoid conflicts with other tools
 
-    private record ConnectionInfo(String packageName, String device, int port, String sidekickVersion, String versionWarning) {}
+    private static final SidekickConnectionManager connManager = SidekickConnectionManager.getInstance();
 
     public static void main(String[] args) throws Exception {
         start(null, null);
@@ -89,7 +87,7 @@ public class McpServer {
                 "{\"type\":\"object\",\"properties\":{}}"),
             (exchange, args) -> {
                 try {
-                    var devices = AdbUtils.listDevices();
+                    var devices = connManager.listDevices();
                     ObjectNode result = mapper.createObjectNode();
                     ArrayNode devicesArray = result.putArray("devices");
                     for (var device : devices) {
@@ -114,7 +112,7 @@ public class McpServer {
             (exchange, args) -> {
                 try {
                     String device = getString(args, "device");
-                    var sockets = AdbUtils.discoverSidekickSockets(device);
+                    var sockets = connManager.findSidekickSockets(device);
                     ObjectNode result = mapper.createObjectNode();
                     ArrayNode appsArray = result.putArray("apps");
                     for (var socket : sockets) {
@@ -137,7 +135,7 @@ public class McpServer {
             (exchange, args) -> {
                 try {
                     String device = getString(args, "device");
-                    byte[] data = AdbUtils.captureScreenshot(device);
+                    byte[] data = connManager.captureScreenshot(device);
                     String base64 = Base64.getEncoder().encodeToString(data);
                     // Return as ImageContent: annotations, priority, data, mimeType
                     var imageContent = new McpSchema.ImageContent(List.of(), null, base64, "image/png");
@@ -225,7 +223,7 @@ public class McpServer {
                     int x = getInt(args, "x");
                     int y = getInt(args, "y");
                     String device = getString(args, "device");
-                    boolean success = AdbUtils.tap(device, x, y);
+                    boolean success = connManager.tap(device, x, y);
                     return jsonResult(Map.of("success", success, "x", x, "y", y));
                 } catch (Exception e) {
                     return errorResult("Failed to tap: " + e.getMessage());
@@ -252,7 +250,7 @@ public class McpServer {
                     int y2 = getInt(args, "y2");
                     int duration = getInt(args, "duration", 300);
                     String device = getString(args, "device");
-                    boolean success = AdbUtils.swipe(device, x1, y1, x2, y2, duration);
+                    boolean success = connManager.swipe(device, x1, y1, x2, y2, duration);
                     return jsonResult(Map.of("success", success));
                 } catch (Exception e) {
                     return errorResult("Failed to swipe: " + e.getMessage());
@@ -271,7 +269,7 @@ public class McpServer {
                 try {
                     String text = getString(args, "text");
                     String device = getString(args, "device");
-                    boolean success = AdbUtils.inputText(device, text);
+                    boolean success = connManager.inputText(device, text);
                     return jsonResult(Map.of("success", success));
                 } catch (Exception e) {
                     return errorResult("Failed to input text: " + e.getMessage());
@@ -290,7 +288,7 @@ public class McpServer {
                 try {
                     String key = getString(args, "key");
                     String device = getString(args, "device");
-                    boolean success = AdbUtils.pressKey(device, key);
+                    boolean success = connManager.pressKey(device, key);
                     return jsonResult(Map.of("success", success, "key", key));
                 } catch (Exception e) {
                     return errorResult("Failed to press key: " + e.getMessage());
@@ -1204,7 +1202,7 @@ public class McpServer {
                     }
 
                     // Setup port forwarding for Chrome DevTools
-                    AdbUtils.setupCdpPortForward(device, DEFAULT_CDP_PORT);
+                    connManager.setupCdpPortForward(device, DEFAULT_CDP_PORT);
 
                     // Get sidekick client
                     return withSidekick(pkg, device, (client, versionWarning) -> {
@@ -1302,89 +1300,14 @@ public class McpServer {
     }
 
     private static CallToolResult withSidekick(String packageName, String device, SidekickAction action) throws Exception {
-        String key = (device != null ? device : "default") + ":" + packageName;
-        String socketName = "dta_sidekick_" + packageName;
+        ConnectionInfo conn = connManager.getConnection(packageName, device);
 
-        ConnectionInfo conn = connections.get(key);
-
-        // Verify existing connection is still alive
-        if (conn != null) {
-            SidekickClient client = SidekickClient.builder()
-                .packageName(packageName)
-                .port(conn.port())
-                .deviceSerial(device)
-                .build();
-            Result<String> health = client.checkHealth();
-            if (health instanceof Success) {
-                return action.execute(client, conn.versionWarning());
-            }
-            // Connection stale, remove and recreate
-            log.info("Connection stale for {}, reconnecting", key);
-            AdbUtils.removePortForward(device, conn.port());
-            connections.remove(key);
-            conn = null;
-        }
-
-        // Create new connection with auto-allocated port
-        int port;
-        log.info("Setting up new connection: {}", key);
-        try {
-            port = AdbUtils.setupPortForwardAuto(device, socketName);
-            log.info("Port forward established: {} port={}", key, port);
-        } catch (Exception e) {
-            log.error("Failed to setup port forward for {}: {}", key, e.getMessage());
-            throw new RuntimeException("Failed to setup port forward", e);
-        }
-
-        // Check version on first connection
-        SidekickClient tempClient = SidekickClient.builder()
-            .packageName(packageName)
-            .port(port)
-            .deviceSerial(device)
-            .build();
-
-        String sidekickVersion = null;
         String versionWarning = null;
-        Result<HealthResponse> healthResult = tempClient.checkHealthTyped();
-        if (healthResult instanceof Success<HealthResponse> success) {
-            sidekickVersion = success.value().version();
-            if (!isVersionCompatible(MCP_VERSION, sidekickVersion)) {
-                versionWarning = "Version mismatch: MCP v" + MCP_VERSION + ", Sidekick v" + sidekickVersion;
-            }
+        if (conn.sidekickVersion() != null && !SidekickConnectionManager.isVersionCompatible(MCP_VERSION, conn.sidekickVersion())) {
+            versionWarning = "Version mismatch: MCP v" + MCP_VERSION + ", Sidekick v" + conn.sidekickVersion();
         }
 
-        conn = new ConnectionInfo(packageName, device, port, sidekickVersion, versionWarning);
-        connections.put(key, conn);
-
-        SidekickClient client = SidekickClient.builder()
-            .packageName(packageName)
-            .port(port)
-            .deviceSerial(device)
-            .build();
-
-        return action.execute(client, conn.versionWarning());
-    }
-
-    /**
-     * Checks if the tool version is compatible with sidekick version.
-     * Major and minor versions must match.
-     */
-    private static boolean isVersionCompatible(String toolVersion, String sidekickVersion) {
-        if (toolVersion == null || sidekickVersion == null) {
-            return true; // Can't check, assume compatible
-        }
-        if ("unknown".equals(toolVersion) || "unknown".equals(sidekickVersion)) {
-            return true;
-        }
-
-        String[] tool = toolVersion.split("\\.");
-        String[] sidekick = sidekickVersion.split("\\.");
-
-        if (tool.length < 2 || sidekick.length < 2) {
-            return true;
-        }
-
-        return tool[0].equals(sidekick[0]) && tool[1].equals(sidekick[1]);
+        return action.execute(conn.client(), versionWarning);
     }
 
     /**

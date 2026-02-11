@@ -1,6 +1,6 @@
 package io.yamsergey.dta.cli.selection;
 
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -27,11 +27,6 @@ public class SelectionListCommand implements Callable<Integer> {
             description = "Device serial number")
     private String deviceSerial;
 
-    @Option(names = {"--port"},
-            defaultValue = "18640",
-            description = "Local port for ADB forwarding (default: 18640)")
-    private int port;
-
     @Option(names = {"--elements", "-e"},
             description = "List selected UI elements")
     private boolean listElements;
@@ -49,59 +44,46 @@ public class SelectionListCommand implements Callable<Integer> {
         // If no specific flags, list all
         boolean listAll = !listElements && !listRequests && !listMessages;
 
-        SidekickClient client = SidekickClient.builder()
-                .packageName(packageName)
-                .port(port)
-                .deviceSerial(deviceSerial)
-                .build();
+        var conn = SidekickConnectionManager.getInstance().getConnection(packageName, deviceSerial);
+        var client = conn.client();
 
-        Result<Void> setup = client.setupPortForwarding();
-        if (setup instanceof Failure) {
-            System.err.println("Error: " + ((Failure<?>) setup).description());
-            return 1;
+        boolean hasError = false;
+
+        if (listAll || listElements) {
+            System.out.println("=== Selected Elements ===");
+            Result<String> result = client.getSelectedElements();
+            if (result instanceof Success<String> success) {
+                System.out.println(success.value());
+            } else if (result instanceof Failure<String> failure) {
+                System.err.println("Error: " + failure.description());
+                hasError = true;
+            }
+            System.out.println();
         }
 
-        try {
-            boolean hasError = false;
-
-            if (listAll || listElements) {
-                System.out.println("=== Selected Elements ===");
-                Result<String> result = client.getSelectedElements();
-                if (result instanceof Success<String> success) {
-                    System.out.println(success.value());
-                } else if (result instanceof Failure<String> failure) {
-                    System.err.println("Error: " + failure.description());
-                    hasError = true;
-                }
-                System.out.println();
+        if (listAll || listRequests) {
+            System.out.println("=== Selected Network Requests ===");
+            Result<String> result = client.getSelectedNetworkRequests();
+            if (result instanceof Success<String> success) {
+                System.out.println(success.value());
+            } else if (result instanceof Failure<String> failure) {
+                System.err.println("Error: " + failure.description());
+                hasError = true;
             }
-
-            if (listAll || listRequests) {
-                System.out.println("=== Selected Network Requests ===");
-                Result<String> result = client.getSelectedNetworkRequests();
-                if (result instanceof Success<String> success) {
-                    System.out.println(success.value());
-                } else if (result instanceof Failure<String> failure) {
-                    System.err.println("Error: " + failure.description());
-                    hasError = true;
-                }
-                System.out.println();
-            }
-
-            if (listAll || listMessages) {
-                System.out.println("=== Selected WebSocket Messages ===");
-                Result<String> result = client.getSelectedWebSocketMessages();
-                if (result instanceof Success<String> success) {
-                    System.out.println(success.value());
-                } else if (result instanceof Failure<String> failure) {
-                    System.err.println("Error: " + failure.description());
-                    hasError = true;
-                }
-            }
-
-            return hasError ? 1 : 0;
-        } finally {
-            client.removePortForwarding();
+            System.out.println();
         }
+
+        if (listAll || listMessages) {
+            System.out.println("=== Selected WebSocket Messages ===");
+            Result<String> result = client.getSelectedWebSocketMessages();
+            if (result instanceof Success<String> success) {
+                System.out.println(success.value());
+            } else if (result instanceof Failure<String> failure) {
+                System.err.println("Error: " + failure.description());
+                hasError = true;
+            }
+        }
+
+        return hasError ? 1 : 0;
     }
 }

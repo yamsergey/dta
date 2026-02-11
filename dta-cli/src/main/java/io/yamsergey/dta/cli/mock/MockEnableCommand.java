@@ -1,6 +1,6 @@
 package io.yamsergey.dta.cli.mock;
 
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -32,46 +32,27 @@ public class MockEnableCommand implements Callable<Integer> {
             description = "Device serial number")
     private String deviceSerial;
 
-    @Option(names = {"--port"},
-            defaultValue = "18640",
-            description = "Local port for ADB forwarding (default: 18640)")
-    private int port;
-
     @Override
     public Integer call() throws Exception {
-        // Setup port forwarding
-        SidekickClient client = SidekickClient.builder()
-                .packageName(packageName)
-                .port(port)
-                .deviceSerial(deviceSerial)
-                .build();
+        var conn = SidekickConnectionManager.getInstance().getConnection(packageName, deviceSerial);
+        var client = conn.client();
 
-        Result<Void> setup = client.setupPortForwarding();
-        if (setup instanceof Failure) {
-            System.err.println("Error: " + ((Failure<?>) setup).description());
-            return 1;
-        }
+        Result<String> result = client.updateMockRule(ruleId, "{\"enabled\":true}");
 
-        try {
-            Result<String> result = client.updateMockRule(ruleId, "{\"enabled\":true}");
-
-            return switch (result) {
-                case Success<String> success -> {
-                    System.out.println(success.value());
-                    System.err.println("Mock rule enabled");
-                    yield 0;
-                }
-                case Failure<String> failure -> {
-                    System.err.println("Error: " + failure.description());
-                    yield 1;
-                }
-                default -> {
-                    System.err.println("Error: Unknown result type");
-                    yield 1;
-                }
-            };
-        } finally {
-            client.removePortForwarding();
-        }
+        return switch (result) {
+            case Success<String> success -> {
+                System.out.println(success.value());
+                System.err.println("Mock rule enabled");
+                yield 0;
+            }
+            case Failure<String> failure -> {
+                System.err.println("Error: " + failure.description());
+                yield 1;
+            }
+            default -> {
+                System.err.println("Error: Unknown result type");
+                yield 1;
+            }
+        };
     }
 }
