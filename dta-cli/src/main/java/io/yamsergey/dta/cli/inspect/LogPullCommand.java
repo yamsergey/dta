@@ -9,6 +9,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -66,14 +69,18 @@ public class LogPullCommand implements Callable<Integer> {
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
+        ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            byte[] data = process.getInputStream().readAllBytes();
+            Future<byte[]> dataFuture = executor.submit(
+                    () -> process.getInputStream().readAllBytes());
 
             if (!process.waitFor(30, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 System.err.println("Error: Timed out pulling log file");
                 return 1;
             }
+
+            byte[] data = dataFuture.get(5, TimeUnit.SECONDS);
 
             if (process.exitValue() != 0) {
                 String error = new String(data, StandardCharsets.UTF_8).trim();
@@ -92,6 +99,8 @@ public class LogPullCommand implements Callable<Integer> {
         } catch (Exception e) {
             process.destroyForcibly();
             throw e;
+        } finally {
+            executor.shutdownNow();
         }
 
         return 0;
