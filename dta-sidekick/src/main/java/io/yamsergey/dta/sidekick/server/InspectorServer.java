@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -1143,10 +1144,36 @@ public class InspectorServer {
                 }
             }
 
+            // Pre-generate transaction ID for BodyStorage references
+            String txId = UUID.randomUUID().toString();
+
             // Request body
             String requestBody = (String) data.get("requestBody");
             if (requestBody != null) {
-                requestBuilder.body(requestBody);
+                if (requestBody.length() > NetworkInspector.getMaxInlineBodySize()) {
+                    BodyStorage storage = BodyStorage.getInstance();
+                    if (storage != null) {
+                        String reqContentType = null;
+                        if (requestHeaders != null) {
+                            for (Map.Entry<String, String> e : requestHeaders.entrySet()) {
+                                if ("content-type".equalsIgnoreCase(e.getKey())) {
+                                    reqContentType = e.getValue();
+                                    break;
+                                }
+                            }
+                        }
+                        BodyReference ref = storage.store(txId, "request", requestBody, reqContentType);
+                        if (ref != null) {
+                            requestBuilder.bodyRef(ref);
+                        } else {
+                            requestBuilder.body(requestBody);
+                        }
+                    } else {
+                        requestBuilder.body(requestBody);
+                    }
+                } else {
+                    requestBuilder.body(requestBody);
+                }
             }
 
             HttpRequest request = requestBuilder.build();
@@ -1157,6 +1184,7 @@ public class InspectorServer {
             long startTime = startTimeNum != null ? startTimeNum.longValue() : System.currentTimeMillis();
 
             HttpTransaction tx = HttpTransaction.create()
+                    .id(txId)
                     .request(request)
                     .source(source)
                     .startTime(startTime)
@@ -1191,8 +1219,30 @@ public class InspectorServer {
                 if (responseBody != null) {
                     Boolean isBase64 = (Boolean) data.get("responseBodyBase64");
                     if (!Boolean.TRUE.equals(isBase64)) {
-                        // Only store text content, skip binary (base64) content
-                        responseBuilder.body(responseBody);
+                        if (responseBody.length() > NetworkInspector.getMaxInlineBodySize()) {
+                            BodyStorage storage = BodyStorage.getInstance();
+                            if (storage != null) {
+                                String respContentType = null;
+                                if (responseHeaders != null) {
+                                    for (Map.Entry<String, String> e : responseHeaders.entrySet()) {
+                                        if ("content-type".equalsIgnoreCase(e.getKey())) {
+                                            respContentType = e.getValue();
+                                            break;
+                                        }
+                                    }
+                                }
+                                BodyReference ref = storage.store(txId, "response", responseBody, respContentType);
+                                if (ref != null) {
+                                    responseBuilder.bodyRef(ref);
+                                } else {
+                                    responseBuilder.body(responseBody);
+                                }
+                            } else {
+                                responseBuilder.body(responseBody);
+                            }
+                        } else {
+                            responseBuilder.body(responseBody);
+                        }
                     }
                     // Binary content is intentionally skipped - not useful for inspection
                 }
