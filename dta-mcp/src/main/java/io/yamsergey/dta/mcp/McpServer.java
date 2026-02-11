@@ -20,10 +20,6 @@ import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.encoder.PatternLayoutEncoder;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.FileAppender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,16 +47,17 @@ public class McpServer {
 
     /**
      * Starts the MCP server with optional file logging.
+     * File logging is configured via system properties (dta.log.file, dta.log.level)
+     * which must be set before this class loads so logback.xml picks them up.
      *
-     * @param logFile  path to log file, or null to skip file logging
-     * @param logLevel log level (TRACE, DEBUG, INFO, WARN, ERROR), or null for DEBUG
+     * @param logFile  path to log file (for informational logging), or null
+     * @param logLevel log level (for informational logging), or null
      */
     public static void start(String logFile, String logLevel) throws Exception {
-        if (logFile != null && !logFile.isEmpty()) {
-            configureFileLogging(logFile, logLevel);
-        }
-
         log.info("Starting DTA MCP server v{}", MCP_VERSION);
+        if (logFile != null) {
+            log.info("File logging enabled: {} (level: {})", logFile, logLevel != null ? logLevel : "INFO");
+        }
 
         // Collect all tool specifications BEFORE building the server
         List<McpServerFeatures.SyncToolSpecification> tools = new ArrayList<>();
@@ -83,30 +80,6 @@ public class McpServer {
 
         // Keep server running
         Thread.currentThread().join();
-    }
-
-    private static void configureFileLogging(String logFile, String logLevel) {
-        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
-
-        PatternLayoutEncoder encoder = new PatternLayoutEncoder();
-        encoder.setContext(context);
-        encoder.setPattern("%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n");
-        encoder.start();
-
-        FileAppender<ILoggingEvent> fileAppender = new FileAppender<>();
-        fileAppender.setContext(context);
-        fileAppender.setName("FILE");
-        fileAppender.setFile(logFile);
-        fileAppender.setEncoder(encoder);
-        fileAppender.start();
-
-        ch.qos.logback.classic.Level level = logLevel != null
-            ? ch.qos.logback.classic.Level.valueOf(logLevel.toUpperCase())
-            : ch.qos.logback.classic.Level.DEBUG;
-
-        ch.qos.logback.classic.Logger root = context.getLogger(ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME);
-        root.addAppender(fileAppender);
-        root.setLevel(level);
     }
 
     private static void collectDeviceTools(List<McpServerFeatures.SyncToolSpecification> tools) {

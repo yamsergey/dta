@@ -47,6 +47,13 @@ public class McpCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        // Set system properties BEFORE McpServer class loads so logback.xml can use them
+        if (logFile != null && !logFile.isEmpty()) {
+            System.setProperty("dta.log.file", logFile);
+        }
+        if (logLevel != null && !logLevel.isEmpty()) {
+            System.setProperty("dta.log.level", logLevel.toUpperCase());
+        }
         McpServer.start(logFile, logLevel);
         return 0;
     }

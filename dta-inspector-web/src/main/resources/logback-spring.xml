@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 
-    <!-- Spring Boot base configuration:
-         - Console appender (always on, Spring Boot default format)
-         - File appender (activated when logging.file.name is set)
-
-         Enable file logging with:
-           ./gradlew :dta-inspector-web:bootRun - -args='- -logging.file.name=/tmp/inspector.log'
-         Or env var:
-           LOGGING_FILE_NAME=/tmp/inspector.log -->
-    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+    <!-- File appender - active when -Ddta.log.file is set, otherwise writes to /dev/null -->
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${dta.log.file:-/dev/null}</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
 
     <!-- Application loggers -->
     <logger name="io.yamsergey.dta" level="DEBUG"/>
@@ -18,4 +18,8 @@
     <logger name="org.springframework" level="WARN"/>
     <logger name="org.apache" level="WARN"/>
 
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
 </configuration>

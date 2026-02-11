@@ -315,13 +315,18 @@ public class InspectorServer {
                 }
             }
 
-            // Read body if present
+            // Read body if present - must loop since read() may return fewer chars than requested
             String body = null;
             if (contentLength > 0) {
                 char[] bodyChars = new char[contentLength];
-                int read = reader.read(bodyChars, 0, contentLength);
-                if (read > 0) {
-                    body = new String(bodyChars, 0, read);
+                int totalRead = 0;
+                while (totalRead < contentLength) {
+                    int read = reader.read(bodyChars, totalRead, contentLength - totalRead);
+                    if (read == -1) break;
+                    totalRead += read;
+                }
+                if (totalRead > 0) {
+                    body = new String(bodyChars, 0, totalRead);
                 }
             }
 

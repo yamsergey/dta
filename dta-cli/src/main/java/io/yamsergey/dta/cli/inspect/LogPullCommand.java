@@ -63,34 +63,35 @@ public class LogPullCommand implements Callable<Integer> {
         cmd.add("cache/" + LOG_FILE_NAME);
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(false);
+        pb.redirectErrorStream(true);
         Process process = pb.start();
 
-        byte[] stdout = process.getInputStream().readAllBytes();
-        byte[] stderr = process.getErrorStream().readAllBytes();
+        try {
+            byte[] data = process.getInputStream().readAllBytes();
 
-        if (!process.waitFor(30, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            System.err.println("Error: Timed out pulling log file");
-            return 1;
-        }
-
-        if (process.exitValue() != 0) {
-            String error = new String(stderr, StandardCharsets.UTF_8).trim();
-            if (error.isEmpty()) {
-                error = new String(stdout, StandardCharsets.UTF_8).trim();
+            if (!process.waitFor(30, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                System.err.println("Error: Timed out pulling log file");
+                return 1;
             }
-            System.err.println("Error: " + error);
-            System.err.println("Make sure enableFileLogging() is set in SidekickConfig and the app is debuggable.");
-            return 1;
-        }
 
-        if (outputPath != null && !outputPath.isEmpty()) {
-            File outputFile = new File(outputPath);
-            java.nio.file.Files.write(outputFile.toPath(), stdout);
-            System.err.println("Log saved to: " + outputFile.getAbsolutePath());
-        } else {
-            System.out.write(stdout);
+            if (process.exitValue() != 0) {
+                String error = new String(data, StandardCharsets.UTF_8).trim();
+                System.err.println("Error: " + error);
+                System.err.println("Make sure enableFileLogging() is set in SidekickConfig and the app is debuggable.");
+                return 1;
+            }
+
+            if (outputPath != null && !outputPath.isEmpty()) {
+                File outputFile = new File(outputPath);
+                java.nio.file.Files.write(outputFile.toPath(), data);
+                System.err.println("Log saved to: " + outputFile.getAbsolutePath());
+            } else {
+                System.out.write(data);
+            }
+        } catch (Exception e) {
+            process.destroyForcibly();
+            throw e;
         }
 
         return 0;

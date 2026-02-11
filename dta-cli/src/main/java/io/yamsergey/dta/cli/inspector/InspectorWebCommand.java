@@ -44,6 +44,11 @@ public class InspectorWebCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        // Set system property BEFORE InspectorApplication loads so logback-spring.xml can use it
+        if (logFile != null && !logFile.isEmpty()) {
+            System.setProperty("dta.log.file", logFile);
+        }
+
         log.info("Starting DTA Inspector on http://localhost:{}", port);
         if (logFile != null) {
             log.info("Logging to file: {}", logFile);
