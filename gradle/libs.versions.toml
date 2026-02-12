@@ -15,6 +15,8 @@ jackson = "2.19.0"
 batik = "1.18"
 spring-boot = "3.4.1"
 msgpack = "0.9.8"
+android-library = "8.7.3"
+vanniktech-publish = "0.30.0"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -47,7 +49,8 @@ spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-star
 msgpack-core = { module = "org.msgpack:msgpack-core", version.ref = "msgpack" }
 
 [plugins]
-# Add plugins here as needed
+android-library = { id = "com.android.library", version.ref = "android-library" }
+vanniktech-publish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktech-publish" }
 
 [bundles]
 junit = ["junit-bom", "junit-jupiter"]

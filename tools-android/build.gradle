@@ -8,7 +8,7 @@
 plugins {
     // Apply the java-library plugin for API and implementation separation.
     id 'java-library'
-    id 'maven-publish'
+    alias libs.plugins.vanniktech.publish
 }
 
 repositories {
@@ -79,41 +79,42 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
-publishing {
-    publications {
-        maven(MavenPublication) {
-            from components.java
+tasks.withType(Javadoc).configureEach {
+    // Lombok-generated code causes javadoc errors
+    options.addBooleanOption('Xdoclint:none', true)
+    failOnError = false
+}
 
-            // Match JitPack's expected path for multi-module projects
-            groupId = 'com.github.yamsergey.dta'
-            artifactId = 'tools-android'
-            version = dtaVersion
+mavenPublishing {
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    if (project.findProperty("signingInMemoryKey") != null) {
+        signAllPublications()
+    }
+    coordinates("io.github.yamsergey", "tools-android", dtaVersion)
 
-            pom {
-                name = 'Development Tools for Android - Core Library'
-                description = 'Core library for Android project analysis using Gradle Tooling API'
-                url = 'https://github.com/yamsergey/dta'
+    pom {
+        name = 'Development Tools for Android - Core Library'
+        description = 'Core library for Android project analysis using Gradle Tooling API'
+        url = 'https://github.com/yamsergey/dta'
 
-                licenses {
-                    license {
-                        name = 'GNU Lesser General Public License v3.0'
-                        url = 'https://www.gnu.org/licenses/lgpl-3.0.en.html'
-                    }
-                }
-
-                developers {
-                    developer {
-                        id = 'yamsergey'
-                        name = 'Sergey Yamshchikov'
-                    }
-                }
-
-                scm {
-                    connection = 'scm:git:git://github.com/yamsergey/dta.git'
-                    developerConnection = 'scm:git:ssh://github.com/yamsergey/dta.git'
-                    url = 'https://github.com/yamsergey/dta'
-                }
+        licenses {
+            license {
+                name = 'GNU Lesser General Public License v3.0'
+                url = 'https://www.gnu.org/licenses/lgpl-3.0.en.html'
             }
+        }
+
+        developers {
+            developer {
+                id = 'yamsergey'
+                name = 'Sergey Yamshchikov'
+            }
+        }
+
+        scm {
+            connection = 'scm:git:git://github.com/yamsergey/dta.git'
+            developerConnection = 'scm:git:ssh://github.com/yamsergey/dta.git'
+            url = 'https://github.com/yamsergey/dta'
         }
     }
 }

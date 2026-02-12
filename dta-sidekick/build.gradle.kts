@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.library") version "8.7.3"
-    id("maven-publish")
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.vanniktech.publish)
 }
 
 repositories {
@@ -115,39 +115,35 @@ tasks.named("preBuild") {
     dependsOn("generateVersionProperties")
 }
 
-android {
-    publishing {
-        singleVariant("release") {
-            withSourcesJar()
-        }
+val dtaVersion = project.property("dtaVersion") as String
+
+mavenPublishing {
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    if (project.findProperty("signingInMemoryKey") != null) {
+        signAllPublications()
     }
-}
+    coordinates("io.github.yamsergey", "dta-sidekick", dtaVersion)
 
-afterEvaluate {
-    publishing {
-        publications {
-            register<MavenPublication>("release") {
-                from(components["release"])
-                // Match JitPack's expected path for multi-module projects
-                groupId = "com.github.yamsergey.dta"
-                artifactId = "dta-sidekick"
-                version = project.property("dtaVersion") as String
-
-                pom {
-                    name.set("DTA Sidekick")
-                    description.set("Android library for runtime inspection - UI hierarchy, network, and WebSocket monitoring")
-                    url.set("https://github.com/yamsergey/dta")
-                    licenses {
-                        license {
-                            name.set("GNU Lesser General Public License v3.0")
-                            url.set("https://www.gnu.org/licenses/lgpl-3.0.en.html")
-                        }
-                    }
-                }
+    pom {
+        name.set("DTA Sidekick")
+        description.set("Android library for runtime inspection - UI hierarchy, network, and WebSocket monitoring")
+        url.set("https://github.com/yamsergey/dta")
+        licenses {
+            license {
+                name.set("GNU Lesser General Public License v3.0")
+                url.set("https://www.gnu.org/licenses/lgpl-3.0.en.html")
             }
         }
-        repositories {
-            mavenLocal()
+        developers {
+            developer {
+                id.set("yamsergey")
+                name.set("Sergey Yamshchikov")
+            }
+        }
+        scm {
+            connection.set("scm:git:git://github.com/yamsergey/dta.git")
+            developerConnection.set("scm:git:ssh://github.com/yamsergey/dta.git")
+            url.set("https://github.com/yamsergey/dta")
         }
     }
 }
