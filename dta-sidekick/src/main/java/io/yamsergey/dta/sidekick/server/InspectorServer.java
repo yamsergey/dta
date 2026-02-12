@@ -702,13 +702,16 @@ public class InspectorServer {
      */
     private void handleComposeScreenshot(OutputStream out) throws IOException {
         try {
-            byte[] screenshot = runOnMainThread(() -> {
+            // Get the window on the main thread, but capture the screenshot off
+            // the main thread. PixelCopy posts its callback to the main looper,
+            // which would deadlock if we're already blocking the main thread.
+            android.view.Window window = runOnMainThread(() -> {
                 android.app.Activity activity = getCurrentActivity();
-                if (activity == null) {
-                    return null;
-                }
-                return ComposeHitTester.captureScreenshot(activity.getWindow());
+                return activity != null ? activity.getWindow() : null;
             });
+            byte[] screenshot = window != null
+                    ? ComposeHitTester.captureScreenshot(window)
+                    : null;
 
             if (screenshot == null) {
                 Map<String, Object> error = new HashMap<>();
