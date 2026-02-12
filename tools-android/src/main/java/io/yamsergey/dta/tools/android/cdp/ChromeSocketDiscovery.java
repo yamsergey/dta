@@ -11,6 +11,11 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -51,7 +56,9 @@ public final class ChromeSocketDiscovery {
     public static List<String> findDevToolsSockets(String deviceSerial)
             throws IOException, InterruptedException {
 
-        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "cat", "/proc/net/unix");
+        // Use grep on-device to avoid transferring the entire /proc/net/unix table.
+        // cat on large socket tables can hang adb/adbd, especially when the app is closing.
+        List<String> cmd = buildAdbCommand(deviceSerial, "shell", "grep", "devtools_remote", "/proc/net/unix");
         String cmdStr = String.join(" ", cmd);
         log.debug("ADB exec: {}", cmdStr);
         long start = System.currentTimeMillis();
@@ -60,12 +67,30 @@ public final class ChromeSocketDiscovery {
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
-        String output = readStream(process.getInputStream());
-        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+        // Read output in a separate thread to avoid blocking if the process hangs
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        String output;
+        try {
+            Future<String> future = executor.submit(() -> readStream(process.getInputStream()));
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                long elapsed = System.currentTimeMillis() - start;
+                log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
+                throw new IOException("ADB command timed out: " + cmdStr);
+            }
+            output = future.get(5, TimeUnit.SECONDS);
+        } catch (ExecutionException e) {
+            process.destroyForcibly();
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException io) throw io;
+            throw new IOException("Failed to read ADB output", cause);
+        } catch (TimeoutException e) {
             process.destroyForcibly();
             long elapsed = System.currentTimeMillis() - start;
-            log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
-            throw new IOException("ADB command timed out after 30 seconds");
+            log.error("ADB read timed out after {}ms: {}", elapsed, cmdStr);
+            throw new IOException("Timed out reading ADB output: " + cmdStr);
+        } finally {
+            executor.shutdownNow();
         }
 
         long elapsed = System.currentTimeMillis() - start;

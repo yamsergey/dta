@@ -199,7 +199,9 @@ public class SidekickConnectionManager {
      * Discovers sidekick sockets on a device.
      */
     public List<SidekickSocket> findSidekickSockets(String device) throws IOException, InterruptedException {
-        String output = runAdb(device, "shell", "cat", "/proc/net/unix");
+        // Use grep on-device to avoid transferring the entire /proc/net/unix table.
+        // cat on large socket tables can hang adb/adbd, especially when the app is closing.
+        String output = runAdb(device, "shell", "grep", "dta_sidekick", "/proc/net/unix");
 
         List<SidekickSocket> sockets = new ArrayList<>();
         Pattern pattern = Pattern.compile("@(dta_sidekick_([\\w.]+))");
