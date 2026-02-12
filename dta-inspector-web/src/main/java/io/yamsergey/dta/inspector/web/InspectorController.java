@@ -10,6 +10,7 @@ import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.Device;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.SidekickSocket;
+import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 import org.slf4j.Logger;
@@ -153,11 +154,15 @@ public class InspectorController {
             if (result instanceof Success<byte[]> success) {
                 return ResponseEntity.ok()
                     .contentType(MediaType.IMAGE_PNG)
+                    .cacheControl(org.springframework.http.CacheControl.noStore())
                     .body(success.value());
             }
-            return ResponseEntity.internalServerError().build();
+            String error = result instanceof Failure<byte[]> f ? f.description() : "Unknown error";
+            log.error("Screenshot failed for package={}, device={}: {}", packageName, device, error);
+            return ResponseEntity.internalServerError().body(error.getBytes());
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
+            log.error("Screenshot failed for package={}, device={}", packageName, device, e);
+            return ResponseEntity.internalServerError().body(e.getMessage().getBytes());
         }
     }
 
