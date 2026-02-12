@@ -5,9 +5,18 @@
  * Learn more about Gradle by exploring our Samples at https://docs.gradle.org/9.0.0/samples
  */
 
-plugins {
-    alias libs.plugins.android.library apply false
-    alias libs.plugins.vanniktech.publish apply false
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.3'
+        classpath 'com.vanniktech.maven.publish:com.vanniktech.maven.publish.gradle.plugin:0.30.0'
+        // Force 1.25.0+ so Spring Boot's bootJar works (AGP transitively brings 1.21)
+        classpath 'org.apache.commons:commons-compress:1.25.0'
+    }
 }
 
 allprojects {

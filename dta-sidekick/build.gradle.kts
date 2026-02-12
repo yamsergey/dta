@@ -1,6 +1,6 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.vanniktech.publish)
+    id("com.android.library")
+    id("com.vanniktech.maven.publish")
 }
 
 repositories {
