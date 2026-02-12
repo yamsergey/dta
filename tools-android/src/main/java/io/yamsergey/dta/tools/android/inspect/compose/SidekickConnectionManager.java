@@ -1,5 +1,6 @@
 package io.yamsergey.dta.tools.android.inspect.compose;
 
+import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 import org.slf4j.Logger;
@@ -95,6 +96,7 @@ public class SidekickConnectionManager {
                 log.warn("Cached connection stale for {}: {}", key, health);
                 connections.remove(key);
                 removePortForward(device, existing.port());
+                stopCdpWatcher(packageName, device);
             }
 
             String socketName = "dta_sidekick_" + packageName;
@@ -164,6 +166,7 @@ public class SidekickConnectionManager {
         ConnectionInfo conn = connections.remove(key);
         if (conn != null) {
             removePortForward(device, conn.port());
+            stopCdpWatcher(packageName, device);
         }
     }
 
@@ -361,6 +364,16 @@ public class SidekickConnectionManager {
             log.debug("Failed to list forwards: {}", e.getMessage());
         }
         return null;
+    }
+
+    private void stopCdpWatcher(String packageName, String device) {
+        try {
+            if (CdpWatcherManager.getInstance().stopWatcher(packageName, device)) {
+                log.info("Stopped CDP watcher for {} (sidekick connection lost)", packageName);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to stop CDP watcher: {}", e.getMessage());
+        }
     }
 
     private void removePortForward(String device, int port) {
