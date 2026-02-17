@@ -101,29 +101,10 @@ public class SidekickConnectionManager {
 
             String socketName = "dta_sidekick_" + packageName;
 
-            // 2. Check adb forward --list for existing forward (cross-process dedup)
-            Integer existingPort = findExistingForward(device, socketName);
-            if (existingPort != null) {
-                log.debug("Found existing forward tcp:{} -> localabstract:{}", existingPort, socketName);
-                SidekickClient client = SidekickClient.builder()
-                    .packageName(packageName)
-                    .port(existingPort)
-                    .deviceSerial(device)
-                    .timeoutMs(30000)
-                    .build();
-                Result<String> health = client.checkHealth();
-                if (health instanceof Success) {
-                    String sidekickVersion = getSidekickVersion(client);
-                    ConnectionInfo conn = new ConnectionInfo(packageName, device, existingPort, client, sidekickVersion);
-                    connections.put(key, conn);
-                    log.info("Reusing existing forward for {} on port {}", key, existingPort);
-                    return conn;
-                }
-                log.debug("Existing forward on port {} is stale, removing", existingPort);
-                removePortForward(device, existingPort);
-            }
-
-            // 3. Create new forward with auto-allocated port
+            // Create new forward with auto-allocated port.
+            // We intentionally skip checking adb forward --list because multiple
+            // processes (inspector-web, MCP) may have their own forwards to the
+            // same socket. Reusing or removing another process's forward breaks it.
             int port;
             try {
                 port = setupPortForwardAuto(device, socketName);
@@ -327,44 +308,6 @@ public class SidekickConnectionManager {
         return Integer.parseInt(output.trim());
     }
 
-    /**
-     * Checks {@code adb forward --list} for an existing forward to the given socket.
-     * Returns the local port if found, or null.
-     */
-    private Integer findExistingForward(String device, String socketName) {
-        try {
-            String output = runAdb(null, "forward", "--list");
-            String targetRemote = "localabstract:" + socketName;
-
-            for (String line : output.split("\n")) {
-                line = line.trim();
-                if (line.isEmpty()) continue;
-
-                // Format: <serial> tcp:<port> localabstract:<socket>
-                String[] parts = line.split("\\s+");
-                if (parts.length >= 3) {
-                    String serial = parts[0];
-                    String local = parts[1];
-                    String remote = parts[2];
-
-                    if (remote.equals(targetRemote)) {
-                        if (device == null || device.isEmpty() || serial.equals(device)) {
-                            if (local.startsWith("tcp:")) {
-                                try {
-                                    return Integer.parseInt(local.substring(4));
-                                } catch (NumberFormatException e) {
-                                    log.warn("Failed to parse port from forward: {}", local);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Failed to list forwards: {}", e.getMessage());
-        }
-        return null;
-    }
 
     private void stopCdpWatcher(String packageName, String device) {
         try {
