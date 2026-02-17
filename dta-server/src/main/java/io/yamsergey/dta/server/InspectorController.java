@@ -1,4 +1,4 @@
-package io.yamsergey.dta.inspector.web;
+package io.yamsergey.dta.server;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,6 +10,8 @@ import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.Device;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.SidekickSocket;
+import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshot;
+import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshotCapture;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -19,6 +21,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -64,10 +69,12 @@ public class InspectorController {
 
     @GetMapping("/version")
     public ResponseEntity<?> getToolVersion() {
-        return ResponseEntity.ok(Map.of(
-            "name", "dta-inspector-web",
-            "version", VERSION
-        ));
+        var info = new java.util.HashMap<String, Object>();
+        info.put("name", "dta-server");
+        info.put("version", VERSION);
+        info.put("daemon", true);
+        info.put("pid", ProcessHandle.current().pid());
+        return ResponseEntity.ok(info);
     }
 
     @GetMapping("/connection-status")
@@ -176,6 +183,111 @@ public class InspectorController {
             return ResponseEntity.ok(Map.of("success", success, "x", x, "y", y));
         } catch (Exception e) {
             return error("Failed to tap: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/swipe")
+    public ResponseEntity<?> swipe(
+            @RequestParam int x1,
+            @RequestParam int y1,
+            @RequestParam int x2,
+            @RequestParam int y2,
+            @RequestParam(required = false, defaultValue = "300") int duration,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean success = connectionManager.swipe(device, x1, y1, x2, y2, duration);
+            return ResponseEntity.ok(Map.of("success", success));
+        } catch (Exception e) {
+            return error("Failed to swipe: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/input-text")
+    public ResponseEntity<?> inputText(
+            @RequestParam String text,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean success = connectionManager.inputText(device, text);
+            return ResponseEntity.ok(Map.of("success", success));
+        } catch (Exception e) {
+            return error("Failed to input text: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/press-key")
+    public ResponseEntity<?> pressKey(
+            @RequestParam String key,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean success = connectionManager.pressKey(device, key);
+            return ResponseEntity.ok(Map.of("success", success, "key", key));
+        } catch (Exception e) {
+            return error("Failed to press key: " + e.getMessage());
+        }
+    }
+
+    @GetMapping(value = "/screenshot/device", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> deviceScreenshot(
+            @RequestParam(required = false) String device) {
+        try {
+            byte[] data = connectionManager.captureScreenshot(device);
+            return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(data);
+        } catch (Exception e) {
+            log.error("Device screenshot failed for device={}", device, e);
+            return ResponseEntity.internalServerError().body(e.getMessage().getBytes());
+        }
+    }
+
+    @PostMapping("/scroll-screenshot")
+    public ResponseEntity<?> scrollScreenshot(
+            @RequestParam(required = false) String device,
+            @RequestParam(required = false) String viewId,
+            @RequestParam(required = false, defaultValue = "false") boolean scrollToTop,
+            @RequestParam(required = false, defaultValue = "30") int maxCaptures) {
+        try {
+            File tempFile = Files.createTempFile("scroll_screenshot_", ".png").toFile();
+            tempFile.deleteOnExit();
+
+            ScrollScreenshotCapture.ScrollScreenshotCaptureBuilder builder =
+                ScrollScreenshotCapture.builder()
+                    .outputFile(tempFile)
+                    .scrollToTop(scrollToTop)
+                    .maxCaptures(maxCaptures);
+
+            if (device != null && !device.isEmpty()) {
+                builder.deviceSerial(device);
+            }
+            if (viewId != null && !viewId.isEmpty()) {
+                builder.targetViewId(viewId);
+            }
+
+            Result<ScrollScreenshot> result = builder.build().capture();
+
+            if (result instanceof Success<ScrollScreenshot> success) {
+                ScrollScreenshot screenshot = success.value();
+                byte[] imageBytes = Files.readAllBytes(tempFile.toPath());
+                String base64 = Base64.getEncoder().encodeToString(imageBytes);
+                tempFile.delete();
+
+                return ResponseEntity.ok(Map.of(
+                    "imageBase64", base64,
+                    "width", screenshot.getWidth(),
+                    "height", screenshot.getHeight(),
+                    "captures", screenshot.getCaptureCount(),
+                    "reachedEnd", screenshot.isReachedScrollEnd(),
+                    "scrollableView", screenshot.getScrollableViewId() != null ? screenshot.getScrollableViewId() : ""
+                ));
+            } else if (result instanceof Failure<ScrollScreenshot> failure) {
+                tempFile.delete();
+                return error("Scroll screenshot failed: " + failure.description());
+            }
+            tempFile.delete();
+            return error("Scroll screenshot failed: unknown error");
+        } catch (Exception e) {
+            return error("Failed to capture scroll screenshot: " + e.getMessage());
         }
     }
 

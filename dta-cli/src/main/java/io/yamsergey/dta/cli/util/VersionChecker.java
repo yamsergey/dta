@@ -1,12 +1,5 @@
 package io.yamsergey.dta.cli.util;
 
-import io.yamsergey.dta.cli.App;
-import io.yamsergey.dta.tools.android.inspect.compose.HealthResponse;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
-import io.yamsergey.dta.tools.sugar.Result;
-import io.yamsergey.dta.tools.sugar.Success;
-
 import java.io.PrintStream;
 
 /**
@@ -14,7 +7,7 @@ import java.io.PrintStream;
  */
 public class VersionChecker {
 
-    private static final String WARNING_PREFIX = "⚠️  ";
+    private static final String WARNING_PREFIX = "\u26a0\ufe0f  ";
     private static final String ANSI_YELLOW = "\u001B[33m";
     private static final String ANSI_RESET = "\u001B[0m";
 
@@ -22,6 +15,7 @@ public class VersionChecker {
      * Checks if the CLI version is compatible with the sidekick version.
      * Returns true if compatible, false if there's a mismatch.
      *
+     * @param toolVersion the tool version string
      * @param sidekickVersion the sidekick version string
      * @return true if compatible
      */
@@ -42,54 +36,6 @@ public class VersionChecker {
 
         // Major and minor must match
         return tool[0].equals(sidekick[0]) && tool[1].equals(sidekick[1]);
-    }
-
-    /**
-     * Checks version compatibility with the connected sidekick and prints
-     * a warning if there's a mismatch.
-     *
-     * @param client the sidekick client to check
-     * @param out the output stream for warnings
-     * @return true if compatible (or unable to check), false if mismatch
-     */
-    public static boolean checkAndWarn(SidekickClient client, PrintStream out) {
-        String toolVersion = App.getVersion();
-
-        Result<HealthResponse> healthResult = client.checkHealthTyped();
-        if (!(healthResult instanceof Success<HealthResponse> success)) {
-            return true; // Can't check, don't warn
-        }
-
-        HealthResponse health = success.value();
-        String sidekickVersion = health.version();
-
-        if (!isCompatible(toolVersion, sidekickVersion)) {
-            printWarning(out, "CLI", toolVersion, sidekickVersion);
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Checks version compatibility using the connection info from SidekickConnectionManager.
-     * Uses the sidekick version already stored in the connection info, avoiding an extra
-     * health check round-trip.
-     *
-     * @param conn the connection info containing the sidekick version
-     * @param out the output stream for warnings
-     * @return true if compatible (or unable to check), false if mismatch
-     */
-    public static boolean checkAndWarnFromConn(ConnectionInfo conn, PrintStream out) {
-        String toolVersion = App.getVersion();
-        String sidekickVersion = conn.sidekickVersion();
-
-        if (!isCompatible(toolVersion, sidekickVersion)) {
-            printWarning(out, "CLI", toolVersion, sidekickVersion);
-            return false;
-        }
-
-        return true;
     }
 
     /**

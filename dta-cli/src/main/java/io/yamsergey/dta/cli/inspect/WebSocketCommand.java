@@ -1,11 +1,7 @@
 package io.yamsergey.dta.cli.inspect;
 
-import io.yamsergey.dta.cli.util.VersionChecker;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
-import io.yamsergey.dta.tools.sugar.Failure;
-import io.yamsergey.dta.tools.sugar.Result;
-import io.yamsergey.dta.tools.sugar.Success;
+import io.yamsergey.dta.mcp.DaemonClient;
+import io.yamsergey.dta.mcp.DaemonLauncher;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -14,28 +10,6 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.concurrent.Callable;
 
-/**
- * CLI command for inspecting WebSocket connections from an Android application.
- *
- * <p>This command captures WebSocket connection and message data from a connected Android device
- * using the ADT Sidekick library. The target app must include the sidekick dependency
- * in debug builds.</p>
- *
- * <p>Example usage:</p>
- * <pre>
- * # List all WebSocket connections
- * dta-cli inspect websocket com.example.app
- *
- * # Get specific connection with messages
- * dta-cli inspect websocket com.example.app --connection-id abc123
- *
- * # Clear captured connections
- * dta-cli inspect websocket com.example.app --clear
- *
- * # Save to file
- * dta-cli inspect websocket com.example.app -o connections.json
- * </pre>
- */
 @Command(name = "websocket",
          description = "Inspect WebSocket connections from Android application (requires dta-sidekick in app).")
 public class WebSocketCommand implements Callable<Integer> {
@@ -62,118 +36,34 @@ public class WebSocketCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        // Get connection via shared manager
-        ConnectionInfo conn;
         try {
-            conn = SidekickConnectionManager.getInstance().getConnection(packageName, deviceSerial);
-        } catch (Exception e) {
-            printConnectionError();
-            return 1;
-        }
-        var client = conn.client();
+            DaemonClient daemon = DaemonLauncher.ensureDaemonRunning();
+            String result;
 
-        // Check version compatibility
-        VersionChecker.checkAndWarnFromConn(conn, System.err);
-
-        // Determine operation
-        Result<String> dataResult;
-        String operationType;
-
-        if (clearConnections) {
-            System.err.println("Clearing WebSocket connections...");
-            dataResult = client.clearWebSocketConnections();
-            operationType = "clear";
-        } else if (connectionId != null && !connectionId.isEmpty()) {
-            System.err.println("Fetching connection " + connectionId + "...");
-            dataResult = client.getWebSocketConnection(connectionId);
-            operationType = "connection";
-        } else {
-            System.err.println("Fetching WebSocket connections...");
-            dataResult = client.getWebSocketConnections();
-            operationType = "connections";
-        }
-
-        if (dataResult instanceof Failure<String> failure) {
-            System.err.println("Error: " + failure.description());
-            return 1;
-        }
-
-        String outputContent = ((Success<String>) dataResult).value();
-        outputContent = prettyPrintJson(outputContent);
-
-        // Output to file or stdout
-        if (outputPath != null && !outputPath.isEmpty()) {
-            File outputFile = new File(outputPath);
-
-            File outputDir = outputFile.getParentFile();
-            if (outputDir != null && !outputDir.exists()) {
-                if (!outputDir.mkdirs()) {
-                    System.err.println("Error: Failed to create output directory: " + outputDir.getAbsolutePath());
-                    return 1;
-                }
-            }
-
-            Files.writeString(outputFile.toPath(), outputContent);
-            System.err.println("Success: WebSocket " + operationType + " saved");
-            System.err.println("Output: " + outputFile.getAbsolutePath());
-        } else {
-            System.out.println(outputContent);
-        }
-
-        return 0;
-    }
-
-    private void printConnectionError() {
-        System.err.println("Error: Cannot connect to sidekick server.");
-        System.err.println("Make sure:");
-        System.err.println("  1. The app " + packageName + " is running");
-        System.err.println("  2. The app includes the dta-sidekick debug dependency");
-        System.err.println();
-        System.err.println("To add sidekick to your app, add this to app/build.gradle:");
-        System.err.println("  debugImplementation 'com.github.yamsergey.yamsergey.dta:dta-sidekick:1.0.8'");
-    }
-
-    private String prettyPrintJson(String json) {
-        StringBuilder sb = new StringBuilder();
-        int indent = 0;
-        boolean inString = false;
-
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-
-            if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                inString = !inString;
-                sb.append(c);
-            } else if (!inString) {
-                switch (c) {
-                    case '{', '[' -> {
-                        sb.append(c);
-                        sb.append('\n');
-                        indent++;
-                        sb.append("  ".repeat(indent));
-                    }
-                    case '}', ']' -> {
-                        sb.append('\n');
-                        indent--;
-                        sb.append("  ".repeat(indent));
-                        sb.append(c);
-                    }
-                    case ',' -> {
-                        sb.append(c);
-                        sb.append('\n');
-                        sb.append("  ".repeat(indent));
-                    }
-                    case ':' -> sb.append(": ");
-                    case ' ', '\n', '\r', '\t' -> {
-                        // Skip whitespace
-                    }
-                    default -> sb.append(c);
-                }
+            if (clearConnections) {
+                System.err.println("Clearing WebSocket connections...");
+                result = daemon.clearWebsocketConnections(packageName, deviceSerial);
+            } else if (connectionId != null && !connectionId.isEmpty()) {
+                System.err.println("Fetching connection " + connectionId + "...");
+                result = daemon.websocketConnection(packageName, connectionId, deviceSerial);
             } else {
-                sb.append(c);
+                System.err.println("Fetching WebSocket connections...");
+                result = daemon.websocketConnections(packageName, deviceSerial);
             }
-        }
 
-        return sb.toString();
+            if (outputPath != null && !outputPath.isEmpty()) {
+                File outputFile = new File(outputPath);
+                File outputDir = outputFile.getParentFile();
+                if (outputDir != null && !outputDir.exists()) outputDir.mkdirs();
+                Files.writeString(outputFile.toPath(), result);
+                System.err.println("Success: Output saved to " + outputFile.getAbsolutePath());
+            } else {
+                System.out.println(result);
+            }
+            return 0;
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            return 1;
+        }
     }
 }

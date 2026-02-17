@@ -2,7 +2,7 @@ package io.yamsergey.dta.cli;
 
 import io.yamsergey.dta.cli.drawable.DrawableCommand;
 import io.yamsergey.dta.cli.inspect.InspectCommand;
-import io.yamsergey.dta.cli.inspector.InspectorWebCommand;
+import io.yamsergey.dta.cli.inspector.ServerCommand;
 import io.yamsergey.dta.cli.mcp.McpCommand;
 import io.yamsergey.dta.cli.mock.MockCommand;
 import io.yamsergey.dta.cli.resolve.ResolveCommand;
@@ -23,7 +23,7 @@ import picocli.CommandLine.Command;
     MockCommand.class,
     SelectionCommand.class,
     McpCommand.class,
-    InspectorWebCommand.class
+    ServerCommand.class
 })
 public class App implements Runnable {
 
