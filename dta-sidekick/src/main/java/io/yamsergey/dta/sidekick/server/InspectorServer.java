@@ -84,6 +84,7 @@ public class InspectorServer {
     }
 
     private final Gson gson;
+    private final Gson gsonCompact;
     private final ExecutorService executor;
     private final Handler mainHandler;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -98,6 +99,10 @@ public class InspectorServer {
     private final List<Map<String, Object>> selectedNetworkRequests = Collections.synchronizedList(new ArrayList<>());
     private final List<Map<String, Object>> selectedWebSocketMessages = Collections.synchronizedList(new ArrayList<>()); // each: { connectionId, messageIndex, message }
 
+    // CDP capture ack mechanism
+    private final ConcurrentHashMap<String, CountDownLatch> pendingCdpAcks = new ConcurrentHashMap<>();
+    private volatile boolean cdpCaptureRequested = false;
+
     private volatile LocalServerSocket serverSocket;
     private volatile String socketName;
     private volatile String packageName;
@@ -105,6 +110,7 @@ public class InspectorServer {
 
     private InspectorServer() {
         this.gson = new GsonBuilder().setPrettyPrinting().create();
+        this.gsonCompact = new Gson();
         this.executor = Executors.newCachedThreadPool();
         this.mainHandler = new Handler(Looper.getMainLooper());
 
@@ -123,7 +129,12 @@ public class InspectorServer {
         };
 
         // Create listener for Custom Tab events
-        this.customTabEventListener = event -> broadcastCustomTabEvent(event);
+        // When cdpCaptureRequested, broadcast is handled by waitForCdpAckIfNeeded instead
+        this.customTabEventListener = event -> {
+            if (!cdpCaptureRequested) {
+                broadcastCustomTabEvent(event);
+            }
+        };
     }
 
     public static InspectorServer getInstance() {
@@ -135,6 +146,31 @@ public class InspectorServer {
             }
         }
         return instance;
+    }
+
+    /**
+     * Blocks the calling thread until a CDP ack is received for the given event,
+     * or until the 2-second timeout expires. This is called from the JVMTI hook
+     * to delay the Custom Tab launch, giving the daemon time to attach CDP.
+     *
+     * <p>If CDP capture is not armed or no SSE clients are connected, returns immediately.</p>
+     */
+    public void waitForCdpAckIfNeeded(CustomTabEvent event) {
+        try {
+            if (!cdpCaptureRequested || sseClients.isEmpty()) {
+                return;
+            }
+            CountDownLatch latch = new CountDownLatch(1);
+            pendingCdpAcks.put(event.getId(), latch);
+            try {
+                broadcastCustomTabEvent(event);
+                latch.await(2, TimeUnit.SECONDS);
+            } finally {
+                pendingCdpAcks.remove(event.getId());
+            }
+        } catch (Exception e) {
+            SidekickLog.w(TAG, "CDP ack wait interrupted", e);
+        }
     }
 
     /**
@@ -512,6 +548,21 @@ public class InspectorServer {
             return;
         }
 
+        // Handle CDP capture control endpoints
+        if (path.equals("/customtabs/request-cdp-capture") && "POST".equals(method)) {
+            handleRequestCdpCapture(out);
+            return;
+        }
+        if (path.equals("/customtabs/release-cdp-capture") && "POST".equals(method)) {
+            handleReleaseCdpCapture(out);
+            return;
+        }
+        if (path.startsWith("/customtabs/ack/") && "POST".equals(method)) {
+            String eventId = path.substring("/customtabs/ack/".length());
+            handleCdpAck(eventId, out);
+            return;
+        }
+
         // Handle Custom Tabs endpoints
         if (path.equals("/customtabs/events")) {
             if ("GET".equals(method)) {
@@ -590,6 +641,7 @@ public class InspectorServer {
         response.put("socketName", socketName);
         response.put("packageName", packageName);
         response.put("sseClients", sseClients.size());
+        response.put("cdpCaptureRequested", cdpCaptureRequested);
         response.put("endpoints", new String[]{
                 "/health",
                 "/events/stream",
@@ -609,6 +661,9 @@ public class InspectorServer {
                 "/websocket/connections/{id}",
                 "/websocket/clear",
                 "/customtabs/events",
+                "/customtabs/request-cdp-capture",
+                "/customtabs/release-cdp-capture",
+                "/customtabs/ack/{eventId}",
                 "/selection/element",
                 "/selection/network",
                 "/selection/websocket-message",
@@ -2254,6 +2309,57 @@ public class InspectorServer {
     }
 
     /**
+     * POST /customtabs/request-cdp-capture - Arms CDP capture.
+     * When armed, Custom Tab launches will block until a CDP ack is received.
+     */
+    private void handleRequestCdpCapture(OutputStream out) throws IOException {
+        cdpCaptureRequested = true;
+        SidekickLog.i(TAG, "CDP capture armed");
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "armed");
+        sendJson(out, 200, response);
+    }
+
+    /**
+     * POST /customtabs/release-cdp-capture - Releases CDP capture.
+     * Any pending latches are released and future launches will not block.
+     */
+    private void handleReleaseCdpCapture(OutputStream out) throws IOException {
+        cdpCaptureRequested = false;
+        // Drain pending latches one by one to avoid ConcurrentModificationException
+        var iterator = pendingCdpAcks.entrySet().iterator();
+        while (iterator.hasNext()) {
+            iterator.next().getValue().countDown();
+            iterator.remove();
+        }
+        SidekickLog.i(TAG, "CDP capture released");
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "released");
+        sendJson(out, 200, response);
+    }
+
+    /**
+     * POST /customtabs/ack/{eventId} - Acknowledges that CDP is attached for a given event.
+     * Releases the latch so the Custom Tab launch can proceed.
+     */
+    private void handleCdpAck(String eventId, OutputStream out) throws IOException {
+        CountDownLatch latch = pendingCdpAcks.get(eventId);
+        if (latch != null) {
+            latch.countDown();
+            SidekickLog.i(TAG, "CDP ack received for event: " + eventId);
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "acked");
+            response.put("eventId", eventId);
+            sendJson(out, 200, response);
+        } else {
+            SidekickLog.w(TAG, "CDP ack for unknown event: " + eventId);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "No pending ack for event: " + eventId);
+            sendJson(out, 404, error);
+        }
+    }
+
+    /**
      * Converts a CustomTabEvent to a Map for JSON serialization.
      */
     private Map<String, Object> customTabEventToMap(CustomTabEvent event) {
@@ -2275,11 +2381,11 @@ public class InspectorServer {
         }
 
         Map<String, Object> data = customTabEventToMap(event);
-        data.put("eventType", "customtab_opened");
+        data.put("eventType", "customtab_will_launch");
 
         for (OutputStream client : sseClients) {
             try {
-                sendSseEvent(client, "customtab_opened", data);
+                sendSseEvent(client, "customtab_will_launch", data);
             } catch (IOException e) {
                 // Client disconnected, will be cleaned up
                 sseClients.remove(client);
@@ -2362,8 +2468,8 @@ public class InspectorServer {
      * Sends an SSE event to a client.
      */
     private void sendSseEvent(OutputStream out, String event, Object data) throws IOException {
-        String json = gson.toJson(data);
-        // SSE format: event: <type>\ndata: <json>\n\n
+        String json = gsonCompact.toJson(data);
+        // SSE format: event: <type>\ndata: <json>\n\n (must be single-line)
         String sseMessage = "event: " + event + "\ndata: " + json + "\n\n";
         synchronized (out) {
             out.write(sseMessage.getBytes(StandardCharsets.UTF_8));

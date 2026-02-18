@@ -603,6 +603,33 @@ public class SidekickClient {
         return httpPost("/mock/from-message/" + messageId, null);
     }
 
+    // ========================================================================
+    // CDP capture control endpoints
+    // ========================================================================
+
+    /**
+     * Arms CDP capture on sidekick. When armed, Custom Tab launches will
+     * be held until the host acks with CDP attached.
+     */
+    public Result<String> requestCdpCapture() {
+        return httpPost("/customtabs/request-cdp-capture", null);
+    }
+
+    /**
+     * Disarms CDP capture on sidekick.
+     */
+    public Result<String> releaseCdpCapture() {
+        return httpPost("/customtabs/release-cdp-capture", null);
+    }
+
+    /**
+     * Acknowledges that CDP is attached for a Custom Tab launch event.
+     * This unblocks the JVMTI hook so Chrome can proceed with launch.
+     */
+    public Result<String> ackCustomTab(String eventId) {
+        return httpPost("/customtabs/ack/" + eventId, null);
+    }
+
     /**
      * Makes an HTTP GET request to the sidekick server.
      *

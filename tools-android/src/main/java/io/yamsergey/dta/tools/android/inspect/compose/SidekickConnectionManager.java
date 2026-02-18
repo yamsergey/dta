@@ -265,6 +265,13 @@ public class SidekickConnectionManager {
         runAdb(device, "forward", "tcp:" + port, "localabstract:chrome_devtools_remote");
     }
 
+    /**
+     * Removes port forwarding for Chrome DevTools Protocol.
+     */
+    public void removeCdpPortForward(String device, int port) {
+        removePortForward(device, port);
+    }
+
     // ========================================================================
     // Version compatibility
     // ========================================================================

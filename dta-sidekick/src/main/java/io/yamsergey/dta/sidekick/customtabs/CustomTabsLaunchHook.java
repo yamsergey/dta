@@ -2,6 +2,7 @@ package io.yamsergey.dta.sidekick.customtabs;
 
 import io.yamsergey.dta.sidekick.SidekickLog;
 import io.yamsergey.dta.sidekick.jvmti.MethodHook;
+import io.yamsergey.dta.sidekick.server.InspectorServer;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -77,6 +78,9 @@ public class CustomTabsLaunchHook implements MethodHook {
             // Create and record the event
             CustomTabEvent event = new CustomTabEvent(url, headers, packageName);
             CustomTabsInspector.recordEvent(event);
+
+            // Block until CDP is attached (if capture is armed)
+            InspectorServer.getInstance().waitForCdpAckIfNeeded(event);
 
             SidekickLog.i(TAG, ">>> Custom Tab: " + url +
                     (headers.isEmpty() ? "" : " (headers: " + headers.size() + ")"));

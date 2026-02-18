@@ -67,6 +67,6 @@ public class CustomTabEvent {
      * Returns the event type identifier for SSE.
      */
     public String getEventType() {
-        return "customtab_opened";
+        return "customtab_will_launch";
     }
 }
