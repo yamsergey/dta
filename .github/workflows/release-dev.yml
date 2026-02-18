@@ -96,7 +96,7 @@ jobs:
 
           # Dev channel formula: dta-cli@dev
           cat > Formula/dta-cli@dev.rb << 'EOF'
-          class DtaCliAtDev < Formula
+          class DtaCliATDev < Formula
             desc "Development Tools for Android - CLI (dev channel)"
             homepage "https://github.com/yamsergey/dta"
             url "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
