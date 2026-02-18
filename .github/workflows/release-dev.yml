@@ -56,7 +56,7 @@ jobs:
 
             ```bash
             brew tap yamsergey/packages
-            brew install dta-cli@dev
+            brew install dta-cli-dev
             ```
 
             ### Matching sidekick dependency
@@ -94,9 +94,9 @@ jobs:
             --notes "Dev channel binary release for dta-cli ${{ github.ref_name }}" \
             --prerelease
 
-          # Dev channel formula: dta-cli@dev
-          cat > Formula/dta-cli@dev.rb << 'EOF'
-          class DtaCliATDev < Formula
+          # Dev channel formula: dta-cli-dev
+          cat > Formula/dta-cli-dev.rb << 'EOF'
+          class DtaCliDev < Formula
             desc "Development Tools for Android - CLI (dev channel)"
             homepage "https://github.com/yamsergey/dta"
             url "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
@@ -117,7 +117,7 @@ jobs:
           end
           EOF
 
-          git add Formula/dta-cli@dev.rb
+          git add Formula/dta-cli-dev.rb
           git commit -m "Update dev formula to ${{ github.ref_name }}"
           git push
 
