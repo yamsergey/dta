@@ -230,6 +230,59 @@ public class SidekickClient {
     }
 
     // ========================================================================
+    // Layout inspection endpoints (unified View + Compose tree)
+    // ========================================================================
+
+    /**
+     * Gets the unified layout tree combining Android Views and Compose nodes.
+     *
+     * @return Result containing layout tree JSON on success
+     */
+    public Result<String> getLayoutTree() {
+        return httpGet("/layout/tree");
+    }
+
+    /**
+     * Gets the unified layout tree with filters applied.
+     *
+     * @param text filter by text content (optional)
+     * @param type filter by type/class name (optional)
+     * @param resourceId filter by resource ID (optional)
+     * @param viewId specific view drawing ID to return subtree (optional)
+     * @return Result containing filtered layout tree JSON on success
+     */
+    public Result<String> getLayoutTree(String text, String type, String resourceId, String viewId) {
+        StringBuilder path = new StringBuilder("/layout/tree");
+        String separator = "?";
+        if (text != null && !text.isEmpty()) {
+            path.append(separator).append("text=").append(urlEncode(text));
+            separator = "&";
+        }
+        if (type != null && !type.isEmpty()) {
+            path.append(separator).append("type=").append(urlEncode(type));
+            separator = "&";
+        }
+        if (resourceId != null && !resourceId.isEmpty()) {
+            path.append(separator).append("resource_id=").append(urlEncode(resourceId));
+            separator = "&";
+        }
+        if (viewId != null && !viewId.isEmpty()) {
+            path.append(separator).append("view_id=").append(urlEncode(viewId));
+        }
+        return httpGet(path.toString());
+    }
+
+    /**
+     * Gets detailed ViewDebug properties for a specific view.
+     *
+     * @param viewId the unique drawing ID of the view
+     * @return Result containing properties JSON on success
+     */
+    public Result<String> getLayoutProperties(String viewId) {
+        return httpGet("/layout/properties/" + urlEncode(viewId));
+    }
+
+    // ========================================================================
     // Network inspection endpoints
     // ========================================================================
 
@@ -636,6 +689,14 @@ public class SidekickClient {
      * @param path the endpoint path (e.g., "/health")
      * @return Result containing response body on success
      */
+    private static String urlEncode(String value) {
+        try {
+            return java.net.URLEncoder.encode(value, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            return value; // UTF-8 is always supported
+        }
+    }
+
     private Result<String> httpGet(String path) {
         HttpURLConnection connection = null;
         try {

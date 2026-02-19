@@ -353,6 +353,49 @@ public class InspectorController {
     }
 
     // ========================================================================
+    // Layout endpoints (unified View + Compose tree)
+    // ========================================================================
+
+    @GetMapping("/layout/tree")
+    public ResponseEntity<?> layoutTree(
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device,
+            @RequestParam(required = false) String text,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String resource_id,
+            @RequestParam(required = false) String view_id) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().getLayoutTree(text, type, resource_id, view_id);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to get layout tree");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/layout/properties/{viewId}")
+    public ResponseEntity<?> layoutProperties(
+            @RequestParam("package") String packageName,
+            @PathVariable String viewId,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            Result<String> result = conn.client().getLayoutProperties(viewId);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to get layout properties");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    // ========================================================================
     // Network endpoints
     // ========================================================================
 

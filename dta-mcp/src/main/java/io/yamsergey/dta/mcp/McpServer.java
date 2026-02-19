@@ -39,6 +39,7 @@ public class McpServer {
         List<McpServerFeatures.SyncToolSpecification> tools = new ArrayList<>();
         collectDeviceTools(tools);
         collectAppTools(tools);
+        collectLayoutTools(tools);
         collectMockTools(tools);
         collectCdpTools(tools);
 
@@ -638,6 +639,59 @@ public class McpServer {
                     ));
                     String json = getDaemon().removeSelectedWebSocketMessage(
                         getString(args, "package"), getString(args, "device"), selectionJson);
+                    return ok(json);
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+    }
+
+    private static void collectLayoutTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        // layout_tree
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("layout_tree",
+                "Get the complete UI layout hierarchy including both Android Views and Jetpack Compose nodes " +
+                "with rich properties. Returns a unified tree showing the full view hierarchy with class names, " +
+                "resource IDs, bounds, layout parameters, drawing properties, and Compose-specific data " +
+                "(composable names, parameters, semantics, source locations). " +
+                "Use text/type/resource_id filters to reduce output. Use view_id to get a specific subtree.",
+                schema(Map.of(
+                    "package", prop("string", "App package name (required)", true),
+                    "device", prop("string", "Device serial (optional)", false),
+                    "text", prop("string", "Filter: find elements containing this text (case-insensitive)", false),
+                    "type", prop("string", "Filter: find elements of this type (e.g., Button, TextView, LinearLayout)", false),
+                    "resource_id", prop("string", "Filter: find elements with this resource ID (e.g., 'com.example:id/button')", false),
+                    "view_id", prop("string", "Get subtree rooted at this specific view drawing ID", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String json = getDaemon().layoutTree(
+                        getString(args, "package"), getString(args, "device"),
+                        getString(args, "text"), getString(args, "type"),
+                        getString(args, "resource_id"), getString(args, "view_id"));
+                    return ok(json);
+                } catch (Exception e) {
+                    return errorResult("Failed: " + e.getMessage());
+                }
+            }
+        ));
+
+        // layout_properties
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            new Tool("layout_properties",
+                "Get detailed ViewDebug properties for a specific view node. Returns all annotated properties " +
+                "organized by category (identity, view, layout, drawing, focus, scrolling) with resolved " +
+                "resource names. Use the drawingId from layout_tree results to identify the target view.",
+                schema(Map.of(
+                    "package", prop("string", "App package name (required)", true),
+                    "view_id", prop("string", "View drawing ID from layout_tree results (required)", true),
+                    "device", prop("string", "Device serial (optional)", false)
+                ))),
+            (exchange, args) -> {
+                try {
+                    String json = getDaemon().layoutProperties(
+                        getString(args, "package"), getString(args, "view_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());

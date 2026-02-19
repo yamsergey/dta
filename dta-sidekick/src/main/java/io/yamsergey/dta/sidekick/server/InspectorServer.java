@@ -32,6 +32,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.compose.ComposeHitTester;
+import io.yamsergey.dta.sidekick.layout.UnifiedTreeBuilder;
+import io.yamsergey.dta.sidekick.layout.UnifiedTreeFilter;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabEvent;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabsInspector;
 import io.yamsergey.dta.sidekick.mock.MockConfig;
@@ -563,6 +565,25 @@ public class InspectorServer {
             return;
         }
 
+        // Handle layout properties endpoint: /layout/properties/{viewId}
+        if (path.startsWith("/layout/properties/") && path.length() > 19) {
+            String viewIdStr = path.substring(19);
+            int queryIndex = viewIdStr.indexOf('?');
+            if (queryIndex > 0) {
+                viewIdStr = viewIdStr.substring(0, queryIndex);
+            }
+            handleLayoutProperties(viewIdStr, out);
+            return;
+        }
+
+        // Handle layout tree endpoint (may have query params)
+        String layoutCleanPath = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
+        if (layoutCleanPath.equals("/layout/tree")) {
+            Map<String, String> layoutParams = parseQueryParams(path);
+            handleLayoutTree(layoutParams, out);
+            return;
+        }
+
         // Handle Custom Tabs endpoints
         if (path.equals("/customtabs/events")) {
             if ("GET".equals(method)) {
@@ -671,7 +692,9 @@ public class InspectorServer {
                 "/mock/rules/{id}",
                 "/mock/config",
                 "/mock/from-request/{id}",
-                "/mock/from-message/{id}"
+                "/mock/from-message/{id}",
+                "/layout/tree",
+                "/layout/properties/{viewId}"
         });
 
         sendJson(out, 200, response);
@@ -746,6 +769,80 @@ public class InspectorServer {
 
         } catch (Exception e) {
             SidekickLog.e(TAG, "Error capturing tree", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    // ========================================================================
+    // Layout endpoints
+    // ========================================================================
+
+    /**
+     * GET /layout/tree - Unified layout tree (View + Compose merged).
+     * Supports query params: text, type, resource_id, view_id
+     */
+    private void handleLayoutTree(Map<String, String> params, OutputStream out) throws IOException {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> tree = runOnMainThread(() -> UnifiedTreeBuilder.capture());
+
+            if (tree == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "No views found");
+                error.put("hint", "Make sure the app has a visible activity");
+                sendJson(out, 404, error);
+                return;
+            }
+
+            // Apply filters if any query params specified
+            String text = params.get("text");
+            String type = params.get("type");
+            String resourceId = params.get("resource_id");
+            String viewId = params.get("view_id");
+
+            if (text != null || type != null || resourceId != null || viewId != null) {
+                tree = UnifiedTreeFilter.filter(tree, text, type, resourceId, viewId);
+            }
+
+            sendJson(out, 200, tree);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error capturing layout tree", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * GET /layout/properties/{viewId} - Detailed ViewDebug properties for a single view.
+     */
+    private void handleLayoutProperties(String viewIdStr, OutputStream out) throws IOException {
+        try {
+            long drawingId;
+            try {
+                drawingId = Long.parseLong(viewIdStr);
+            } catch (NumberFormatException e) {
+                sendError(out, 400, "Invalid viewId: " + viewIdStr);
+                return;
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> properties = runOnMainThread(() -> UnifiedTreeBuilder.captureProperties(drawingId));
+
+            if (properties == null) {
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "View not found with drawingId: " + viewIdStr);
+                sendJson(out, 404, error);
+                return;
+            }
+
+            sendJson(out, 200, properties);
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error extracting view properties", e);
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);

@@ -23,6 +23,7 @@ import picocli.CommandLine.Command;
          description = "Inspect Android devices and applications.",
          subcommands = {
              LayoutCommand.class,
+             LayoutTreeCommand.class,
              ScreenshotCommand.class,
              ScrollScreenshotCommand.class,
              LogcatCommand.class,
