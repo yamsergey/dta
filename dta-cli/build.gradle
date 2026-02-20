@@ -44,7 +44,7 @@ dependencies {
     implementation project(':tools-android')
     implementation project(':workspace-kotlin')
     implementation project(':dta-mcp')
-    implementation project(':dta-inspector-web')
+    implementation project(':dta-server')
 
     // CLI framework
     implementation libs.picocli

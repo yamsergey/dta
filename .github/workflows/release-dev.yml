@@ -1,0 +1,148 @@
+name: Release (Dev Channel)
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+-dev.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build project
+        run: ./gradlew build -PdtaVersion=${{ github.ref_name }}
+
+      - name: Build CLI distribution
+        run: ./gradlew :dta-cli:installDist -PdtaVersion=${{ github.ref_name }}
+
+      - name: Package dta-cli
+        run: |
+          cd dta-cli/build/install
+          tar -czf dta-cli-${{ github.ref_name }}.tar.gz dta-cli
+          zip -r dta-cli-${{ github.ref_name }}.zip dta-cli
+          mv dta-cli-${{ github.ref_name }}.tar.gz ../../../
+          mv dta-cli-${{ github.ref_name }}.zip ../../../
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          files: |
+            dta-cli-${{ github.ref_name }}.tar.gz
+            dta-cli-${{ github.ref_name }}.zip
+          body: |
+            ## Development Tools for Android ${{ github.ref_name }} (Dev Channel)
+
+            This is a **pre-release** build for testing. For stable releases, use `brew install dta-cli`.
+
+            ### Install
+
+            ```bash
+            brew tap yamsergey/packages
+            brew install dta-cli-dev
+            ```
+
+            ### Matching sidekick dependency
+
+            ```groovy
+            implementation("io.github.yamsergey:dta-sidekick:${{ github.ref_name }}")
+            ```
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calculate SHA256
+        id: sha
+        run: |
+          SHA256=$(shasum -a 256 dta-cli-${{ github.ref_name }}.tar.gz | awk '{print $1}')
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Upload binaries and update Homebrew dev formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/yamsergey/homebrew-packages.git
+          cd homebrew-packages
+
+          # Create or update release on homebrew-packages with binaries
+          gh release delete "dta-cli-${{ github.ref_name }}" --yes 2>/dev/null || true
+          gh release create "dta-cli-${{ github.ref_name }}" \
+            ../dta-cli-${{ github.ref_name }}.tar.gz \
+            ../dta-cli-${{ github.ref_name }}.zip \
+            --title "dta-cli ${{ github.ref_name }}" \
+            --notes "Dev channel binary release for dta-cli ${{ github.ref_name }}" \
+            --prerelease
+
+          # Dev channel formula: dta-cli-dev
+          cat > Formula/dta-cli-dev.rb << 'EOF'
+          class DtaCliDev < Formula
+            desc "Development Tools for Android - CLI (dev channel)"
+            homepage "https://github.com/yamsergey/dta"
+            url "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-${{ github.ref_name }}/dta-cli-${{ github.ref_name }}.tar.gz"
+            sha256 "${{ steps.sha.outputs.sha256 }}"
+            license "LGPL-3.0"
+            version "${{ github.ref_name }}"
+
+            depends_on "openjdk@21"
+
+            def install
+              libexec.install Dir["*"]
+              bin.install_symlink libexec/"bin/dta-cli"
+            end
+
+            test do
+              assert_match "dta-cli", shell_output("#{bin}/dta-cli --version")
+            end
+          end
+          EOF
+
+          git add Formula/dta-cli-dev.rb
+          git commit -m "Update dev formula to ${{ github.ref_name }}"
+          git push
+
+  publish-maven-central:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Publish to Maven Central
+        run: ./gradlew :dta-sidekick:publishAllPublicationsToMavenCentral :tools-android:publishAllPublicationsToMavenCentral --no-configuration-cache -PdtaVersion=${{ github.ref_name }}
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}

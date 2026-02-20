@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -16,6 +18,9 @@ import java.util.function.Consumer;
  * <p>This singleton ensures only one watcher runs per package/device combination,
  * preventing duplicate monitoring when multiple components (inspector-web, MCP)
  * might try to start watching the same app.</p>
+ *
+ * <p>In event-driven mode, the watcher does not poll for Custom Tabs.
+ * Instead, it waits for SSE events from sidekick and attaches CDP on demand.</p>
  */
 public class CdpWatcherManager {
 
@@ -45,9 +50,13 @@ public class CdpWatcherManager {
     /**
      * Starts a CDP watcher for the given package if not already running.
      *
+     * <p>In event-driven mode, the watcher simply registers the context.
+     * Actual CDP attach happens when {@link #onCustomTabWillLaunch} is called.</p>
+     *
      * @param packageName the Android package name
      * @param deviceSerial the device serial (or null for default)
      * @param cdpPort the local port for Chrome DevTools
+     * @param sidekickPort the local port for the sidekick server
      * @param sidekickClient the sidekick client for posting transactions
      * @param eventCallback optional callback for network events
      * @return true if watcher was started, false if already running
@@ -56,6 +65,7 @@ public class CdpWatcherManager {
             String packageName,
             String deviceSerial,
             int cdpPort,
+            int sidekickPort,
             SidekickClient sidekickClient,
             Consumer<CustomTabsNetworkMonitor.CustomTabNetworkEvent> eventCallback) {
 
@@ -67,7 +77,7 @@ public class CdpWatcherManager {
         }
 
         WatcherContext context = new WatcherContext(
-            packageName, deviceSerial, cdpPort, sidekickClient, eventCallback
+            packageName, deviceSerial, cdpPort, sidekickPort, sidekickClient, eventCallback
         );
         activeWatchers.put(key, context);
         context.start();
@@ -128,6 +138,24 @@ public class CdpWatcherManager {
         activeWatchers.clear();
     }
 
+    /**
+     * Forwards an SSE Custom Tab launch event to the appropriate watcher.
+     *
+     * @param packageName the Android package name
+     * @param deviceSerial the device serial (or null for default)
+     * @param eventId the SSE event ID for ack
+     * @param url the URL being opened in the Custom Tab
+     */
+    public void onCustomTabWillLaunch(String packageName, String deviceSerial, String eventId, String url) {
+        String key = makeKey(packageName, deviceSerial);
+        WatcherContext context = activeWatchers.get(key);
+        if (context != null) {
+            context.onCustomTabWillLaunch(eventId, url);
+        } else {
+            log.warn("No active watcher for {} to handle Custom Tab event", key);
+        }
+    }
+
     private String makeKey(String packageName, String deviceSerial) {
         return (deviceSerial != null ? deviceSerial : "default") + ":" + packageName;
     }
@@ -139,12 +167,17 @@ public class CdpWatcherManager {
         private final String packageName;
         private final String deviceSerial;
         private final int cdpPort;
+        private final int sidekickPort;
         private final SidekickClient sidekickClient;
         private final Consumer<CustomTabsNetworkMonitor.CustomTabNetworkEvent> eventCallback;
         private final AtomicBoolean running = new AtomicBoolean(false);
         private final long startTime;
+        private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "cdp-attach-worker");
+            t.setDaemon(true);
+            return t;
+        });
 
-        private Thread watcherThread;
         private CustomTabsNetworkMonitor monitor;
         private ChromeDevToolsClient currentClient;
         private volatile String currentTabUrl;
@@ -153,11 +186,13 @@ public class CdpWatcherManager {
                 String packageName,
                 String deviceSerial,
                 int cdpPort,
+                int sidekickPort,
                 SidekickClient sidekickClient,
                 Consumer<CustomTabsNetworkMonitor.CustomTabNetworkEvent> eventCallback) {
             this.packageName = packageName;
             this.deviceSerial = deviceSerial;
             this.cdpPort = cdpPort;
+            this.sidekickPort = sidekickPort;
             this.sidekickClient = sidekickClient;
             this.eventCallback = eventCallback;
             this.startTime = System.currentTimeMillis();
@@ -167,24 +202,18 @@ public class CdpWatcherManager {
             if (running.compareAndSet(false, true)) {
                 monitor = new CustomTabsNetworkMonitor(deviceSerial, eventCallback);
                 monitor.setSidekickClient(sidekickClient);
-
-                watcherThread = new Thread(this::watchLoop, "cdp-watcher-" + packageName);
-                watcherThread.setDaemon(true);
-                watcherThread.start();
-                log.info("CDP watcher started for {}", packageName);
+                log.info("CDP watcher started for {} (event-driven, cdpPort={}, sidekickPort={})",
+                    packageName, cdpPort, sidekickPort);
             }
         }
 
         void stop() {
             running.set(false);
-            if (watcherThread != null) {
-                watcherThread.interrupt();
+            closeCurrentClient();
+            if (monitor != null) {
+                monitor.close();
             }
-            if (currentClient != null) {
-                try {
-                    currentClient.close();
-                } catch (Exception ignored) {}
-            }
+            executor.shutdownNow();
             log.info("CDP watcher stopped for {}", packageName);
         }
 
@@ -193,75 +222,115 @@ public class CdpWatcherManager {
                 packageName,
                 deviceSerial,
                 currentTabUrl,
-                currentClient != null,
+                currentClient != null && currentClient.isConnected(),
                 startTime
             );
         }
 
-        private static final long FAST_POLL_MS = 100;
-        private static final long NORMAL_POLL_MS = 500;
-        private static final long FAST_POLL_DURATION_MS = 5_000;
+        /**
+         * Handles a Custom Tab launch event from SSE.
+         * Acks sidekick immediately to unblock Chrome launch, then attaches CDP.
+         *
+         * @param eventId the SSE event ID for ack
+         * @param targetUrl the URL being opened (used to match the correct Chrome tab)
+         */
+        void onCustomTabWillLaunch(String eventId, String targetUrl) {
+            // Ack immediately so sidekick unblocks and Chrome can launch
+            ackSidekick(eventId);
 
-        private void watchLoop() {
-            String currentTabId = null;
-            long loopStartTime = System.currentTimeMillis();
-            boolean tabFoundOnce = false;
-
-            while (running.get() && !Thread.currentThread().isInterrupted()) {
+            executor.submit(() -> {
                 try {
-                    log.debug("Polling for Custom Tab (port={})", cdpPort);
-                    CdpTarget tab = findCustomTab();
+                    // Poll for the Chrome tab for up to 5s (Chrome needs time to start)
+                    ChromeDevToolsClient client = null;
+                    CdpTarget tab = null;
+                    long deadline = System.currentTimeMillis() + 5000;
+                    String urlBase = extractUrlBase(targetUrl);
 
-                    if (tab != null && !tab.id().equals(currentTabId)) {
-                        // New tab detected
-                        log.info("Custom Tab detected: {} ({})", tab.title(), tab.url());
-                        closeCurrentClient();
-
-                        ChromeDevToolsClient client = new ChromeDevToolsClient("localhost", cdpPort);
-                        client.attachToTarget(tab);
-                        monitor.setCdpClient(client);
-
-                        currentTabUrl = tab.url();
-                        client.setNetworkEventListener(cdpEvent -> {
-                            monitor.onCdpEvent(cdpEvent, currentTabUrl);
-                        });
-
-                        client.enableNetwork().join();
-                        log.info("Network.enable completed for tab: {}", tab.url());
-
-                        currentTabId = tab.id();
-                        currentClient = client;
-                        tabFoundOnce = true;
-
-                    } else if (tab == null && currentTabId != null) {
-                        // Tab closed
-                        log.info("Custom Tab closed, detaching");
-                        closeCurrentClient();
-                        currentTabId = null;
-                        currentTabUrl = null;
-                    }
-
-                    // Use faster polling during initial detection phase
-                    long elapsed = System.currentTimeMillis() - loopStartTime;
-                    long sleepMs = (!tabFoundOnce && elapsed < FAST_POLL_DURATION_MS)
-                        ? FAST_POLL_MS : NORMAL_POLL_MS;
-                    Thread.sleep(sleepMs);
-                } catch (InterruptedException e) {
-                    break;
-                } catch (Exception e) {
-                    log.warn("CDP watcher error, retrying: {}", e.getMessage());
-                    // Connection errors when Chrome isn't running
-                    if (currentTabId != null) {
-                        closeCurrentClient();
-                        currentTabId = null;
-                        currentTabUrl = null;
-                    }
+                    ChromeDevToolsClient pollClient = new ChromeDevToolsClient("localhost", cdpPort);
                     try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ie) {
-                        break;
+                        while (System.currentTimeMillis() < deadline) {
+                            try {
+                                List<CdpTarget> targets = pollClient.listTargets();
+                                // Match by URL to find the correct tab
+                                tab = targets.stream()
+                                    .filter(CdpTarget::isPage)
+                                    .filter(t -> matchesUrl(t.url(), targetUrl, urlBase))
+                                    .findFirst()
+                                    .orElse(null);
+                                if (tab != null) {
+                                    client = pollClient;
+                                    pollClient = null; // prevent close in finally
+                                    break;
+                                }
+                            } catch (Exception e) {
+                                // Chrome not ready yet
+                            }
+                            Thread.sleep(200);
+                        }
+                    } finally {
+                        if (pollClient != null) {
+                            try { pollClient.close(); } catch (Exception ignored) {}
+                        }
                     }
+
+                    if (tab == null || client == null) {
+                        log.warn("Could not find Custom Tab for URL {} within 5s", targetUrl);
+                        return;
+                    }
+
+                    closeCurrentClient();
+                    client.attachToTarget(tab);
+                    currentClient = client;
+                    monitor.setCdpClient(client);
+
+                    currentTabUrl = tab.url();
+                    client.setNetworkEventListener(cdpEvent -> {
+                        monitor.onCdpEvent(cdpEvent, currentTabUrl);
+                    });
+
+                    client.enableNetwork().join();
+
+                    log.info("CDP attached to Custom Tab: {} ({})", tab.title(), tab.url());
+
+                } catch (Exception e) {
+                    log.error("Failed to attach CDP for event {}: {}", eventId, e.getMessage(), e);
                 }
+            });
+        }
+
+        private static String extractUrlBase(String url) {
+            if (url == null) return "";
+            try {
+                java.net.URI uri = java.net.URI.create(url);
+                String path = uri.getPath();
+                if (path == null || path.isEmpty()) path = "/";
+                return uri.getScheme() + "://" + uri.getHost() + path;
+            } catch (Exception e) {
+                return url;
+            }
+        }
+
+        private static boolean matchesUrl(String tabUrl, String targetUrl, String urlBase) {
+            if (tabUrl == null || targetUrl == null) return false;
+            return tabUrl.equals(targetUrl)
+                || tabUrl.startsWith(urlBase)
+                || targetUrl.startsWith(extractUrlBase(tabUrl));
+        }
+
+        private void ackSidekick(String eventId) {
+            try {
+                var url = new java.net.URL("http://localhost:" + sidekickPort + "/customtabs/ack/" + eventId);
+                var conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.setDoOutput(true);
+                conn.getOutputStream().close();
+                int code = conn.getResponseCode();
+                conn.disconnect();
+                log.debug("CDP ack sent for event {}: HTTP {}", eventId, code);
+            } catch (Exception e) {
+                log.warn("Failed to ack CDP event {}: {}", eventId, e.getMessage());
             }
         }
 
@@ -272,19 +341,8 @@ public class CdpWatcherManager {
                 } catch (Exception ignored) {}
                 currentClient = null;
             }
-            monitor.setCdpClient(null);
-        }
-
-        private CdpTarget findCustomTab() {
-            try {
-                ChromeDevToolsClient client = new ChromeDevToolsClient("localhost", cdpPort);
-                List<CdpTarget> targets = client.listTargets();
-                return targets.stream()
-                    .filter(CdpTarget::isPage)
-                    .findFirst()
-                    .orElse(null);
-            } catch (Exception e) {
-                return null;
+            if (monitor != null) {
+                monitor.setCdpClient(null);
             }
         }
     }

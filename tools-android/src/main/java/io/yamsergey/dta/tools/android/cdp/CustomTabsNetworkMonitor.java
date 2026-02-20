@@ -526,7 +526,11 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 if (tx.resourceType != null) {
                     data.put("resourceType", tx.resourceType);
                 }
-                data.put("startTime", tx.startTime);
+                // CDP timestamps are monotonic (ms since browser start), not wall-clock.
+                // Convert: use wall-clock now minus elapsed time since request started.
+                long durationMs = (tx.endTime > 0 && tx.startTime > 0) ? Math.max(0, tx.endTime - tx.startTime) : 0;
+                long wallClockStart = System.currentTimeMillis() - durationMs;
+                data.put("startTime", wallClockStart);
 
                 if (tx.requestHeaders != null && !tx.requestHeaders.isEmpty()) {
                     data.put("requestHeaders", tx.requestHeaders);
@@ -549,8 +553,8 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                     }
                 }
 
-                if (tx.endTime > 0 && tx.startTime > 0) {
-                    data.put("duration", tx.endTime - tx.startTime);
+                if (durationMs > 0) {
+                    data.put("duration", durationMs);
                 }
 
                 if (error != null) {

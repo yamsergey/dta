@@ -40,9 +40,6 @@ sourceSets {
 }
 
 dependencies {
-    // Core DTA library for sidekick client
-    implementation project(':tools-android')
-
     // MCP Java SDK
     implementation 'io.modelcontextprotocol.sdk:mcp:0.10.0'
 

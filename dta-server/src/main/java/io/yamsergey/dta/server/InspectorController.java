@@ -1,4 +1,4 @@
-package io.yamsergey.dta.inspector.web;
+package io.yamsergey.dta.server;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,17 +10,25 @@ import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.Device;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.SidekickSocket;
+import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshot;
+import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshotCapture;
+import io.yamsergey.dta.tools.android.sidekick.SidekickSseListener;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * REST API controller for the DTA Inspector.
@@ -37,6 +45,7 @@ public class InspectorController {
 
     private final SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
     private final ObjectMapper mapper = new ObjectMapper();
+    private final Map<String, SidekickSseListener> sseListeners = new ConcurrentHashMap<>();
 
     private static String loadVersion() {
         try (var is = InspectorController.class.getResourceAsStream("/version.properties")) {
@@ -64,10 +73,12 @@ public class InspectorController {
 
     @GetMapping("/version")
     public ResponseEntity<?> getToolVersion() {
-        return ResponseEntity.ok(Map.of(
-            "name", "dta-inspector-web",
-            "version", VERSION
-        ));
+        var info = new java.util.HashMap<String, Object>();
+        info.put("name", "dta-server");
+        info.put("version", VERSION);
+        info.put("daemon", true);
+        info.put("pid", ProcessHandle.current().pid());
+        return ResponseEntity.ok(info);
     }
 
     @GetMapping("/connection-status")
@@ -176,6 +187,111 @@ public class InspectorController {
             return ResponseEntity.ok(Map.of("success", success, "x", x, "y", y));
         } catch (Exception e) {
             return error("Failed to tap: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/swipe")
+    public ResponseEntity<?> swipe(
+            @RequestParam int x1,
+            @RequestParam int y1,
+            @RequestParam int x2,
+            @RequestParam int y2,
+            @RequestParam(required = false, defaultValue = "300") int duration,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean success = connectionManager.swipe(device, x1, y1, x2, y2, duration);
+            return ResponseEntity.ok(Map.of("success", success));
+        } catch (Exception e) {
+            return error("Failed to swipe: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/input-text")
+    public ResponseEntity<?> inputText(
+            @RequestParam String text,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean success = connectionManager.inputText(device, text);
+            return ResponseEntity.ok(Map.of("success", success));
+        } catch (Exception e) {
+            return error("Failed to input text: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/press-key")
+    public ResponseEntity<?> pressKey(
+            @RequestParam String key,
+            @RequestParam(required = false) String device) {
+        try {
+            boolean success = connectionManager.pressKey(device, key);
+            return ResponseEntity.ok(Map.of("success", success, "key", key));
+        } catch (Exception e) {
+            return error("Failed to press key: " + e.getMessage());
+        }
+    }
+
+    @GetMapping(value = "/screenshot/device", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> deviceScreenshot(
+            @RequestParam(required = false) String device) {
+        try {
+            byte[] data = connectionManager.captureScreenshot(device);
+            return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(data);
+        } catch (Exception e) {
+            log.error("Device screenshot failed for device={}", device, e);
+            return ResponseEntity.internalServerError().body(e.getMessage().getBytes());
+        }
+    }
+
+    @PostMapping("/scroll-screenshot")
+    public ResponseEntity<?> scrollScreenshot(
+            @RequestParam(required = false) String device,
+            @RequestParam(required = false) String viewId,
+            @RequestParam(required = false, defaultValue = "false") boolean scrollToTop,
+            @RequestParam(required = false, defaultValue = "30") int maxCaptures) {
+        try {
+            File tempFile = Files.createTempFile("scroll_screenshot_", ".png").toFile();
+            tempFile.deleteOnExit();
+
+            ScrollScreenshotCapture.ScrollScreenshotCaptureBuilder builder =
+                ScrollScreenshotCapture.builder()
+                    .outputFile(tempFile)
+                    .scrollToTop(scrollToTop)
+                    .maxCaptures(maxCaptures);
+
+            if (device != null && !device.isEmpty()) {
+                builder.deviceSerial(device);
+            }
+            if (viewId != null && !viewId.isEmpty()) {
+                builder.targetViewId(viewId);
+            }
+
+            Result<ScrollScreenshot> result = builder.build().capture();
+
+            if (result instanceof Success<ScrollScreenshot> success) {
+                ScrollScreenshot screenshot = success.value();
+                byte[] imageBytes = Files.readAllBytes(tempFile.toPath());
+                String base64 = Base64.getEncoder().encodeToString(imageBytes);
+                tempFile.delete();
+
+                return ResponseEntity.ok(Map.of(
+                    "imageBase64", base64,
+                    "width", screenshot.getWidth(),
+                    "height", screenshot.getHeight(),
+                    "captures", screenshot.getCaptureCount(),
+                    "reachedEnd", screenshot.isReachedScrollEnd(),
+                    "scrollableView", screenshot.getScrollableViewId() != null ? screenshot.getScrollableViewId() : ""
+                ));
+            } else if (result instanceof Failure<ScrollScreenshot> failure) {
+                tempFile.delete();
+                return error("Scroll screenshot failed: " + failure.description());
+            }
+            tempFile.delete();
+            return error("Scroll screenshot failed: unknown error");
+        } catch (Exception e) {
+            return error("Failed to capture scroll screenshot: " + e.getMessage());
         }
     }
 
@@ -690,30 +806,93 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            // Ensure sidekick connection exists
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            String listenerKey = makeListenerKey(packageName, device);
 
-            // Set up Chrome DevTools port forwarding
-            connectionManager.setupCdpPortForward(device, DEFAULT_CDP_PORT);
-
-            boolean started = CdpWatcherManager.getInstance().startWatcher(
-                packageName, device, DEFAULT_CDP_PORT, conn.client(), null);
-
-            if (started) {
-                log.info("CDP watcher started for package={}, device={}", packageName, device);
-                return ResponseEntity.ok(Map.of(
-                    "status", "started",
-                    "message", "CDP watcher started for Custom Tabs"
-                ));
-            } else {
+            // Don't start if already running (atomic check)
+            SidekickSseListener existing = sseListeners.get(listenerKey);
+            if (existing != null) {
                 return ResponseEntity.ok(Map.of(
                     "status", "already_running",
-                    "message", "CDP watcher already active"
+                    "message", "CDP capture already active"
                 ));
             }
+
+            boolean portForwarded = false;
+            boolean cdpArmed = false;
+            boolean watcherStarted = false;
+            SidekickSseListener sseListener = null;
+
+            try {
+                // Set up Chrome DevTools port forwarding
+                connectionManager.setupCdpPortForward(device, DEFAULT_CDP_PORT);
+                portForwarded = true;
+
+                // Arm CDP capture on sidekick
+                conn.client().requestCdpCapture();
+                cdpArmed = true;
+
+                // Start CdpWatcherManager (no polling, just registers context)
+                CdpWatcherManager.getInstance().startWatcher(
+                    packageName, device, DEFAULT_CDP_PORT, conn.port(), conn.client(), null);
+                watcherStarted = true;
+
+                // Start SSE listener for push events
+                sseListener = new SidekickSseListener(conn.port(),
+                    new SidekickSseListener.EventListener() {
+                        @Override
+                        public void onCustomTabWillLaunch(String eventId, String url, long timestamp) {
+                            log.info("SSE: Custom Tab will launch: {} (event={})", url, eventId);
+                            CdpWatcherManager.getInstance().onCustomTabWillLaunch(packageName, device, eventId, url);
+                        }
+
+                        @Override
+                        public void onConnected() {
+                            log.info("SSE: Connected to sidekick for {}", packageName);
+                        }
+
+                        @Override
+                        public void onDisconnected() {
+                            log.info("SSE: Disconnected from sidekick for {}", packageName);
+                        }
+                    });
+                sseListener.start();
+
+                // Atomically register — if another thread raced us, stop ours
+                SidekickSseListener raced = sseListeners.putIfAbsent(listenerKey, sseListener);
+                if (raced != null) {
+                    sseListener.stop();
+                    CdpWatcherManager.getInstance().stopWatcher(packageName, device);
+                    return ResponseEntity.ok(Map.of(
+                        "status", "already_running",
+                        "message", "CDP capture already active"
+                    ));
+                }
+
+                log.info("CDP capture armed for package={}, device={}", packageName, device);
+                return ResponseEntity.ok(Map.of(
+                    "status", "started",
+                    "message", "CDP capture armed — will attach on Custom Tab launch"
+                ));
+            } catch (Exception e) {
+                // Rollback: clean up anything that was started
+                if (sseListener != null) {
+                    sseListener.stop();
+                }
+                if (watcherStarted) {
+                    CdpWatcherManager.getInstance().stopWatcher(packageName, device);
+                }
+                if (cdpArmed) {
+                    try { conn.client().releaseCdpCapture(); } catch (Exception ignored) {}
+                }
+                if (portForwarded) {
+                    try { connectionManager.removeCdpPortForward(device, DEFAULT_CDP_PORT); } catch (Exception ignored) {}
+                }
+                throw e;
+            }
         } catch (Exception e) {
-            log.error("Failed to start CDP watcher for package={}: {}", packageName, e.getMessage(), e);
-            return error("Failed to start CDP watcher: " + e.getMessage());
+            log.error("Failed to start CDP capture for package={}: {}", packageName, e.getMessage(), e);
+            return error("Failed to start CDP capture: " + e.getMessage());
         }
     }
 
@@ -722,22 +901,43 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
+            String listenerKey = makeListenerKey(packageName, device);
+
+            // Stop SSE listener
+            SidekickSseListener sseListener = sseListeners.remove(listenerKey);
+            if (sseListener != null) {
+                sseListener.stop();
+            }
+
+            // Disarm CDP capture on sidekick
+            try {
+                ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+                conn.client().releaseCdpCapture();
+            } catch (Exception e) {
+                log.debug("Could not release CDP capture on sidekick: {}", e.getMessage());
+            }
+
+            // Stop watcher
             boolean stopped = CdpWatcherManager.getInstance().stopWatcher(packageName, device);
-            if (stopped) {
-                log.info("CDP watcher stopped for package={}, device={}", packageName, device);
+
+            // Remove ADB port forward for CDP
+            connectionManager.removeCdpPortForward(device, DEFAULT_CDP_PORT);
+
+            if (stopped || sseListener != null) {
+                log.info("CDP capture disarmed for package={}, device={}", packageName, device);
                 return ResponseEntity.ok(Map.of(
                     "status", "stopped",
-                    "message", "CDP watcher stopped"
+                    "message", "CDP capture disarmed"
                 ));
             } else {
                 return ResponseEntity.ok(Map.of(
                     "status", "not_running",
-                    "message", "No CDP watcher was running"
+                    "message", "No CDP capture was active"
                 ));
             }
         } catch (Exception e) {
-            log.error("Failed to stop CDP watcher for package={}: {}", packageName, e.getMessage(), e);
-            return error("Failed to stop CDP watcher: " + e.getMessage());
+            log.error("Failed to stop CDP capture for package={}: {}", packageName, e.getMessage(), e);
+            return error("Failed to stop CDP capture: " + e.getMessage());
         }
     }
 
@@ -746,27 +946,64 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
+            String listenerKey = makeListenerKey(packageName, device);
+            SidekickSseListener sseListener = sseListeners.get(listenerKey);
             var info = CdpWatcherManager.getInstance().getWatcherInfo(packageName, device);
+
+            Map<String, Object> status = new java.util.HashMap<>();
+            status.put("armed", CdpWatcherManager.getInstance().isWatching(packageName, device));
+            status.put("sseConnected", sseListener != null && sseListener.isRunning());
+
             if (info != null) {
-                return ResponseEntity.ok(Map.of(
-                    "watching", true,
-                    "currentTabUrl", info.currentTabUrl() != null ? info.currentTabUrl() : "",
-                    "connected", info.isConnected(),
-                    "startTime", info.startTime()
-                ));
+                status.put("watching", true);
+                status.put("currentTabUrl", info.currentTabUrl() != null ? info.currentTabUrl() : "");
+                status.put("connected", info.isConnected());
+                status.put("startTime", info.startTime());
             } else {
-                return ResponseEntity.ok(Map.of(
-                    "watching", false
-                ));
+                status.put("watching", false);
             }
+
+            return ResponseEntity.ok(status);
         } catch (Exception e) {
-            return error("Failed to get CDP watcher status: " + e.getMessage());
+            return error("Failed to get CDP capture status: " + e.getMessage());
         }
+    }
+
+    // ========================================================================
+    // Lifecycle
+    // ========================================================================
+
+    @PreDestroy
+    void shutdown() {
+        log.info("Shutting down InspectorController — cleaning up CDP watchers");
+        sseListeners.forEach((key, listener) -> {
+            try {
+                listener.stop();
+            } catch (Exception e) {
+                log.debug("Error stopping SSE listener {}: {}", key, e.getMessage());
+            }
+            // Release CDP capture on the sidekick for this key
+            try {
+                String[] parts = key.split(":", 2);
+                String device = "default".equals(parts[0]) ? null : parts[0];
+                String packageName = parts[1];
+                ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+                conn.client().releaseCdpCapture();
+            } catch (Exception e) {
+                log.debug("Error releasing CDP capture for {}: {}", key, e.getMessage());
+            }
+        });
+        sseListeners.clear();
+        CdpWatcherManager.getInstance().stopAll();
     }
 
     // ========================================================================
     // Helpers
     // ========================================================================
+
+    private String makeListenerKey(String packageName, String device) {
+        return (device != null ? device : "default") + ":" + packageName;
+    }
 
     private ResponseEntity<?> error(String message) {
         return ResponseEntity.badRequest().body(Map.of("error", message));

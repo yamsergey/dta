@@ -1,58 +1,37 @@
 package io.yamsergey.dta.cli.mock;
 
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
-import io.yamsergey.dta.tools.sugar.Failure;
-import io.yamsergey.dta.tools.sugar.Result;
-import io.yamsergey.dta.tools.sugar.Success;
+import io.yamsergey.dta.mcp.DaemonClient;
+import io.yamsergey.dta.mcp.DaemonLauncher;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 import java.util.concurrent.Callable;
 
-/**
- * Delete a mock rule.
- *
- * <p>Usage: dta-cli mock delete &lt;rule-id&gt; --package com.example.app</p>
- */
 @Command(name = "delete",
          description = "Delete a mock rule.")
 public class MockDeleteCommand implements Callable<Integer> {
 
-    @Parameters(index = "0",
-                description = "Mock rule ID to delete")
+    @Parameters(index = "0", description = "Mock rule ID to delete")
     private String ruleId;
 
-    @Option(names = {"--package", "-p"},
-            required = true,
-            description = "App package name")
+    @Option(names = {"--package", "-p"}, required = true, description = "App package name")
     private String packageName;
 
-    @Option(names = {"--device", "-d"},
-            description = "Device serial number")
+    @Option(names = {"--device", "-d"}, description = "Device serial number")
     private String deviceSerial;
 
     @Override
     public Integer call() throws Exception {
-        var conn = SidekickConnectionManager.getInstance().getConnection(packageName, deviceSerial);
-        var client = conn.client();
-
-        Result<String> result = client.deleteMockRule(ruleId);
-
-        return switch (result) {
-            case Success<String> success -> {
-                System.out.println(success.value());
-                System.err.println("Mock rule deleted");
-                yield 0;
-            }
-            case Failure<String> failure -> {
-                System.err.println("Error: " + failure.description());
-                yield 1;
-            }
-            default -> {
-                System.err.println("Error: Unknown result type");
-                yield 1;
-            }
-        };
+        try {
+            DaemonClient daemon = DaemonLauncher.ensureDaemonRunning();
+            String result = daemon.deleteMockRule(packageName, ruleId, deviceSerial);
+            System.out.println(result);
+            System.err.println("Mock rule deleted");
+            return 0;
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            return 1;
+        }
     }
 }
