@@ -97,7 +97,10 @@ public class WindowRootDiscovery {
                 Object viewsObj = viewsField.get(wmg);
 
                 if (viewsObj instanceof List) {
-                    for (Object v : (List<?>) viewsObj) {
+                    // Copy immediately to avoid ConcurrentModificationException —
+                    // the original list is mutated by WindowManagerGlobal on the main thread
+                    List<?> snapshot = new ArrayList<>((List<?>) viewsObj);
+                    for (Object v : snapshot) {
                         if (v instanceof View) {
                             rootViews.add((View) v);
                         }
@@ -127,16 +130,10 @@ public class WindowRootDiscovery {
 
     /**
      * Gets the unique drawing ID for a view (API 29+).
+     * Delegates to ViewPropertyExtractor to avoid duplication.
      */
     private static long getUniqueDrawingId(View view) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                return view.getUniqueDrawingId();
-            } catch (Exception e) {
-                // Fall through
-            }
-        }
-        return System.identityHashCode(view);
+        return ViewPropertyExtractor.getUniqueDrawingId(view);
     }
 
     /**
@@ -189,18 +186,59 @@ public class WindowRootDiscovery {
                     && type <= android.view.WindowManager.LayoutParams.LAST_SYSTEM_WINDOW) {
                     return "system";
                 }
-                // Specific types
-                if (type == android.view.WindowManager.LayoutParams.TYPE_APPLICATION_PANEL) {
-                    return "popup";
-                }
-                if (type == android.view.WindowManager.LayoutParams.TYPE_TOAST) {
-                    return "toast";
-                }
             }
         } catch (Exception e) {
             // Ignore
         }
         return "unknown";
+    }
+
+    /**
+     * Gets all visible, attached root views using the best available API.
+     * Uses WindowInspector (API 29+) as primary, WindowManagerGlobal as fallback.
+     * Filtered to visible, attached views sorted by z-order.
+     *
+     * @return list of visible root views, or empty list if none found
+     */
+    public static List<View> getVisibleRootViews() {
+        return getAllWindowRootViews();
+    }
+
+    /**
+     * Gets the current foreground (resumed) Activity via reflection on ActivityThread.
+     *
+     * @return the current resumed Activity, or null if none found
+     */
+    @SuppressWarnings("unchecked")
+    public static Activity getCurrentActivity() {
+        try {
+            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
+            Method currentMethod = activityThreadClass.getDeclaredMethod("currentActivityThread");
+            Object activityThread = currentMethod.invoke(null);
+
+            Field activitiesField = activityThreadClass.getDeclaredField("mActivities");
+            activitiesField.setAccessible(true);
+            Object activitiesMap = activitiesField.get(activityThread);
+
+            if (activitiesMap instanceof Map) {
+                for (Object activityRecord : ((Map<?, ?>) activitiesMap).values()) {
+                    Field activityField = activityRecord.getClass().getDeclaredField("activity");
+                    activityField.setAccessible(true);
+                    Activity act = (Activity) activityField.get(activityRecord);
+
+                    if (act != null) {
+                        Field pausedField = activityRecord.getClass().getDeclaredField("paused");
+                        pausedField.setAccessible(true);
+                        if (!pausedField.getBoolean(activityRecord)) {
+                            return act;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error getting current activity", e);
+        }
+        return null;
     }
 
     /**

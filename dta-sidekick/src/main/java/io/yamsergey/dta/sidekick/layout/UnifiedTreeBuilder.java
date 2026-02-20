@@ -1,7 +1,6 @@
 package io.yamsergey.dta.sidekick.layout;
 
 import android.app.Activity;
-import android.os.Build;
 import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.ViewGroup;
@@ -13,8 +12,6 @@ import io.yamsergey.dta.sidekick.view.ViewTreeCapture;
 import io.yamsergey.dta.sidekick.view.WindowRootDiscovery;
 import io.yamsergey.dta.sidekick.view.WindowRootDiscovery.WindowRoot;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -176,36 +173,10 @@ public class UnifiedTreeBuilder {
     }
 
     /**
-     * Gets the current resumed Activity via reflection on ActivityThread.
+     * Gets the current resumed Activity.
+     * Delegates to WindowRootDiscovery to avoid duplication.
      */
     private static Activity getCurrentActivity() {
-        try {
-            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
-            Method currentMethod = activityThreadClass.getDeclaredMethod("currentActivityThread");
-            Object activityThread = currentMethod.invoke(null);
-
-            Field activitiesField = activityThreadClass.getDeclaredField("mActivities");
-            activitiesField.setAccessible(true);
-            Object activitiesMap = activitiesField.get(activityThread);
-
-            if (activitiesMap instanceof Map) {
-                for (Object activityRecord : ((Map<?, ?>) activitiesMap).values()) {
-                    Field activityField = activityRecord.getClass().getDeclaredField("activity");
-                    activityField.setAccessible(true);
-                    Activity act = (Activity) activityField.get(activityRecord);
-
-                    if (act != null) {
-                        Field pausedField = activityRecord.getClass().getDeclaredField("paused");
-                        pausedField.setAccessible(true);
-                        if (!pausedField.getBoolean(activityRecord)) {
-                            return act;
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Error getting current activity", e);
-        }
-        return null;
+        return WindowRootDiscovery.getCurrentActivity();
     }
 }

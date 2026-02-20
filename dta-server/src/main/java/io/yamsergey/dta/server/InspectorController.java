@@ -369,9 +369,26 @@ public class InspectorController {
             Result<String> result = conn.client().getLayoutTree(text, type, resource_id, view_id);
 
             if (result instanceof Success<String> success) {
-                return ResponseEntity.ok(mapper.readTree(success.value()));
+                JsonNode tree = mapper.readTree(success.value());
+
+                // Wrap filtered results in a consistent shape matching compose_tree
+                boolean hasFilters = text != null || type != null || resource_id != null || view_id != null;
+                if (hasFilters) {
+                    ObjectNode response = mapper.createObjectNode();
+                    response.put("package", packageName);
+                    ObjectNode filters = response.putObject("filters");
+                    if (text != null) filters.put("text", text);
+                    if (type != null) filters.put("type", type);
+                    if (resource_id != null) filters.put("resourceId", resource_id);
+                    if (view_id != null) filters.put("viewId", view_id);
+                    response.set("result", tree);
+                    return ResponseEntity.ok(response);
+                }
+
+                return ResponseEntity.ok(tree);
             }
-            return error("Failed to get layout tree");
+            String desc = result instanceof Failure<?> f ? f.description() : "Unknown error";
+            return error("Failed to get layout tree: " + desc);
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
@@ -389,7 +406,8 @@ public class InspectorController {
             if (result instanceof Success<String> success) {
                 return ResponseEntity.ok(mapper.readTree(success.value()));
             }
-            return error("Failed to get layout properties");
+            String desc = result instanceof Failure<?> f ? f.description() : "Unknown error";
+            return error("Failed to get layout properties: " + desc);
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }

@@ -657,8 +657,8 @@ public class McpServer {
                 "(composable names, parameters, semantics, source locations). " +
                 "Use text/type/resource_id filters to reduce output. Use view_id to get a specific subtree.",
                 schema(Map.of(
-                    "package", prop("string", "App package name (required)", true),
-                    "device", prop("string", "Device serial (optional)", false),
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false),
                     "text", prop("string", "Filter: find elements containing this text (case-insensitive)", false),
                     "type", prop("string", "Filter: find elements of this type (e.g., Button, TextView, LinearLayout)", false),
                     "resource_id", prop("string", "Filter: find elements with this resource ID (e.g., 'com.example:id/button')", false),
@@ -684,9 +684,9 @@ public class McpServer {
                 "organized by category (identity, view, layout, drawing, focus, scrolling) with resolved " +
                 "resource names. Use the drawingId from layout_tree results to identify the target view.",
                 schema(Map.of(
-                    "package", prop("string", "App package name (required)", true),
-                    "view_id", prop("string", "View drawing ID from layout_tree results (required)", true),
-                    "device", prop("string", "Device serial (optional)", false)
+                    "package", prop("string", "App package name", true),
+                    "view_id", prop("string", "Use the drawingId field value from layout_tree results as this parameter", true),
+                    "device", prop("string", "Device serial", false)
                 ))),
             (exchange, args) -> {
                 try {

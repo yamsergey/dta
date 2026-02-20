@@ -13,6 +13,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,7 +26,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -34,6 +36,7 @@ import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.compose.ComposeHitTester;
 import io.yamsergey.dta.sidekick.layout.UnifiedTreeBuilder;
 import io.yamsergey.dta.sidekick.layout.UnifiedTreeFilter;
+import io.yamsergey.dta.sidekick.view.WindowRootDiscovery;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabEvent;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabsInspector;
 import io.yamsergey.dta.sidekick.mock.MockConfig;
@@ -66,6 +69,7 @@ public class InspectorServer {
 
     private static final String TAG = "InspectorServer";
     private static final String SOCKET_PREFIX = "dta_sidekick_";
+    private static final int MAX_BODY_SIZE = 10_485_760; // 10 MB
     private static final String VERSION = loadVersion();
     private static volatile InspectorServer instance;
 
@@ -113,7 +117,7 @@ public class InspectorServer {
     private InspectorServer() {
         this.gson = new GsonBuilder().setPrettyPrinting().create();
         this.gsonCompact = new Gson();
-        this.executor = Executors.newCachedThreadPool();
+        this.executor = new ThreadPoolExecutor(0, 16, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
         this.mainHandler = new Handler(Looper.getMainLooper());
 
         // Create listener for broadcasting events to SSE clients
@@ -356,6 +360,11 @@ public class InspectorServer {
 
             // Read body if present - must loop since read() may return fewer chars than requested
             String body = null;
+            if (contentLength > MAX_BODY_SIZE) {
+                sendError(out, 413, "Payload Too Large");
+                client.close();
+                return;
+            }
             if (contentLength > 0) {
                 char[] bodyChars = new char[contentLength];
                 int totalRead = 0;
@@ -567,6 +576,10 @@ public class InspectorServer {
 
         // Handle layout properties endpoint: /layout/properties/{viewId}
         if (path.startsWith("/layout/properties/") && path.length() > 19) {
+            if (!"GET".equals(method)) {
+                sendError(out, 405, "Method Not Allowed");
+                return;
+            }
             String viewIdStr = path.substring(19);
             int queryIndex = viewIdStr.indexOf('?');
             if (queryIndex > 0) {
@@ -577,8 +590,11 @@ public class InspectorServer {
         }
 
         // Handle layout tree endpoint (may have query params)
-        String layoutCleanPath = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
-        if (layoutCleanPath.equals("/layout/tree")) {
+        if (cleanPath.equals("/layout/tree")) {
+            if (!"GET".equals(method)) {
+                sendError(out, 405, "Method Not Allowed");
+                return;
+            }
             Map<String, String> layoutParams = parseQueryParams(path);
             handleLayoutTree(layoutParams, out);
             return;
@@ -1019,8 +1035,12 @@ public class InspectorServer {
             int eqIndex = pair.indexOf('=');
             if (eqIndex > 0) {
                 String key = pair.substring(0, eqIndex);
-                String value = pair.substring(eqIndex + 1);
-                params.put(key, value);
+                try {
+                    String value = URLDecoder.decode(pair.substring(eqIndex + 1), "UTF-8");
+                    params.put(key, value);
+                } catch (java.io.UnsupportedEncodingException e) {
+                    params.put(key, pair.substring(eqIndex + 1)); // UTF-8 always supported
+                }
             }
         }
         return params;
@@ -1028,38 +1048,10 @@ public class InspectorServer {
 
     /**
      * Gets the current foreground Activity.
+     * Delegates to WindowRootDiscovery to avoid duplication.
      */
     private android.app.Activity getCurrentActivity() {
-        try {
-            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
-            java.lang.reflect.Method currentMethod = activityThreadClass.getDeclaredMethod("currentActivityThread");
-            Object activityThread = currentMethod.invoke(null);
-
-            java.lang.reflect.Field activitiesField = activityThreadClass.getDeclaredField("mActivities");
-            activitiesField.setAccessible(true);
-            Object activitiesMap = activitiesField.get(activityThread);
-
-            if (activitiesMap instanceof Map) {
-                for (Object activityRecord : ((Map<?, ?>) activitiesMap).values()) {
-                    java.lang.reflect.Field activityField = activityRecord.getClass().getDeclaredField("activity");
-                    activityField.setAccessible(true);
-                    android.app.Activity activity = (android.app.Activity) activityField.get(activityRecord);
-
-                    if (activity != null) {
-                        java.lang.reflect.Field pausedField = activityRecord.getClass().getDeclaredField("paused");
-                        pausedField.setAccessible(true);
-                        boolean paused = pausedField.getBoolean(activityRecord);
-
-                        if (!paused) {
-                            return activity;
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Error getting current activity", e);
-        }
-        return null;
+        return io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getCurrentActivity();
     }
 
     /**
@@ -2062,9 +2054,7 @@ public class InspectorServer {
                 default:
                     if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
                         Map<String, Object> element = gson.fromJson(body, Map.class);
-                        if (!containsElementByBounds(element)) {
-                            selectedElements.add(element);
-                        }
+                        addElementIfAbsent(element);
                     }
                     break;
             }
@@ -2091,21 +2081,25 @@ public class InspectorServer {
         }
     }
 
-    private boolean containsElementByBounds(Map<String, Object> element) {
+    private void addElementIfAbsent(Map<String, Object> element) {
         Object bounds = element.get("bounds");
-        if (bounds == null) return false;
-        for (Map<String, Object> existing : selectedElements) {
-            if (Objects.equals(existing.get("bounds"), bounds)) {
-                return true;
+        if (bounds == null) return;
+        synchronized (selectedElements) {
+            for (Map<String, Object> existing : selectedElements) {
+                if (Objects.equals(existing.get("bounds"), bounds)) {
+                    return;
+                }
             }
+            selectedElements.add(element);
         }
-        return false;
     }
 
     private void removeElementByBounds(Map<String, Object> element) {
         Object bounds = element.get("bounds");
         if (bounds == null) return;
-        selectedElements.removeIf(existing -> Objects.equals(existing.get("bounds"), bounds));
+        synchronized (selectedElements) {
+            selectedElements.removeIf(existing -> Objects.equals(existing.get("bounds"), bounds));
+        }
     }
 
     /**
@@ -2140,9 +2134,7 @@ public class InspectorServer {
                 default:
                     if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
                         Map<String, Object> request = gson.fromJson(body, Map.class);
-                        if (!containsRequestById(request)) {
-                            selectedNetworkRequests.add(request);
-                        }
+                        addRequestIfAbsent(request);
                     }
                     break;
             }
@@ -2169,21 +2161,25 @@ public class InspectorServer {
         }
     }
 
-    private boolean containsRequestById(Map<String, Object> request) {
+    private void addRequestIfAbsent(Map<String, Object> request) {
         Object id = request.get("id");
-        if (id == null) return false;
-        for (Map<String, Object> existing : selectedNetworkRequests) {
-            if (Objects.equals(existing.get("id"), id)) {
-                return true;
+        if (id == null) return;
+        synchronized (selectedNetworkRequests) {
+            for (Map<String, Object> existing : selectedNetworkRequests) {
+                if (Objects.equals(existing.get("id"), id)) {
+                    return;
+                }
             }
+            selectedNetworkRequests.add(request);
         }
-        return false;
     }
 
     private void removeRequestById(Map<String, Object> request) {
         Object id = request.get("id");
         if (id == null) return;
-        selectedNetworkRequests.removeIf(existing -> Objects.equals(existing.get("id"), id));
+        synchronized (selectedNetworkRequests) {
+            selectedNetworkRequests.removeIf(existing -> Objects.equals(existing.get("id"), id));
+        }
     }
 
     /**
@@ -2219,9 +2215,7 @@ public class InspectorServer {
                 default:
                     if (body != null && !body.trim().isEmpty() && !body.trim().equals("null")) {
                         Map<String, Object> selection = gson.fromJson(body, Map.class);
-                        if (!containsWsMessageByKey(selection)) {
-                            selectedWebSocketMessages.add(selection);
-                        }
+                        addWsMessageIfAbsent(selection);
                     }
                     break;
             }
@@ -2248,26 +2242,30 @@ public class InspectorServer {
         }
     }
 
-    private boolean containsWsMessageByKey(Map<String, Object> selection) {
+    private void addWsMessageIfAbsent(Map<String, Object> selection) {
         Object connId = selection.get("connectionId");
         Object msgIdx = selection.get("messageIndex");
-        if (connId == null || msgIdx == null) return false;
-        for (Map<String, Object> existing : selectedWebSocketMessages) {
-            if (Objects.equals(existing.get("connectionId"), connId) &&
-                Objects.equals(existing.get("messageIndex"), msgIdx)) {
-                return true;
+        if (connId == null || msgIdx == null) return;
+        synchronized (selectedWebSocketMessages) {
+            for (Map<String, Object> existing : selectedWebSocketMessages) {
+                if (Objects.equals(existing.get("connectionId"), connId) &&
+                    Objects.equals(existing.get("messageIndex"), msgIdx)) {
+                    return;
+                }
             }
+            selectedWebSocketMessages.add(selection);
         }
-        return false;
     }
 
     private void removeWsMessageByKey(Map<String, Object> selection) {
         Object connId = selection.get("connectionId");
         Object msgIdx = selection.get("messageIndex");
         if (connId == null || msgIdx == null) return;
-        selectedWebSocketMessages.removeIf(existing ->
-            Objects.equals(existing.get("connectionId"), connId) &&
-            Objects.equals(existing.get("messageIndex"), msgIdx));
+        synchronized (selectedWebSocketMessages) {
+            selectedWebSocketMessages.removeIf(existing ->
+                Objects.equals(existing.get("connectionId"), connId) &&
+                Objects.equals(existing.get("messageIndex"), msgIdx));
+        }
     }
 
     /**

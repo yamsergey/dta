@@ -690,11 +690,7 @@ public class SidekickClient {
      * @return Result containing response body on success
      */
     private static String urlEncode(String value) {
-        try {
-            return java.net.URLEncoder.encode(value, "UTF-8");
-        } catch (java.io.UnsupportedEncodingException e) {
-            return value; // UTF-8 is always supported
-        }
+        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private Result<String> httpGet(String path) {

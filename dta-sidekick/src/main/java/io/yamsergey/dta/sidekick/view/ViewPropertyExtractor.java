@@ -54,10 +54,8 @@ public class ViewPropertyExtractor {
 
         Object getValue(Object target) throws Exception {
             if (method != null) {
-                method.setAccessible(true);
                 return method.invoke(target);
             } else if (field != null) {
-                field.setAccessible(true);
                 return field.get(target);
             }
             return null;
@@ -137,42 +135,42 @@ public class ViewPropertyExtractor {
      * Gets or builds the list of PropertyAccessors for a given class.
      */
     private static List<PropertyAccessor> getAccessors(Class<?> clazz) {
-        List<PropertyAccessor> cached = accessorCache.get(clazz);
-        if (cached != null) return cached;
+        return accessorCache.computeIfAbsent(clazz, c -> {
+            List<PropertyAccessor> accessors = new ArrayList<>();
 
-        List<PropertyAccessor> accessors = new ArrayList<>();
-
-        // Walk the class hierarchy
-        Class<?> current = clazz;
-        while (current != null && current != Object.class) {
-            // Check methods
-            for (Method method : current.getDeclaredMethods()) {
-                ViewDebug.ExportedProperty annotation = method.getAnnotation(ViewDebug.ExportedProperty.class);
-                if (annotation != null && method.getParameterCount() == 0) {
-                    String name = method.getName();
-                    // Strip "get" prefix and lowercase first char
-                    if (name.startsWith("get") && name.length() > 3) {
-                        name = Character.toLowerCase(name.charAt(3)) + name.substring(4);
-                    } else if (name.startsWith("is") && name.length() > 2) {
-                        name = Character.toLowerCase(name.charAt(2)) + name.substring(3);
+            // Walk the class hierarchy
+            Class<?> current = c;
+            while (current != null && current != Object.class) {
+                // Check methods
+                for (Method method : current.getDeclaredMethods()) {
+                    ViewDebug.ExportedProperty annotation = method.getAnnotation(ViewDebug.ExportedProperty.class);
+                    if (annotation != null && method.getParameterCount() == 0) {
+                        String name = method.getName();
+                        // Strip "get" prefix and lowercase first char
+                        if (name.startsWith("get") && name.length() > 3) {
+                            name = Character.toLowerCase(name.charAt(3)) + name.substring(4);
+                        } else if (name.startsWith("is") && name.length() > 2) {
+                            name = Character.toLowerCase(name.charAt(2)) + name.substring(3);
+                        }
+                        method.setAccessible(true);
+                        accessors.add(new PropertyAccessor(name, annotation.category(), method, null, annotation));
                     }
-                    accessors.add(new PropertyAccessor(name, annotation.category(), method, null, annotation));
                 }
+
+                // Check fields
+                for (Field field : current.getDeclaredFields()) {
+                    ViewDebug.ExportedProperty annotation = field.getAnnotation(ViewDebug.ExportedProperty.class);
+                    if (annotation != null) {
+                        field.setAccessible(true);
+                        accessors.add(new PropertyAccessor(field.getName(), annotation.category(), null, field, annotation));
+                    }
+                }
+
+                current = current.getSuperclass();
             }
 
-            // Check fields
-            for (Field field : current.getDeclaredFields()) {
-                ViewDebug.ExportedProperty annotation = field.getAnnotation(ViewDebug.ExportedProperty.class);
-                if (annotation != null) {
-                    accessors.add(new PropertyAccessor(field.getName(), annotation.category(), null, field, annotation));
-                }
-            }
-
-            current = current.getSuperclass();
-        }
-
-        accessorCache.put(clazz, accessors);
-        return accessors;
+            return accessors;
+        });
     }
 
     /**
@@ -266,7 +264,7 @@ public class ViewPropertyExtractor {
     /**
      * Gets the unique drawing ID (API 29+) or falls back to identity hash code.
      */
-    private static long getUniqueDrawingId(View view) {
+    public static long getUniqueDrawingId(View view) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 return view.getUniqueDrawingId();

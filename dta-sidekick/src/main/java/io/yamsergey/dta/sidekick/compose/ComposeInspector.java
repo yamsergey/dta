@@ -2,7 +2,6 @@ package io.yamsergey.dta.sidekick.compose;
 
 import android.app.Activity;
 import android.app.Application;
-import android.os.Build;
 import android.util.DisplayMetrics;
 import io.yamsergey.dta.sidekick.SidekickLog;
 import android.view.View;
@@ -27,10 +26,10 @@ public class ComposeInspector {
     private static final String TAG = "ComposeInspector";
 
     // Cached class references
-    private static Class<?> androidComposeViewClass;
-    private static Class<?> layoutNodeClass;
-    private static boolean initialized = false;
-    private static boolean inspectionEnabled = false;
+    private static volatile Class<?> androidComposeViewClass;
+    private static volatile Class<?> layoutNodeClass;
+    private static volatile boolean initialized = false;
+    private static volatile boolean inspectionEnabled = false;
 
     /**
      * Enables Compose inspection mode by setting isDebugInspectorInfoEnabled = true.
@@ -2012,67 +2011,11 @@ public class ComposeInspector {
     }
 
     /**
-     * Gets all root views using the best available API.
-     * Uses WindowInspector (API 29+) as primary method, with WindowManagerGlobal fallback.
-     * Filters to only visible, attached views and sorts by z-order (like Android Studio).
+     * Gets all visible, attached root views sorted by z-order.
+     * Delegates to WindowRootDiscovery to avoid duplication.
      */
-    @SuppressWarnings("unchecked")
     private static List<View> getAllWindowRootViews() {
-        List<View> rootViews = new ArrayList<>();
-
-        // Try WindowInspector first (API 29+) - this is what Android Studio uses
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                rootViews = android.view.inspector.WindowInspector.getGlobalWindowViews();
-                SidekickLog.d(TAG, "WindowInspector returned " + rootViews.size() + " root views");
-            } catch (Exception e) {
-                SidekickLog.w(TAG, "WindowInspector failed, falling back to WindowManagerGlobal: " + e.getMessage());
-                rootViews = new ArrayList<>();
-            }
-        }
-
-        // Fallback to WindowManagerGlobal reflection (for API < 29 or if WindowInspector fails)
-        if (rootViews.isEmpty()) {
-            try {
-                Class<?> wmgClass = Class.forName("android.view.WindowManagerGlobal");
-                Method getInstanceMethod = wmgClass.getDeclaredMethod("getInstance");
-                Object wmgInstance = getInstanceMethod.invoke(null);
-
-                Field viewsField = wmgClass.getDeclaredField("mViews");
-                viewsField.setAccessible(true);
-                Object viewsObj = viewsField.get(wmgInstance);
-
-                if (viewsObj instanceof List) {
-                    List<?> views = (List<?>) viewsObj;
-                    for (Object view : views) {
-                        if (view instanceof View) {
-                            rootViews.add((View) view);
-                        }
-                    }
-                }
-                SidekickLog.d(TAG, "WindowManagerGlobal returned " + rootViews.size() + " root views");
-            } catch (Exception e) {
-                SidekickLog.w(TAG, "Could not get windows from WindowManagerGlobal: " + e.getMessage());
-            }
-        }
-
-        // Filter and sort like Android Studio does:
-        // - Only visible and attached views
-        // - Sorted by z-order (higher z = on top = processed later)
-        List<View> filteredViews = new ArrayList<>();
-        for (View view : rootViews) {
-            if (view.getVisibility() == View.VISIBLE && view.isAttachedToWindow()) {
-                filteredViews.add(view);
-            }
-        }
-
-        // Sort by z-order (views with higher z are drawn on top)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            filteredViews.sort((v1, v2) -> Float.compare(v1.getZ(), v2.getZ()));
-        }
-
-        SidekickLog.d(TAG, "After filtering: " + filteredViews.size() + " visible root views");
-        return filteredViews;
+        return io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getVisibleRootViews();
     }
 
     /**
@@ -2111,38 +2054,10 @@ public class ComposeInspector {
 
     /**
      * Gets the current foreground activity.
+     * Delegates to WindowRootDiscovery to avoid duplication.
      */
     private static Activity getCurrentActivity() {
-        try {
-            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
-            Method currentMethod = activityThreadClass.getDeclaredMethod("currentActivityThread");
-            Object activityThread = currentMethod.invoke(null);
-
-            Field activitiesField = activityThreadClass.getDeclaredField("mActivities");
-            activitiesField.setAccessible(true);
-            Object activitiesMap = activitiesField.get(activityThread);
-
-            if (activitiesMap instanceof Map) {
-                for (Object activityRecord : ((Map<?, ?>) activitiesMap).values()) {
-                    Field activityField = activityRecord.getClass().getDeclaredField("activity");
-                    activityField.setAccessible(true);
-                    Activity activity = (Activity) activityField.get(activityRecord);
-
-                    if (activity != null) {
-                        Field pausedField = activityRecord.getClass().getDeclaredField("paused");
-                        pausedField.setAccessible(true);
-                        boolean paused = pausedField.getBoolean(activityRecord);
-
-                        if (!paused) {
-                            return activity;
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Error getting current activity", e);
-        }
-        return null;
+        return io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getCurrentActivity();
     }
 
     /**
@@ -2345,15 +2260,6 @@ public class ComposeInspector {
             if (coords == null) {
                 return null;
             }
-
-            // Debug: Log all available methods on coordinates
-            StringBuilder coordMethods = new StringBuilder("LayoutCoordinates methods: ");
-            for (Method m : coords.getClass().getMethods()) {
-                if (m.getDeclaringClass() != Object.class) {
-                    coordMethods.append(m.getName()).append("(").append(m.getParameterCount()).append("), ");
-                }
-            }
-            SidekickLog.d(TAG, coordMethods.toString());
 
             // Get node dimensions (needed for some fallbacks)
             int width = 0, height = 0;

@@ -3,7 +3,6 @@ package io.yamsergey.dta.sidekick.view;
 import android.content.res.Resources;
 import android.graphics.Matrix;
 import android.graphics.drawable.ColorDrawable;
-import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -30,8 +29,8 @@ public class ViewTreeCapture {
     private static final int MAX_DEPTH = 100;
 
     // AndroidComposeView class cached for detection
-    private static Class<?> androidComposeViewClass;
-    private static boolean composeClassResolved = false;
+    private static volatile Class<?> androidComposeViewClass;
+    private static volatile boolean composeClassResolved = false;
 
     /**
      * Captures the full view tree starting from the given root.
@@ -275,15 +274,9 @@ public class ViewTreeCapture {
 
     /**
      * Gets the unique drawing ID (API 29+) or falls back to identity hash code.
+     * Delegates to ViewPropertyExtractor to avoid duplication.
      */
     private static long getUniqueDrawingId(View view) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                return view.getUniqueDrawingId();
-            } catch (Exception e) {
-                // Fall through
-            }
-        }
-        return System.identityHashCode(view);
+        return ViewPropertyExtractor.getUniqueDrawingId(view);
     }
 }
