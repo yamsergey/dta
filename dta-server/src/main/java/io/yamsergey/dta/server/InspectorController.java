@@ -160,7 +160,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<byte[]> result = conn.client().getScreenshot();
             if (result instanceof Success<byte[]> success) {
                 return ResponseEntity.ok()
@@ -306,7 +306,7 @@ public class InspectorController {
             @RequestParam(required = false) String text,
             @RequestParam(required = false) String type) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getComposeTree();
 
             if (result instanceof Success<String> success) {
@@ -343,7 +343,7 @@ public class InspectorController {
             @RequestParam int y,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             // Call hit test endpoint - need to add this to SidekickClient
             // For now, return the tap coordinates
             return ResponseEntity.ok(Map.of("x", x, "y", y, "hint", "Hit test not yet implemented"));
@@ -365,7 +365,7 @@ public class InspectorController {
             @RequestParam(required = false) String resource_id,
             @RequestParam(required = false) String view_id) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getLayoutTree(text, type, resource_id, view_id);
 
             if (result instanceof Success<String> success) {
@@ -400,7 +400,7 @@ public class InspectorController {
             @PathVariable String viewId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getLayoutProperties(viewId);
 
             if (result instanceof Success<String> success) {
@@ -422,7 +422,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getNetworkRequests();
 
             if (result instanceof Success<String> success) {
@@ -440,7 +440,7 @@ public class InspectorController {
             @PathVariable String requestId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getNetworkRequest(requestId);
 
             if (result instanceof Success<String> success) {
@@ -458,7 +458,7 @@ public class InspectorController {
             @PathVariable String requestId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getNetworkRequestBody(requestId);
 
             if (result instanceof Success<String> success) {
@@ -475,7 +475,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getNetworkStats();
 
             if (result instanceof Success<String> success) {
@@ -492,7 +492,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().clearNetworkRequests();
 
             if (result instanceof Success<String> success) {
@@ -513,7 +513,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getWebSocketConnections();
 
             if (result instanceof Success<String> success) {
@@ -531,7 +531,7 @@ public class InspectorController {
             @PathVariable String connectionId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getWebSocketConnection(connectionId);
 
             if (result instanceof Success<String> success) {
@@ -548,7 +548,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().clearWebSocketConnections();
 
             if (result instanceof Success<String> success) {
@@ -570,7 +570,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getSelectedElements();
 
             if (result instanceof Success<String> success) {
@@ -589,7 +589,7 @@ public class InspectorController {
             @RequestParam(defaultValue = "add") String action,
             @RequestBody(required = false) String elementJson) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = switch (action) {
                 case "clear" -> conn.client().clearSelectedElements();
                 case "remove" -> conn.client().removeSelectedElement(elementJson);
@@ -614,7 +614,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getSelectedNetworkRequests();
 
             if (result instanceof Success<String> success) {
@@ -633,7 +633,7 @@ public class InspectorController {
             @RequestParam(defaultValue = "add") String action,
             @RequestBody(required = false) String requestJson) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = switch (action) {
                 case "clear" -> conn.client().clearSelectedNetworkRequests();
                 case "remove" -> conn.client().removeSelectedNetworkRequest(requestJson);
@@ -658,7 +658,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getSelectedWebSocketMessages();
 
             if (result instanceof Success<String> success) {
@@ -677,7 +677,7 @@ public class InspectorController {
             @RequestParam(defaultValue = "add") String action,
             @RequestBody(required = false) String selectionJson) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = switch (action) {
                 case "clear" -> conn.client().clearSelectedWebSocketMessages();
                 case "remove" -> conn.client().removeSelectedWebSocketMessage(selectionJson);
@@ -702,7 +702,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getMockRules();
 
             if (result instanceof Success<String> success) {
@@ -720,7 +720,7 @@ public class InspectorController {
             @PathVariable String ruleId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getMockRule(ruleId);
 
             if (result instanceof Success<String> success) {
@@ -738,7 +738,7 @@ public class InspectorController {
             @RequestParam(required = false) String device,
             @RequestBody String ruleJson) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().createMockRule(ruleJson);
 
             if (result instanceof Success<String> success) {
@@ -757,7 +757,7 @@ public class InspectorController {
             @RequestParam(required = false) String device,
             @RequestBody String updateJson) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().updateMockRule(ruleId, updateJson);
 
             if (result instanceof Success<String> success) {
@@ -775,7 +775,7 @@ public class InspectorController {
             @PathVariable String ruleId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().deleteMockRule(ruleId);
 
             if (result instanceof Success<String> success) {
@@ -792,7 +792,7 @@ public class InspectorController {
             @RequestParam("package") String packageName,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().getMockConfig();
 
             if (result instanceof Success<String> success) {
@@ -810,7 +810,7 @@ public class InspectorController {
             @RequestParam(required = false) String device,
             @RequestBody String configJson) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().updateMockConfig(configJson);
 
             if (result instanceof Success<String> success) {
@@ -828,7 +828,7 @@ public class InspectorController {
             @PathVariable String requestId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().createMockFromRequest(requestId);
 
             if (result instanceof Success<String> success) {
@@ -846,7 +846,7 @@ public class InspectorController {
             @PathVariable String messageId,
             @RequestParam(required = false) String device) {
         try {
-            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
             Result<String> result = conn.client().createMockFromMessage(messageId);
 
             if (result instanceof Success<String> success) {
@@ -855,6 +855,78 @@ public class InspectorController {
             return error("Failed to create mock from message");
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
+        }
+    }
+
+    // ========================================================================
+    // Auto CDP helpers
+    // ========================================================================
+
+    /**
+     * Returns a sidekick connection and auto-enables CDP watcher (best-effort).
+     * Use this instead of {@code connectionManager.getConnection()} in endpoint methods.
+     */
+    private ConnectionInfo getConnectionWithCdp(String packageName, String device) throws Exception {
+        ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+        ensureCdpWatcher(packageName, device, conn);
+        return conn;
+    }
+
+    /**
+     * Idempotent, best-effort CDP watcher setup. If already running for this key — returns immediately.
+     * On failure, logs a warning and continues — never breaks the calling API request.
+     */
+    private void ensureCdpWatcher(String packageName, String device, ConnectionInfo conn) {
+        String listenerKey = makeListenerKey(packageName, device);
+
+        // Already running — nothing to do
+        if (sseListeners.containsKey(listenerKey)) {
+            return;
+        }
+
+        try {
+            // Set up Chrome DevTools port forwarding
+            connectionManager.setupCdpPortForward(device, DEFAULT_CDP_PORT);
+
+            // Arm CDP capture on sidekick
+            conn.client().requestCdpCapture();
+
+            // Start CdpWatcherManager (no polling, just registers context)
+            CdpWatcherManager.getInstance().startWatcher(
+                packageName, device, DEFAULT_CDP_PORT, conn.port(), conn.client(), null);
+
+            // Start SSE listener for push events
+            SidekickSseListener sseListener = new SidekickSseListener(conn.port(),
+                new SidekickSseListener.EventListener() {
+                    @Override
+                    public void onCustomTabWillLaunch(String eventId, String url, long timestamp) {
+                        log.info("SSE: Custom Tab will launch: {} (event={})", url, eventId);
+                        CdpWatcherManager.getInstance().onCustomTabWillLaunch(packageName, device, eventId, url);
+                    }
+
+                    @Override
+                    public void onConnected() {
+                        log.info("SSE: Connected to sidekick for {}", packageName);
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        log.info("SSE: Disconnected from sidekick for {}", packageName);
+                    }
+                });
+            sseListener.start();
+
+            // Atomically register — if another thread raced us, stop ours
+            SidekickSseListener raced = sseListeners.putIfAbsent(listenerKey, sseListener);
+            if (raced != null) {
+                sseListener.stop();
+                CdpWatcherManager.getInstance().stopWatcher(packageName, device);
+            } else {
+                log.info("Auto-enabled CDP capture for package={}, device={}", packageName, device);
+            }
+        } catch (Exception e) {
+            log.warn("Auto-enable CDP capture failed for package={}, device={}: {} (non-fatal)",
+                packageName, device, e.getMessage());
         }
     }
 
@@ -868,89 +940,17 @@ public class InspectorController {
             @RequestParam(required = false) String device) {
         try {
             ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ensureCdpWatcher(packageName, device, conn);
+
             String listenerKey = makeListenerKey(packageName, device);
+            boolean running = sseListeners.containsKey(listenerKey);
 
-            // Don't start if already running (atomic check)
-            SidekickSseListener existing = sseListeners.get(listenerKey);
-            if (existing != null) {
-                return ResponseEntity.ok(Map.of(
-                    "status", "already_running",
-                    "message", "CDP capture already active"
-                ));
-            }
-
-            boolean portForwarded = false;
-            boolean cdpArmed = false;
-            boolean watcherStarted = false;
-            SidekickSseListener sseListener = null;
-
-            try {
-                // Set up Chrome DevTools port forwarding
-                connectionManager.setupCdpPortForward(device, DEFAULT_CDP_PORT);
-                portForwarded = true;
-
-                // Arm CDP capture on sidekick
-                conn.client().requestCdpCapture();
-                cdpArmed = true;
-
-                // Start CdpWatcherManager (no polling, just registers context)
-                CdpWatcherManager.getInstance().startWatcher(
-                    packageName, device, DEFAULT_CDP_PORT, conn.port(), conn.client(), null);
-                watcherStarted = true;
-
-                // Start SSE listener for push events
-                sseListener = new SidekickSseListener(conn.port(),
-                    new SidekickSseListener.EventListener() {
-                        @Override
-                        public void onCustomTabWillLaunch(String eventId, String url, long timestamp) {
-                            log.info("SSE: Custom Tab will launch: {} (event={})", url, eventId);
-                            CdpWatcherManager.getInstance().onCustomTabWillLaunch(packageName, device, eventId, url);
-                        }
-
-                        @Override
-                        public void onConnected() {
-                            log.info("SSE: Connected to sidekick for {}", packageName);
-                        }
-
-                        @Override
-                        public void onDisconnected() {
-                            log.info("SSE: Disconnected from sidekick for {}", packageName);
-                        }
-                    });
-                sseListener.start();
-
-                // Atomically register — if another thread raced us, stop ours
-                SidekickSseListener raced = sseListeners.putIfAbsent(listenerKey, sseListener);
-                if (raced != null) {
-                    sseListener.stop();
-                    CdpWatcherManager.getInstance().stopWatcher(packageName, device);
-                    return ResponseEntity.ok(Map.of(
-                        "status", "already_running",
-                        "message", "CDP capture already active"
-                    ));
-                }
-
-                log.info("CDP capture armed for package={}, device={}", packageName, device);
-                return ResponseEntity.ok(Map.of(
-                    "status", "started",
-                    "message", "CDP capture armed — will attach on Custom Tab launch"
-                ));
-            } catch (Exception e) {
-                // Rollback: clean up anything that was started
-                if (sseListener != null) {
-                    sseListener.stop();
-                }
-                if (watcherStarted) {
-                    CdpWatcherManager.getInstance().stopWatcher(packageName, device);
-                }
-                if (cdpArmed) {
-                    try { conn.client().releaseCdpCapture(); } catch (Exception ignored) {}
-                }
-                if (portForwarded) {
-                    try { connectionManager.removeCdpPortForward(device, DEFAULT_CDP_PORT); } catch (Exception ignored) {}
-                }
-                throw e;
-            }
+            return ResponseEntity.ok(Map.of(
+                "status", running ? "started" : "failed",
+                "message", running
+                    ? "CDP capture armed — will attach on Custom Tab launch"
+                    : "CDP capture could not be started (check server logs)"
+            ));
         } catch (Exception e) {
             log.error("Failed to start CDP capture for package={}: {}", packageName, e.getMessage(), e);
             return error("Failed to start CDP capture: " + e.getMessage());
