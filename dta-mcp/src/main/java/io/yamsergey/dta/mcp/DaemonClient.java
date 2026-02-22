@@ -84,6 +84,22 @@ public class DaemonClient {
         return get(url.toString());
     }
 
+    // --- Layout ---
+
+    public String layoutTree(String pkg, String device, String text, String type, String resourceId, String viewId) {
+        StringBuilder url = new StringBuilder("/api/layout/tree?package=" + encode(pkg));
+        if (device != null && !device.isEmpty()) url.append("&device=").append(encode(device));
+        if (text != null && !text.isEmpty()) url.append("&text=").append(encode(text));
+        if (type != null && !type.isEmpty()) url.append("&type=").append(encode(type));
+        if (resourceId != null && !resourceId.isEmpty()) url.append("&resource_id=").append(encode(resourceId));
+        if (viewId != null && !viewId.isEmpty()) url.append("&view_id=").append(encode(viewId));
+        return get(url.toString());
+    }
+
+    public String layoutProperties(String pkg, String viewId, String device) {
+        return get("/api/layout/properties/" + encode(viewId) + "?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
     // --- Network ---
 
     public String networkRequests(String pkg, String device) {

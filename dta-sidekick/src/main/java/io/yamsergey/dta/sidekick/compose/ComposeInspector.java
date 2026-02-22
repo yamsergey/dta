@@ -2,7 +2,6 @@ package io.yamsergey.dta.sidekick.compose;
 
 import android.app.Activity;
 import android.app.Application;
-import android.os.Build;
 import android.util.DisplayMetrics;
 import io.yamsergey.dta.sidekick.SidekickLog;
 import android.view.View;
@@ -27,10 +26,10 @@ public class ComposeInspector {
     private static final String TAG = "ComposeInspector";
 
     // Cached class references
-    private static Class<?> androidComposeViewClass;
-    private static Class<?> layoutNodeClass;
-    private static boolean initialized = false;
-    private static boolean inspectionEnabled = false;
+    private static volatile Class<?> androidComposeViewClass;
+    private static volatile Class<?> layoutNodeClass;
+    private static volatile boolean initialized = false;
+    private static volatile boolean inspectionEnabled = false;
 
     /**
      * Enables Compose inspection mode by setting isDebugInspectorInfoEnabled = true.
@@ -1259,6 +1258,9 @@ public class ComposeInspector {
             Map<String, Object> node = new HashMap<>();
             Class<?> nodeClass = layoutNode.getClass();
 
+            // Compose node type marker (distinguishes from View nodes in unified tree)
+            node.put("nodeType", "compose");
+
             // Get className from MeasurePolicy (used internally for composable detection)
             String className = getMeasurePolicyClassName(layoutNode);
 
@@ -1411,6 +1413,12 @@ public class ComposeInspector {
                 }
             }
 
+            // Extract InspectorInfo parameters and modifiers from the LayoutNode
+            extractInspectorInfoParams(layoutNode, node);
+
+            // Extract recomposition counts (if available)
+            extractRecompositionCounts(layoutNode, composableInfoMap, node);
+
             // Generate stable ID for this node
             node.put("id", generateNodeId(layoutNode, depth));
 
@@ -1460,6 +1468,277 @@ public class ComposeInspector {
         } catch (Exception e) {
             SidekickLog.e(TAG, "Error capturing unified node", e);
             return null;
+        }
+    }
+
+    /**
+     * Captures a Compose subtree for use in the unified layout tree.
+     * Called by UnifiedTreeBuilder when it encounters an AndroidComposeView in the View tree.
+     *
+     * @param composeView the AndroidComposeView instance
+     * @return Map with "children" containing the compose node list, or null if no tree found
+     */
+    public static Map<String, Object> captureComposeSubtree(Object composeView) {
+        ensureInitialized();
+
+        if (composeView == null || androidComposeViewClass == null) {
+            return null;
+        }
+        if (!androidComposeViewClass.isInstance(composeView)) {
+            return null;
+        }
+
+        try {
+            Object rootLayoutNode = getRootLayoutNode(composeView);
+            if (rootLayoutNode == null) {
+                return null;
+            }
+
+            List<Object> children = getLayoutNodeChildren(rootLayoutNode);
+            if (children.isEmpty()) {
+                return null;
+            }
+
+            // Get window offset for coordinate conversion
+            int[] windowOffset = new int[2];
+            if (composeView instanceof View) {
+                View view = (View) composeView;
+                int[] screenLoc = new int[2];
+                int[] windowLoc = new int[2];
+                view.getLocationOnScreen(screenLoc);
+                view.getLocationInWindow(windowLoc);
+                windowOffset[0] = screenLoc[0] - windowLoc[0];
+                windowOffset[1] = screenLoc[1] - windowLoc[1];
+            }
+
+            // Build semantics and composable info
+            Map<Integer, Map<String, Object>> semanticsById = buildSemanticsById(composeView);
+            Map<Integer, ComposableInfo> composableInfoMap = buildComposableInfoMap(composeView);
+
+            // Capture the tree
+            Map<String, Object> rootNode = captureUnifiedNode(rootLayoutNode,
+                windowOffset[0], windowOffset[1], 0, semanticsById, composableInfoMap, null);
+
+            if (rootNode == null) {
+                return null;
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            // The root node's children are what we want to inline
+            Object rootChildren = rootNode.get("children");
+            if (rootChildren != null) {
+                result.put("children", rootChildren);
+            } else {
+                // If root has no children list, wrap it as the single child
+                List<Map<String, Object>> singleChild = new ArrayList<>();
+                singleChild.add(rootNode);
+                result.put("children", singleChild);
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Error capturing compose subtree", e);
+            return null;
+        }
+    }
+
+    /**
+     * Extracts InspectorInfo parameters and modifiers from a LayoutNode.
+     * InspectorInfo is populated when isDebugInspectorInfoEnabled = true.
+     *
+     * @param layoutNode the LayoutNode to inspect
+     * @param node the output map to populate with parameters and modifiers
+     */
+    private static void extractInspectorInfoParams(Object layoutNode, Map<String, Object> node) {
+        try {
+            // Get modifier info list from the LayoutNode
+            Method getModifierInfo = null;
+            for (Method m : layoutNode.getClass().getMethods()) {
+                if (m.getName().equals("getModifierInfo") && m.getParameterCount() == 0) {
+                    getModifierInfo = m;
+                    break;
+                }
+            }
+
+            if (getModifierInfo == null) return;
+
+            getModifierInfo.setAccessible(true);
+            Object modifierInfoList = getModifierInfo.invoke(layoutNode);
+
+            if (!(modifierInfoList instanceof List)) return;
+
+            List<Map<String, Object>> parameters = new ArrayList<>();
+            List<String> modifiers = new ArrayList<>();
+
+            for (Object modInfo : (List<?>) modifierInfoList) {
+                try {
+                    // Get the modifier name
+                    Method getExtra = null;
+                    Method getModifier = null;
+                    for (Method m : modInfo.getClass().getMethods()) {
+                        if (m.getName().equals("getExtra") && m.getParameterCount() == 0) {
+                            getExtra = m;
+                        }
+                        if (m.getName().equals("getModifier") && m.getParameterCount() == 0) {
+                            getModifier = m;
+                        }
+                    }
+
+                    // Extract modifier class name
+                    if (getModifier != null) {
+                        getModifier.setAccessible(true);
+                        Object modifier = getModifier.invoke(modInfo);
+                        if (modifier != null) {
+                            String modName = modifier.getClass().getSimpleName();
+                            if (!modName.isEmpty() && !modName.contains("$")) {
+                                modifiers.add(modName);
+                            }
+                        }
+                    }
+
+                    // Extract InspectorInfo from "extra" field
+                    if (getExtra != null) {
+                        getExtra.setAccessible(true);
+                        Object extra = getExtra.invoke(modInfo);
+                        if (extra != null) {
+                            extractInspectorInfoValues(extra, parameters);
+                        }
+                    }
+                } catch (Exception e) {
+                    // Skip this modifier
+                }
+            }
+
+            if (!parameters.isEmpty()) {
+                node.put("parameters", parameters);
+            }
+            if (!modifiers.isEmpty()) {
+                node.put("modifiers", modifiers);
+            }
+
+        } catch (Exception e) {
+            // InspectorInfo not available - this is normal for release builds
+        }
+    }
+
+    /**
+     * Extracts values from an InspectorInfo object.
+     */
+    private static void extractInspectorInfoValues(Object inspectorInfo, List<Map<String, Object>> params) {
+        try {
+            // Get name
+            Method getName = null;
+            Method getValue = null;
+            Method getProperties = null;
+
+            for (Method m : inspectorInfo.getClass().getMethods()) {
+                String name = m.getName();
+                if (name.equals("getName") && m.getParameterCount() == 0) getName = m;
+                if (name.equals("getValue") && m.getParameterCount() == 0) getValue = m;
+                if (name.equals("getProperties") && m.getParameterCount() == 0) getProperties = m;
+            }
+
+            // Extract properties map (parameter name → value)
+            if (getProperties != null) {
+                getProperties.setAccessible(true);
+                Object properties = getProperties.invoke(inspectorInfo);
+                if (properties instanceof Map) {
+                    for (Map.Entry<?, ?> entry : ((Map<?, ?>) properties).entrySet()) {
+                        Map<String, Object> param = new HashMap<>();
+                        param.put("name", entry.getKey().toString());
+                        Object val = entry.getValue();
+                        param.put("value", val != null ? formatParamValue(val) : null);
+                        param.put("type", val != null ? val.getClass().getSimpleName() : "null");
+                        params.add(param);
+                    }
+                }
+            }
+
+            // If no properties map, use direct name/value
+            if (params.isEmpty() && getName != null && getValue != null) {
+                getName.setAccessible(true);
+                getValue.setAccessible(true);
+                Object nameObj = getName.invoke(inspectorInfo);
+                Object valueObj = getValue.invoke(inspectorInfo);
+                if (nameObj != null) {
+                    Map<String, Object> param = new HashMap<>();
+                    param.put("name", nameObj.toString());
+                    param.put("value", valueObj != null ? formatParamValue(valueObj) : null);
+                    param.put("type", valueObj != null ? valueObj.getClass().getSimpleName() : "null");
+                    params.add(param);
+                }
+            }
+        } catch (Exception e) {
+            // InspectorInfo extraction failed
+        }
+    }
+
+    /**
+     * Formats a parameter value for JSON output.
+     */
+    private static Object formatParamValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number || value instanceof Boolean) return value;
+        if (value instanceof CharSequence) return value.toString();
+        if (value instanceof Enum) return value.toString();
+        // For complex objects, use simple class name + toString
+        String className = value.getClass().getSimpleName();
+        String str = value.toString();
+        if (str.length() > 200) {
+            str = str.substring(0, 200) + "...";
+        }
+        return str;
+    }
+
+    /**
+     * Extracts recomposition counts for a Compose node (if available).
+     * Looks for RecomposeScopeImpl associated with the LayoutNode.
+     *
+     * @param layoutNode the LayoutNode
+     * @param composableInfoMap the composable info map (may contain recomposition data)
+     * @param node the output map to populate
+     */
+    private static void extractRecompositionCounts(Object layoutNode,
+                                                    Map<Integer, ComposableInfo> composableInfoMap,
+                                                    Map<String, Object> node) {
+        try {
+            // Try to access recomposition data via the LayoutNode's owner (Composer)
+            // This uses reflection to find RecomposeScope data
+            Method getInnerCoordinator = null;
+            for (Method m : layoutNode.getClass().getMethods()) {
+                if (m.getName().equals("getInnerCoordinator") && m.getParameterCount() == 0) {
+                    getInnerCoordinator = m;
+                    break;
+                }
+            }
+
+            if (getInnerCoordinator == null) return;
+
+            getInnerCoordinator.setAccessible(true);
+            Object coordinator = getInnerCoordinator.invoke(layoutNode);
+            if (coordinator == null) return;
+
+            // Walk to find associated RecomposeScope
+            // The scope tracks invocation count
+            Class<?> scopeClass = null;
+            try {
+                scopeClass = Class.forName("androidx.compose.runtime.RecomposeScopeImpl");
+            } catch (ClassNotFoundException e) {
+                return; // Compose runtime doesn't have this class
+            }
+
+            // Try to find recomposeCount via reflection on the scope
+            for (Field f : scopeClass.getDeclaredFields()) {
+                if (f.getName().contains("recomposeCount") || f.getName().contains("invocationCount")) {
+                    f.setAccessible(true);
+                    // Note: We'd need the actual scope instance, which requires deeper Compose internals
+                    // For now, mark as not-yet-available
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            // Recomposition tracking not available - this is expected
         }
     }
 
@@ -1732,67 +2011,11 @@ public class ComposeInspector {
     }
 
     /**
-     * Gets all root views using the best available API.
-     * Uses WindowInspector (API 29+) as primary method, with WindowManagerGlobal fallback.
-     * Filters to only visible, attached views and sorts by z-order (like Android Studio).
+     * Gets all visible, attached root views sorted by z-order.
+     * Delegates to WindowRootDiscovery to avoid duplication.
      */
-    @SuppressWarnings("unchecked")
     private static List<View> getAllWindowRootViews() {
-        List<View> rootViews = new ArrayList<>();
-
-        // Try WindowInspector first (API 29+) - this is what Android Studio uses
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                rootViews = android.view.inspector.WindowInspector.getGlobalWindowViews();
-                SidekickLog.d(TAG, "WindowInspector returned " + rootViews.size() + " root views");
-            } catch (Exception e) {
-                SidekickLog.w(TAG, "WindowInspector failed, falling back to WindowManagerGlobal: " + e.getMessage());
-                rootViews = new ArrayList<>();
-            }
-        }
-
-        // Fallback to WindowManagerGlobal reflection (for API < 29 or if WindowInspector fails)
-        if (rootViews.isEmpty()) {
-            try {
-                Class<?> wmgClass = Class.forName("android.view.WindowManagerGlobal");
-                Method getInstanceMethod = wmgClass.getDeclaredMethod("getInstance");
-                Object wmgInstance = getInstanceMethod.invoke(null);
-
-                Field viewsField = wmgClass.getDeclaredField("mViews");
-                viewsField.setAccessible(true);
-                Object viewsObj = viewsField.get(wmgInstance);
-
-                if (viewsObj instanceof List) {
-                    List<?> views = (List<?>) viewsObj;
-                    for (Object view : views) {
-                        if (view instanceof View) {
-                            rootViews.add((View) view);
-                        }
-                    }
-                }
-                SidekickLog.d(TAG, "WindowManagerGlobal returned " + rootViews.size() + " root views");
-            } catch (Exception e) {
-                SidekickLog.w(TAG, "Could not get windows from WindowManagerGlobal: " + e.getMessage());
-            }
-        }
-
-        // Filter and sort like Android Studio does:
-        // - Only visible and attached views
-        // - Sorted by z-order (higher z = on top = processed later)
-        List<View> filteredViews = new ArrayList<>();
-        for (View view : rootViews) {
-            if (view.getVisibility() == View.VISIBLE && view.isAttachedToWindow()) {
-                filteredViews.add(view);
-            }
-        }
-
-        // Sort by z-order (views with higher z are drawn on top)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            filteredViews.sort((v1, v2) -> Float.compare(v1.getZ(), v2.getZ()));
-        }
-
-        SidekickLog.d(TAG, "After filtering: " + filteredViews.size() + " visible root views");
-        return filteredViews;
+        return io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getVisibleRootViews();
     }
 
     /**
@@ -1831,38 +2054,10 @@ public class ComposeInspector {
 
     /**
      * Gets the current foreground activity.
+     * Delegates to WindowRootDiscovery to avoid duplication.
      */
     private static Activity getCurrentActivity() {
-        try {
-            Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
-            Method currentMethod = activityThreadClass.getDeclaredMethod("currentActivityThread");
-            Object activityThread = currentMethod.invoke(null);
-
-            Field activitiesField = activityThreadClass.getDeclaredField("mActivities");
-            activitiesField.setAccessible(true);
-            Object activitiesMap = activitiesField.get(activityThread);
-
-            if (activitiesMap instanceof Map) {
-                for (Object activityRecord : ((Map<?, ?>) activitiesMap).values()) {
-                    Field activityField = activityRecord.getClass().getDeclaredField("activity");
-                    activityField.setAccessible(true);
-                    Activity activity = (Activity) activityField.get(activityRecord);
-
-                    if (activity != null) {
-                        Field pausedField = activityRecord.getClass().getDeclaredField("paused");
-                        pausedField.setAccessible(true);
-                        boolean paused = pausedField.getBoolean(activityRecord);
-
-                        if (!paused) {
-                            return activity;
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Error getting current activity", e);
-        }
-        return null;
+        return io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getCurrentActivity();
     }
 
     /**
@@ -2065,15 +2260,6 @@ public class ComposeInspector {
             if (coords == null) {
                 return null;
             }
-
-            // Debug: Log all available methods on coordinates
-            StringBuilder coordMethods = new StringBuilder("LayoutCoordinates methods: ");
-            for (Method m : coords.getClass().getMethods()) {
-                if (m.getDeclaringClass() != Object.class) {
-                    coordMethods.append(m.getName()).append("(").append(m.getParameterCount()).append("), ");
-                }
-            }
-            SidekickLog.d(TAG, coordMethods.toString());
 
             // Get node dimensions (needed for some fallbacks)
             int width = 0, height = 0;
