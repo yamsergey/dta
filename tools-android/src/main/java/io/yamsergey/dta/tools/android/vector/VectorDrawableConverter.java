@@ -12,6 +12,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 import org.apache.batik.transcoder.TranscoderException;
 import org.apache.batik.transcoder.TranscoderInput;
@@ -105,7 +106,7 @@ public class VectorDrawableConverter {
 
         File tempFile = File.createTempFile("vector_drawable_", ".svg", new File(tmpDir));
         try (FileOutputStream fos = new FileOutputStream(tempFile)) {
-            fos.write(svgContent.getBytes("UTF-8"));
+            fos.write(svgContent.getBytes(StandardCharsets.UTF_8));
         }
         return tempFile;
     }
