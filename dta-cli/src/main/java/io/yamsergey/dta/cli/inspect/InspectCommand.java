@@ -27,7 +27,6 @@ import picocli.CommandLine.Command;
              ScreenshotCommand.class,
              ScrollScreenshotCommand.class,
              LogcatCommand.class,
-             ComposeCommand.class,
              NetworkCommand.class,
              WebSocketCommand.class,
              CustomTabsCommand.class,

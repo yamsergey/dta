@@ -2404,7 +2404,7 @@
                     if (textFilter.value) params.set('text', textFilter.value);
                     if (elementFilter.value) params.set('type', elementFilter.value);
 
-                    const res = await fetch(api(`/compose/tree?${params}`));
+                    const res = await fetch(api(`/layout/tree?${params}`));
                     composeTree.value = await res.json();
 
                     // Store unfiltered tree for element name extraction

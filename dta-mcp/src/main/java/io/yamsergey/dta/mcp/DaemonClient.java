@@ -74,16 +74,6 @@ public class DaemonClient {
         return post(url.toString(), null);
     }
 
-    // --- Compose ---
-
-    public String composeTree(String pkg, String device, String text, String type) {
-        StringBuilder url = new StringBuilder("/api/compose/tree?package=" + encode(pkg));
-        if (device != null && !device.isEmpty()) url.append("&device=").append(encode(device));
-        if (text != null && !text.isEmpty()) url.append("&text=").append(encode(text));
-        if (type != null && !type.isEmpty()) url.append("&type=").append(encode(type));
-        return get(url.toString());
-    }
-
     // --- Layout ---
 
     public String layoutTree(String pkg, String device, String text, String type, String resourceId, String viewId) {

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
-import io.yamsergey.dta.tools.android.inspect.compose.ComposeNodeFilter;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.Device;
@@ -296,63 +295,6 @@ public class InspectorController {
     }
 
     // ========================================================================
-    // Compose endpoints
-    // ========================================================================
-
-    @GetMapping("/compose/tree")
-    public ResponseEntity<?> composeTree(
-            @RequestParam("package") String packageName,
-            @RequestParam(required = false) String device,
-            @RequestParam(required = false) String text,
-            @RequestParam(required = false) String type) {
-        try {
-            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
-            Result<String> result = conn.client().getComposeTree();
-
-            if (result instanceof Success<String> success) {
-                String json = success.value();
-
-                // Apply filters if specified
-                if (text != null || type != null) {
-                    ComposeNodeFilter filter = ComposeNodeFilter.builder()
-                        .textPattern(text)
-                        .composablePattern(type)
-                        .build();
-                    String filtered = filter.filter(json);
-                    ObjectNode response = mapper.createObjectNode();
-                    response.put("package", packageName);
-                    ObjectNode filters = response.putObject("filters");
-                    if (text != null) filters.put("text", text);
-                    if (type != null) filters.put("type", type);
-                    response.set("matches", mapper.readTree(filtered));
-                    return ResponseEntity.ok(response);
-                }
-
-                return ResponseEntity.ok(mapper.readTree(json));
-            }
-            return error("Failed to get compose tree");
-        } catch (Exception e) {
-            return error("Failed: " + e.getMessage());
-        }
-    }
-
-    @GetMapping("/compose/select")
-    public ResponseEntity<?> composeSelect(
-            @RequestParam("package") String packageName,
-            @RequestParam int x,
-            @RequestParam int y,
-            @RequestParam(required = false) String device) {
-        try {
-            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
-            // Call hit test endpoint - need to add this to SidekickClient
-            // For now, return the tap coordinates
-            return ResponseEntity.ok(Map.of("x", x, "y", y, "hint", "Hit test not yet implemented"));
-        } catch (Exception e) {
-            return error("Failed: " + e.getMessage());
-        }
-    }
-
-    // ========================================================================
     // Layout endpoints (unified View + Compose tree)
     // ========================================================================
 
@@ -370,28 +312,113 @@ public class InspectorController {
 
             if (result instanceof Success<String> success) {
                 JsonNode tree = mapper.readTree(success.value());
-
-                // Wrap filtered results in a consistent shape matching compose_tree
                 boolean hasFilters = text != null || type != null || resource_id != null || view_id != null;
+
                 if (hasFilters) {
-                    ObjectNode response = mapper.createObjectNode();
-                    response.put("package", packageName);
-                    ObjectNode filters = response.putObject("filters");
-                    if (text != null) filters.put("text", text);
-                    if (type != null) filters.put("type", type);
-                    if (resource_id != null) filters.put("resourceId", resource_id);
-                    if (view_id != null) filters.put("viewId", view_id);
-                    response.set("result", tree);
-                    return ResponseEntity.ok(response);
+                    return ResponseEntity.ok(adaptFilteredResponse(tree));
                 }
 
-                return ResponseEntity.ok(tree);
+                return ResponseEntity.ok(adaptUnfilteredResponse(tree));
             }
             String desc = result instanceof Failure<?> f ? f.description() : "Unknown error";
             return error("Failed to get layout tree: " + desc);
         } catch (Exception e) {
             return error("Failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Adapts unfiltered layout_tree response: flattens {@code windows} into a single {@code root}.
+     * <ul>
+     *   <li>1 window → {@code root = windows[0].tree}</li>
+     *   <li>N windows → synthesize a {@code root} with each window tree as a child</li>
+     * </ul>
+     */
+    private JsonNode adaptUnfilteredResponse(JsonNode tree) {
+        JsonNode windows = tree.get("windows");
+        if (windows == null || !windows.isArray() || windows.isEmpty()) {
+            return tree;
+        }
+
+        ObjectNode result = mapper.createObjectNode();
+
+        // Copy top-level metadata (screen, timestamp, etc.)
+        tree.fieldNames().forEachRemaining(field -> {
+            if (!"windows".equals(field)) {
+                result.set(field, tree.get(field));
+            }
+        });
+
+        if (windows.size() == 1) {
+            JsonNode windowTree = windows.get(0).get("tree");
+            result.set("root", windowTree != null ? windowTree : mapper.createObjectNode());
+        } else {
+            // Multiple windows: synthesize a virtual root
+            ObjectNode virtualRoot = mapper.createObjectNode();
+            virtualRoot.put("nodeType", "view");
+            virtualRoot.put("className", "Windows");
+            ArrayNode children = virtualRoot.putArray("children");
+            for (JsonNode window : windows) {
+                JsonNode windowTree = window.get("tree");
+                if (windowTree != null) {
+                    children.add(windowTree);
+                }
+            }
+            result.set("root", virtualRoot);
+        }
+
+        return result;
+    }
+
+    /**
+     * Adapts filtered layout_tree response: flattens {@code windows[].matches} into
+     * a top-level {@code matches} array with {@code {node, parents}} entries.
+     * The {@code parentChain} (list of strings) is converted to {@code parents}
+     * (list of objects with {@code composable} field) for web inspector compatibility.
+     */
+    private JsonNode adaptFilteredResponse(JsonNode tree) {
+        ObjectNode result = mapper.createObjectNode();
+
+        // Copy top-level metadata (filters, totalMatches, screen, timestamp)
+        tree.fieldNames().forEachRemaining(field -> {
+            if (!"windows".equals(field)) {
+                result.set(field, tree.get(field));
+            }
+        });
+
+        ArrayNode allMatches = mapper.createArrayNode();
+        JsonNode windows = tree.get("windows");
+        if (windows != null && windows.isArray()) {
+            for (JsonNode window : windows) {
+                JsonNode matches = window.get("matches");
+                if (matches != null && matches.isArray()) {
+                    for (JsonNode match : matches) {
+                        ObjectNode entry = mapper.createObjectNode();
+                        // The match node itself (without parentChain) becomes "node"
+                        ObjectNode node = match.deepCopy();
+                        node.remove("parentChain");
+                        entry.set("node", node);
+
+                        // Convert parentChain strings to parent objects
+                        ArrayNode parents = mapper.createArrayNode();
+                        JsonNode parentChain = match.get("parentChain");
+                        if (parentChain != null && parentChain.isArray()) {
+                            for (JsonNode name : parentChain) {
+                                ObjectNode parent = mapper.createObjectNode();
+                                parent.put("composable", name.asText());
+                                parents.add(parent);
+                            }
+                        }
+                        entry.set("parents", parents);
+
+                        allMatches.add(entry);
+                    }
+                }
+            }
+        }
+
+        result.set("matches", allMatches);
+        return result;
     }
 
     @GetMapping("/layout/properties/{viewId}")

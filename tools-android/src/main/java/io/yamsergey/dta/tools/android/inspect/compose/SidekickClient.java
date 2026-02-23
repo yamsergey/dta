@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
  * client.setupPortForwarding();
  *
  * // Then make requests
- * Result&lt;String&gt; tree = client.getComposeTree();
+ * Result&lt;String&gt; tree = client.getLayoutTree(null, null, null, null);
  * </pre>
  */
 @Builder
@@ -200,24 +200,6 @@ public class SidekickClient {
         java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
         java.util.regex.Matcher m = p.matcher(json);
         return m.find() ? Integer.parseInt(m.group(1)) : defaultValue;
-    }
-
-    /**
-     * Gets the unified Compose tree combining layout and semantics.
-     *
-     * <p>This provides a cleaner, source-like representation with:
-     * <ul>
-     *   <li>Composable type names (Button, Text, Column, etc.)</li>
-     *   <li>Full class names for debugging</li>
-     *   <li>Absolute bounds (left, top, right, bottom)</li>
-     *   <li>Semantic properties inline (text, role, testTag)</li>
-     *   <li>Screen context (activity name, root composable)</li>
-     * </ul>
-     *
-     * @return Result containing unified tree JSON on success
-     */
-    public Result<String> getComposeTree() {
-        return httpGet("/compose/tree");
     }
 
     /**

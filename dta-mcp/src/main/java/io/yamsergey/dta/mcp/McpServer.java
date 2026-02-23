@@ -241,27 +241,6 @@ public class McpServer {
     }
 
     private static void collectAppTools(List<McpServerFeatures.SyncToolSpecification> tools) {
-        // compose_tree
-        tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("compose_tree", "Get Compose UI hierarchy. Use text/type filters to reduce output.",
-                schema(Map.of(
-                    "package", prop("string", "App package name", true),
-                    "device", prop("string", "Device serial", false),
-                    "text", prop("string", "Filter: find elements containing this text", false),
-                    "type", prop("string", "Filter: find elements of this type (e.g., Button, Text)", false)
-                ))),
-            (exchange, args) -> {
-                try {
-                    String json = getDaemon().composeTree(
-                        getString(args, "package"), getString(args, "device"),
-                        getString(args, "text"), getString(args, "type"));
-                    return ok(json);
-                } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
-                }
-            }
-        ));
-
         // network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
             new Tool("network_requests", "List captured HTTP requests from an app",
