@@ -122,6 +122,34 @@ public class CdpWatcherManager {
     }
 
     /**
+     * Returns the active CDP client for the given package, if one is connected.
+     * Used for enriching the layout tree with Custom Tab accessibility data.
+     *
+     * @param packageName the Android package name
+     * @param deviceSerial the device serial (or null for default)
+     * @return the connected ChromeDevToolsClient, or null if not available
+     */
+    public ChromeDevToolsClient getCdpClient(String packageName, String deviceSerial) {
+        WatcherContext context = activeWatchers.get(makeKey(packageName, deviceSerial));
+        if (context != null && context.currentClient != null && context.currentClient.isConnected()) {
+            return context.currentClient;
+        }
+        return null;
+    }
+
+    /**
+     * Returns the current Custom Tab URL for the given package, if tracked.
+     *
+     * @param packageName the Android package name
+     * @param deviceSerial the device serial (or null for default)
+     * @return the current tab URL, or null
+     */
+    public String getCurrentTabUrl(String packageName, String deviceSerial) {
+        WatcherContext context = activeWatchers.get(makeKey(packageName, deviceSerial));
+        return context != null ? context.currentTabUrl : null;
+    }
+
+    /**
      * Gets info about all active watchers.
      */
     public List<WatcherInfo> getAllWatchers() {

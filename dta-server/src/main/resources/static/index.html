@@ -1210,7 +1210,7 @@
                             Connect to an app and click Capture
                         </div>
                         <div v-else class="screenshot-wrapper">
-                            <div class="screenshot-container" @click="onScreenshotClick" ref="screenshotContainer">
+                            <div class="screenshot-container" @click="onScreenshotClick" @mousemove="onScreenshotHover" @mouseleave="hoveredNode = null" ref="screenshotContainer">
                                 <img :src="screenshot" @load="onImageLoad" ref="screenshotImg">
                                 <!-- Selection highlight -->
                                 <div v-if="selectedNode && selectedNode.bounds && imageScale"
@@ -2338,7 +2338,11 @@
                 async function refreshScreenshot() {
                     if (!connected.value) return;
                     try {
-                        const res = await fetch(api(`/screenshot?package=${selectedApp.value}&device=${selectedDevice.value}`));
+                        let res = await fetch(api(`/screenshot?package=${selectedApp.value}&device=${selectedDevice.value}`));
+                        if (!res.ok) {
+                            // Sidekick screenshot failed (e.g. Custom Tab in foreground) — fall back to device screenshot
+                            res = await fetch(api(`/screenshot/device?device=${selectedDevice.value}`));
+                        }
                         if (res.ok) {
                             const blob = await res.blob();
                             screenshot.value = URL.createObjectURL(blob);
@@ -2378,9 +2382,22 @@
                     }
                 }
 
+                function onScreenshotHover(event) {
+                    if (!composeTree.value?.root || !imageScale.value) return;
+                    const rect = screenshotContainer.value.getBoundingClientRect();
+                    const x = Math.round((event.clientX - rect.left) / imageScale.value);
+                    const y = Math.round((event.clientY - rect.top) / imageScale.value);
+
+                    const element = findElementAt(x, y, composeTree.value.root);
+                    hoveredNode.value = element || null;
+                }
+
                 function findElementAt(x, y, node) {
                     const bounds = node.bounds;
-                    if (bounds) {
+                    const hasArea = bounds && bounds.width > 0 && bounds.height > 0;
+                    // Only reject if the node has real bounds and point is outside them.
+                    // Zero-area nodes (e.g. RootWebArea) are pass-through containers.
+                    if (hasArea) {
                         if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) {
                             return null;
                         }
@@ -2390,7 +2407,7 @@
                         const found = findElementAt(x, y, children[i]);
                         if (found) return found;
                     }
-                    if (bounds) return node;
+                    if (hasArea) return node;
                     return null;
                 }
 
@@ -3768,7 +3785,7 @@
                     cdpWatching, cdpCurrentUrl, toggleCdpWatcher,
                     resourceFilters, hasCustomTabRequests,
                     loadApps, connect, refresh, refreshScreenshot,
-                    onImageLoad, getHighlightStyle, onScreenshotClick,
+                    onImageLoad, getHighlightStyle, onScreenshotClick, onScreenshotHover,
                     selectNode, hoverNode, toggleNode, selectRequest, closeNetworkRequest, selectWsConnection, selectWsMessage, switchTab,
                     getStatusColor, formatHeaders, formatSize, formatBody, detectContentType, isMediaContentType, isImageContentType, loadMediaBody, highlightBody, highlightUrl, highlightHeaders,
                     getMessageContent, truncateMessage, truncateText,

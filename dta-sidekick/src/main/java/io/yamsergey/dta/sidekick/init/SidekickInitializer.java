@@ -18,6 +18,7 @@ import io.yamsergey.dta.sidekick.events.EventStore;
 import io.yamsergey.dta.sidekick.jvmti.JvmtiAgent;
 import io.yamsergey.dta.sidekick.network.BodyStorage;
 import io.yamsergey.dta.sidekick.network.adapter.NetworkInterceptorManager;
+import io.yamsergey.dta.sidekick.webview.WebViewDebugHook;
 import io.yamsergey.dta.sidekick.server.InspectorServer;
 
 /**
@@ -137,6 +138,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
 
             // Register network hooks
             registerNetworkHooks();
+
+            // Register WebView debug hook
+            registerWebViewHooks();
         } else {
             String error = JvmtiAgent.getInitError();
             SidekickLog.w(TAG, "JVMTI agent initialization failed: " + (error != null ? error : "unknown"));
@@ -160,6 +164,22 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             SidekickLog.i(TAG, "Network hooks registered via NetworkInterceptorManager");
         } catch (Exception e) {
             SidekickLog.e(TAG, "Failed to register network hooks", e);
+        }
+    }
+
+    /**
+     * Registers JVMTI hook to auto-enable WebView debugging.
+     *
+     * <p>This hook intercepts WebView constructors and calls
+     * {@code WebView.setWebContentsDebuggingEnabled(true)}, which is required
+     * for host-side CDP access to WebView content.</p>
+     */
+    private void registerWebViewHooks() {
+        try {
+            JvmtiAgent.registerHook(new WebViewDebugHook());
+            SidekickLog.i(TAG, "WebView debug hook registered");
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Failed to register WebView debug hook", e);
         }
     }
 

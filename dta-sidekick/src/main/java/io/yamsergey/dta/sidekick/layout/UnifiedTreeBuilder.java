@@ -137,6 +137,8 @@ public class UnifiedTreeBuilder {
                         Object children = composeTree.get("children");
                         if (children != null) {
                             node.put("children", children);
+                            // Attach hosted Views (e.g., WebViews) to their AndroidView compose nodes
+                            inlineHostedViews(children, composeView);
                         }
                         // Copy compose metadata to the node
                         if (composeTree.containsKey("composeRootInfo")) {
@@ -155,6 +157,83 @@ public class UnifiedTreeBuilder {
                 if (child instanceof Map) {
                     inlineComposeSubtrees((Map<String, Object>) child, rootView);
                 }
+            }
+        }
+    }
+
+    /**
+     * Walks the inlined Compose tree and attaches hosted Views to AndroidView nodes.
+     *
+     * <p>When Compose's {@code AndroidView} composable hosts a real View (e.g., WebView),
+     * the Compose tree only shows "AndroidView" as a leaf. The actual View lives inside
+     * the {@code AndroidViewsHandler} child of AndroidComposeView. This method finds
+     * those hosted Views and attaches them as children of their corresponding
+     * AndroidView compose nodes.</p>
+     */
+    @SuppressWarnings("unchecked")
+    private static void inlineHostedViews(Object composeChildren, View composeView) {
+        if (!(composeView instanceof ViewGroup) || !(composeChildren instanceof List)) return;
+
+        ViewGroup composeViewGroup = (ViewGroup) composeView;
+        int childCount = composeViewGroup.getChildCount();
+        // Compose hosts AndroidView children inside an AndroidViewsHandler, which
+        // is a direct child of AndroidComposeView. Find it and collect its children.
+        List<View> hostedViews = new ArrayList<>();
+        for (int i = 0; i < childCount; i++) {
+            View child = composeViewGroup.getChildAt(i);
+            if (child.getVisibility() == View.GONE) continue;
+            String childClass = child.getClass().getName();
+            if (childClass.contains("AndroidViewsHandler") && child instanceof ViewGroup) {
+                // The handler contains the actual hosted Views (WebViews, etc.)
+                ViewGroup handler = (ViewGroup) child;
+                for (int j = 0; j < handler.getChildCount(); j++) {
+                    View hosted = handler.getChildAt(j);
+                    if (hosted.getVisibility() != View.GONE) {
+                        hostedViews.add(hosted);
+                    }
+                }
+            }
+        }
+
+        if (hostedViews.isEmpty()) return;
+
+        // Find AndroidView compose nodes and attach the hosted Views
+        List<Map<String, Object>> androidViewNodes = new ArrayList<>();
+        collectAndroidViewNodes((List<Object>) composeChildren, androidViewNodes);
+
+        // Match by order (Compose maintains child ordering).
+        int pairCount = Math.min(androidViewNodes.size(), hostedViews.size());
+        for (int i = 0; i < pairCount; i++) {
+            Map<String, Object> androidViewNode = androidViewNodes.get(i);
+            View hostedView = hostedViews.get(i);
+
+            Map<String, Object> viewCapture = ViewTreeCapture.captureTree(hostedView);
+            if (viewCapture != null) {
+                List<Map<String, Object>> children = new ArrayList<>();
+                children.add(viewCapture);
+                androidViewNode.put("children", children);
+            }
+        }
+    }
+
+    /**
+     * Recursively collects compose nodes with composable name "AndroidView".
+     */
+    @SuppressWarnings("unchecked")
+    private static void collectAndroidViewNodes(List<Object> nodes, List<Map<String, Object>> results) {
+        for (Object node : nodes) {
+            if (!(node instanceof Map)) continue;
+            Map<String, Object> map = (Map<String, Object>) node;
+
+            String composable = (String) map.get("composable");
+            if ("AndroidView".equals(composable)) {
+                results.add(map);
+            }
+
+            // Recurse into children
+            Object children = map.get("children");
+            if (children instanceof List) {
+                collectAndroidViewNodes((List<Object>) children, results);
             }
         }
     }

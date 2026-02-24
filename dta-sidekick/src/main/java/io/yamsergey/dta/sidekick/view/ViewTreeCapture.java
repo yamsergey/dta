@@ -32,6 +32,10 @@ public class ViewTreeCapture {
     private static volatile Class<?> androidComposeViewClass;
     private static volatile boolean composeClassResolved = false;
 
+    // WebView class cached for detection
+    private static volatile Class<?> webViewClass;
+    private static volatile boolean webViewClassResolved = false;
+
     /**
      * Captures the full view tree starting from the given root.
      *
@@ -214,8 +218,25 @@ public class ViewTreeCapture {
             node.put("isComposeView", true);
         }
 
+        // === WebView detection ===
+        boolean isWebView = isWebView(view);
+        if (isWebView) {
+            node.put("isWebView", true);
+            // Extract current URL via reflection
+            try {
+                Object url = view.getClass().getMethod("getUrl").invoke(view);
+                if (url != null) {
+                    node.put("webViewUrl", url.toString());
+                }
+            } catch (Exception e) {
+                SidekickLog.d(TAG, "Could not extract WebView URL: " + e.getMessage());
+            }
+        }
+
         // === Children ===
-        if (view instanceof ViewGroup && !isComposeView) {
+        // Skip internal children for Compose views (handled by Compose inspector)
+        // and WebViews (opaque container — web content injected by host-side CDP)
+        if (view instanceof ViewGroup && !isComposeView && !isWebView) {
             ViewGroup group = (ViewGroup) view;
             int childCount = group.getChildCount();
             if (childCount > 0) {
@@ -259,6 +280,33 @@ public class ViewTreeCapture {
                     "androidx.compose.ui.platform.AndroidComposeView");
             } catch (ClassNotFoundException e) {
                 SidekickLog.d(TAG, "AndroidComposeView not found - app may not use Compose");
+            }
+        }
+    }
+
+    /**
+     * Checks if a view is a WebView.
+     */
+    private static boolean isWebView(View view) {
+        resolveWebViewClass();
+        return webViewClass != null && webViewClass.isInstance(view);
+    }
+
+    /**
+     * Public check for whether a View is a WebView instance.
+     * Used by UnifiedTreeBuilder to detect WebViews hosted inside Compose AndroidView.
+     */
+    public static boolean isWebViewInstance(View view) {
+        return isWebView(view);
+    }
+
+    private static void resolveWebViewClass() {
+        if (!webViewClassResolved) {
+            webViewClassResolved = true;
+            try {
+                webViewClass = Class.forName("android.webkit.WebView");
+            } catch (ClassNotFoundException e) {
+                SidekickLog.d(TAG, "WebView class not found");
             }
         }
     }

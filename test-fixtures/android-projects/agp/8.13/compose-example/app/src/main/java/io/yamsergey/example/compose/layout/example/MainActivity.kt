@@ -27,6 +27,7 @@ import io.yamsergey.example.compose.layout.example.ui.network.NetworkScreen
 import io.yamsergey.example.compose.layout.example.ui.overlays.OverlaysScreen
 import io.yamsergey.example.compose.layout.example.ui.theme.ComposeLayoutExampleTheme
 import io.yamsergey.example.compose.layout.example.ui.websocket.WebSocketScreen
+import io.yamsergey.example.compose.layout.example.ui.webview.WebViewScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,7 +57,8 @@ fun AppNavigation() {
                     onNavigateToWebSocket = { navController.navigate("websocket") },
                     onNavigateToCustomTabs = { navController.navigate("customtabs") },
                     onNavigateToOverlays = { navController.navigate("overlays") },
-                    onNavigateToFragments = { navController.navigate("fragments") }
+                    onNavigateToFragments = { navController.navigate("fragments") },
+                    onNavigateToWebView = { navController.navigate("webview") }
                 )
             }
         }
@@ -80,6 +82,11 @@ fun AppNavigation() {
                 onNavigateBack = { navController.popBackStack() }
             )
         }
+        composable("webview") {
+            WebViewScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
         composable("fragments") {
             val context = LocalContext.current
             FragmentsScreen(
@@ -99,7 +106,8 @@ fun MainContent(
     onNavigateToWebSocket: () -> Unit = {},
     onNavigateToCustomTabs: () -> Unit = {},
     onNavigateToOverlays: () -> Unit = {},
-    onNavigateToFragments: () -> Unit = {}
+    onNavigateToFragments: () -> Unit = {},
+    onNavigateToWebView: () -> Unit = {}
 ) {
     var counter by remember { mutableIntStateOf(0) }
 
@@ -157,6 +165,14 @@ fun MainContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Fragments Demo (Overlapping Fragments)")
+        }
+
+        // WebView Demo Button
+        Button(
+            onClick = onNavigateToWebView,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("WebView Demo (Embedded Web Content)")
         }
 
         // Counter section
