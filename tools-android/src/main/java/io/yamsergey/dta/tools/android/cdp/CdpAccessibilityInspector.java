@@ -1,6 +1,7 @@
 package io.yamsergey.dta.tools.android.cdp;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 public final class CdpAccessibilityInspector {
 
     private static final Logger log = LoggerFactory.getLogger(CdpAccessibilityInspector.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final long CDP_TIMEOUT_MS = 10_000;
 
@@ -113,7 +115,7 @@ public final class CdpAccessibilityInspector {
                         "returnByValue", true))
                 .get(CDP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             String json = jsResult.path("result").path("value").asText("{}");
-            JsonNode parsed = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            JsonNode parsed = OBJECT_MAPPER.readTree(json);
             devicePixelRatio = parsed.path("dpr").asDouble(0);
             double innerH = parsed.path("innerH").asDouble(0);
             double viewportPx = innerH * devicePixelRatio;
@@ -276,7 +278,12 @@ public final class CdpAccessibilityInspector {
         // Always promote children of filtered nodes so content isn't lost.
         boolean isNoise = NOISE_ROLES.contains(role) && isBlank(name) && isBlank(value);
         if (ignored || isNoise) {
-            // Promote children up to the parent (or return empty if no children)
+            return children;
+        }
+
+        // Collapse single-child wrappers: if a node has no text/value/description and
+        // exactly one child, the wrapper adds no information — promote the child directly.
+        if (isBlank(name) && isBlank(value) && isBlank(description) && children.size() == 1) {
             return children;
         }
 
@@ -328,6 +335,15 @@ public final class CdpAccessibilityInspector {
                     }
                     default -> { /* skip other properties */ }
                 }
+            }
+        }
+
+        // Remove redundant StaticText child that just repeats the parent's text
+        if (!isBlank(name) && children.size() == 1) {
+            Map<String, Object> onlyChild = children.get(0);
+            if ("StaticText".equals(onlyChild.get("role"))
+                    && name.equals(onlyChild.get("text"))) {
+                children = List.of();
             }
         }
 
@@ -405,6 +421,11 @@ public final class CdpAccessibilityInspector {
             return children;
         }
 
+        // Collapse single-child wrappers (same as convertNodes)
+        if (isBlank(name) && isBlank(value) && isBlank(description) && children.size() == 1) {
+            return children;
+        }
+
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("nodeType", "web");
 
@@ -438,6 +459,15 @@ public final class CdpAccessibilityInspector {
                     }
                     default -> {}
                 }
+            }
+        }
+
+        // Remove redundant StaticText child (same as convertNodes)
+        if (!isBlank(name) && children.size() == 1) {
+            Map<String, Object> onlyChild = children.get(0);
+            if ("StaticText".equals(onlyChild.get("role"))
+                    && name.equals(onlyChild.get("text"))) {
+                children = List.of();
             }
         }
 

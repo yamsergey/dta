@@ -207,7 +207,7 @@ public class CdpWatcherManager {
         });
 
         private CustomTabsNetworkMonitor monitor;
-        private ChromeDevToolsClient currentClient;
+        private volatile ChromeDevToolsClient currentClient;
         private volatile String currentTabUrl;
 
         WatcherContext(
