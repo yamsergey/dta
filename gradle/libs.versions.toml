@@ -14,7 +14,7 @@ lombok = "1.18.42"
 jackson = "2.19.0"
 batik = "1.18"
 spring-boot = "3.4.1"
-msgpack = "0.9.8"
+msgpack = "0.9.11"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
