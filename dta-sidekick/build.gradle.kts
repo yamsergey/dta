@@ -130,8 +130,8 @@ mavenPublishing {
         url.set("https://github.com/yamsergey/dta")
         licenses {
             license {
-                name.set("GNU Lesser General Public License v3.0")
-                url.set("https://www.gnu.org/licenses/lgpl-3.0.en.html")
+                name.set("Apache License 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0")
             }
         }
         developers {
