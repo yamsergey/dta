@@ -289,10 +289,10 @@ repositories {
 
 dependencies {
     // For runtime inspection in debug builds
-    debugImplementation 'com.github.yamsergey.yamsergey.dta:dta-sidekick:1.0.8'
+    debugImplementation 'com.github.yamsergey.yamsergey.dta:dta-sidekick:0.9.27'
 
     // For project analysis
-    implementation 'com.github.yamsergey.yamsergey.dta:tools-android:1.0.8'
+    implementation 'com.github.yamsergey.yamsergey.dta:tools-android:0.9.27'
 }
 ```
 
