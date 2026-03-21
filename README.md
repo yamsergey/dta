@@ -1,224 +1,37 @@
 # Development Tools for Android (DTA)
 
-A CLI toolkit for Android project analysis, device inspection, and runtime debugging.
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.yamsergey/dta-sidekick)](https://central.sonatype.com/artifact/io.github.yamsergey/dta-sidekick)
 
-## Installation
+A terminal-first toolkit that gives AI assistants direct access to Android devices through the Model Context Protocol. Your coding agent can see the screen, read network traffic, mock responses, and interact with the app — without opening Android Studio.
 
-### Homebrew (macOS)
+## Quick Start
+
+### Install CLI
 
 ```bash
-brew tap yamsergey/adt
+brew tap yamsergey/packages
 brew install dta-cli
-```
-
-### From Source
-
-```bash
-git clone https://github.com/yamsergey/yamsergey.dta.git
-cd yamsergey.dta
-./gradlew :dta-cli:installDist
-# Binary at: dta-cli/build/install/dta-cli/bin/dta-cli
 ```
 
 **Requirements:** Java 21+
 
-## Commands
-
-### `resolve` - Project Analysis
-
-Analyze Android project structure and dependencies via Gradle Tooling API.
-
-```bash
-# Get workspace structure (modules, dependencies, source roots)
-dta-cli resolve /path/to/project --workspace
-
-# Save to file
-dta-cli resolve /path/to/project --workspace --output analysis.json
-
-# List build variants
-dta-cli resolve /path/to/project --variants
-
-# Extract raw Gradle data (large output)
-dta-cli resolve /path/to/project --raw --output gradle-data.json
-```
-
-### `workspace` - IDE Integration
-
-Generate `workspace.json` for Kotlin Language Server integration with editors like Neovim, VSCode, or Emacs.
-
-```bash
-# Generate workspace.json in project root
-dta-cli workspace /path/to/project
-
-# Custom output location
-dta-cli workspace /path/to/project --output /path/to/workspace.json
-```
-
-### `drawable` - Asset Conversion
-
-Convert Android vector drawable XML to PNG images at various densities.
-
-```bash
-# Convert to PNG at default density
-dta-cli drawable icon.xml -o icon.png
-
-# Specify density (mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)
-dta-cli drawable icon.xml -o icon.png --density xxhdpi
-
-# Custom dimensions
-dta-cli drawable icon.xml -o icon.png --width 48 --height 48
-```
-
-### `inspect` - Device Inspection
-
-Inspect connected Android devices without requiring app modifications.
-
-#### Layout Hierarchy
-
-Dump the current UI view hierarchy from any Android app.
-
-```bash
-# JSON format (recommended for programmatic use)
-dta-cli inspect layout --format json -o hierarchy.json
-
-# XML format
-dta-cli inspect layout --format xml -o hierarchy.xml
-
-# Compressed format (faster, less detail)
-dta-cli inspect layout --compressed -o hierarchy.xml
-
-# Target specific device
-dta-cli inspect layout -d emulator-5554 --format json
-```
-
-#### Screenshot
-
-Capture device screenshot.
-
-```bash
-dta-cli inspect screenshot -o screen.png
-
-# From specific device
-dta-cli inspect screenshot -d emulator-5554 -o screen.png
-```
-
-#### Logcat
-
-Capture logcat logs with filtering options.
-
-```bash
-# Last 500 lines
-dta-cli inspect logcat --lines 500 -o logcat.txt
-
-# Filter by priority (V, D, I, W, E, F)
-dta-cli inspect logcat --priority W -o errors.txt
-
-# Filter by tag
-dta-cli inspect logcat --tag MyApp -o app.txt
-```
-
-#### Compose Hierarchy
-
-Dump Compose UI hierarchy (requires `dta-sidekick` in the app).
-
-```bash
-# Get full UI tree
-dta-cli inspect compose com.example.app
-
-# Filter by text content (recommended to reduce output)
-dta-cli inspect compose com.example.app --text "Login"
-
-# Filter by composable type
-dta-cli inspect compose com.example.app --type Button
-
-# Combine filters
-dta-cli inspect compose com.example.app --text "Submit" --type Button
-
-# Save to file
-dta-cli inspect compose com.example.app -o tree.json
-```
-
-#### Packages
-
-List debuggable packages on device.
-
-```bash
-# List debuggable third-party packages
-dta-cli inspect packages
-
-# Include system packages
-dta-cli inspect packages --all
-
-# Output as JSON
-dta-cli inspect packages --json
-```
-
-## DTA Sidekick
-
-Runtime inspection library for Android apps. Add to your debug builds for Compose UI inspection, network monitoring, and WebSocket tracking.
-
-### Setup
+### Add Sidekick to your app (debug builds only)
 
 ```gradle
 dependencies {
-    debugImplementation 'com.github.yamsergey.yamsergey.dta:dta-sidekick:1.0.8'
+    debugImplementation 'io.github.yamsergey:dta-sidekick:0.9.27'
 }
 ```
 
-The library auto-initializes via AndroidX Startup. No code changes needed.
+Sidekick auto-initializes via AndroidX Startup — no code changes needed. It starts recording HTTP, WebSocket, and Chrome Custom Tab traffic the moment your app launches.
 
-### Sidekick REST API
+### Connect your AI assistant
 
-When the app runs, sidekick exposes a REST API on port 8642:
+#### Cursor
 
-```bash
-# Setup port forwarding
-adb forward tcp:8642 tcp:8642
+[![Add dta-mcp to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=dta-mcp&config=eyJjb21tYW5kIjogImR0YS1jbGkiLCAiYXJncyI6IFsibWNwIl19)
 
-# Health check
-curl http://localhost:8642/health
-
-# Get Compose UI tree
-curl http://localhost:8642/compose/tree
-
-# List HTTP requests
-curl http://localhost:8642/network/requests
-
-# List WebSocket connections
-curl http://localhost:8642/websocket/connections
-
-# Get WebSocket connection details with messages
-curl http://localhost:8642/websocket/connections/{id}
-```
-
-### Supported Libraries
-
-| Type | Libraries |
-|------|-----------|
-| HTTP | OkHttp 3.x/4.x, HttpURLConnection |
-| WebSocket | OkHttp WebSocket, Java-WebSocket, NV-WebSocket |
-
-### Configuration (Optional)
-
-```kotlin
-// In Application.onCreate() or via ContentProvider
-Sidekick.configure(
-    SidekickConfig.builder()
-        .enableDebugLogging()  // Enable verbose logging (disabled by default)
-        .build()
-)
-```
-
-## MCP Server
-
-Start the Model Context Protocol server for integration with AI assistants.
-
-```bash
-# Start MCP server (uses stdin/stdout)
-dta-cli mcp
-```
-
-### Claude Desktop Configuration
+#### Claude Desktop
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -226,74 +39,71 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "dta": {
-      "command": "/path/to/dta-cli",
+      "command": "dta-cli",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-### Available Tools
+## What Can Your Agent Do?
 
-| Tool | Description |
-|------|-------------|
-| `list_devices` | List connected Android devices |
-| `list_apps` | List apps with sidekick installed |
-| `screenshot` | Capture device screenshot |
-| `tap` | Tap at screen coordinates |
-| `swipe` | Swipe gesture |
-| `input_text` | Input text |
-| `press_key` | Press key (BACK, HOME, etc.) |
-| `compose_tree` | Get Compose UI hierarchy (with filters) |
-| `network_requests` | List captured HTTP requests |
-| `network_request` | Get request details |
-| `websocket_connections` | List WebSocket connections |
-| `websocket_connection` | Get connection details with messages |
+### Screen Analysis
 
-## Web Inspector
+DTA returns the real UI hierarchy — actual view classes, bounds, positions, layout parameters, and Compose-specific data. Unlike `adb shell uiautomator dump` which gives a semantic accessibility tree, your agent gets the full picture including content inside WebViews and Chrome Custom Tabs.
 
-Start the web-based inspector for visual UI inspection.
+### Network Analysis
 
-```bash
-# Start on default port (8080)
-dta-cli inspector-web
+Sidekick auto-records from app launch — HTTP requests, WebSocket connections, Chrome Custom Tab traffic. No "start recording" button, no missed requests. Your agent can query the full history at any point.
 
-# Start on custom port
-dta-cli inspector-web --port 3000
+### Mocking
+
+Create mock rules for HTTP and WebSocket from captured data or from scratch. Plug in custom adapters for programmatic control over mock responses:
+
+```kotlin
+val httpAdapter = HttpMockAdapter { transaction, proposedResponse ->
+    proposedResponse.withBody("""{"message": "custom response"}""")
+}
+
+Sidekick.configure(
+    SidekickConfig.builder()
+        .httpMockAdapter(httpAdapter)
+        .build()
+)
 ```
 
-Open http://localhost:8080 to access:
-- **Compose Inspector** - Visual UI hierarchy with element selection and filtering
-- **Network Inspector** - Monitor HTTP requests/responses
-- **WebSocket Inspector** - Monitor WebSocket connections and messages
+### Verification
+
+The agent can tap, swipe, input text, and press keys — then check the screen state and network traffic to confirm behavior. A full inspect-mock-interact-verify loop.
+
+## Inspector Web Interface
+
+```bash
+dta-cli inspector-web
+```
+
+Open http://localhost:8080 for visual inspection:
+
+- **Layout Inspector** — UI hierarchy with element selection and filtering
+- **Network Inspector** — captured HTTP requests and responses
+- **WebSocket Inspector** — WebSocket connections and messages
+
+The inspector enables bi-directional communication between developer and agent — select elements with a click instead of describing them in words.
 
 ## Modules
 
 | Module | Description |
 |--------|-------------|
-| **dta-cli** | Unified CLI interface |
-| **dta-mcp** | MCP server for AI assistant integration |
-| **dta-inspector-web** | Web-based inspector (Spring Boot + Vue.js) |
+| **dta-cli** | Unified CLI interface (includes `mcp` and `inspector-web` commands) |
 | **dta-sidekick** | Runtime inspection library (Android AAR) |
 | **tools-android** | Core Gradle Tooling API integration |
-| **workspace-kotlin** | Workspace.json converter |
+| **workspace-kotlin** | workspace.json converter for Kotlin Language Server |
 
-## Library Usage
+## CLI Reference
 
-All libraries are published via JitPack:
-
-```gradle
-repositories {
-    maven { url 'https://jitpack.io' }
-}
-
-dependencies {
-    // For runtime inspection in debug builds
-    debugImplementation 'com.github.yamsergey.yamsergey.dta:dta-sidekick:0.9.27'
-
-    // For project analysis
-    implementation 'com.github.yamsergey.yamsergey.dta:tools-android:0.9.27'
-}
+```bash
+dta-cli --help
+dta-cli <command> --help
 ```
 
 ## License
