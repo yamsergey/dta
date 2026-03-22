@@ -257,24 +257,36 @@ public class CdpWatcherManager {
 
         /**
          * Handles a Custom Tab launch event from SSE.
-         * Acks sidekick immediately to unblock Chrome launch, then attaches CDP.
+         *
+         * <p>The JVMTI hook on the device blocks launchUrl() until we ACK. Since the
+         * Chrome tab doesn't exist yet (Chrome hasn't launched), we can't attach CDP
+         * before ACKing. Instead we:</p>
+         * <ol>
+         *   <li>Pre-create the CDP client connected to Chrome's HTTP endpoint</li>
+         *   <li>ACK sidekick — Chrome launches, tab appears</li>
+         *   <li>Poll aggressively (50ms) to find the new tab</li>
+         *   <li>Attach WebSocket + enable Network as fast as possible</li>
+         * </ol>
          *
          * @param eventId the SSE event ID for ack
          * @param targetUrl the URL being opened (used to match the correct Chrome tab)
          */
         void onCustomTabWillLaunch(String eventId, String targetUrl) {
-            // Ack immediately so sidekick unblocks and Chrome can launch
-            ackSidekick(eventId);
-
             executor.submit(() -> {
                 try {
-                    // Poll for the Chrome tab for up to 5s (Chrome needs time to start)
+                    String urlBase = extractUrlBase(targetUrl);
+
+                    // Pre-create the client so we can poll immediately after ack
+                    ChromeDevToolsClient pollClient = new ChromeDevToolsClient("localhost", cdpPort);
+
+                    // Now ack — this unblocks Chrome launch
+                    ackSidekick(eventId);
+
+                    // Poll aggressively for the new tab (50ms intervals, 5s deadline)
                     ChromeDevToolsClient client = null;
                     CdpTarget tab = null;
                     long deadline = System.currentTimeMillis() + 5000;
-                    String urlBase = extractUrlBase(targetUrl);
 
-                    ChromeDevToolsClient pollClient = new ChromeDevToolsClient("localhost", cdpPort);
                     try {
                         while (System.currentTimeMillis() < deadline) {
                             try {
@@ -293,7 +305,7 @@ public class CdpWatcherManager {
                             } catch (Exception e) {
                                 // Chrome not ready yet
                             }
-                            Thread.sleep(200);
+                            Thread.sleep(50);
                         }
                     } finally {
                         if (pollClient != null) {
