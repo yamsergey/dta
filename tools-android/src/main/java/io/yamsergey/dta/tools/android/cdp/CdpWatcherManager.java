@@ -276,11 +276,26 @@ public class CdpWatcherManager {
                 try {
                     String urlBase = extractUrlBase(targetUrl);
 
-                    // Pre-create the client so we can poll immediately after ack
+                    // ACK immediately — must not delay Chrome launch.
+                    // The sidekick has a 2s timeout; if the snapshot below blocks
+                    // (e.g. Chrome not running), we'd miss the ACK window.
+                    ackSidekick(eventId);
+
+                    // Pre-create the client for polling
                     ChromeDevToolsClient pollClient = new ChromeDevToolsClient("localhost", cdpPort);
 
-                    // Now ack — this unblocks Chrome launch
-                    ackSidekick(eventId);
+                    // Snapshot existing tab IDs to distinguish new tab from stale ones.
+                    // Best-effort — if Chrome isn't running yet, we use empty set
+                    // and rely on URL matching alone.
+                    java.util.Set<String> existingTabIds = java.util.Collections.emptySet();
+                    try {
+                        existingTabIds = pollClient.listTargets().stream()
+                            .map(CdpTarget::id)
+                            .collect(java.util.stream.Collectors.toSet());
+                    } catch (Exception e) {
+                        // Chrome not running yet — empty set is fine, URL match will work
+                    }
+                    final java.util.Set<String> knownIds = existingTabIds;
 
                     // Poll aggressively for the new tab (50ms intervals, 5s deadline)
                     ChromeDevToolsClient client = null;
@@ -291,9 +306,10 @@ public class CdpWatcherManager {
                         while (System.currentTimeMillis() < deadline) {
                             try {
                                 List<CdpTarget> targets = pollClient.listTargets();
-                                // Match by URL to find the correct tab
+                                // Find a NEW tab (not in snapshot) that matches the URL
                                 tab = targets.stream()
                                     .filter(CdpTarget::isPage)
+                                    .filter(t -> !knownIds.contains(t.id()))
                                     .filter(t -> matchesUrl(t.url(), targetUrl, urlBase))
                                     .findFirst()
                                     .orElse(null);
