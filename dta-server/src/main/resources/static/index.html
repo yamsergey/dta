@@ -1680,25 +1680,14 @@
                                 <div class="detail-value">{{ selectedWsMessage.message.timestamp }}</div>
                             </div>
                         </div>
-                        <div class="detail-section" v-if="selectedWsMessage.message.textPayload">
+                        <div class="detail-section">
                             <div class="detail-section-header" @click="wsMsgSections.textPayload = !wsMsgSections.textPayload">
                                 <span class="toggle" :class="{ expanded: wsMsgSections.textPayload }">▶</span>
-                                Text Payload
-                                <span class="content-type-badge" v-if="detectContentType(selectedWsMessage.message.textPayload)">{{ detectContentType(selectedWsMessage.message.textPayload) }}</span>
-                                <button class="copy-btn" @click.stop="copyToClipboard(selectedWsMessage.message.textPayload)">Copy</button>
-                            </div>
-                            <div class="detail-section-content" v-show="wsMsgSections.textPayload">
-                                <pre><code v-html="highlightBody(selectedWsMessage.message.textPayload)"></code></pre>
-                            </div>
-                        </div>
-                        <div class="detail-section">
-                            <div class="detail-section-header" @click="wsMsgSections.body = !wsMsgSections.body">
-                                <span class="toggle" :class="{ expanded: wsMsgSections.body }">▶</span>
-                                Raw Message
+                                Payload
                                 <span class="content-type-badge" v-if="detectContentType(getMessageContent(selectedWsMessage.message))">{{ detectContentType(getMessageContent(selectedWsMessage.message)) }}</span>
                                 <button class="copy-btn" @click.stop="copyWsMessageBody">Copy</button>
                             </div>
-                            <div class="detail-section-content" v-show="wsMsgSections.body">
+                            <div class="detail-section-content" v-show="wsMsgSections.textPayload">
                                 <pre><code v-html="highlightBody(getMessageContent(selectedWsMessage.message))"></code></pre>
                             </div>
                         </div>
