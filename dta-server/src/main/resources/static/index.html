@@ -3237,15 +3237,19 @@
                 async function selectWsConnection(conn) {
                     selectedWsConnection.value = conn;
                     selectedWsMessage.value = null; // Clear message selection when changing connection
+                    await refreshWsConnectionDetails(conn.id);
+                }
+
+                async function refreshWsConnectionDetails(connId) {
                     const params = new URLSearchParams({
                         package: selectedApp.value,
                         device: selectedDevice.value
                     });
                     try {
-                        const res = await fetch(api(`/websocket/connections/${conn.id}?${params}`));
+                        const res = await fetch(api(`/websocket/connections/${connId}?${params}`));
                         selectedWsDetails.value = await res.json();
                     } catch (e) {
-                        selectedWsDetails.value = conn;
+                        // Keep existing details on error
                     }
                 }
 
@@ -3715,14 +3719,14 @@
                 onMounted(() => {
                     loadToolVersion();
                     loadDevices();
-                    // Poll for data updates (only if not failed)
+                    // Poll for data updates (always poll both — counts show in tab headers)
                     setInterval(() => {
                         if (connected.value && connectionStatus.value !== 'failed') {
-                            if (activeTab.value === 'network') {
-                                pollWithFailureTracking(loadNetworkRequests);
-                            }
-                            if (activeTab.value === 'websocket') {
-                                pollWithFailureTracking(loadWsConnections);
+                            pollWithFailureTracking(loadNetworkRequests);
+                            pollWithFailureTracking(loadWsConnections);
+                            // Auto-refresh selected WebSocket connection messages
+                            if (selectedWsConnection.value && activeTab.value === 'websocket') {
+                                pollWithFailureTracking(() => refreshWsConnectionDetails(selectedWsConnection.value.id));
                             }
                         }
                     }, 3000);
