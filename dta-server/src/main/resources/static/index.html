@@ -1182,7 +1182,7 @@
 
             <div class="tabs">
                 <div class="tab" :class="{ active: activeTab === 'compose' }" @click="switchTab('compose')">
-                    Compose
+                    Layout
                 </div>
                 <div class="tab" :class="{ active: activeTab === 'network' }" @click="switchTab('network')">
                     Network ({{ networkRequests.length }})
@@ -2394,7 +2394,10 @@
 
                 function findElementAt(x, y, node) {
                     const bounds = node.bounds;
-                    const hasArea = bounds && bounds.width > 0 && bounds.height > 0;
+                    // Compose nodes may have width/height=0 but valid left/top/right/bottom
+                    const w = bounds ? (bounds.width || (bounds.right - bounds.left)) : 0;
+                    const h = bounds ? (bounds.height || (bounds.bottom - bounds.top)) : 0;
+                    const hasArea = bounds && w > 0 && h > 0;
                     // Only reject if the node has real bounds and point is outside them.
                     // Zero-area nodes (e.g. RootWebArea) are pass-through containers.
                     if (hasArea) {
