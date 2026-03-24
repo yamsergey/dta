@@ -5,15 +5,8 @@ import io.yamsergey.dta.sidekick.SidekickLog;
 import com.android.tools.smali.dexlib2.AccessFlags;
 import com.android.tools.smali.dexlib2.Opcode;
 import com.android.tools.smali.dexlib2.Opcodes;
-import com.android.tools.smali.dexlib2.builder.BuilderInstruction;
-import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction12x;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21c;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21s;
-import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c;
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction;
 import com.android.tools.smali.dexlib2.iface.instruction.formats.*;
-import com.android.tools.smali.dexlib2.iface.reference.Reference;
 import com.android.tools.smali.dexlib2.immutable.instruction.*;
 import com.android.tools.smali.dexlib2.immutable.ImmutableExceptionHandler;
 import com.android.tools.smali.dexlib2.immutable.ImmutableTryBlock;
@@ -289,9 +282,13 @@ public class DexTransformer {
     /**
      * Transforms a method to add hook callbacks at entry and exit.
      *
-     * <p>Uses a two-pass approach:
-     * 1. First pass: calculate offset mapping for all insertions
-     * 2. Second pass: build instructions with adjusted branch targets</p>
+     * <p>Uses the same approach as Android Studio's slicer (instrumentation.cc):
+     * scratch registers are always v0..v4 (guaranteed 4-bit safe), and if extra
+     * registers are needed they are added by shifting params up. A prologue
+     * relocates params back to their original positions before the body runs.
+     * The original method body is left completely untouched.</p>
+     *
+     * <p>Scratch registers: v0=hookId, v1=thisObj, v2=args, v3=null, v4=temp</p>
      */
     private static Method transformMethod(ClassDef classDef, Method method, MethodHook hook) {
         MethodImplementation impl = method.getImplementation();
@@ -315,130 +312,154 @@ public class DexTransformer {
             paramRegCount++; // 'this' reference
         }
 
-        int originalParamStart = originalRegCount - paramRegCount;
-        int extraRegs = 4;
+        // Following Android Studio's slicer: always use v0..v4 as scratch.
+        // If the method doesn't have enough non-param registers, add more.
+        int L = originalRegCount - paramRegCount; // non-param (local) register count
+        int scratchRegsNeeded = 5;
+        boolean needsShift = L < scratchRegsNeeded;
+        int extraRegs = needsShift ? scratchRegsNeeded - L : 0;
         int newRegCount = originalRegCount + extraRegs;
+        // VM places params in the last paramRegCount registers
         int newParamStart = newRegCount - paramRegCount;
 
         String hookId = getHookId(hook, classDef, method);
-
-        // Count actual parameters (excluding 'this')
         List<? extends MethodParameter> params = method.getParameters();
         int actualParamCount = params.size();
 
-        // We need extra registers: hookId, thisObj, argsArray, null, + 1 for array index
-        int extraRegsNeeded = 5;
-        extraRegs = extraRegsNeeded;
-        newRegCount = originalRegCount + extraRegs;
-        newParamStart = newRegCount - paramRegCount;
+        // Scratch registers — always v0..v4 (4-bit safe, no overflow possible)
+        int hookIdReg  = 0;
+        int thisObjReg = 1;
+        int argsReg    = 2;
+        int nullReg    = 3;
+        int tempReg    = 4;
 
-        // Registers for hook calls (in the new extra space)
-        int hookIdReg = originalParamStart;
-        int thisObjReg = originalParamStart + 1;
-        int argsReg = originalParamStart + 2;
-        int nullReg = originalParamStart + 3;
-        int tempReg = originalParamStart + 4;
-
-        // Build onEnter prologue
         List<Instruction> newInstructions = new ArrayList<>();
 
+        // ═══ onEnter hook (scratch at v0..v4, params at newParamStart) ═══
+
+        // hookId string
         newInstructions.add(new ImmutableInstruction21c(
                 Opcode.CONST_STRING, hookIdReg,
                 new ImmutableStringReference(hookId)));
 
+        // thisObj
         if (isStatic) {
             newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, thisObjReg, 0));
         } else {
-            newInstructions.add(new ImmutableInstruction12x(Opcode.MOVE_OBJECT, thisObjReg, newParamStart));
+            // move-object/16 for safety — newParamStart could be > 15
+            newInstructions.add(new ImmutableInstruction32x(
+                    Opcode.MOVE_OBJECT_16, thisObjReg, newParamStart));
         }
 
-        // Build args array if there are parameters
+        // Build args array — new-array uses 22c (4-bit regs), v2/v4 are always safe
         if (actualParamCount > 0) {
-            // Create new Object[paramCount]
-            newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, tempReg, actualParamCount));
+            newInstructions.add(new ImmutableInstruction21s(
+                    Opcode.CONST_16, tempReg, actualParamCount));
             newInstructions.add(new ImmutableInstruction22c(
                     Opcode.NEW_ARRAY, argsReg, tempReg,
                     new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference("[Ljava/lang/Object;")));
 
-            // Fill array with parameters
+            // Fill array with object parameters
             int paramIdx = 0;
             int paramReg = isStatic ? newParamStart : newParamStart + 1;
             for (MethodParameter param : params) {
                 String paramType = param.getType();
 
-                // Set array index
                 newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, tempReg, paramIdx));
 
-                // For object types, directly store; for primitives, we'd need boxing (skip for now)
                 if (paramType.startsWith("L") || paramType.startsWith("[")) {
-                    // Object type - store directly
                     newInstructions.add(new ImmutableInstruction23x(
                             Opcode.APUT_OBJECT, paramReg, argsReg, tempReg));
                 }
-                // Skip primitive types for now (they require boxing which adds complexity)
 
-                // Move to next parameter register
-                if (paramType.equals("J") || paramType.equals("D")) {
-                    paramReg += 2; // long and double take 2 registers
-                } else {
-                    paramReg += 1;
-                }
+                paramReg += (paramType.equals("J") || paramType.equals("D")) ? 2 : 1;
                 paramIdx++;
             }
         } else {
-            // No parameters - pass null
             newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, argsReg, 0));
         }
 
+        // invoke onEnter — v0..v2 are always 4-bit safe, use invoke-static (35c)
         newInstructions.add(new ImmutableInstruction35c(
                 Opcode.INVOKE_STATIC, 3,
                 hookIdReg, thisObjReg, argsReg, 0, 0,
                 new ImmutableMethodReference(DISPATCHER_TYPE, ON_ENTER_NAME, ON_ENTER_PARAMS, ON_ENTER_RETURN)));
 
-        // Read back modified object parameters from args array (enables mocking)
-        // This allows hooks to modify args[i] and have the changes take effect
+        // Read back modified object params from args array (enables mocking)
         if (actualParamCount > 0) {
             int paramIdx = 0;
             int paramReg = isStatic ? newParamStart : newParamStart + 1;
             for (MethodParameter param : params) {
                 String paramType = param.getType();
 
-                // For object types, read the value back from the args array
                 if (paramType.startsWith("L") || paramType.startsWith("[")) {
-                    // Load array index
                     newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, tempReg, paramIdx));
-                    // Load value from args array
-                    newInstructions.add(new ImmutableInstruction23x(Opcode.AGET_OBJECT, tempReg, argsReg, tempReg));
-                    // Cast to correct type
+                    newInstructions.add(new ImmutableInstruction23x(
+                            Opcode.AGET_OBJECT, tempReg, argsReg, tempReg));
                     newInstructions.add(new ImmutableInstruction21c(
                             Opcode.CHECK_CAST, tempReg,
                             new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference(paramType)));
-                    // Store back to parameter register
-                    newInstructions.add(new ImmutableInstruction12x(Opcode.MOVE_OBJECT, paramReg, tempReg));
+                    newInstructions.add(new ImmutableInstruction32x(
+                            Opcode.MOVE_OBJECT_16, paramReg, tempReg));
                 }
 
-                // Move to next parameter register
-                if (paramType.equals("J") || paramType.equals("D")) {
-                    paramReg += 2;
-                } else {
-                    paramReg += 1;
-                }
+                paramReg += (paramType.equals("J") || paramType.equals("D")) ? 2 : 1;
                 paramIdx++;
             }
         }
 
+        // ═══ Cleanup scratch registers (following AS slicer pattern) ═══
+        // Set v0..v4 to zero — the "Zero" type is compatible with both int and
+        // reference types in the verifier, preventing type conflicts at merge points.
+        for (int i = 0; i < scratchRegsNeeded; i++) {
+            newInstructions.add(new ImmutableInstruction11n(Opcode.CONST_4, i, 0));
+        }
+
+        // ═══ Param relocation (only if we added extra registers) ═══
+        if (needsShift) {
+            int srcReg = newParamStart;
+            int dstReg = L;
+            if (!isStatic) {
+                newInstructions.add(new ImmutableInstruction32x(
+                        Opcode.MOVE_OBJECT_16, dstReg, srcReg));
+                srcReg++;
+                dstReg++;
+            }
+            for (MethodParameter param : params) {
+                String type = param.getType();
+                if (type.equals("J") || type.equals("D")) {
+                    newInstructions.add(new ImmutableInstruction32x(
+                            Opcode.MOVE_WIDE_16, dstReg, srcReg));
+                    srcReg += 2;
+                    dstReg += 2;
+                } else if (type.startsWith("L") || type.startsWith("[")) {
+                    newInstructions.add(new ImmutableInstruction32x(
+                            Opcode.MOVE_OBJECT_16, dstReg, srcReg));
+                    srcReg++;
+                    dstReg++;
+                } else {
+                    newInstructions.add(new ImmutableInstruction32x(
+                            Opcode.MOVE_16, dstReg, srcReg));
+                    srcReg++;
+                    dstReg++;
+                }
+            }
+        }
+
+        // Calculate prologue size for offset adjustments
         int prologueSize = 0;
         for (Instruction insn : newInstructions) {
             prologueSize += insn.getCodeUnits();
         }
 
-        // FIRST PASS: Build offset map (original offset -> shift amount at that point)
-        // RETURN_VOID: const/16 (2) + invoke-static (3) = 5 code units
-        // RETURN_OBJECT: invoke-static (3) + move-result-object (1) + check-cast (2) = 6 code units
-        // RETURN/RETURN_WIDE (primitives): const/16 (2) + invoke-static (3) = 5 code units (pass null for primitive)
-        final int EXIT_VOID_SIZE = 5;
-        final int EXIT_OBJECT_SIZE = 6;
-        final int EXIT_PRIMITIVE_SIZE = 5;
+        // ═══ First pass: build offset map for branch adjustment ═══
+        // onExit sizes: non-static adds move-object/16 (3) for 'this',
+        // object return adds move-object/16 (3) + move-result-object (1) + check-cast (2),
+        // primitive return adds save/restore of return register (+6) to avoid clobbering v0..v2
+        final int exitVoidSize = isStatic ? 9 : 10;
+        final int exitObjectSize = isStatic ? 13 : 14;
+        final int exitPrimitiveSize = isStatic ? 15 : 16;
+
         Map<Integer, Integer> cumulativeShiftAtOffset = new HashMap<>();
         int currentOrigOffset = 0;
         int cumulativeShift = 0;
@@ -447,63 +468,111 @@ public class DexTransformer {
             cumulativeShiftAtOffset.put(currentOrigOffset, cumulativeShift);
             Opcode opcode = insn.getOpcode();
             if (opcode == Opcode.RETURN_VOID) {
-                cumulativeShift += EXIT_VOID_SIZE;
+                cumulativeShift += exitVoidSize;
             } else if (opcode == Opcode.RETURN_OBJECT) {
-                cumulativeShift += EXIT_OBJECT_SIZE;
+                cumulativeShift += exitObjectSize;
             } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_WIDE) {
-                cumulativeShift += EXIT_PRIMITIVE_SIZE;
+                cumulativeShift += exitPrimitiveSize;
             }
             currentOrigOffset += insn.getCodeUnits();
         }
-        cumulativeShiftAtOffset.put(currentOrigOffset, cumulativeShift); // End of method
+        cumulativeShiftAtOffset.put(currentOrigOffset, cumulativeShift);
 
-        // SECOND PASS: Build instructions with onExit insertions and adjusted branches
+        // ═══ Second pass: copy body with onExit hooks and adjusted branches ═══
+        // For onExit, reuse v0..v2 as scratch — safe to clobber before return.
         currentOrigOffset = 0;
         for (Instruction insn : impl.getInstructions()) {
             Opcode opcode = insn.getOpcode();
 
-            // Insert onExit before return instructions
+            // Insert onExit hook before return instructions
             if (opcode == Opcode.RETURN_VOID) {
-                // For void return, pass null as result
-                newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, nullReg, 0));
+                if (!isStatic) {
+                    newInstructions.add(new ImmutableInstruction32x(
+                            Opcode.MOVE_OBJECT_16, thisObjReg, newParamStart));
+                }
+                newInstructions.add(new ImmutableInstruction21c(
+                        Opcode.CONST_STRING, hookIdReg,
+                        new ImmutableStringReference(hookId)));
+                if (isStatic) {
+                    newInstructions.add(new ImmutableInstruction21s(
+                            Opcode.CONST_16, thisObjReg, 0));
+                }
+                newInstructions.add(new ImmutableInstruction21s(
+                        Opcode.CONST_16, argsReg, 0)); // null result
                 newInstructions.add(new ImmutableInstruction35c(
                         Opcode.INVOKE_STATIC, 3,
-                        hookIdReg, thisObjReg, nullReg, 0, 0,
-                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
-            } else if (opcode == Opcode.RETURN_OBJECT) {
-                // For object return, pass the actual return value and capture onExit's return
+                        hookIdReg, thisObjReg, argsReg, 0, 0,
+                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME,
+                                ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+
+            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_WIDE) {
+                // Primitive return — save return register to v3 (nullReg) before
+                // clobbering v0..v2. v3/v4 are not used by onExit so the value is safe.
                 Instruction11x returnInsn = (Instruction11x) insn;
-                int returnReg = shift(returnInsn.getRegisterA(), originalParamStart, extraRegs);
+                int returnReg = returnInsn.getRegisterA();
+                Opcode saveOp = (opcode == Opcode.RETURN_WIDE) ? Opcode.MOVE_WIDE_16 : Opcode.MOVE_16;
+                newInstructions.add(new ImmutableInstruction32x(saveOp, nullReg, returnReg));
+                // onExit hook
+                if (!isStatic) {
+                    newInstructions.add(new ImmutableInstruction32x(
+                            Opcode.MOVE_OBJECT_16, thisObjReg, newParamStart));
+                }
+                newInstructions.add(new ImmutableInstruction21c(
+                        Opcode.CONST_STRING, hookIdReg,
+                        new ImmutableStringReference(hookId)));
+                if (isStatic) {
+                    newInstructions.add(new ImmutableInstruction21s(
+                            Opcode.CONST_16, thisObjReg, 0));
+                }
+                newInstructions.add(new ImmutableInstruction21s(
+                        Opcode.CONST_16, argsReg, 0)); // null result
                 newInstructions.add(new ImmutableInstruction35c(
                         Opcode.INVOKE_STATIC, 3,
-                        hookIdReg, thisObjReg, returnReg, 0, 0,
-                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
-                // Capture onExit return value - enables mocking by returning a different object
-                newInstructions.add(new ImmutableInstruction11x(Opcode.MOVE_RESULT_OBJECT, returnReg));
-                // Cast to method's return type to satisfy verifier
+                        hookIdReg, thisObjReg, argsReg, 0, 0,
+                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME,
+                                ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+                // Restore return register from v3
+                newInstructions.add(new ImmutableInstruction32x(saveOp, returnReg, nullReg));
+
+            } else if (opcode == Opcode.RETURN_OBJECT) {
+                Instruction11x returnInsn = (Instruction11x) insn;
+                int returnReg = returnInsn.getRegisterA();
+                // Save return value FIRST — returnReg could overlap with v0 or v1
+                newInstructions.add(new ImmutableInstruction32x(
+                        Opcode.MOVE_OBJECT_16, argsReg, returnReg));
+                if (!isStatic) {
+                    newInstructions.add(new ImmutableInstruction32x(
+                            Opcode.MOVE_OBJECT_16, thisObjReg, newParamStart));
+                } else {
+                    newInstructions.add(new ImmutableInstruction21s(
+                            Opcode.CONST_16, thisObjReg, 0));
+                }
+                newInstructions.add(new ImmutableInstruction21c(
+                        Opcode.CONST_STRING, hookIdReg,
+                        new ImmutableStringReference(hookId)));
+                newInstructions.add(new ImmutableInstruction35c(
+                        Opcode.INVOKE_STATIC, 3,
+                        hookIdReg, thisObjReg, argsReg, 0, 0,
+                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME,
+                                ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+                // Capture onExit return value — enables mocking
+                newInstructions.add(new ImmutableInstruction11x(
+                        Opcode.MOVE_RESULT_OBJECT, returnReg));
                 newInstructions.add(new ImmutableInstruction21c(
                         Opcode.CHECK_CAST, returnReg,
-                        new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference(method.getReturnType())));
-            } else if (opcode == Opcode.RETURN || opcode == Opcode.RETURN_WIDE) {
-                // For primitive return (int, boolean, long, double, etc.), pass null
-                // Primitive values can't be passed as Object without boxing, so we skip the return value
-                newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, nullReg, 0));
-                newInstructions.add(new ImmutableInstruction35c(
-                        Opcode.INVOKE_STATIC, 3,
-                        hookIdReg, thisObjReg, nullReg, 0, 0,
-                        new ImmutableMethodReference(DISPATCHER_TYPE, ON_EXIT_NAME, ON_EXIT_PARAMS, ON_EXIT_RETURN)));
+                        new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference(
+                                method.getReturnType())));
             }
 
-            // Shift registers and adjust branch offsets
-            Instruction shifted = shiftRegistersAndAdjustBranches(
-                    insn, originalParamStart, extraRegs,
-                    currentOrigOffset, cumulativeShiftAtOffset);
-            newInstructions.add(shifted);
+            // Copy body instruction as-is — only adjust branch offsets, NOT registers
+            Instruction adjusted = adjustBranchOffsets(
+                    insn, currentOrigOffset, cumulativeShiftAtOffset);
+            newInstructions.add(adjusted);
 
             currentOrigOffset += insn.getCodeUnits();
         }
 
-        // Adjust try blocks
+        // Adjust try blocks (offsets shift due to prologue + onExit insertions)
         List<ImmutableTryBlock> newTryBlocks = new ArrayList<>();
         for (var tryBlock : impl.getTryBlocks()) {
             int origStart = tryBlock.getStartCodeAddress();
@@ -544,16 +613,15 @@ public class DexTransformer {
     }
 
     /**
-     * Shifts registers and adjusts branch offsets for an instruction.
-     * Branch targets are adjusted based on the cumulative shift at the target offset.
+     * Adjusts branch offsets for an instruction to account for onExit code insertions.
+     * Body register numbers are NOT modified — only branch targets are adjusted.
      */
-    private static Instruction shiftRegistersAndAdjustBranches(
-            Instruction insn, int paramStart, int shiftAmount,
-            int currentOrigOffset, Map<Integer, Integer> cumulativeShiftAtOffset) {
+    private static Instruction adjustBranchOffsets(
+            Instruction insn, int currentOrigOffset,
+            Map<Integer, Integer> cumulativeShiftAtOffset) {
 
         Opcode opcode = insn.getOpcode();
 
-        // Handle branch instructions - need to adjust offsets
         if (insn instanceof Instruction10t) {
             Instruction10t i = (Instruction10t) insn;
             int targetOrigOffset = currentOrigOffset + i.getCodeOffset();
@@ -584,8 +652,7 @@ public class DexTransformer {
             int shiftAtCurrent = cumulativeShiftAtOffset.getOrDefault(currentOrigOffset, 0);
             int shiftAtTarget = cumulativeShiftAtOffset.getOrDefault(targetOrigOffset, 0);
             int newOffset = i.getCodeOffset() + (shiftAtTarget - shiftAtCurrent);
-            return new ImmutableInstruction21t(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount), newOffset);
+            return new ImmutableInstruction21t(opcode, i.getRegisterA(), newOffset);
         }
         if (insn instanceof Instruction22t) {
             Instruction22t i = (Instruction22t) insn;
@@ -594,178 +661,11 @@ public class DexTransformer {
             int shiftAtTarget = cumulativeShiftAtOffset.getOrDefault(targetOrigOffset, 0);
             int newOffset = i.getCodeOffset() + (shiftAtTarget - shiftAtCurrent);
             return new ImmutableInstruction22t(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount), newOffset);
+                    i.getRegisterA(), i.getRegisterB(), newOffset);
         }
 
-        // For non-branch instructions, just shift registers
-        return shiftRegisters(insn, paramStart, shiftAmount);
-    }
-
-    /**
-     * Shifts register numbers in an instruction.
-     * Registers >= paramStart are shifted up by shiftAmount.
-     */
-    private static Instruction shiftRegisters(Instruction insn, int paramStart, int shiftAmount) {
-        Opcode opcode = insn.getOpcode();
-
-        // Handle different instruction formats
-        // Each format has different register fields that need shifting
-
-        if (insn instanceof Instruction10t) {
-            return insn; // No registers
-        }
-        if (insn instanceof Instruction10x) {
-            return insn; // No registers (nop, return-void)
-        }
-        if (insn instanceof Instruction11n) {
-            Instruction11n i = (Instruction11n) insn;
-            return new ImmutableInstruction11n(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getNarrowLiteral());
-        }
-        if (insn instanceof Instruction11x) {
-            Instruction11x i = (Instruction11x) insn;
-            return new ImmutableInstruction11x(opcode, shift(i.getRegisterA(), paramStart, shiftAmount));
-        }
-        if (insn instanceof Instruction12x) {
-            Instruction12x i = (Instruction12x) insn;
-            return new ImmutableInstruction12x(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount));
-        }
-        if (insn instanceof Instruction20t) {
-            return insn; // No registers (goto/16)
-        }
-        if (insn instanceof Instruction21c) {
-            Instruction21c i = (Instruction21c) insn;
-            return new ImmutableInstruction21c(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getReference());
-        }
-        if (insn instanceof Instruction21ih) {
-            Instruction21ih i = (Instruction21ih) insn;
-            return new ImmutableInstruction21ih(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getNarrowLiteral());
-        }
-        if (insn instanceof Instruction21lh) {
-            Instruction21lh i = (Instruction21lh) insn;
-            return new ImmutableInstruction21lh(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getWideLiteral());
-        }
-        if (insn instanceof Instruction21s) {
-            Instruction21s i = (Instruction21s) insn;
-            return new ImmutableInstruction21s(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getNarrowLiteral());
-        }
-        if (insn instanceof Instruction21t) {
-            Instruction21t i = (Instruction21t) insn;
-            return new ImmutableInstruction21t(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getCodeOffset());
-        }
-        if (insn instanceof Instruction22b) {
-            Instruction22b i = (Instruction22b) insn;
-            return new ImmutableInstruction22b(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount),
-                    i.getNarrowLiteral());
-        }
-        if (insn instanceof Instruction22c) {
-            Instruction22c i = (Instruction22c) insn;
-            return new ImmutableInstruction22c(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount),
-                    i.getReference());
-        }
-        if (insn instanceof Instruction22s) {
-            Instruction22s i = (Instruction22s) insn;
-            return new ImmutableInstruction22s(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount),
-                    i.getNarrowLiteral());
-        }
-        if (insn instanceof Instruction22t) {
-            Instruction22t i = (Instruction22t) insn;
-            return new ImmutableInstruction22t(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount),
-                    i.getCodeOffset());
-        }
-        if (insn instanceof Instruction22x) {
-            Instruction22x i = (Instruction22x) insn;
-            return new ImmutableInstruction22x(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount));
-        }
-        if (insn instanceof Instruction23x) {
-            Instruction23x i = (Instruction23x) insn;
-            return new ImmutableInstruction23x(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount),
-                    shift(i.getRegisterC(), paramStart, shiftAmount));
-        }
-        if (insn instanceof Instruction30t) {
-            return insn; // No registers (goto/32)
-        }
-        if (insn instanceof Instruction31c) {
-            Instruction31c i = (Instruction31c) insn;
-            return new ImmutableInstruction31c(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getReference());
-        }
-        if (insn instanceof Instruction31i) {
-            Instruction31i i = (Instruction31i) insn;
-            return new ImmutableInstruction31i(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getNarrowLiteral());
-        }
-        if (insn instanceof Instruction31t) {
-            Instruction31t i = (Instruction31t) insn;
-            return new ImmutableInstruction31t(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getCodeOffset());
-        }
-        if (insn instanceof Instruction32x) {
-            Instruction32x i = (Instruction32x) insn;
-            return new ImmutableInstruction32x(opcode,
-                    shift(i.getRegisterA(), paramStart, shiftAmount),
-                    shift(i.getRegisterB(), paramStart, shiftAmount));
-        }
-        if (insn instanceof Instruction35c) {
-            Instruction35c i = (Instruction35c) insn;
-            return new ImmutableInstruction35c(opcode, i.getRegisterCount(),
-                    shift(i.getRegisterC(), paramStart, shiftAmount),
-                    shift(i.getRegisterD(), paramStart, shiftAmount),
-                    shift(i.getRegisterE(), paramStart, shiftAmount),
-                    shift(i.getRegisterF(), paramStart, shiftAmount),
-                    shift(i.getRegisterG(), paramStart, shiftAmount),
-                    i.getReference());
-        }
-        if (insn instanceof Instruction3rc) {
-            Instruction3rc i = (Instruction3rc) insn;
-            return new ImmutableInstruction3rc(opcode,
-                    shift(i.getStartRegister(), paramStart, shiftAmount),
-                    i.getRegisterCount(),
-                    i.getReference());
-        }
-        if (insn instanceof Instruction45cc) {
-            Instruction45cc i = (Instruction45cc) insn;
-            return new ImmutableInstruction45cc(opcode, i.getRegisterCount(),
-                    shift(i.getRegisterC(), paramStart, shiftAmount),
-                    shift(i.getRegisterD(), paramStart, shiftAmount),
-                    shift(i.getRegisterE(), paramStart, shiftAmount),
-                    shift(i.getRegisterF(), paramStart, shiftAmount),
-                    shift(i.getRegisterG(), paramStart, shiftAmount),
-                    i.getReference(), i.getReference2());
-        }
-        if (insn instanceof Instruction4rcc) {
-            Instruction4rcc i = (Instruction4rcc) insn;
-            return new ImmutableInstruction4rcc(opcode,
-                    shift(i.getStartRegister(), paramStart, shiftAmount),
-                    i.getRegisterCount(),
-                    i.getReference(), i.getReference2());
-        }
-        if (insn instanceof Instruction51l) {
-            Instruction51l i = (Instruction51l) insn;
-            return new ImmutableInstruction51l(opcode, shift(i.getRegisterA(), paramStart, shiftAmount), i.getWideLiteral());
-        }
-
-        // For any unhandled format, return as-is and log a warning
-        SidekickLog.w(TAG, "Unhandled instruction format: " + insn.getClass().getSimpleName());
+        // Non-branch instructions pass through unchanged
         return insn;
-    }
-
-    /**
-     * Shifts a register number if it's in the parameter range.
-     */
-    private static int shift(int reg, int paramStart, int shiftAmount) {
-        return reg >= paramStart ? reg + shiftAmount : reg;
     }
 
     /**
