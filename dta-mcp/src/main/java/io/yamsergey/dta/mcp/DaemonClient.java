@@ -136,6 +136,10 @@ public class DaemonClient {
         return post("/api/selection/element?package=" + encode(pkg) + "&action=add" + deviceParam(device, false), elementJson);
     }
 
+    public String selectElementAt(String pkg, String device, int x, int y) {
+        return post("/api/selection/element-at?package=" + encode(pkg) + "&x=" + x + "&y=" + y + deviceParam(device, false), null);
+    }
+
     public String removeSelectedElement(String pkg, String device, String elementJson) {
         return post("/api/selection/element?package=" + encode(pkg) + "&action=remove" + deviceParam(device, false), elementJson);
     }

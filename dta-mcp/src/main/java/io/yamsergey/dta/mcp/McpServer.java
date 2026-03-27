@@ -345,10 +345,7 @@ public class McpServer {
                     String device = getString(args, "device");
                     int x = getInt(args, "x");
                     int y = getInt(args, "y");
-                    // The server's element selection endpoint handles hit-testing internally
-                    // We pass coordinates as the element JSON
-                    String elementJson = mapper.writeValueAsString(Map.of("x", x, "y", y));
-                    String json = getDaemon().addSelectedElement(pkg, device, elementJson);
+                    String json = getDaemon().selectElementAt(pkg, device, x, y);
                     return ok(json);
                 } catch (Exception e) {
                     return errorResult("Failed: " + e.getMessage());

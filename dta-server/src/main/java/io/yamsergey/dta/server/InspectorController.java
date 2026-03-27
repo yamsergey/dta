@@ -938,6 +938,84 @@ public class InspectorController {
         }
     }
 
+    /**
+     * Hit-tests the layout tree at (x,y) and adds the deepest element to the selection.
+     * Used by MCP tools that only have coordinates, not full element data with bounds.
+     */
+    @PostMapping("/selection/element-at")
+    public ResponseEntity<?> selectElementAt(
+            @RequestParam("package") String packageName,
+            @RequestParam int x, @RequestParam int y,
+            @RequestParam(required = false) String device) {
+        try {
+            ConnectionInfo conn = getConnectionWithCdp(packageName, device);
+
+            // Fetch the layout tree
+            Result<String> treeResult = conn.client().getLayoutTree(null, null, null, null);
+            if (!(treeResult instanceof Success<String> treeSuccess)) {
+                return error("Failed to fetch layout tree for hit-testing");
+            }
+            JsonNode tree = mapper.readTree(treeSuccess.value());
+
+            // Find the root node
+            JsonNode root = tree.has("root") ? tree.get("root") : null;
+            if (root == null && tree.has("windows")) {
+                JsonNode windows = tree.get("windows");
+                if (windows.isArray() && !windows.isEmpty()) {
+                    root = windows.get(0).get("tree");
+                }
+            }
+            if (root == null) {
+                return error("No layout tree available");
+            }
+
+            // Hit-test: find deepest node containing (x,y)
+            JsonNode hit = hitTest(x, y, root);
+            if (hit == null) {
+                return error("No element found at (" + x + ", " + y + ")");
+            }
+
+            // Add the hit element to the selection
+            String elementJson = mapper.writeValueAsString(hit);
+            Result<String> result = conn.client().addSelectedElement(elementJson);
+
+            if (result instanceof Success<String> success) {
+                return ResponseEntity.ok(mapper.readTree(success.value()));
+            }
+            return error("Failed to add element to selection");
+        } catch (Exception e) {
+            return error("Failed: " + e.getMessage());
+        }
+    }
+
+    private JsonNode hitTest(int x, int y, JsonNode node) {
+        JsonNode bounds = node.get("bounds");
+        boolean hasArea = false;
+        if (bounds != null) {
+            int w = bounds.has("width") && bounds.get("width").asInt() > 0
+                    ? bounds.get("width").asInt()
+                    : bounds.path("right").asInt() - bounds.path("left").asInt();
+            int h = bounds.has("height") && bounds.get("height").asInt() > 0
+                    ? bounds.get("height").asInt()
+                    : bounds.path("bottom").asInt() - bounds.path("top").asInt();
+            hasArea = w > 0 && h > 0;
+            if (hasArea) {
+                if (x < bounds.path("left").asInt() || x > bounds.path("right").asInt()
+                        || y < bounds.path("top").asInt() || y > bounds.path("bottom").asInt()) {
+                    return null;
+                }
+            }
+        }
+        JsonNode children = node.get("children");
+        if (children != null && children.isArray()) {
+            for (int i = children.size() - 1; i >= 0; i--) {
+                JsonNode found = hitTest(x, y, children.get(i));
+                if (found != null) return found;
+            }
+        }
+        return hasArea ? node : null;
+    }
+
     // ========================================================================
     // Network selection endpoints (multi-selection support)
     // ========================================================================
