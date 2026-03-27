@@ -431,7 +431,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
 
         switch (event.type()) {
             case REQUEST -> {
-                // Start tracking a new in-flight transaction
+                // Start tracking a new in-flight transaction and post immediately as PENDING
                 InFlightTransaction tx = new InFlightTransaction();
                 tx.requestId = requestId;
                 tx.url = event.url();
@@ -442,38 +442,45 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 tx.startTime = event.timestamp();
                 tx.customTabUrl = event.customTabUrl();
                 inFlightTransactions.put(requestId, tx);
+                // Post as pending so the request appears in the UI immediately
+                postTransactionToSidekick(tx, null);
             }
 
             case RESPONSE -> {
-                // Update with response data
+                // Update with response data and re-post (still in progress, no body yet)
                 InFlightTransaction tx = inFlightTransactions.get(requestId);
                 if (tx != null) {
                     tx.statusCode = event.statusCode();
                     tx.statusText = event.statusText();
                     tx.responseHeaders = event.responseHeaders();
-                    // URL might change due to redirects
                     if (event.url() != null) {
                         tx.url = event.url();
                     }
+                    postTransactionToSidekick(tx, null);
                 }
             }
 
             case FINISHED -> {
-                // Complete the transaction and post to sidekick
                 InFlightTransaction tx = inFlightTransactions.remove(requestId);
                 if (tx != null) {
                     tx.endTime = event.timestamp();
-                    // Try to fetch response body before posting
-                    fetchResponseBodyAndPost(tx, requestId, null);
+                    // Skip body fetch for Document requests — Chrome discards the body
+                    // after rendering the page, so getResponseBody hangs or returns error.
+                    // Sub-resource requests (XHR, Fetch, etc.) work fine.
+                    if ("Document".equals(tx.resourceType)) {
+                        postTransactionToSidekick(tx, null);
+                    } else {
+                        fetchResponseBodyAndPost(tx, requestId, null);
+                    }
                 }
             }
 
             case FAILED -> {
-                // Complete with error - no body fetch for failed requests
+                // Complete with error
                 InFlightTransaction tx = inFlightTransactions.remove(requestId);
                 if (tx != null) {
                     tx.endTime = event.timestamp();
-                    postTransactionToSidekick(tx, event.statusText()); // statusText contains error for FAILED
+                    postTransactionToSidekick(tx, event.statusText());
                 }
             }
         }
@@ -520,6 +527,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
         executor.submit(() -> {
             try {
                 Map<String, Object> data = new HashMap<>();
+                data.put("id", tx.requestId); // stable ID for updates (pending → completed)
                 data.put("url", tx.url);
                 data.put("method", tx.method);
                 data.put("source", "CustomTab");

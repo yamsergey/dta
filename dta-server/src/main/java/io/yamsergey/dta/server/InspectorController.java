@@ -33,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * REST API controller for the DTA Inspector.
@@ -1207,8 +1208,13 @@ public class InspectorController {
     /**
      * Idempotent, best-effort CDP watcher setup. If already running for this key — returns immediately.
      * On failure, logs a warning and continues — never breaks the calling API request.
+     *
+     * <p>Synchronized to prevent concurrent requests from racing to create/destroy watchers.
+     * Multiple requests arrive simultaneously on first connection and each calls
+     * getConnectionWithCdp → ensureCdpWatcher. Without synchronization, losing threads
+     * call stopWatcher() which kills the shared watcher the winning thread created.</p>
      */
-    private void ensureCdpWatcher(String packageName, String device, ConnectionInfo conn) {
+    private synchronized void ensureCdpWatcher(String packageName, String device, ConnectionInfo conn) {
         String listenerKey = makeListenerKey(packageName, device);
 
         // Already running — nothing to do
@@ -1247,15 +1253,9 @@ public class InspectorController {
                     }
                 });
             sseListener.start();
+            sseListeners.put(listenerKey, sseListener);
 
-            // Atomically register — if another thread raced us, stop ours
-            SidekickSseListener raced = sseListeners.putIfAbsent(listenerKey, sseListener);
-            if (raced != null) {
-                sseListener.stop();
-                CdpWatcherManager.getInstance().stopWatcher(packageName, device);
-            } else {
-                log.info("Auto-enabled CDP capture for package={}, device={}", packageName, device);
-            }
+            log.info("Auto-enabled CDP capture for package={}, device={}", packageName, device);
         } catch (Exception e) {
             log.warn("Auto-enable CDP capture failed for package={}, device={}: {} (non-fatal)",
                 packageName, device, e.getMessage());
@@ -1363,6 +1363,34 @@ public class InspectorController {
     }
 
     // ========================================================================
+    @GetMapping("/cdp/response-body/{requestId}")
+    public ResponseEntity<?> getCdpResponseBody(
+            @PathVariable String requestId,
+            @RequestParam("package") String packageName,
+            @RequestParam(required = false) String device) {
+        try {
+            String key = makeListenerKey(packageName, device);
+            ChromeDevToolsClient client = CdpWatcherManager.getInstance().getCdpClient(packageName,
+                    device != null ? device : "emulator-5554");
+            if (client == null || !client.isConnected()) {
+                return ResponseEntity.ok(Map.of("error", "CDP not connected. Open a Custom Tab first."));
+            }
+            var body = client.getResponseBody(requestId)
+                    .orTimeout(5, TimeUnit.SECONDS)
+                    .join();
+            if (body != null) {
+                return ResponseEntity.ok(Map.of(
+                        "body", body.body() != null ? body.body() : "",
+                        "base64Encoded", body.base64Encoded()));
+            }
+            return ResponseEntity.ok(Map.of("error", "No body returned"));
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (e.getCause() != null) msg = e.getCause().getMessage();
+            return ResponseEntity.ok(Map.of("error", "Failed to fetch body: " + msg));
+        }
+    }
+
     // Lifecycle
     // ========================================================================
 

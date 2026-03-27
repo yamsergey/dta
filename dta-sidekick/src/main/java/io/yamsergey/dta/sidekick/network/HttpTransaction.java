@@ -115,6 +115,16 @@ public final class HttpTransaction {
     }
 
     /**
+     * Overrides the computed duration (e.g., with accurate CDP network timestamps).
+     */
+    public void setDuration(long durationMs) {
+        this.duration = durationMs;
+        if (durationMs > 0 && startTime > 0) {
+            this.endTime = startTime + durationMs;
+        }
+    }
+
+    /**
      * Gets the HTTP request.
      */
     public HttpRequest getRequest() {

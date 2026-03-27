@@ -286,6 +286,17 @@ public final class NetworkInspector {
     // =========================================================================
 
     private static void addTransaction(HttpTransaction tx) {
+        // Update existing transaction if same ID (e.g., CDP pending → completed)
+        HttpTransaction existing = transactionsById.get(tx.getId());
+        if (existing != null) {
+            int idx = transactions.indexOf(existing);
+            if (idx >= 0) {
+                transactions.set(idx, tx);
+            }
+            transactionsById.put(tx.getId(), tx);
+            return;
+        }
+
         // Limit the number of stored transactions
         while (transactions.size() >= MAX_TRANSACTIONS) {
             HttpTransaction oldest = transactions.remove(0);

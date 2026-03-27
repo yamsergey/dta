@@ -1538,23 +1538,21 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- Info message for CustomTab requests without body -->
+                        <!-- Fetch body button for CustomTab requests without body -->
                         <div class="detail-section" v-if="!selectedRequestDetails.responseBody && selectedRequest?.source === 'CustomTab' && !isImageContentType(selectedRequestDetails.responseContentType)">
-                            <div class="detail-section-header">
-                                <span class="toggle">ℹ</span>
+                            <div class="detail-section-header" @click="sections.respBody = !sections.respBody">
+                                <span class="toggle" :class="{ expanded: sections.respBody }">▶</span>
                                 Response Body
+                                <button class="secondary btn-sm" @click.stop="fetchCustomTabBody(selectedRequest.id)" :disabled="fetchingBody" style="margin-left: auto;">
+                                    {{ fetchingBody ? 'Fetching...' : 'Fetch Body' }}
+                                </button>
                             </div>
-                            <div class="detail-section-content" style="display: block;">
-                                <div class="info-message">
-                                    <p>Response body not available for this Chrome Custom Tab request.</p>
-                                    <p class="info-details">
-                                        This can happen when:
-                                        <ul>
-                                            <li>Binary content (images, fonts, etc.) - skipped to save memory</li>
-                                            <li>Large files (>500KB) - skipped to avoid performance issues</li>
-                                            <li>Request failed before response was received</li>
-                                        </ul>
-                                    </p>
+                            <div class="detail-section-content" v-show="sections.respBody" style="display: block;">
+                                <div class="info-message" v-if="fetchBodyError">
+                                    <p>{{ fetchBodyError }}</p>
+                                </div>
+                                <div v-else class="info-message">
+                                    <p>Body not fetched yet. Click "Fetch Body" to try loading it via CDP.</p>
                                 </div>
                             </div>
                         </div>
@@ -1936,6 +1934,8 @@
                 const selectedRequest = ref(null);
                 const selectedRequestDetails = ref(null);
                 const mediaBody = ref(null);  // { loading, data, error }
+                const fetchingBody = ref(false);
+                const fetchBodyError = ref(null);
 
                 // WebSocket state
                 const wsConnections = ref([]);
@@ -3052,7 +3052,35 @@
                 async function closeNetworkRequest() {
                     selectedRequest.value = null;
                     selectedRequestDetails.value = null;
+                    fetchingBody.value = false;
+                    fetchBodyError.value = null;
                     // Just close the details panel, don't clear selections
+                }
+
+                async function fetchCustomTabBody(requestId) {
+                    if (!connected.value || fetchingBody.value) return;
+                    fetchingBody.value = true;
+                    fetchBodyError.value = null;
+                    try {
+                        const params = new URLSearchParams({
+                            package: selectedApp.value,
+                            device: selectedDevice.value
+                        });
+                        const res = await fetch(api(`/cdp/response-body/${requestId}?${params}`));
+                        const data = await res.json();
+                        if (data.body) {
+                            // Re-fetch the request details to get the updated body
+                            selectedRequestDetails.value = { ...selectedRequestDetails.value, responseBody: data.body };
+                        } else if (data.error) {
+                            fetchBodyError.value = data.error;
+                        } else {
+                            fetchBodyError.value = 'No body returned (Chrome may have discarded it)';
+                        }
+                    } catch (e) {
+                        fetchBodyError.value = 'Failed to fetch body: ' + e.message;
+                    } finally {
+                        fetchingBody.value = false;
+                    }
                 }
 
                 async function clearAllNetworkSelections() {
@@ -3758,7 +3786,7 @@
                     composeTree, selectedNode, hoveredNode, showElementDetails, textFilter, elementFilter, availableElements,
                     screenshot, imageScale, treeContainer, screenshotImg, screenshotContainer,
                     expandedNodes, detailSections,
-                    networkRequests, networkRequestsReversed, selectedRequest, selectedRequestDetails, mediaBody,
+                    networkRequests, networkRequestsReversed, selectedRequest, selectedRequestDetails, mediaBody, fetchingBody, fetchBodyError,
                     wsConnections, selectedWsConnection, selectedWsDetails, selectedWsMessage,
                     mockRules, selectedMockRule, mockConfig, contextMenu,
                     deviceSelectedElements, deviceSelectedRequests, deviceSelectedMessages,
@@ -3782,7 +3810,7 @@
                     resourceFilters, hasCustomTabRequests,
                     loadApps, connect, refresh, refreshScreenshot,
                     onImageLoad, getHighlightStyle, onScreenshotClick, onScreenshotHover,
-                    selectNode, hoverNode, toggleNode, selectRequest, closeNetworkRequest, selectWsConnection, selectWsMessage, switchTab,
+                    selectNode, hoverNode, toggleNode, selectRequest, closeNetworkRequest, fetchCustomTabBody, selectWsConnection, selectWsMessage, switchTab,
                     getStatusColor, formatHeaders, formatSize, formatBody, detectContentType, isMediaContentType, isImageContentType, loadMediaBody, highlightBody, highlightUrl, highlightHeaders,
                     getMessageContent, truncateMessage, truncateText,
                     copyRequest, exportRequest, copyWsMessages, exportWsMessages, copyWsMessageBody, copySection,

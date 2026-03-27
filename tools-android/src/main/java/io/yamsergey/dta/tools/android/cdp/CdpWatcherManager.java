@@ -306,11 +306,13 @@ public class CdpWatcherManager {
                         while (System.currentTimeMillis() < deadline) {
                             try {
                                 List<CdpTarget> targets = pollClient.listTargets();
-                                // Find a NEW tab (not in snapshot) that matches the URL
+                                // Find a NEW tab — match about:blank (blank page trick)
+                                // or the target URL (fallback if blank page wasn't used)
                                 tab = targets.stream()
                                     .filter(CdpTarget::isPage)
                                     .filter(t -> !knownIds.contains(t.id()))
-                                    .filter(t -> matchesUrl(t.url(), targetUrl, urlBase))
+                                    .filter(t -> "about:blank".equals(t.url())
+                                            || matchesUrl(t.url(), targetUrl, urlBase))
                                     .findFirst()
                                     .orElse(null);
                                 if (tab != null) {
@@ -339,14 +341,21 @@ public class CdpWatcherManager {
                     currentClient = client;
                     monitor.setCdpClient(client);
 
-                    currentTabUrl = tab.url();
+                    currentTabUrl = targetUrl;
                     client.setNetworkEventListener(cdpEvent -> {
                         monitor.onCdpEvent(cdpEvent, currentTabUrl);
                     });
 
                     client.enableNetwork().join();
 
-                    log.info("CDP attached to Custom Tab: {} ({})", tab.title(), tab.url());
+                    // Navigate to the real URL now that Network capture is active.
+                    // The sidekick opened about:blank to give us time to attach CDP.
+                    if ("about:blank".equals(tab.url())) {
+                        log.info("CDP attached to blank tab, navigating to: {}", targetUrl);
+                        client.navigate(targetUrl).join();
+                    }
+
+                    log.info("CDP attached to Custom Tab: {} ({})", tab.title(), targetUrl);
 
                 } catch (Exception e) {
                     log.error("Failed to attach CDP for event {}: {}", eventId, e.getMessage(), e);

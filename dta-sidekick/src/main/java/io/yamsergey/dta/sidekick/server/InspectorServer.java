@@ -155,27 +155,25 @@ public class InspectorServer {
     }
 
     /**
-     * Blocks the calling thread until a CDP ack is received for the given event,
-     * or until the 2-second timeout expires. This is called from the JVMTI hook
-     * to delay the Custom Tab launch, giving the daemon time to attach CDP.
+     * Notifies the server that a Custom Tab is about to launch and checks whether
+     * CDP capture is armed.
      *
-     * <p>If CDP capture is not armed or no SSE clients are connected, returns immediately.</p>
+     * <p>With the about:blank approach, no blocking is needed. The hook replaces the
+     * URI with about:blank and returns immediately. The server will attach CDP to the
+     * blank tab and then navigate to the real URL via Page.navigate.</p>
+     *
+     * @return true if CDP capture is armed and the event was broadcast, false otherwise
      */
-    public void waitForCdpAckIfNeeded(CustomTabEvent event) {
+    public boolean waitForCdpAckIfNeeded(CustomTabEvent event) {
         try {
             if (!cdpCaptureRequested || sseClients.isEmpty()) {
-                return;
+                return false;
             }
-            CountDownLatch latch = new CountDownLatch(1);
-            pendingCdpAcks.put(event.getId(), latch);
-            try {
-                broadcastCustomTabEvent(event);
-                latch.await(2, TimeUnit.SECONDS);
-            } finally {
-                pendingCdpAcks.remove(event.getId());
-            }
+            broadcastCustomTabEvent(event);
+            return true;
         } catch (Exception e) {
-            SidekickLog.w(TAG, "CDP ack wait interrupted", e);
+            SidekickLog.w(TAG, "CDP broadcast failed", e);
+            return false;
         }
     }
 
@@ -1262,8 +1260,8 @@ public class InspectorServer {
                 }
             }
 
-            // Pre-generate transaction ID for BodyStorage references
-            String txId = UUID.randomUUID().toString();
+            // Use provided ID (for CDP updates to same request) or generate new one
+            String txId = data.containsKey("id") ? (String) data.get("id") : UUID.randomUUID().toString();
 
             // Request body
             String requestBody = (String) data.get("requestBody");
@@ -1383,6 +1381,13 @@ public class InspectorServer {
             } else {
                 // No response yet - mark as in progress
                 tx.markInProgress();
+            }
+
+            // Override wall-clock duration with posted duration if available
+            // (CDP-sourced requests have accurate duration from network timestamps)
+            Number durationNum = (Number) data.get("duration");
+            if (durationNum != null && durationNum.longValue() > 0) {
+                tx.setDuration(durationNum.longValue());
             }
 
             // Record the transaction

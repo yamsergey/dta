@@ -80,7 +80,21 @@ public class CustomTabsLaunchHook implements MethodHook {
             CustomTabsInspector.recordEvent(event);
 
             // Block until CDP is attached (if capture is armed)
-            InspectorServer.getInstance().waitForCdpAckIfNeeded(event);
+            boolean cdpArmed = InspectorServer.getInstance().waitForCdpAckIfNeeded(event);
+
+            // Replace URI with about:blank so CDP can connect before the real page loads.
+            // The server will navigate to the original URL via Page.navigate after
+            // attaching CDP and enabling Network capture.
+            if (cdpArmed) {
+                try {
+                    Class<?> uriClass = Class.forName("android.net.Uri");
+                    Method parse = uriClass.getMethod("parse", String.class);
+                    args[1] = parse.invoke(null, "about:blank");
+                    SidekickLog.d(TAG, "Replaced URI with about:blank for CDP capture");
+                } catch (Exception e) {
+                    SidekickLog.w(TAG, "Failed to replace URI with about:blank", e);
+                }
+            }
 
             SidekickLog.i(TAG, ">>> Custom Tab: " + url +
                     (headers.isEmpty() ? "" : " (headers: " + headers.size() + ")"));
