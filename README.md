@@ -1,5 +1,7 @@
 # Development Tools for Android (DTA)
 
+> Work is in progress, bugs expected, nothing has been finalised.
+
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.yamsergey/dta-sidekick)](https://central.sonatype.com/artifact/io.github.yamsergey/dta-sidekick)
 
 A terminal-first toolkit that gives AI assistants direct access to Android devices through the Model Context Protocol. Your coding agent can see the screen, read network traffic, mock responses, and interact with the app — without opening Android Studio.
