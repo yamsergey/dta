@@ -11,7 +11,7 @@ repositories {
 }
 
 ext {
-    springBootVersion = '3.4.1'
+    springBootVersion = '4.0.3'
 }
 
 // Generate version.properties from centralized version
