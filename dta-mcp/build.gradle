@@ -41,7 +41,7 @@ sourceSets {
 
 dependencies {
     // MCP Java SDK
-    implementation 'io.modelcontextprotocol.sdk:mcp:0.13.0'
+    implementation 'io.modelcontextprotocol.sdk:mcp:1.0.1'
 
     // Jackson for JSON
     implementation libs.jackson.core

@@ -2,6 +2,8 @@ package io.yamsergey.dta.mcp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.modelcontextprotocol.json.McpJsonMapper;
+import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -22,6 +24,8 @@ public class McpServer {
 
     private static final Logger log = LoggerFactory.getLogger(McpServer.class);
     private static final ObjectMapper mapper = new ObjectMapper();
+    private static final McpJsonMapper jsonMapper = new JacksonMcpJsonMapper(
+        tools.jackson.databind.json.JsonMapper.builder().build());
     private static final String MCP_VERSION = getVersion();
 
     private static DaemonClient daemonClient;
@@ -44,7 +48,7 @@ public class McpServer {
         collectCdpTools(tools);
 
         var server = io.modelcontextprotocol.server.McpServer.sync(
-                new StdioServerTransportProvider(mapper))
+                new StdioServerTransportProvider(jsonMapper))
             .serverInfo("dta-mcp", getVersion())
             .capabilities(ServerCapabilities.builder()
                 .tools(true)
@@ -75,9 +79,9 @@ public class McpServer {
     private static void collectDeviceTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // list_devices
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("list_devices", "List connected Android devices and emulators",
+            tool("list_devices", "List connected Android devices and emulators",
                 "{\"type\":\"object\",\"properties\":{}}"),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().devices();
                     return ok(json);
@@ -89,9 +93,9 @@ public class McpServer {
 
         // list_apps
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("list_apps", "List debuggable apps with sidekick installed",
+            tool("list_apps", "List debuggable apps with sidekick installed",
                 schema("device", "string", "Device serial (optional)")),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String device = getString(args, "device");
                     String json = getDaemon().apps(device);
@@ -104,15 +108,15 @@ public class McpServer {
 
         // screenshot (device screenshot via ADB, no package needed)
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("screenshot", "Capture a screenshot from the device",
+            tool("screenshot", "Capture a screenshot from the device",
                 schema("device", "string", "Device serial (optional)")),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String device = getString(args, "device");
                     byte[] data = getDaemon().deviceScreenshot(device);
                     String base64 = Base64.getEncoder().encodeToString(data);
-                    var imageContent = new McpSchema.ImageContent(List.of(), null, base64, "image/png");
-                    return new CallToolResult(List.of(imageContent), false);
+                    var imageContent = new McpSchema.ImageContent(null, base64, "image/png");
+                    return CallToolResult.builder().content(List.of(imageContent)).build();
                 } catch (Exception e) {
                     return errorResult("Failed to capture screenshot: " + e.getMessage());
                 }
@@ -121,7 +125,7 @@ public class McpServer {
 
         // scroll_screenshot
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("scroll_screenshot", "Capture a scrolling/long screenshot of scrollable content. " +
+            tool("scroll_screenshot", "Capture a scrolling/long screenshot of scrollable content. " +
                 "Auto-detects scrollable views and stitches multiple screenshots into one tall image.",
                 schema(Map.of(
                     "device", prop("string", "Device serial (optional)", false),
@@ -129,7 +133,7 @@ public class McpServer {
                     "scroll_to_top", prop("boolean", "Scroll to top before capturing (default: false)", false),
                     "max_captures", prop("integer", "Maximum screenshots to capture (default: 30)", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String device = getString(args, "device");
                     String viewId = getString(args, "view_id");
@@ -142,7 +146,7 @@ public class McpServer {
                     var node = mapper.readTree(json);
                     if (node.has("imageBase64")) {
                         String base64 = node.get("imageBase64").asText();
-                        var imageContent = new McpSchema.ImageContent(List.of(), null, base64, "image/png");
+                        var imageContent = new McpSchema.ImageContent(null, base64, "image/png");
 
                         ObjectNode metadata = mapper.createObjectNode();
                         if (node.has("width")) metadata.put("width", node.get("width").asInt());
@@ -152,7 +156,7 @@ public class McpServer {
                         if (node.has("scrollableView")) metadata.put("scrollableView", node.get("scrollableView").asText());
                         var textContent = new McpSchema.TextContent(mapper.writeValueAsString(metadata));
 
-                        return new CallToolResult(List.of(imageContent, textContent), false);
+                        return CallToolResult.builder().content(List.of(imageContent, textContent)).build();
                     }
                     return ok(json);
                 } catch (Exception e) {
@@ -163,13 +167,13 @@ public class McpServer {
 
         // tap
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("tap", "Tap at screen coordinates",
+            tool("tap", "Tap at screen coordinates",
                 schema(Map.of(
                     "x", prop("integer", "X coordinate", true),
                     "y", prop("integer", "Y coordinate", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     int x = getInt(args, "x");
                     int y = getInt(args, "y");
@@ -184,7 +188,7 @@ public class McpServer {
 
         // swipe
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("swipe", "Swipe from one point to another",
+            tool("swipe", "Swipe from one point to another",
                 schema(Map.of(
                     "x1", prop("integer", "Start X", true),
                     "y1", prop("integer", "Start Y", true),
@@ -193,7 +197,7 @@ public class McpServer {
                     "duration", prop("integer", "Duration in ms (default 300)", false),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String device = getString(args, "device");
                     String json = getDaemon().swipe(getInt(args, "x1"), getInt(args, "y1"),
@@ -207,12 +211,12 @@ public class McpServer {
 
         // input_text
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("input_text", "Input text (requires focus on text field)",
+            tool("input_text", "Input text (requires focus on text field)",
                 schema(Map.of(
                     "text", prop("string", "Text to input", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().inputText(getString(args, "text"), getString(args, "device"));
                     return ok(json);
@@ -224,12 +228,12 @@ public class McpServer {
 
         // press_key
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("press_key", "Press a key (BACK, HOME, ENTER, etc.)",
+            tool("press_key", "Press a key (BACK, HOME, ENTER, etc.)",
                 schema(Map.of(
                     "key", prop("string", "Key code (BACK, HOME, ENTER, or number)", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().pressKey(getString(args, "key"), getString(args, "device"));
                     return ok(json);
@@ -243,12 +247,12 @@ public class McpServer {
     private static void collectAppTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("network_requests", "List captured HTTP requests from an app",
+            tool("network_requests", "List captured HTTP requests from an app",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().networkRequests(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -260,13 +264,13 @@ public class McpServer {
 
         // network_request
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("network_request", "Get detailed info about a specific HTTP request",
+            tool("network_request", "Get detailed info about a specific HTTP request",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID from network_requests", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().networkRequest(
                         getString(args, "package"), getString(args, "request_id"), getString(args, "device"));
@@ -279,12 +283,12 @@ public class McpServer {
 
         // websocket_connections
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("websocket_connections", "List captured WebSocket connections from an app",
+            tool("websocket_connections", "List captured WebSocket connections from an app",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().websocketConnections(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -296,13 +300,13 @@ public class McpServer {
 
         // websocket_connection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("websocket_connection", "Get detailed info about a WebSocket connection including messages",
+            tool("websocket_connection", "Get detailed info about a WebSocket connection including messages",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "connection_id", prop("string", "Connection ID", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().websocketConnection(
                         getString(args, "package"), getString(args, "connection_id"), getString(args, "device"));
@@ -315,12 +319,12 @@ public class McpServer {
 
         // get_selected_elements
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("get_selected_elements", "Get all selected UI elements (highlighted on device)",
+            tool("get_selected_elements", "Get all selected UI elements (highlighted on device)",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().getSelectedElements(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -332,14 +336,14 @@ public class McpServer {
 
         // select_element_at
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("select_element_at", "Add the UI element at given screen coordinates to selection (highlight on device)",
+            tool("select_element_at", "Add the UI element at given screen coordinates to selection (highlight on device)",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "x", prop("integer", "X coordinate", true),
                     "y", prop("integer", "Y coordinate", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
@@ -355,12 +359,12 @@ public class McpServer {
 
         // clear_element_selection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_element_selection", "Clear all element selections/highlights",
+            tool("clear_element_selection", "Clear all element selections/highlights",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     getDaemon().clearSelectedElements(getString(args, "package"), getString(args, "device"));
                     return ok("{\"success\":true,\"message\":\"Element selection cleared\"}");
@@ -372,14 +376,14 @@ public class McpServer {
 
         // remove_selected_element
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("remove_selected_element", "Remove a UI element from selection by coordinates",
+            tool("remove_selected_element", "Remove a UI element from selection by coordinates",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "x", prop("integer", "X coordinate of element to remove", true),
                     "y", prop("integer", "Y coordinate of element to remove", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
@@ -396,12 +400,12 @@ public class McpServer {
 
         // get_selected_network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("get_selected_network_requests", "Get all selected network requests",
+            tool("get_selected_network_requests", "Get all selected network requests",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().getSelectedNetworkRequests(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -413,13 +417,13 @@ public class McpServer {
 
         // select_network_request
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("select_network_request", "Add a network request to selection by ID",
+            tool("select_network_request", "Add a network request to selection by ID",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID to add to selection", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
                     String requestId = getString(args, "request_id");
@@ -435,12 +439,12 @@ public class McpServer {
 
         // get_selected_websocket_messages
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("get_selected_websocket_messages", "Get all selected WebSocket messages",
+            tool("get_selected_websocket_messages", "Get all selected WebSocket messages",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().getSelectedWebSocketMessages(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -452,14 +456,14 @@ public class McpServer {
 
         // select_websocket_message
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("select_websocket_message", "Add a WebSocket message to selection by connection ID and message index",
+            tool("select_websocket_message", "Add a WebSocket message to selection by connection ID and message index",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "connection_id", prop("string", "WebSocket connection ID", true),
                     "message_index", prop("integer", "Message index (0-based)", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
@@ -477,12 +481,12 @@ public class McpServer {
 
         // clear_network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_network_requests", "Clear all captured HTTP requests from an app",
+            tool("clear_network_requests", "Clear all captured HTTP requests from an app",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().clearNetworkRequests(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -494,12 +498,12 @@ public class McpServer {
 
         // clear_websocket_connections
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_websocket_connections", "Clear all captured WebSocket connections from an app",
+            tool("clear_websocket_connections", "Clear all captured WebSocket connections from an app",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().clearWebsocketConnections(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -511,13 +515,13 @@ public class McpServer {
 
         // network_request_body
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("network_request_body", "Get the response body for a specific HTTP request",
+            tool("network_request_body", "Get the response body for a specific HTTP request",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID from network_requests", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().networkRequestBody(
                         getString(args, "package"), getString(args, "request_id"), getString(args, "device"));
@@ -530,12 +534,12 @@ public class McpServer {
 
         // network_stats
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("network_stats", "Get network statistics for an app",
+            tool("network_stats", "Get network statistics for an app",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().networkStats(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -547,12 +551,12 @@ public class McpServer {
 
         // clear_network_selection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_network_selection", "Clear all network request selections",
+            tool("clear_network_selection", "Clear all network request selections",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     getDaemon().clearSelectedNetworkRequests(getString(args, "package"), getString(args, "device"));
                     return ok("{\"success\":true,\"message\":\"Network selection cleared\"}");
@@ -564,13 +568,13 @@ public class McpServer {
 
         // remove_selected_network_request
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("remove_selected_network_request", "Remove a network request from selection by ID",
+            tool("remove_selected_network_request", "Remove a network request from selection by ID",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID to remove from selection", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String selectionJson = mapper.writeValueAsString(Map.of("id", getString(args, "request_id")));
                     String json = getDaemon().removeSelectedNetworkRequest(getString(args, "package"), getString(args, "device"), selectionJson);
@@ -583,12 +587,12 @@ public class McpServer {
 
         // clear_websocket_selection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("clear_websocket_selection", "Clear all WebSocket message selections",
+            tool("clear_websocket_selection", "Clear all WebSocket message selections",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     getDaemon().clearSelectedWebSocketMessages(getString(args, "package"), getString(args, "device"));
                     return ok("{\"success\":true,\"message\":\"WebSocket selection cleared\"}");
@@ -600,14 +604,14 @@ public class McpServer {
 
         // remove_selected_websocket_message
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("remove_selected_websocket_message", "Remove a WebSocket message from selection",
+            tool("remove_selected_websocket_message", "Remove a WebSocket message from selection",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "connection_id", prop("string", "WebSocket connection ID", true),
                     "message_index", prop("integer", "Message index (0-based)", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String selectionJson = mapper.writeValueAsString(Map.of(
                         "connectionId", getString(args, "connection_id"),
@@ -626,7 +630,7 @@ public class McpServer {
     private static void collectLayoutTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // layout_tree
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("layout_tree",
+            tool("layout_tree",
                 "Get the complete UI layout hierarchy including both Android Views and Jetpack Compose nodes " +
                 "with rich properties. Returns a unified tree showing the full view hierarchy with class names, " +
                 "resource IDs, bounds, layout parameters, drawing properties, and Compose-specific data " +
@@ -640,7 +644,7 @@ public class McpServer {
                     "resource_id", prop("string", "Filter: find elements with this resource ID (e.g., 'com.example:id/button')", false),
                     "view_id", prop("string", "Get subtree rooted at this specific view drawing ID", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().layoutTree(
                         getString(args, "package"), getString(args, "device"),
@@ -655,7 +659,7 @@ public class McpServer {
 
         // layout_properties
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("layout_properties",
+            tool("layout_properties",
                 "Get detailed ViewDebug properties for a specific view node. Returns all annotated properties " +
                 "organized by category (identity, view, layout, drawing, focus, scrolling) with resolved " +
                 "resource names. Use the drawingId from layout_tree results to identify the target view.",
@@ -664,7 +668,7 @@ public class McpServer {
                     "view_id", prop("string", "Use the drawingId field value from layout_tree results as this parameter", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().layoutProperties(
                         getString(args, "package"), getString(args, "view_id"), getString(args, "device"));
@@ -679,12 +683,12 @@ public class McpServer {
     private static void collectMockTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // mock_list_rules
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("mock_list_rules", "List all mock rules for HTTP and WebSocket mocking",
+            tool("mock_list_rules", "List all mock rules for HTTP and WebSocket mocking",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().mockRules(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -696,7 +700,7 @@ public class McpServer {
 
         // mock_create_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("mock_create_rule", "Create a mock rule. Either provide request_id/message_id to create from captured data, OR provide type with other parameters to create from scratch.",
+            tool("mock_create_rule", "Create a mock rule. Either provide request_id/message_id to create from captured data, OR provide type with other parameters to create from scratch.",
                 schema(Map.ofEntries(
                     Map.entry("package", prop("string", "App package name", true)),
                     Map.entry("request_id", prop("string", "ID of captured HTTP request (mode 1)", false)),
@@ -710,7 +714,7 @@ public class McpServer {
                     Map.entry("text_payload", prop("string", "Mock text payload (WebSocket)", false)),
                     Map.entry("device", prop("string", "Device serial", false))
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
                     String requestId = getString(args, "request_id");
@@ -775,7 +779,7 @@ public class McpServer {
 
         // mock_update_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)",
+            tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)",
                 schema(Map.ofEntries(
                     Map.entry("package", prop("string", "App package name", true)),
                     Map.entry("rule_id", prop("string", "Mock rule ID", true)),
@@ -789,7 +793,7 @@ public class McpServer {
                     Map.entry("delay_ms", prop("integer", "Response delay in milliseconds", false)),
                     Map.entry("device", prop("string", "Device serial", false))
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
                     String ruleId = getString(args, "rule_id");
@@ -823,13 +827,13 @@ public class McpServer {
 
         // mock_delete_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("mock_delete_rule", "Delete a mock rule",
+            tool("mock_delete_rule", "Delete a mock rule",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "rule_id", prop("string", "Mock rule ID to delete", true),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().deleteMockRule(
                         getString(args, "package"), getString(args, "rule_id"), getString(args, "device"));
@@ -842,7 +846,7 @@ public class McpServer {
 
         // mock_config
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("mock_config", "Get or update global mock configuration",
+            tool("mock_config", "Get or update global mock configuration",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "enabled", prop("boolean", "Enable/disable all mocking (optional, omit to just get config)", false),
@@ -850,7 +854,7 @@ public class McpServer {
                     "websocket_enabled", prop("boolean", "Enable/disable WebSocket mocking", false),
                     "device", prop("string", "Device serial", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
@@ -880,12 +884,12 @@ public class McpServer {
     private static void collectCdpTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // cdp_watch_start
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("cdp_watch_start", "Start watching Custom Tabs network traffic via Chrome DevTools Protocol. Traffic will be captured automatically and stored alongside regular HTTP requests.",
+            tool("cdp_watch_start", "Start watching Custom Tabs network traffic via Chrome DevTools Protocol. Traffic will be captured automatically and stored alongside regular HTTP requests.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().cdpWatchStart(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -897,12 +901,12 @@ public class McpServer {
 
         // cdp_watch_stop
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("cdp_watch_stop", "Stop watching Custom Tabs network traffic",
+            tool("cdp_watch_stop", "Stop watching Custom Tabs network traffic",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().cdpWatchStop(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -914,12 +918,12 @@ public class McpServer {
 
         // cdp_watch_status
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            new Tool("cdp_watch_status", "Check if Custom Tabs network watching is active",
+            tool("cdp_watch_status", "Check if Custom Tabs network watching is active",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
                 ))),
-            (exchange, args) -> {
+            (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().cdpWatchStatus(getString(args, "package"), getString(args, "device"));
                     return ok(json);
@@ -935,7 +939,7 @@ public class McpServer {
     // ========================================================================
 
     private static CallToolResult ok(String json) {
-        return new CallToolResult(List.of(new McpSchema.TextContent(json)), false);
+        return CallToolResult.builder().content(List.of(new McpSchema.TextContent(json))).build();
     }
 
     private static String getString(Map<String, Object> args, String key) {
@@ -959,7 +963,7 @@ public class McpServer {
     }
 
     private static CallToolResult errorResult(String message) {
-        return new CallToolResult(List.of(new McpSchema.TextContent("Error: " + message)), true);
+        return CallToolResult.builder().content(List.of(new McpSchema.TextContent("Error: " + message))).isError(true).build();
     }
 
     private static String schema(String propName, String propType, String description) {
@@ -997,6 +1001,10 @@ public class McpServer {
         } catch (Exception e) {
             return "{\"type\":\"object\",\"properties\":{}}";
         }
+    }
+
+    private static Tool tool(String name, String description, String inputSchema) {
+        return Tool.builder().name(name).description(description).inputSchema(jsonMapper, inputSchema).build();
     }
 
     private static Map<String, Object> prop(String type, String description, boolean required) {
