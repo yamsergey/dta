@@ -282,6 +282,23 @@
             color: var(--ctp-green);
             font-size: 12px;
         }
+        .recomp-badge {
+            background: var(--ctp-surface1);
+            color: var(--ctp-peach);
+            font-size: 10px;
+            padding: 0 4px;
+            border-radius: 3px;
+            margin-left: 4px;
+        }
+        .recomp-badge.hot {
+            background: var(--ctp-red);
+            color: var(--ctp-base);
+        }
+        .skip-badge {
+            color: var(--ctp-overlay1);
+            font-size: 10px;
+            margin-left: 2px;
+        }
         .bounds-info {
             color: var(--ctp-overlay0);
             font-size: 11px;
@@ -522,6 +539,15 @@
         }
         .detail-value {
             color: var(--ctp-text);
+            font-size: 13px;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+        }
+        .detail-label {
+            color: var(--ctp-subtext0);
             font-size: 13px;
         }
         .detail-value.type {
@@ -1338,6 +1364,26 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="detail-section" v-if="selectedNode.recompositionCount != null || selectedNode.skipCount != null">
+                            <div class="detail-section-header" @click="detailSections.recomposition = !detailSections.recomposition">
+                                <span class="toggle" :class="{ expanded: detailSections.recomposition }">▶</span>
+                                Recomposition
+                            </div>
+                            <div class="detail-section-content" v-show="detailSections.recomposition">
+                                <div class="detail-row">
+                                    <span class="detail-label">Recompositions:</span>
+                                    <span class="detail-value" :style="{ color: selectedNode.recompositionCount > 10 ? 'var(--ctp-red)' : 'var(--ctp-peach)' }">{{ selectedNode.recompositionCount ?? 0 }}</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Skipped:</span>
+                                    <span class="detail-value" style="color: var(--ctp-green)">{{ selectedNode.skipCount ?? 0 }}</span>
+                                </div>
+                                <div class="detail-row" v-if="selectedNode.recompositionCount > 0 || selectedNode.skipCount > 0">
+                                    <span class="detail-label">Skip ratio:</span>
+                                    <span class="detail-value">{{ Math.round((selectedNode.skipCount ?? 0) / ((selectedNode.recompositionCount ?? 0) + (selectedNode.skipCount ?? 0)) * 100) }}%</span>
+                                </div>
+                            </div>
+                        </div>
                         <div class="detail-section" v-if="selectedNode.role">
                             <div class="detail-section-header" @click="detailSections.role = !detailSections.role">
                                 <span class="toggle" :class="{ expanded: detailSections.role }">▶</span>
@@ -1845,6 +1891,8 @@
                             {{ hasChildren ? (isExpanded ? '▼' : '▶') : '·' }}
                         </span>
                         <span class="composable-name">{{ node.composable || node.className || 'Node' }}</span>
+                        <span v-if="node.recompositionCount != null" class="recomp-badge" :class="{ hot: node.recompositionCount > 10 }">{{ node.recompositionCount }}</span>
+                        <span v-if="node.skipCount" class="skip-badge">{{ node.skipCount }} skip</span>
                         <span v-if="node.text" class="text-content">"{{ truncate(node.text) }}"</span>
                         <span v-if="node.bounds" class="bounds-info">
                             [{{ node.bounds.left }},{{ node.bounds.top }}]
@@ -1924,6 +1972,7 @@
                     type: true,
                     text: true,
                     bounds: true,
+                    recomposition: true,
                     role: true,
                     testTag: true,
                     raw: false
