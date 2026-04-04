@@ -13,7 +13,7 @@ android-gradle-plugin = "8.11.1"
 lombok = "1.18.42"
 jackson = "2.19.0"
 batik = "1.18"
-spring-boot = "3.4.1"
+spring-boot = "4.0.5"
 msgpack = "0.9.11"
 
 [libraries]
