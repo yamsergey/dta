@@ -86,7 +86,7 @@ tasks.withType(Javadoc).configureEach {
 }
 
 mavenPublishing {
-    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
     if (project.findProperty("signingInMemoryKey") != null) {
         signAllPublications()
     }

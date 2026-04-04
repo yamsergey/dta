@@ -118,7 +118,7 @@ tasks.named("preBuild") {
 val dtaVersion = project.property("dtaVersion") as String
 
 mavenPublishing {
-    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
     if (project.findProperty("signingInMemoryKey") != null) {
         signAllPublications()
     }
