@@ -18,6 +18,7 @@ import io.yamsergey.dta.sidekick.events.EventStore;
 import io.yamsergey.dta.sidekick.jvmti.JvmtiAgent;
 import io.yamsergey.dta.sidekick.network.BodyStorage;
 import io.yamsergey.dta.sidekick.network.adapter.NetworkInterceptorManager;
+import io.yamsergey.dta.sidekick.compose.RecompositionHooks;
 import io.yamsergey.dta.sidekick.webview.WebViewDebugHook;
 import io.yamsergey.dta.sidekick.server.InspectorServer;
 
@@ -141,6 +142,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
 
             // Register WebView debug hook
             registerWebViewHooks();
+
+            // Register Compose recomposition tracking hooks
+            registerRecompositionHooks();
         } else {
             String error = JvmtiAgent.getInitError();
             SidekickLog.w(TAG, "JVMTI agent initialization failed: " + (error != null ? error : "unknown"));
@@ -180,6 +184,23 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             SidekickLog.i(TAG, "WebView debug hook registered");
         } catch (Exception e) {
             SidekickLog.e(TAG, "Failed to register WebView debug hook", e);
+        }
+    }
+
+    /**
+     * Registers JVMTI hooks for tracking Compose recomposition counts.
+     *
+     * <p>Hooks {@code ComposerImpl.startRestartGroup(int)} and
+     * {@code ComposerImpl.skipToGroupEnd()} to count recompositions and skips
+     * per composable, matching Android Studio's Layout Inspector behavior.</p>
+     */
+    private void registerRecompositionHooks() {
+        try {
+            JvmtiAgent.registerHook(new RecompositionHooks.StartRestartGroupHook());
+            JvmtiAgent.registerHook(new RecompositionHooks.SkipToGroupEndHook());
+            SidekickLog.i(TAG, "Compose recomposition hooks registered");
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Failed to register recomposition hooks", e);
         }
     }
 

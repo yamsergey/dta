@@ -644,6 +644,13 @@ public class InspectorServer {
             case "/network/stats":
                 handleNetworkStats(out);
                 break;
+            case "/compose/recomposition/reset":
+                if ("DELETE".equals(method) || "POST".equals(method)) {
+                    handleRecompositionReset(out);
+                } else {
+                    sendError(out, 405, "Method Not Allowed");
+                }
+                break;
             case "/websocket/connections":
                 handleWebSocketConnections(out);
                 break;
@@ -688,6 +695,7 @@ public class InspectorServer {
                 "/network/transactions",
                 "/network/clear",
                 "/network/stats",
+                "/compose/recomposition/reset",
                 "/websocket/connections",
                 "/websocket/connections/{id}",
                 "/websocket/clear",
@@ -1201,6 +1209,19 @@ public class InspectorServer {
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
         }
+    }
+
+    /**
+     * DELETE/POST /compose/recomposition/reset - Reset all recomposition counts.
+     */
+    private void handleRecompositionReset(OutputStream out) throws IOException {
+        int tracked = io.yamsergey.dta.sidekick.compose.RecompositionTracker.getTrackedKeyCount();
+        io.yamsergey.dta.sidekick.compose.RecompositionTracker.reset();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("cleared", tracked);
+        response.put("message", "Reset recomposition counts for " + tracked + " composables");
+        sendJson(out, 200, response);
     }
 
     /**

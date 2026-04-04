@@ -359,7 +359,7 @@ public class DexTransformer {
                     Opcode.NEW_ARRAY, argsReg, tempReg,
                     new com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference("[Ljava/lang/Object;")));
 
-            // Fill array with object parameters
+            // Fill array with parameters (box primitives for Object[] storage)
             int paramIdx = 0;
             int paramReg = isStatic ? newParamStart : newParamStart + 1;
             for (MethodParameter param : params) {
@@ -368,8 +368,27 @@ public class DexTransformer {
                 newInstructions.add(new ImmutableInstruction21s(Opcode.CONST_16, tempReg, paramIdx));
 
                 if (paramType.startsWith("L") || paramType.startsWith("[")) {
+                    // Object type — store directly
                     newInstructions.add(new ImmutableInstruction23x(
                             Opcode.APUT_OBJECT, paramReg, argsReg, tempReg));
+                } else {
+                    // Primitive type — box via valueOf then store
+                    String boxClass = getBoxClass(paramType);
+                    if (boxClass != null) {
+                        int regCount = (paramType.equals("J") || paramType.equals("D")) ? 2 : 1;
+                        newInstructions.add(new ImmutableInstruction3rc(
+                                Opcode.INVOKE_STATIC_RANGE, paramReg, regCount,
+                                new ImmutableMethodReference(boxClass, "valueOf",
+                                        Arrays.asList(paramType), boxClass)));
+                        // move-result-object overwrites tempReg (which had the index)
+                        // so re-set the index in nullReg before aput
+                        newInstructions.add(new ImmutableInstruction11x(
+                                Opcode.MOVE_RESULT_OBJECT, tempReg));
+                        newInstructions.add(new ImmutableInstruction21s(
+                                Opcode.CONST_16, nullReg, paramIdx));
+                        newInstructions.add(new ImmutableInstruction23x(
+                                Opcode.APUT_OBJECT, tempReg, argsReg, nullReg));
+                    }
                 }
 
                 paramReg += (paramType.equals("J") || paramType.equals("D")) ? 2 : 1;
@@ -680,5 +699,21 @@ public class DexTransformer {
         String classType = classDef.getType();
         String className = classType.substring(1, classType.length() - 1).replace('/', '.');
         return className + "#" + method.getName() + buildMethodSignature(method);
+    }
+
+    /**
+     * Returns the box class descriptor for a primitive type.
+     * Used to generate valueOf() calls for primitive parameter boxing.
+     */
+    private static String getBoxClass(String primitiveType) {
+        if ("I".equals(primitiveType)) return "Ljava/lang/Integer;";
+        if ("J".equals(primitiveType)) return "Ljava/lang/Long;";
+        if ("F".equals(primitiveType)) return "Ljava/lang/Float;";
+        if ("D".equals(primitiveType)) return "Ljava/lang/Double;";
+        if ("Z".equals(primitiveType)) return "Ljava/lang/Boolean;";
+        if ("B".equals(primitiveType)) return "Ljava/lang/Byte;";
+        if ("S".equals(primitiveType)) return "Ljava/lang/Short;";
+        if ("C".equals(primitiveType)) return "Ljava/lang/Character;";
+        return null;
     }
 }

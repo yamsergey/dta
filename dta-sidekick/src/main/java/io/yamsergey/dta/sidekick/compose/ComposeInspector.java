@@ -379,6 +379,7 @@ public class ComposeInspector {
         int lineNumber;     // Source line number
         String packageName; // e.g., "com.example.ui"
         boolean isLibraryComposable; // true for CC(...) prefix, false for C(...)
+        int groupKey;       // Compose compiler key (from CompositionGroup.getKey())
     }
 
     /**
@@ -725,6 +726,19 @@ public class ComposeInspector {
             String sourceInfo = null;
             ComposableInfo thisGroupInfo = null; // Info for this specific group
 
+            // Extract group key for recomposition tracking
+            int groupKey = 0;
+            try {
+                Method getKey = group.getClass().getMethod("getKey");
+                getKey.setAccessible(true);
+                Object keyObj = getKey.invoke(group);
+                if (keyObj instanceof Integer) {
+                    groupKey = (Integer) keyObj;
+                }
+            } catch (Exception e) {
+                // key not available
+            }
+
             try {
                 Method getSourceInfo = group.getClass().getMethod("getSourceInfo");
                 getSourceInfo.setAccessible(true);
@@ -733,6 +747,7 @@ public class ComposeInspector {
                     sourceInfo = info.toString();
                     // Parse this group's sourceInfo
                     ComposableInfo parsed = parseSourceInfo(sourceInfo);
+                    parsed.groupKey = groupKey;
                     if (parsed.name != null) {
                         // Log composable names for debugging
                         if (groupLogCount < 100) {
@@ -1416,8 +1431,14 @@ public class ComposeInspector {
             // Extract InspectorInfo parameters and modifiers from the LayoutNode
             extractInspectorInfoParams(layoutNode, node);
 
-            // Extract recomposition counts (if available)
-            extractRecompositionCounts(layoutNode, composableInfoMap, node);
+            // Include recomposition counts from JVMTI hooks (if tracked)
+            if (composableInfo != null && composableInfo.groupKey != 0) {
+                int[] recompCounts = RecompositionTracker.getCounts(composableInfo.groupKey);
+                if (recompCounts != null) {
+                    node.put("recompositionCount", recompCounts[0]);
+                    node.put("skipCount", recompCounts[1]);
+                }
+            }
 
             // Generate stable ID for this node
             node.put("id", generateNodeId(layoutNode, depth));
@@ -1691,56 +1712,8 @@ public class ComposeInspector {
         return str;
     }
 
-    /**
-     * Extracts recomposition counts for a Compose node (if available).
-     * Looks for RecomposeScopeImpl associated with the LayoutNode.
-     *
-     * @param layoutNode the LayoutNode
-     * @param composableInfoMap the composable info map (may contain recomposition data)
-     * @param node the output map to populate
-     */
-    private static void extractRecompositionCounts(Object layoutNode,
-                                                    Map<Integer, ComposableInfo> composableInfoMap,
-                                                    Map<String, Object> node) {
-        try {
-            // Try to access recomposition data via the LayoutNode's owner (Composer)
-            // This uses reflection to find RecomposeScope data
-            Method getInnerCoordinator = null;
-            for (Method m : layoutNode.getClass().getMethods()) {
-                if (m.getName().equals("getInnerCoordinator") && m.getParameterCount() == 0) {
-                    getInnerCoordinator = m;
-                    break;
-                }
-            }
-
-            if (getInnerCoordinator == null) return;
-
-            getInnerCoordinator.setAccessible(true);
-            Object coordinator = getInnerCoordinator.invoke(layoutNode);
-            if (coordinator == null) return;
-
-            // Walk to find associated RecomposeScope
-            // The scope tracks invocation count
-            Class<?> scopeClass = null;
-            try {
-                scopeClass = Class.forName("androidx.compose.runtime.RecomposeScopeImpl");
-            } catch (ClassNotFoundException e) {
-                return; // Compose runtime doesn't have this class
-            }
-
-            // Try to find recomposeCount via reflection on the scope
-            for (Field f : scopeClass.getDeclaredFields()) {
-                if (f.getName().contains("recomposeCount") || f.getName().contains("invocationCount")) {
-                    f.setAccessible(true);
-                    // Note: We'd need the actual scope instance, which requires deeper Compose internals
-                    // For now, mark as not-yet-available
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            // Recomposition tracking not available - this is expected
-        }
-    }
+    // Recomposition counts are now tracked via JVMTI hooks (RecompositionTracker)
+    // and looked up by groupKey in captureUnifiedNode() — no reflection stub needed.
 
     /**
      * Gets the full class name from the MeasurePolicy.
