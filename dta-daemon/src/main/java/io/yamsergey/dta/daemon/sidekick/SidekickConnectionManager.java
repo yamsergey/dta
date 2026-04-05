@@ -30,7 +30,7 @@ public class SidekickConnectionManager {
     private static final Logger log = LoggerFactory.getLogger(SidekickConnectionManager.class);
     private static final SidekickConnectionManager INSTANCE = new SidekickConnectionManager();
 
-    private static final String ADB = "adb";
+    private static final String ADB = findAdb();
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static final long RECONNECT_COOLDOWN_MS = 10_000;
 
@@ -39,6 +39,30 @@ public class SidekickConnectionManager {
     private final ConcurrentHashMap<String, Long> failedConnectionTimestamps = new ConcurrentHashMap<>();
 
     private SidekickConnectionManager() {}
+
+    /**
+     * Finds the ADB executable. Checks ANDROID_HOME/ANDROID_SDK_ROOT env vars first,
+     * then falls back to "adb" on PATH.
+     */
+    private static String findAdb() {
+        for (String envVar : new String[]{"ANDROID_HOME", "ANDROID_SDK_ROOT"}) {
+            String sdk = System.getenv(envVar);
+            if (sdk != null && !sdk.isEmpty()) {
+                java.io.File adb = new java.io.File(sdk, "platform-tools" + java.io.File.separator + "adb");
+                if (adb.exists()) {
+                    log.info("Using ADB from {}: {}", envVar, adb.getAbsolutePath());
+                    return adb.getAbsolutePath();
+                }
+            }
+        }
+        // macOS common location
+        java.io.File macAdb = new java.io.File(System.getProperty("user.home"), "Library/Android/sdk/platform-tools/adb");
+        if (macAdb.exists()) {
+            return macAdb.getAbsolutePath();
+        }
+        // Fallback to PATH
+        return "adb";
+    }
 
     public static SidekickConnectionManager getInstance() {
         return INSTANCE;
