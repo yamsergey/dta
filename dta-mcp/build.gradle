@@ -43,9 +43,9 @@ dependencies {
     // MCP Java SDK
     implementation 'io.modelcontextprotocol.sdk:mcp:1.0.1'
 
-    // Jackson for JSON
-    implementation libs.jackson.core
-    implementation libs.jackson.databind
+    // Jackson for JSON (explicit versions for Snyk — overrides transitive 3.0.3 from MCP SDK)
+    implementation 'tools.jackson.core:jackson-core:3.1.1'
+    implementation 'tools.jackson.core:jackson-databind:3.1.1'
     implementation libs.jackson.annotations
 
     // Logging - must go to stderr, not stdout (stdout is for JSON-RPC)
