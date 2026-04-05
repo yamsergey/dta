@@ -5,19 +5,19 @@
  * content on Android devices. The key components are:</p>
  *
  * <ul>
- *   <li>{@link io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshotCapture} -
+ *   <li>{@link io.yamsergey.dta.daemon.scroll.ScrollScreenshotCapture} -
  *       Main orchestrator that coordinates the entire capture process</li>
- *   <li>{@link io.yamsergey.dta.tools.android.inspect.scroll.ScrollableViewFinder} -
+ *   <li>{@link io.yamsergey.dta.daemon.scroll.ScrollableViewFinder} -
  *       Finds scrollable views in the UI hierarchy</li>
- *   <li>{@link io.yamsergey.dta.tools.android.inspect.scroll.RowHashCalculator} -
+ *   <li>{@link io.yamsergey.dta.daemon.scroll.RowHashCalculator} -
  *       Computes row hashes for overlap detection</li>
- *   <li>{@link io.yamsergey.dta.tools.android.inspect.scroll.ImageOverlapDetector} -
+ *   <li>{@link io.yamsergey.dta.daemon.scroll.ImageOverlapDetector} -
  *       Detects overlap between consecutive screenshots</li>
- *   <li>{@link io.yamsergey.dta.tools.android.inspect.scroll.ImageStitcher} -
+ *   <li>{@link io.yamsergey.dta.daemon.scroll.ImageStitcher} -
  *       Stitches unique content into a single image</li>
- *   <li>{@link io.yamsergey.dta.tools.android.inspect.scroll.AdbSwipeController} -
+ *   <li>{@link io.yamsergey.dta.daemon.scroll.AdbSwipeController} -
  *       Controls swipe gestures via ADB</li>
- *   <li>{@link io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshot} -
+ *   <li>{@link io.yamsergey.dta.daemon.scroll.ScrollScreenshot} -
  *       Result model containing the captured screenshot</li>
  * </ul>
  *
@@ -51,6 +51,6 @@
  *   <li>Stitch unique portions into final image</li>
  * </ol>
  *
- * @see io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshotCapture
+ * @see io.yamsergey.dta.daemon.scroll.ScrollScreenshotCapture
  */
-package io.yamsergey.dta.tools.android.inspect.scroll;
+package io.yamsergey.dta.daemon.scroll;

@@ -1,4 +1,4 @@
-package io.yamsergey.dta.tools.android.inspect.compose;
+package io.yamsergey.dta.daemon.sidekick;
 
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;

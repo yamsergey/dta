@@ -1,4 +1,4 @@
-package io.yamsergey.dta.tools.android.inspect.scroll;
+package io.yamsergey.dta.daemon.scroll;
 
 import io.yamsergey.dta.tools.android.inspect.ViewNode;
 

@@ -4,17 +4,17 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
-import io.yamsergey.dta.tools.android.cdp.CdpAccessibilityInspector;
-import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
-import io.yamsergey.dta.tools.android.cdp.ChromeDevToolsClient;
-import io.yamsergey.dta.tools.android.cdp.WebViewCdpManager;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.ConnectionInfo;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.Device;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager.SidekickSocket;
-import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshot;
-import io.yamsergey.dta.tools.android.inspect.scroll.ScrollScreenshotCapture;
-import io.yamsergey.dta.tools.android.sidekick.SidekickSseListener;
+import io.yamsergey.dta.daemon.cdp.CdpAccessibilityInspector;
+import io.yamsergey.dta.daemon.cdp.CdpWatcherManager;
+import io.yamsergey.dta.daemon.cdp.ChromeDevToolsClient;
+import io.yamsergey.dta.daemon.cdp.WebViewCdpManager;
+import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager;
+import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo;
+import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device;
+import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket;
+import io.yamsergey.dta.daemon.scroll.ScrollScreenshot;
+import io.yamsergey.dta.daemon.scroll.ScrollScreenshotCapture;
+import io.yamsergey.dta.daemon.sidekick.SidekickSseListener;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -98,7 +98,7 @@ public class InspectorController {
             result.put("connected", true);
             result.put("toolVersion", VERSION);
 
-            if (healthResult instanceof io.yamsergey.dta.tools.sugar.Success<io.yamsergey.dta.tools.android.inspect.compose.HealthResponse> success) {
+            if (healthResult instanceof io.yamsergey.dta.tools.sugar.Success<io.yamsergey.dta.daemon.sidekick.HealthResponse> success) {
                 var health = success.value();
                 result.put("sidekickVersion", health.version());
                 result.put("sidekickName", health.name());

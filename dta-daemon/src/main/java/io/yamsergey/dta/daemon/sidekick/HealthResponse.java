@@ -1,4 +1,4 @@
-package io.yamsergey.dta.tools.android.inspect.compose;
+package io.yamsergey.dta.daemon.sidekick;
 
 /**
  * Response from the sidekick /health endpoint.

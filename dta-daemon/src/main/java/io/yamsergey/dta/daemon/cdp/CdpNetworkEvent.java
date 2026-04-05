@@ -1,4 +1,4 @@
-package io.yamsergey.dta.tools.android.cdp;
+package io.yamsergey.dta.daemon.cdp;
 
 import java.util.Map;
 

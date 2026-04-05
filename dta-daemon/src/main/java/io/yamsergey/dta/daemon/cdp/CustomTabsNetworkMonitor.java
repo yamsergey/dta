@@ -1,4 +1,4 @@
-package io.yamsergey.dta.tools.android.cdp;
+package io.yamsergey.dta.daemon.cdp;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -13,7 +13,7 @@ import java.util.function.Consumer;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
+import io.yamsergey.dta.daemon.sidekick.SidekickClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

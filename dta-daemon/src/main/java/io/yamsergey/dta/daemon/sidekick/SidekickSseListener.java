@@ -1,4 +1,4 @@
-package io.yamsergey.dta.tools.android.sidekick;
+package io.yamsergey.dta.daemon.sidekick;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;

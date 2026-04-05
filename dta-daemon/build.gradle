@@ -1,0 +1,80 @@
+plugins {
+    id 'java-library'
+    id 'com.vanniktech.maven.publish'
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
+}
+
+dependencies {
+    // Core DTA library (for Result, Success, Failure, ViewNode, etc.)
+    api project(':tools-android')
+
+    // Jackson for JSON serialization
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
+
+    // SLF4J for logging
+    implementation 'org.slf4j:slf4j-api:2.0.16'
+
+    // Lombok
+    implementation libs.sugar.lombok
+    annotationProcessor libs.sugar.lombok
+
+    // Testing
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.addBooleanOption('Xdoclint:none', true)
+    failOnError = false
+}
+
+mavenPublishing {
+    publishToMavenCentral()
+    if (project.findProperty("signingInMemoryKey") != null) {
+        signAllPublications()
+    }
+    coordinates("io.github.yamsergey", "dta-daemon", dtaVersion)
+
+    pom {
+        name = 'Development Tools for Android - Daemon Library'
+        description = 'Daemon components for DTA including CDP, Sidekick, and scroll capture'
+        url = 'https://github.com/yamsergey/dta'
+
+        licenses {
+            license {
+                name = 'Apache License 2.0'
+                url = 'https://www.apache.org/licenses/LICENSE-2.0'
+            }
+        }
+
+        developers {
+            developer {
+                id = 'yamsergey'
+                name = 'Sergey Yamshchikov'
+            }
+        }
+
+        scm {
+            connection = 'scm:git:git://github.com/yamsergey/dta.git'
+            developerConnection = 'scm:git:ssh://github.com/yamsergey/dta.git'
+            url = 'https://github.com/yamsergey/dta'
+        }
+    }
+}

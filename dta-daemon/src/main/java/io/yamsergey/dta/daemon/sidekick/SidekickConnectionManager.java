@@ -1,6 +1,6 @@
-package io.yamsergey.dta.tools.android.inspect.compose;
+package io.yamsergey.dta.daemon.sidekick;
 
-import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
+import io.yamsergey.dta.daemon.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
 import org.slf4j.Logger;

@@ -1,4 +1,4 @@
-package io.yamsergey.dta.tools.android.cdp;
+package io.yamsergey.dta.daemon.cdp;
 
 /**
  * Represents a Chrome DevTools Protocol target (tab).
