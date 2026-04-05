@@ -53,7 +53,7 @@ intellijPlatform {
             url = "https://github.com/yamsergey/dta"
         }
         ideaVersion {
-            sinceBuild = "252"
+            sinceBuild = "243"  // Android Studio Meerkat Feature Drop (2024.3.2)+
             untilBuild = provider { null }  // no upper bound
         }
     }
