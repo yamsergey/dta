@@ -35,6 +35,7 @@ dependencies {
     intellijPlatform {
         local(findAndroidStudio())
         bundledPlugin("org.jetbrains.android")
+        bundledPlugin("com.intellij.gradle")
         pluginVerifier()
         instrumentationTools()
     }

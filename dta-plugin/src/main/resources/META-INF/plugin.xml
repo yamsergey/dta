@@ -9,6 +9,7 @@
 
     <depends>com.intellij.modules.androidstudio</depends>
     <depends>org.jetbrains.android</depends>
+    <depends>com.intellij.gradle</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="DTA Inspector"
@@ -16,5 +17,9 @@
                     factoryClass="io.yamsergey.dta.plugin.DtaToolWindowFactory"
                     icon="/icons/dta-13.svg"/>
         <applicationService serviceImplementation="io.yamsergey.dta.plugin.DtaService"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
+        <taskManagerExtension implementation="io.yamsergey.dta.plugin.SidekickInjector"/>
     </extensions>
 </idea-plugin>

@@ -65,7 +65,18 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
                 service.refreshDevices()
             }
         }
-        val actionGroup = DefaultActionGroup().apply { add(refreshAction) }
+        val injectAction = object : com.intellij.openapi.actionSystem.ToggleAction(
+            "Auto-inject Sidekick", "Inject dta-sidekick into debug builds (no project file changes)", AllIcons.Actions.Download
+        ) {
+            override fun isSelected(e: AnActionEvent): Boolean = SidekickInjector.enabled
+            override fun setSelected(e: AnActionEvent, state: Boolean) {
+                SidekickInjector.toggle()
+            }
+        }
+        val actionGroup = DefaultActionGroup().apply {
+            add(refreshAction)
+            add(injectAction)
+        }
         val actionToolbar = ActionManager.getInstance()
             .createActionToolbar(ActionPlaces.TOOLBAR, actionGroup, true)
         actionToolbar.targetComponent = this
