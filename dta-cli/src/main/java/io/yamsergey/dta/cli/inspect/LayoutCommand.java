@@ -1,7 +1,8 @@
 package io.yamsergey.dta.cli.inspect;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 import io.yamsergey.dta.tools.android.inspect.ViewHierarchy;
 import io.yamsergey.dta.tools.android.inspect.ViewHierarchyDumper;
 import io.yamsergey.dta.tools.android.inspect.ViewHierarchyParser;
@@ -173,10 +174,9 @@ public class LayoutCommand implements Callable<Integer> {
                     ViewNode rootNode = ((Success<ViewNode>) parseResult).value();
 
                     // Convert to JSON
-                    ObjectMapper mapper = new ObjectMapper();
-                    if (pretty) {
-                        mapper.enable(SerializationFeature.INDENT_OUTPUT);
-                    }
+                    ObjectMapper mapper = pretty
+                        ? JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).build()
+                        : new ObjectMapper();
 
                     // Apply filter if any filters are specified
                     if (filter.hasFilters()) {

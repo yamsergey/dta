@@ -6,10 +6,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.module.SimpleModule;
+import tools.jackson.databind.ser.ValueSerializerModifier;
 
 import io.yamsergey.dta.cli.serialization.jackson.CompositeSerializerModifier;
 import io.yamsergey.dta.cli.serialization.jackson.ParentIgnoreMixIn;
@@ -122,15 +123,11 @@ public class ResolveCommand implements Callable<Integer> {
 
   private void outputAsJson(Object project) {
     try {
-      ObjectMapper mapper = new ObjectMapper();
-      mapper.enable(SerializationFeature.INDENT_OUTPUT);
-      mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
-
       // Register custom serializer modifiers
       SimpleModule module = new SimpleModule();
 
       // Combine property filtering with safe serialization
-      List<BeanSerializerModifier> modifiers = new ArrayList<>();
+      List<ValueSerializerModifier> modifiers = new ArrayList<>();
 
       // First apply property filtering (if configured)
       if (includeFields != null) {
@@ -145,14 +142,16 @@ public class ResolveCommand implements Callable<Integer> {
       // Use composite modifier
       module.setSerializerModifier(new CompositeSerializerModifier(modifiers));
 
-      mapper.registerModule(module);
-
-      // Globally ignore 'parent' properties to break circular references
-      mapper.addMixIn(Object.class, ParentIgnoreMixIn.class);
-
-      // Add mixins to handle circular references in Gradle objects
-      mapper.addMixIn(org.gradle.tooling.model.Task.class, TaskMixIn.class);
-      mapper.addMixIn(org.gradle.tooling.model.GradleProject.class, ProjectMixIn.class);
+      ObjectMapper mapper = JsonMapper.builder()
+          .enable(SerializationFeature.INDENT_OUTPUT)
+          .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
+          .addModule(module)
+          // Globally ignore 'parent' properties to break circular references
+          .addMixIn(Object.class, ParentIgnoreMixIn.class)
+          // Add mixins to handle circular references in Gradle objects
+          .addMixIn(org.gradle.tooling.model.Task.class, TaskMixIn.class)
+          .addMixIn(org.gradle.tooling.model.GradleProject.class, ProjectMixIn.class)
+          .build();
 
       if (outputFilePath != null) {
         File outputFile = new File(outputFilePath);

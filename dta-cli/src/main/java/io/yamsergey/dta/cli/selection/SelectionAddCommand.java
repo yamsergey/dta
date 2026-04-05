@@ -1,6 +1,6 @@
 package io.yamsergey.dta.cli.selection;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.yamsergey.dta.mcp.DaemonClient;
 import io.yamsergey.dta.mcp.DaemonLauncher;
 import picocli.CommandLine.ArgGroup;

@@ -3,12 +3,13 @@ package io.yamsergey.dta.tools.android.cli.serialization.jackson;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.BeanDescription;
-import com.fasterxml.jackson.databind.SerializationConfig;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
-import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.BeanDescription;
+import tools.jackson.databind.SerializationConfig;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.jsonFormatVisitors.JsonObjectFormatVisitor;
+import tools.jackson.databind.ser.BeanPropertyWriter;
+import tools.jackson.databind.ser.ValueSerializerModifier;
 
 /**
  * Custom Jackson serializer modifier that gracefully handles properties
@@ -18,16 +19,16 @@ import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
  * When a property getter throws an exception, this modifier will serialize
  * the property as null instead of failing the entire serialization.
  */
-public class SafeSerializerModifier extends BeanSerializerModifier {
+public class SafeSerializerModifier extends ValueSerializerModifier {
 
   @Override
   public List<BeanPropertyWriter> changeProperties(SerializationConfig config,
-      BeanDescription beanDesc,
+      BeanDescription.Supplier beanDesc,
       List<BeanPropertyWriter> beanProperties) {
     List<BeanPropertyWriter> modifiedProperties = new ArrayList<>();
 
     for (BeanPropertyWriter writer : beanProperties) {
-      modifiedProperties.add(new SafeBeanPropertyWriter(writer));
+      modifiedProperties.add(new SafePropertyWriter(writer));
     }
 
     return modifiedProperties;
@@ -37,20 +38,20 @@ public class SafeSerializerModifier extends BeanSerializerModifier {
    * Wrapper for BeanPropertyWriter that catches and suppresses exceptions
    * during property serialization.
    */
-  private static class SafeBeanPropertyWriter extends BeanPropertyWriter {
+  private static class SafePropertyWriter extends BeanPropertyWriter {
 
-    public SafeBeanPropertyWriter(BeanPropertyWriter base) {
+    public SafePropertyWriter(BeanPropertyWriter base) {
       super(base);
     }
 
     @Override
-    public void serializeAsField(Object bean, JsonGenerator gen, SerializerProvider prov) throws Exception {
+    public void serializeAsProperty(Object bean, JsonGenerator gen, SerializationContext ctxt) throws Exception {
       try {
-        super.serializeAsField(bean, gen, prov);
+        super.serializeAsProperty(bean, gen, ctxt);
       } catch (Exception e) {
         // If serialization fails (e.g., UnsupportedMethodException),
         // write null instead
-        gen.writeFieldName(getName());
+        gen.writeName(getName());
         gen.writeNull();
       }
     }

@@ -2,32 +2,32 @@ package io.yamsergey.dta.tools.android.cli.serialization.jackson;
 
 import java.util.List;
 
-import com.fasterxml.jackson.databind.BeanDescription;
-import com.fasterxml.jackson.databind.SerializationConfig;
-import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
-import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
+import tools.jackson.databind.BeanDescription;
+import tools.jackson.databind.SerializationConfig;
+import tools.jackson.databind.ser.BeanPropertyWriter;
+import tools.jackson.databind.ser.ValueSerializerModifier;
 
 /**
  * Composite serializer modifier that chains multiple modifiers together.
  * Each modifier is applied in sequence to the list of properties.
  */
-public class CompositeSerializerModifier extends BeanSerializerModifier {
+public class CompositeSerializerModifier extends ValueSerializerModifier {
 
-  private final List<BeanSerializerModifier> modifiers;
+  private final List<ValueSerializerModifier> modifiers;
 
-  public CompositeSerializerModifier(List<BeanSerializerModifier> modifiers) {
+  public CompositeSerializerModifier(List<ValueSerializerModifier> modifiers) {
     this.modifiers = modifiers;
   }
 
   @Override
   public List<BeanPropertyWriter> changeProperties(SerializationConfig config,
-      BeanDescription beanDesc,
+      BeanDescription.Supplier beanDesc,
       List<BeanPropertyWriter> beanProperties) {
 
     List<BeanPropertyWriter> result = beanProperties;
 
     // Apply each modifier in sequence
-    for (BeanSerializerModifier modifier : modifiers) {
+    for (ValueSerializerModifier modifier : modifiers) {
       result = modifier.changeProperties(config, beanDesc, result);
     }
 

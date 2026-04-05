@@ -1,7 +1,8 @@
 package io.yamsergey.dta.cli.inspect;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 import io.yamsergey.dta.tools.android.inspect.PackageInfo;
 import io.yamsergey.dta.tools.android.inspect.PackageLister;
 import io.yamsergey.dta.tools.sugar.Failure;
@@ -95,8 +96,9 @@ public class PackagesCommand implements Callable<Integer> {
                 List<PackageInfo> packages = success.value();
 
                 if (jsonOutput) {
-                    ObjectMapper mapper = new ObjectMapper();
-                    mapper.enable(SerializationFeature.INDENT_OUTPUT);
+                    ObjectMapper mapper = JsonMapper.builder()
+                        .enable(SerializationFeature.INDENT_OUTPUT)
+                        .build();
                     System.out.println(mapper.writeValueAsString(packages));
                 } else {
                     if (packages.isEmpty()) {

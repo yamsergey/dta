@@ -1,7 +1,7 @@
 package io.yamsergey.dta.cli.inspect;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.yamsergey.dta.mcp.DaemonClient;
 import io.yamsergey.dta.mcp.DaemonLauncher;
 import picocli.CommandLine.Command;

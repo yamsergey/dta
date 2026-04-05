@@ -53,5 +53,5 @@ dependencies {
     implementation libs.jackson.core
     implementation libs.jackson.databind
     implementation libs.jackson.annotations
-    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.21.1'
+    // JSR310 (java.time) support is built into jackson-databind 3.x
 }

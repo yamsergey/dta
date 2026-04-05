@@ -1,6 +1,6 @@
 package io.yamsergey.dta.cli.mock;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.yamsergey.dta.mcp.DaemonClient;
 import io.yamsergey.dta.mcp.DaemonLauncher;
 import picocli.CommandLine.Command;

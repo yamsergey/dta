@@ -11,8 +11,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import io.yamsergey.dta.tools.android.inspect.compose.SidekickClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -574,7 +574,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 if (!result.isSuccess()) {
                     log.error("Failed to post transaction to sidekick: {}", result.description());
                 }
-            } catch (JsonProcessingException e) {
+            } catch (JacksonException e) {
                 log.error("Error serializing transaction: {}", e.getMessage(), e);
             } catch (Exception e) {
                 log.error("Error posting transaction to sidekick: {}", e.getMessage(), e);

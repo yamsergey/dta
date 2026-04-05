@@ -43,11 +43,6 @@ dependencies {
     // MCP Java SDK
     implementation 'io.modelcontextprotocol.sdk:mcp:1.0.1'
 
-    // Override jackson 3.x to fix CVE in 3.0.3 (transitive from mcp-json-jackson3)
-    implementation 'tools.jackson.core:jackson-core:3.1.1'
-    implementation 'tools.jackson.core:jackson-databind:3.1.1'
-    implementation 'tools.jackson.dataformat:jackson-dataformat-yaml:3.1.0'
-
     // Jackson for JSON
     implementation libs.jackson.core
     implementation libs.jackson.databind

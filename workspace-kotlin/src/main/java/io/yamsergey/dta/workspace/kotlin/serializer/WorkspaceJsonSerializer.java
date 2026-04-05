@@ -3,8 +3,9 @@ package io.yamsergey.dta.workspace.kotlin.serializer;
 import java.io.File;
 import java.io.IOException;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.json.JsonMapper;
 
 import io.yamsergey.dta.workspace.kotlin.model.Workspace;
 
@@ -19,10 +20,9 @@ public class WorkspaceJsonSerializer {
     private final ObjectMapper objectMapper;
 
     public WorkspaceJsonSerializer() {
-        this.objectMapper = new ObjectMapper();
-        // Configure ObjectMapper for consistent JSON output
-        this.objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.LOWER_CAMEL_CASE);
-        this.objectMapper.writerWithDefaultPrettyPrinter();
+        this.objectMapper = JsonMapper.builder()
+            .propertyNamingStrategy(PropertyNamingStrategies.LOWER_CAMEL_CASE)
+            .build();
     }
 
     /**

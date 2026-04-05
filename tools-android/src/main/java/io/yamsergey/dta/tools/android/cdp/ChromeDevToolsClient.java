@@ -1,9 +1,9 @@
 package io.yamsergey.dta.tools.android.cdp;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.net.URI;
@@ -280,7 +280,7 @@ public class ChromeDevToolsClient implements AutoCloseable {
             String json = objectMapper.writeValueAsString(message);
             webSocket.sendText(json, true);
 
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             pendingRequests.remove(id);
             return CompletableFuture.failedFuture(e);
         }
@@ -451,7 +451,7 @@ public class ChromeDevToolsClient implements AutoCloseable {
     private Map<String, String> parseHeaders(JsonNode headersNode) {
         Map<String, String> headers = new HashMap<>();
         if (headersNode.isObject()) {
-            headersNode.fields().forEachRemaining(entry ->
+            headersNode.properties().forEach(entry ->
                 headers.put(entry.getKey(), entry.getValue().asText())
             );
         }

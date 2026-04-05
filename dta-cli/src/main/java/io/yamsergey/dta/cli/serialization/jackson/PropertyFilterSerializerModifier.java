@@ -5,10 +5,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.databind.BeanDescription;
-import com.fasterxml.jackson.databind.SerializationConfig;
-import com.fasterxml.jackson.databind.ser.BeanPropertyWriter;
-import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
+import tools.jackson.databind.BeanDescription;
+import tools.jackson.databind.SerializationConfig;
+import tools.jackson.databind.ser.BeanPropertyWriter;
+import tools.jackson.databind.ser.ValueSerializerModifier;
 
 /**
  * Jackson serializer modifier that filters properties based on include/exclude lists.
@@ -17,7 +17,7 @@ import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
  * When excludeFields is set, all fields except those are serialized (blacklist mode).
  * When neither is set, all fields are serialized (no filtering).
  */
-public class PropertyFilterSerializerModifier extends BeanSerializerModifier {
+public class PropertyFilterSerializerModifier extends ValueSerializerModifier {
 
   private final Set<String> includeFields;
   private final Set<String> excludeFields;
@@ -66,7 +66,7 @@ public class PropertyFilterSerializerModifier extends BeanSerializerModifier {
 
   @Override
   public List<BeanPropertyWriter> changeProperties(SerializationConfig config,
-      BeanDescription beanDesc,
+      BeanDescription.Supplier beanDesc,
       List<BeanPropertyWriter> beanProperties) {
 
     // No filtering configured - return all properties

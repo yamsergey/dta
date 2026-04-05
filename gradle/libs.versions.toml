@@ -11,7 +11,8 @@ gradle-tooling-api = "8.10.2"
 gradle-core = "6.1.1"
 android-gradle-plugin = "8.11.1"
 lombok = "1.18.42"
-jackson = "2.19.0"
+jackson = "3.1.1"
+jackson-annotations = "2.21"
 batik = "1.18"
 spring-boot = "4.0.5"
 msgpack = "0.9.11"
@@ -36,9 +37,9 @@ android-gradle-plugin = { module = "com.android.tools.build:gradle", version.ref
 android-gradle-api = { module = "com.android.tools.build:gradle-api", version.ref = "android-gradle-plugin" }
 android-builder-model = { module = "com.android.tools.build:builder-model", version.ref = "android-gradle-plugin" }
 sugar-lombok = { module = "org.projectlombok:lombok", version.ref = "lombok"}
-jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
-jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
-jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
+jackson-core = { module = "tools.jackson.core:jackson-core", version.ref = "jackson" }
+jackson-databind = { module = "tools.jackson.core:jackson-databind", version.ref = "jackson" }
+jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson-annotations" }
 batik-transcoder = { module = "org.apache.xmlgraphics:batik-transcoder", version.ref = "batik" }
 batik-codec = { module = "org.apache.xmlgraphics:batik-codec", version.ref = "batik" }
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web", version.ref = "spring-boot" }

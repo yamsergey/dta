@@ -1,9 +1,9 @@
 package io.yamsergey.dta.server;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.yamsergey.dta.tools.android.cdp.CdpAccessibilityInspector;
 import io.yamsergey.dta.tools.android.cdp.CdpWatcherManager;
 import io.yamsergey.dta.tools.android.cdp.ChromeDevToolsClient;
@@ -353,7 +353,7 @@ public class InspectorController {
         ObjectNode result = mapper.createObjectNode();
 
         // Copy top-level metadata (screen, timestamp, etc.)
-        tree.fieldNames().forEachRemaining(field -> {
+        tree.propertyNames().forEach(field -> {
             if (!"windows".equals(field)) {
                 result.set(field, tree.get(field));
             }
@@ -390,7 +390,7 @@ public class InspectorController {
         ObjectNode result = mapper.createObjectNode();
 
         // Copy top-level metadata (filters, totalMatches, screen, timestamp)
-        tree.fieldNames().forEachRemaining(field -> {
+        tree.propertyNames().forEach(field -> {
             if (!"windows".equals(field)) {
                 result.set(field, tree.get(field));
             }
@@ -405,7 +405,7 @@ public class InspectorController {
                     for (JsonNode match : matches) {
                         ObjectNode entry = mapper.createObjectNode();
                         // The match node itself (without parentChain) becomes "node"
-                        ObjectNode node = match.deepCopy();
+                        ObjectNode node = (ObjectNode) match.deepCopy();
                         node.remove("parentChain");
                         entry.set("node", node);
 
