@@ -74,3 +74,4 @@ test-fixtures/**/.idea/
 CLAUDE.md
 .intellijPlatform/
 *.hprof
+.kotlin/
