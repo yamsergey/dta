@@ -6,10 +6,12 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import io.yamsergey.dta.daemon.sidekick.SidekickClient
 import com.android.tools.idea.adb.AdbFileProvider
+import io.yamsergey.dta.daemon.cdp.CdpWatcherManager
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket
+import io.yamsergey.dta.daemon.sidekick.SidekickSseListener
 import io.yamsergey.dta.tools.sugar.Success
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ScheduledExecutorService
@@ -32,6 +34,7 @@ class DtaService : Disposable {
     }
 
     private var pollingFuture: ScheduledFuture<*>? = null
+    private var sseListener: SidekickSseListener? = null
 
     @Volatile var devices: List<Device> = emptyList(); private set
     @Volatile var selectedDevice: Device? = null
@@ -74,6 +77,8 @@ class DtaService : Disposable {
     fun removeListener(listener: DtaServiceListener) { listeners.remove(listener) }
 
     companion object {
+        private const val CDP_PORT = 9222
+
         @JvmStatic
         fun getInstance(): DtaService =
             ApplicationManager.getApplication().getService(DtaService::class.java)
@@ -161,12 +166,41 @@ class DtaService : Disposable {
                 val conn = connectionManager.getConnection(app.packageName(), device.serial())
                 connection = conn
                 updateConnectionStatus("Connected (port ${conn.port()})")
+                setupCdpCapture(app.packageName(), device.serial(), conn)
                 startPolling()
             } catch (e: Exception) {
                 log.warn("Failed to connect to ${app.packageName()}", e)
                 connection = null
                 updateConnectionStatus("Connection failed")
             }
+        }
+    }
+
+    private fun setupCdpCapture(packageName: String, device: String, conn: ConnectionInfo) {
+        try {
+            connectionManager.setupCdpPortForward(device, CDP_PORT)
+            conn.client().requestCdpCapture()
+
+            CdpWatcherManager.getInstance().startWatcher(
+                packageName, device, CDP_PORT, conn.port(), conn.client(), null
+            )
+
+            val listener = SidekickSseListener(conn.port(), object : SidekickSseListener.EventListener {
+                override fun onCustomTabWillLaunch(eventId: String, url: String, timestamp: Long) {
+                    log.info("Custom Tab launched: $url (event=$eventId)")
+                    CdpWatcherManager.getInstance().onCustomTabWillLaunch(packageName, device, eventId, url)
+                }
+                override fun onConnected() {
+                    log.info("SSE connected for $packageName")
+                }
+                override fun onDisconnected() {
+                    log.info("SSE disconnected for $packageName")
+                }
+            })
+            listener.start()
+            sseListener = listener
+        } catch (e: Exception) {
+            log.warn("Failed to set up CDP capture for $packageName", e)
         }
     }
 
@@ -194,6 +228,8 @@ class DtaService : Disposable {
     private fun stopPolling() {
         pollingFuture?.cancel(false)
         pollingFuture = null
+        sseListener?.stop()
+        sseListener = null
     }
 
     private fun pollData() {

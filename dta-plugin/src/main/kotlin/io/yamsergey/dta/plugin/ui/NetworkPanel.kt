@@ -45,14 +45,20 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
     private fun parseRequests(json: String): List<NetworkRequest> {
         val requests = mutableListOf<NetworkRequest>()
         val trimmed = json.trim()
-        if (!trimmed.startsWith("[")) return requests
+
+        // Response may be {"count":N,"requests":[...]} or a direct array [...]
+        val arrayJson = if (trimmed.startsWith("[")) {
+            trimmed
+        } else {
+            extractArray(trimmed, "requests") ?: return requests
+        }
 
         // Split into individual objects
         var i = 0
-        while (i < trimmed.length) {
-            if (trimmed[i] == '{') {
-                val objEnd = findClosingBrace(trimmed, i)
-                val obj = trimmed.substring(i, objEnd + 1)
+        while (i < arrayJson.length) {
+            if (arrayJson[i] == '{') {
+                val objEnd = findClosingBrace(arrayJson, i)
+                val obj = arrayJson.substring(i, objEnd + 1)
                 requests.add(parseRequest(obj))
                 i = objEnd + 1
             } else {
@@ -102,6 +108,22 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
     private fun extractLong(json: String, field: String): Long? {
         val match = Regex("\"$field\"\\s*:\\s*(-?\\d+)").find(json)
         return match?.groupValues?.get(1)?.toLongOrNull()
+    }
+
+    private fun extractArray(json: String, field: String): String? {
+        val key = "\"$field\""
+        val keyIdx = json.indexOf(key)
+        if (keyIdx < 0) return null
+        val arrStart = json.indexOf('[', keyIdx + key.length)
+        if (arrStart < 0) return null
+        var depth = 0
+        for (i in arrStart until json.length) {
+            when (json[i]) {
+                '[' -> depth++
+                ']' -> { depth--; if (depth == 0) return json.substring(arrStart, i + 1) }
+            }
+        }
+        return null
     }
 
     // ========================================================================

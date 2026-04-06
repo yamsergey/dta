@@ -108,28 +108,45 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
      */
     private fun parseLayoutNodes(json: String): List<DefaultMutableTreeNode> {
         val trimmed = json.trim()
-        // Find the nodes array
-        val nodesStart = findJsonArray(trimmed)
-        if (nodesStart.isEmpty()) return emptyList()
 
-        return parseNodeArray(nodesStart)
-    }
-
-    private fun findJsonArray(json: String): String {
-        // Look for "nodes": [...] or top-level [...]
-        val nodesIdx = json.indexOf("\"nodes\"")
-        if (nodesIdx >= 0) {
-            val arrStart = json.indexOf('[', nodesIdx)
-            if (arrStart >= 0) {
-                return extractBalanced(json, arrStart, '[', ']')
+        // Response format: {"windows": [{"tree": {...}}, ...], "screen": {...}}
+        // Extract each window's "tree" object as a root node
+        val windowsArr = extractArrayField(trimmed, "windows")
+        if (windowsArr != null) {
+            val windowObjects = parseObjectsFromArray(windowsArr)
+            return windowObjects.mapNotNull { windowObj ->
+                val treeObj = extractObjectField(windowObj, "tree")
+                if (treeObj != null) parseNode(treeObj) else null
             }
         }
-        // Try top-level array
-        val arrStart = json.indexOf('[')
-        if (arrStart >= 0) {
-            return extractBalanced(json, arrStart, '[', ']')
+
+        // Fallback: try "nodes" array or direct array
+        val nodesArr = extractArrayField(trimmed, "nodes")
+        if (nodesArr != null) return parseNodeArray(nodesArr)
+
+        if (trimmed.startsWith("[")) return parseNodeArray(trimmed)
+
+        // Single tree object
+        if (trimmed.startsWith("{")) return listOf(parseNode(trimmed))
+
+        return emptyList()
+    }
+
+    private fun parseObjectsFromArray(arrayJson: String): List<String> {
+        val inner = arrayJson.trim().removeSurrounding("[", "]").trim()
+        if (inner.isEmpty()) return emptyList()
+        val objects = mutableListOf<String>()
+        var i = 0
+        while (i < inner.length) {
+            if (inner[i] == '{') {
+                val objStr = extractBalanced(inner, i, '{', '}')
+                objects.add(objStr)
+                i += objStr.length
+            } else {
+                i++
+            }
         }
-        return ""
+        return objects
     }
 
     private fun parseNodeArray(arrayJson: String): List<DefaultMutableTreeNode> {
