@@ -30,7 +30,7 @@ public class SidekickConnectionManager {
     private static final Logger log = LoggerFactory.getLogger(SidekickConnectionManager.class);
     private static final SidekickConnectionManager INSTANCE = new SidekickConnectionManager();
 
-    private static final String ADB = findAdb();
+    private static volatile String ADB = findAdb();
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static final long RECONNECT_COOLDOWN_MS = 10_000;
 
@@ -66,6 +66,15 @@ public class SidekickConnectionManager {
 
     public static SidekickConnectionManager getInstance() {
         return INSTANCE;
+    }
+
+    /**
+     * Overrides the auto-detected ADB path.
+     * Call before any device operations (e.g. from an IDE plugin that knows the SDK location).
+     */
+    public static void setAdbPath(String path) {
+        ADB = path;
+        log.info("ADB path set to: {}", path);
     }
 
     // ========================================================================

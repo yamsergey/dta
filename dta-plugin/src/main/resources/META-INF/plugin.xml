@@ -20,6 +20,6 @@
     </extensions>
 
     <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
-        <taskManagerExtension implementation="io.yamsergey.dta.plugin.SidekickInjector"/>
+        <taskManager implementation="io.yamsergey.dta.plugin.SidekickInjector"/>
     </extensions>
 </idea-plugin>

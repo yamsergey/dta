@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import io.yamsergey.dta.daemon.sidekick.SidekickClient
+import com.android.tools.idea.adb.AdbFileProvider
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
@@ -47,6 +48,18 @@ class DtaService : Disposable {
     @Volatile var webSocketConnectionsJson: String? = null; private set
 
     private val listeners = CopyOnWriteArrayList<DtaServiceListener>()
+
+    init {
+        // Use Android Studio's SDK configuration to find ADB
+        try {
+            val adbFile = AdbFileProvider.fromApplication().get()
+            if (adbFile != null) {
+                SidekickConnectionManager.setAdbPath(adbFile.absolutePath)
+            }
+        } catch (e: Exception) {
+            log.warn("Could not resolve ADB path from Android Studio", e)
+        }
+    }
 
     interface DtaServiceListener {
         fun onDevicesChanged(devices: List<Device>) {}
