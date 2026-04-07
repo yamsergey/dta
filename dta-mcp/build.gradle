@@ -49,8 +49,9 @@ configurations.all {
 }
 
 dependencies {
-    // Core tools (for AppRunner)
-    implementation project(':tools-android')
+    // DTA daemon (DaemonClient, DaemonLauncher) — run_app and all other tools
+    // route through the shared daemon process; no direct tools-android dependency.
+    implementation project(':dta-daemon')
 
     // MCP Java SDK
     implementation 'io.modelcontextprotocol.sdk:mcp:1.0.1'

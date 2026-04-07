@@ -5,11 +5,12 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.android.tools.idea.adb.AdbFileProvider
-import io.yamsergey.dta.daemon.DtaOrchestrator
+import io.yamsergey.dta.daemon.DaemonClient
+import io.yamsergey.dta.daemon.DaemonLauncher
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket
-import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo
+import tools.jackson.databind.ObjectMapper
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
@@ -21,20 +22,20 @@ import javax.swing.SwingUtilities
  * Application-level service that manages device discovery, connections,
  * and background data polling for the DTA Inspector tool window.
  *
- * Uses [DtaOrchestrator] for all data operations — the shared brain that
- * manages sidekick connections, CDP watchers, SSE events, and data enrichment.
+ * Connects to the shared DTA daemon via HTTP (same daemon used by MCP and CLI).
+ * Uses [DaemonLauncher] to discover or start the daemon automatically.
  */
 @Service(Service.Level.APP)
 class DtaService : Disposable {
 
     private val log = Logger.getInstance(DtaService::class.java)
-    private val orchestrator = DtaOrchestrator.getInstance()
-    private val connectionManager = SidekickConnectionManager.getInstance()
+    private val mapper = ObjectMapper()
     private val scheduler: ScheduledExecutorService = Executors.newScheduledThreadPool(2) { r ->
         Thread(r, "dta-service-scheduler").apply { isDaemon = true }
     }
 
     private var pollingFuture: ScheduledFuture<*>? = null
+    private var daemon: DaemonClient? = null
 
     @Volatile var devices: List<Device> = emptyList(); private set
     @Volatile var selectedDevice: Device? = null
@@ -83,14 +84,37 @@ class DtaService : Disposable {
     }
 
     // ========================================================================
+    // Daemon connection
+    // ========================================================================
+
+    private fun ensureDaemon(): DaemonClient {
+        daemon?.let { return it }
+        val client = DaemonLauncher.ensureDaemonRunning()
+        daemon = client
+        log.info("Connected to DTA daemon at ${client.baseUrl}")
+        return client
+    }
+
+    // ========================================================================
     // Device and app discovery
     // ========================================================================
 
     fun refreshDevices() {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val found = orchestrator.listDevices()
-                    .filter { it.state() == "device" }
+                val client = ensureDaemon()
+                val json = client.devices()
+                val node = mapper.readTree(json)
+                val found = mutableListOf<Device>()
+                node.get("devices")?.forEach { d ->
+                    val serial = d.get("serial")?.asText() ?: return@forEach
+                    val state = d.get("state")?.asText() ?: "unknown"
+                    val model = d.get("model")?.asText()
+                    val product = d.get("product")?.asText()
+                    if (state == "device") {
+                        found.add(Device(serial, state, model, product))
+                    }
+                }
                 devices = found
                 notifyOnEdt { it.onDevicesChanged(found) }
 
@@ -124,7 +148,15 @@ class DtaService : Disposable {
         val device = selectedDevice ?: return
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val found = orchestrator.listApps(device.serial())
+                val client = ensureDaemon()
+                val json = client.apps(device.serial())
+                val node = mapper.readTree(json)
+                val found = mutableListOf<SidekickSocket>()
+                node.get("apps")?.forEach { a ->
+                    val pkg = a.get("package")?.asText() ?: return@forEach
+                    val socket = a.get("socket")?.asText() ?: ""
+                    found.add(SidekickSocket(socket, pkg))
+                }
                 apps = found
                 notifyOnEdt { it.onAppsChanged(found) }
 
@@ -132,7 +164,7 @@ class DtaService : Disposable {
                     selectApp(found[0])
                 }
             } catch (e: Exception) {
-                log.warn("Failed to find sidekick sockets", e)
+                log.warn("Failed to find apps", e)
                 apps = emptyList()
                 notifyOnEdt { it.onAppsChanged(emptyList()) }
             }
@@ -151,7 +183,7 @@ class DtaService : Disposable {
     }
 
     // ========================================================================
-    // Connection — delegates to DtaOrchestrator which handles CDP + SSE
+    // Connection — just verify daemon can reach the app
     // ========================================================================
 
     private fun connect() {
@@ -161,12 +193,10 @@ class DtaService : Disposable {
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                // DtaOrchestrator.getConnectionWithCdp handles:
-                // - sidekick connection
-                // - CDP port forwarding
-                // - CDP watcher start
-                // - SSE listener for Custom Tab events
-                orchestrator.getConnectionWithCdp(app.packageName(), device.serial())
+                val client = ensureDaemon()
+                // Trigger a layout tree fetch to verify the connection works
+                // This also triggers ensureCdpWatcher in the daemon
+                client.layoutTree(app.packageName(), device.serial(), null, null, null, null)
                 connected = true
                 updateConnectionStatus("Connected")
                 startPolling()
@@ -179,11 +209,6 @@ class DtaService : Disposable {
     }
 
     fun reconnect() {
-        val app = selectedApp
-        val device = selectedDevice
-        if (app != null && device != null) {
-            orchestrator.disconnect(app.packageName(), device.serial())
-        }
         connected = false
         stopPolling()
         clearDataCaches()
@@ -191,7 +216,7 @@ class DtaService : Disposable {
     }
 
     // ========================================================================
-    // Background polling — uses DtaOrchestrator for enriched data
+    // Background polling — fetches data from daemon via HTTP
     // ========================================================================
 
     private fun startPolling() {
@@ -207,20 +232,18 @@ class DtaService : Disposable {
     private fun pollData() {
         val app = selectedApp ?: return
         val device = selectedDevice ?: return
+        val client = daemon ?: return
         if (!connected) return
 
-        fetchLayoutData(app.packageName(), device.serial())
-        fetchNetworkData(app.packageName(), device.serial())
-        fetchWebSocketData(app.packageName(), device.serial())
+        fetchLayoutData(client, app.packageName(), device.serial())
+        fetchNetworkData(client, app.packageName(), device.serial())
+        fetchWebSocketData(client, app.packageName(), device.serial())
     }
 
-    private fun fetchLayoutData(packageName: String, device: String) {
+    private fun fetchLayoutData(client: DaemonClient, pkg: String, device: String) {
         try {
-            // Uses orchestrator for enriched tree (WebView/CustomTab DOM)
-            val treeNode = orchestrator.getLayoutTree(packageName, device, null, null, null, null)
-            val tree = treeNode?.toString()
-            val screenshotResult = orchestrator.getScreenshot(packageName, device)
-            val screenshot = if (screenshotResult is io.yamsergey.dta.tools.sugar.Success) screenshotResult.value() else null
+            val tree = client.layoutTree(pkg, device, null, null, null, null)
+            val screenshot = try { client.screenshot(pkg, device) } catch (_: Exception) { null }
 
             if (tree != layoutTreeJson || screenshot != null) {
                 layoutTreeJson = tree
@@ -232,10 +255,10 @@ class DtaService : Disposable {
         }
     }
 
-    private fun fetchNetworkData(packageName: String, device: String) {
+    private fun fetchNetworkData(client: DaemonClient, pkg: String, device: String) {
         try {
-            val json = orchestrator.getNetworkRequests(packageName, device)
-            if (json != null && json != networkRequestsJson) {
+            val json = client.networkRequests(pkg, device)
+            if (json != networkRequestsJson) {
                 networkRequestsJson = json
                 notifyOnEdt { it.onNetworkDataChanged(json) }
             }
@@ -244,10 +267,10 @@ class DtaService : Disposable {
         }
     }
 
-    private fun fetchWebSocketData(packageName: String, device: String) {
+    private fun fetchWebSocketData(client: DaemonClient, pkg: String, device: String) {
         try {
-            val json = orchestrator.getWebSocketConnections(packageName, device)
-            if (json != null && json != webSocketConnectionsJson) {
+            val json = client.websocketConnections(pkg, device)
+            if (json != webSocketConnectionsJson) {
                 webSocketConnectionsJson = json
                 notifyOnEdt { it.onWebSocketDataChanged(json) }
             }
@@ -292,7 +315,6 @@ class DtaService : Disposable {
     override fun dispose() {
         stopPolling()
         scheduler.shutdownNow()
-        orchestrator.shutdown()
         listeners.clear()
     }
 }

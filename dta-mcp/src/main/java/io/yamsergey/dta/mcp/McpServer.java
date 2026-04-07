@@ -1,5 +1,7 @@
 package io.yamsergey.dta.mcp;
 
+import io.yamsergey.dta.daemon.DaemonClient;
+import io.yamsergey.dta.daemon.DaemonLauncher;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 import io.modelcontextprotocol.json.McpJsonMapper;
@@ -989,22 +991,12 @@ public class McpServer {
                     String device = getString(args, "device");
                     String activity = getString(args, "activity");
 
-                    var runner = new io.yamsergey.dta.tools.android.runner.AppRunner();
-                    var req = new io.yamsergey.dta.tools.android.runner.AppRunner.RunRequest(
-                        project, device, variant, module, activity);
-
-                    var result = runner.run(req, (stage, message) ->
-                        log.debug("[{}] {}", stage, message));
-
-                    if (result.success()) {
-                        ObjectNode json = mapper.createObjectNode();
-                        json.put("success", true);
-                        json.put("packageName", result.packageName());
-                        json.put("apkPath", result.apkPath());
-                        json.put("launchActivity", result.launchActivity());
-                        return ok(mapper.writeValueAsString(json));
+                    String json = getDaemon().runApp(project, device, variant, module, activity);
+                    var result = mapper.readTree(json);
+                    if (result.path("success").asBoolean(false)) {
+                        return ok(json);
                     } else {
-                        return errorResult("Build failed: " + result.error());
+                        return errorResult("Build failed: " + result.path("error").asText("unknown"));
                     }
                 } catch (Exception e) {
                     return errorResult("Failed to run app: " + e.getMessage());

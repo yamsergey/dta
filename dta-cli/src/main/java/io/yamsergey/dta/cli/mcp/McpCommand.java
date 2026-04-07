@@ -1,6 +1,6 @@
 package io.yamsergey.dta.cli.mcp;
 
-import io.yamsergey.dta.mcp.DaemonLauncher;
+import io.yamsergey.dta.daemon.DaemonLauncher;
 import io.yamsergey.dta.mcp.McpServer;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;

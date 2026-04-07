@@ -1,4 +1,4 @@
-package io.yamsergey.dta.mcp;
+package io.yamsergey.dta.daemon;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;

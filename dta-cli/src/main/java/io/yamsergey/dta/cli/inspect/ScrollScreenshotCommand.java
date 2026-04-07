@@ -2,8 +2,8 @@ package io.yamsergey.dta.cli.inspect;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import io.yamsergey.dta.mcp.DaemonClient;
-import io.yamsergey.dta.mcp.DaemonLauncher;
+import io.yamsergey.dta.daemon.DaemonClient;
+import io.yamsergey.dta.daemon.DaemonLauncher;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;

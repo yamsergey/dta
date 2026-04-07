@@ -1,4 +1,4 @@
-package io.yamsergey.dta.mcp;
+package io.yamsergey.dta.daemon;
 
 /**
  * Exception thrown when communication with the DTA daemon fails.

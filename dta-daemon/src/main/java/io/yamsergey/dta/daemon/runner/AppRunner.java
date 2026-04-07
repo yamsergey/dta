@@ -1,6 +1,6 @@
-package io.yamsergey.dta.tools.android.runner;
+package io.yamsergey.dta.daemon.runner;
 
-import io.yamsergey.dta.tools.android.inspect.compose.SidekickConnectionManager;
+import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

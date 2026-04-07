@@ -1,4 +1,4 @@
-package io.yamsergey.dta.mcp;
+package io.yamsergey.dta.daemon;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -40,6 +40,24 @@ public class DaemonClient {
 
     public String apps(String device) {
         return get("/api/apps" + deviceParam(device, true));
+    }
+
+    /**
+     * Builds, installs, and launches an Android app via the daemon. The HTTP call
+     * blocks for the entire build/install/launch cycle, which can take several
+     * minutes — uses an extended timeout.
+     *
+     * <p>All parameters except {@code project} are nullable.</p>
+     */
+    public String runApp(String project, String device, String variant, String module, String activity) {
+        StringBuilder body = new StringBuilder("{");
+        body.append("\"project\":\"").append(jsonEscape(project)).append("\"");
+        if (device != null)   body.append(",\"device\":\"").append(jsonEscape(device)).append("\"");
+        if (variant != null)  body.append(",\"variant\":\"").append(jsonEscape(variant)).append("\"");
+        if (module != null)   body.append(",\"module\":\"").append(jsonEscape(module)).append("\"");
+        if (activity != null) body.append(",\"activity\":\"").append(jsonEscape(activity)).append("\"");
+        body.append("}");
+        return postLong("/api/run/app", body.toString());
     }
 
     public byte[] screenshot(String pkg, String device) {
@@ -283,10 +301,22 @@ public class DaemonClient {
     }
 
     private String post(String path, String body) {
+        return post(path, body, Duration.ofSeconds(30));
+    }
+
+    /**
+     * POST with an extended timeout — for long-running operations like Gradle builds
+     * that can take several minutes.
+     */
+    private String postLong(String path, String body) {
+        return post(path, body, Duration.ofMinutes(15));
+    }
+
+    private String post(String path, String body, Duration timeout) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))
-                .timeout(Duration.ofSeconds(30));
+                .timeout(timeout);
             if (body != null) {
                 builder.header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body));
@@ -301,6 +331,26 @@ public class DaemonClient {
         } catch (Exception e) {
             throw new DaemonException("HTTP POST failed: " + path, e);
         }
+    }
+
+    private static String jsonEscape(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"'  -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    else sb.append(c);
+                }
+            }
+        }
+        return sb.toString();
     }
 
     private String put(String path, String body) {

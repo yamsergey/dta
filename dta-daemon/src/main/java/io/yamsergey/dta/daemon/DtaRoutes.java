@@ -108,6 +108,41 @@ public final class DtaRoutes {
         });
 
         // ====================================================================
+        // App build/install/launch
+        // ====================================================================
+
+        app.post("/api/run/app", ctx -> {
+            try {
+                JsonNode body = mapper.readTree(ctx.body());
+                String project = textOrNull(body, "project");
+                if (project == null || project.isEmpty()) {
+                    error(ctx, "'project' is required");
+                    return;
+                }
+                String device = textOrNull(body, "device");
+                String variant = textOrNull(body, "variant");
+                String module = textOrNull(body, "module");
+                String activity = textOrNull(body, "activity");
+
+                var result = orchestrator.runApp(project, device, variant, module, activity);
+
+                var json = mapper.createObjectNode();
+                json.put("success", result.success());
+                if (result.success()) {
+                    json.put("packageName", result.packageName());
+                    json.put("apkPath", result.apkPath());
+                    json.put("launchActivity", result.launchActivity());
+                } else {
+                    json.put("error", result.error());
+                }
+                jsonNode(ctx, json);
+            } catch (Exception e) {
+                log.error("run_app failed", e);
+                error(ctx, "run_app failed: " + e.getMessage());
+            }
+        });
+
+        // ====================================================================
         // Screenshot
         // ====================================================================
 
@@ -655,5 +690,15 @@ public final class DtaRoutes {
      */
     private static void error(Context ctx, String message) {
         ctx.status(400).json(Map.of("error", message));
+    }
+
+    /**
+     * Returns the string value of a JSON field, or null if absent/null/empty.
+     */
+    private static String textOrNull(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        if (v == null || v.isNull()) return null;
+        String s = v.asText();
+        return s.isEmpty() ? null : s;
     }
 }

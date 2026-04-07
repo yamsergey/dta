@@ -8,6 +8,7 @@ import io.yamsergey.dta.daemon.cdp.CdpAccessibilityInspector;
 import io.yamsergey.dta.daemon.cdp.CdpWatcherManager;
 import io.yamsergey.dta.daemon.cdp.ChromeDevToolsClient;
 import io.yamsergey.dta.daemon.cdp.WebViewCdpManager;
+import io.yamsergey.dta.daemon.runner.AppRunner;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device;
@@ -95,6 +96,30 @@ public class DtaOrchestrator {
 
     public List<SidekickSocket> listApps(String device) throws Exception {
         return connectionManager.findSidekickSockets(device);
+    }
+
+    // ========================================================================
+    // App build/install/launch
+    // ========================================================================
+
+    /**
+     * Builds, installs, and launches an Android app with dta-sidekick auto-injected.
+     * Wraps {@link AppRunner} so that all processes (MCP, plugin, CLI) drive
+     * build/install/launch through the same shared daemon instead of holding
+     * their own AppRunner instances.
+     *
+     * @param projectPath absolute project root containing {@code ./gradlew}
+     * @param device device serial (nullable — uses default device if null)
+     * @param variant Gradle build variant (must be a debug variant)
+     * @param module Gradle module path (default {@code :app})
+     * @param activity activity to launch (nullable — uses aapt2 launchable-activity if null)
+     */
+    public AppRunner.RunResult runApp(String projectPath, String device, String variant,
+                                      String module, String activity) {
+        AppRunner runner = new AppRunner();
+        AppRunner.RunRequest req = new AppRunner.RunRequest(
+            projectPath, device, variant, module, activity);
+        return runner.run(req, (stage, message) -> log.debug("[{}] {}", stage, message));
     }
 
     // ========================================================================
