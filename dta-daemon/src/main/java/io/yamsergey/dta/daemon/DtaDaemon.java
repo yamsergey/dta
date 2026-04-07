@@ -1,7 +1,6 @@
 package io.yamsergey.dta.daemon;
 
 import io.javalin.Javalin;
-import io.javalin.http.staticfiles.Location;
 import io.javalin.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,22 +72,12 @@ public class DtaDaemon {
             // Use Jackson 3 for JSON serialization
             config.jsonMapper(jsonMapper);
 
-            // CORS for development
+            // CORS for development — inspector-web and other clients need this
             config.bundledPlugins.enableCors(cors -> cors.addRule(rule -> rule.anyHost()));
-
-            // Serve static files (inspector-web)
-            config.staticFiles.add(staticFiles -> {
-                staticFiles.hostedPath = "/";
-                staticFiles.directory = "/static";
-                staticFiles.location = Location.CLASSPATH;
-            });
 
             // JSON as default content type
             config.http.defaultContentType = "application/json";
         });
-
-        // Redirect root to index.html
-        app.get("/", ctx -> ctx.redirect("/index.html"));
 
         // Register all REST routes
         DtaRoutes.register(app);
