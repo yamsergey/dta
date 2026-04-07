@@ -40,6 +40,9 @@ sourceSets {
 }
 
 dependencies {
+    // Core tools (for AppRunner)
+    implementation project(':tools-android')
+
     // MCP Java SDK
     implementation 'io.modelcontextprotocol.sdk:mcp:1.0.1'
 
