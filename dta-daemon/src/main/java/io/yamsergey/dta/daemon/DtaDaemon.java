@@ -93,9 +93,10 @@ public class DtaDaemon {
         // Register all REST routes
         DtaRoutes.register(app);
 
-        // Graceful shutdown
+        // Graceful shutdown — clean up state file and orchestrator
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down DTA daemon...");
+            deleteStateFile();
             orchestrator.shutdown();
             if (app != null) {
                 app.stop();
@@ -104,6 +105,7 @@ public class DtaDaemon {
 
         app.start(port);
         int actualPort = app.port();
+        writeStateFile(actualPort);
         log.info("DTA daemon started on port {}", actualPort);
         return actualPort;
     }
@@ -124,6 +126,27 @@ public class DtaDaemon {
      */
     public Javalin getApp() {
         return app;
+    }
+
+    private static final java.nio.file.Path STATE_FILE =
+            java.nio.file.Path.of(System.getProperty("user.home"), ".dta", "daemon.json");
+
+    private void writeStateFile(int port) {
+        try {
+            java.nio.file.Files.createDirectories(STATE_FILE.getParent());
+            String json = String.format("{\"port\":%d,\"pid\":%d,\"startTime\":%d}",
+                    port, ProcessHandle.current().pid(), System.currentTimeMillis());
+            java.nio.file.Files.writeString(STATE_FILE, json);
+            log.debug("Wrote daemon state: {}", STATE_FILE);
+        } catch (Exception e) {
+            log.warn("Failed to write daemon state file: {}", e.getMessage());
+        }
+    }
+
+    private static void deleteStateFile() {
+        try {
+            java.nio.file.Files.deleteIfExists(STATE_FILE);
+        } catch (Exception ignored) {}
     }
 
     static int parsePort(String[] args) {
