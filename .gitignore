@@ -72,3 +72,4 @@ output-*\.json
 test-fixtures/**/local.properties
 test-fixtures/**/.idea/
 CLAUDE.md
+.intellijPlatform/
