@@ -12,7 +12,6 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.util.ui.JBUI
-import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket
 import io.yamsergey.dta.plugin.DtaService.DtaServiceListener
@@ -160,7 +159,7 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
         }
     }
 
-    override fun onConnectionChanged(status: String, connection: ConnectionInfo?) {
+    override fun onConnectionChanged(status: String, connected: Boolean) {
         statusLabel.text = status
         statusLabel.foreground = when {
             status.startsWith("Connected") -> JBColor(0x2E7D32, 0x81C784)

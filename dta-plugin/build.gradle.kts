@@ -41,6 +41,7 @@ dependencies {
     }
 
     implementation(project(":dta-daemon"))
+    implementation("tools.jackson.core:jackson-databind:3.1.1")
 }
 
 intellijPlatform {
