@@ -46,6 +46,7 @@ public class McpServer {
         collectLayoutTools(tools);
         collectMockTools(tools);
         collectCdpTools(tools);
+        collectRunTools(tools);
 
         var server = io.modelcontextprotocol.server.McpServer.sync(
                 new StdioServerTransportProvider(jsonMapper))
@@ -937,6 +938,52 @@ public class McpServer {
     // ========================================================================
     // Helper methods
     // ========================================================================
+
+    private static void collectRunTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("run_app",
+                "Build and launch an Android app with dta-sidekick auto-injected for inspection. " +
+                "Injects the sidekick dependency via Gradle init script, builds the APK, installs it on the device, " +
+                "and launches the main activity. After launch, use layout/network/websocket tools to inspect the app.",
+                schema(Map.of(
+                    "project", prop("string", "Absolute path to the Android project root directory", true),
+                    "variant", prop("string", "Build variant (default: debug). Examples: debug, release, stagingDebug", false),
+                    "module", prop("string", "Gradle module to build (default: :app)", false),
+                    "device", prop("string", "Device serial number (optional, uses default device if omitted)", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String project = getString(args, "project");
+                    if (project == null) return errorResult("'project' parameter is required");
+                    String variant = getString(args, "variant");
+                    if (variant == null) variant = "debug";
+                    String module = getString(args, "module");
+                    if (module == null) module = ":app";
+                    String device = getString(args, "device");
+
+                    var runner = new io.yamsergey.dta.tools.android.runner.AppRunner();
+                    var req = new io.yamsergey.dta.tools.android.runner.AppRunner.RunRequest(
+                        project, device, variant, module);
+
+                    var result = runner.run(req, (stage, message) ->
+                        log.debug("[{}] {}", stage, message));
+
+                    if (result.success()) {
+                        ObjectNode json = mapper.createObjectNode();
+                        json.put("success", true);
+                        json.put("packageName", result.packageName());
+                        json.put("apkPath", result.apkPath());
+                        json.put("launchActivity", result.launchActivity());
+                        return ok(mapper.writeValueAsString(json));
+                    } else {
+                        return errorResult("Build failed: " + result.error());
+                    }
+                } catch (Exception e) {
+                    return errorResult("Failed to run app: " + e.getMessage());
+                }
+            }
+        ));
+    }
 
     private static CallToolResult ok(String json) {
         return CallToolResult.builder().content(List.of(new McpSchema.TextContent(json))).build();

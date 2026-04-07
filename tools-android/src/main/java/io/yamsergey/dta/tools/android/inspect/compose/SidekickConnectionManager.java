@@ -211,7 +211,7 @@ public class SidekickConnectionManager {
      * Takes a screenshot from the device.
      */
     public byte[] captureScreenshot(String device) throws IOException, InterruptedException {
-        return runAdbBytes(device, "exec-out", "screencap", "-p");
+        return runAdbBytes(device, DEFAULT_TIMEOUT_SECONDS, "exec-out", "screencap", "-p");
     }
 
     /**
@@ -299,6 +299,46 @@ public class SidekickConnectionManager {
     }
 
     // ========================================================================
+    // APK install and activity launch
+    // ========================================================================
+
+    /**
+     * Installs an APK on the device. Uses a longer timeout (120s) since installs can be slow.
+     */
+    public String installApk(String device, String apkPath) throws IOException, InterruptedException {
+        return runAdbWithTimeout(device, 120, "install", "-r", apkPath);
+    }
+
+    /**
+     * Resolves the main launcher activity for a package.
+     * Parses output of {@code cmd package resolve-activity --brief}.
+     *
+     * @return fully qualified activity name (e.g. "com.example/.MainActivity")
+     */
+    public String resolveMainActivity(String device, String packageName) throws IOException, InterruptedException {
+        String output = runAdb(device, "shell", "cmd", "package", "resolve-activity",
+            "--brief", packageName);
+        // Output format: two lines, last line is "pkg/activity"
+        String[] lines = output.trim().split("\\n");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (line.contains("/")) {
+                return line;
+            }
+        }
+        throw new IOException("Could not resolve main activity for " + packageName + ": " + output);
+    }
+
+    /**
+     * Launches an activity on the device.
+     *
+     * @param component fully qualified component (e.g. "com.example/.MainActivity")
+     */
+    public String launchActivity(String device, String component) throws IOException, InterruptedException {
+        return runAdb(device, "shell", "am", "start", "-n", component);
+    }
+
+    // ========================================================================
     // Private ADB internals
     // ========================================================================
 
@@ -346,10 +386,14 @@ public class SidekickConnectionManager {
     }
 
     private String runAdb(String device, String... args) throws IOException, InterruptedException {
-        return new String(runAdbBytes(device, args), StandardCharsets.UTF_8);
+        return new String(runAdbBytes(device, DEFAULT_TIMEOUT_SECONDS, args), StandardCharsets.UTF_8);
     }
 
-    private byte[] runAdbBytes(String device, String... args) throws IOException, InterruptedException {
+    private String runAdbWithTimeout(String device, int timeoutSeconds, String... args) throws IOException, InterruptedException {
+        return new String(runAdbBytes(device, timeoutSeconds, args), StandardCharsets.UTF_8);
+    }
+
+    private byte[] runAdbBytes(String device, int timeoutSeconds, String... args) throws IOException, InterruptedException {
         List<String> cmd = buildAdbCommand(device, args);
         String cmdStr = String.join(" ", cmd);
         log.debug("ADB exec: {}", cmdStr);
@@ -363,7 +407,7 @@ public class SidekickConnectionManager {
             Future<byte[]> future = executor.submit(
                 () -> process.getInputStream().readAllBytes()
             );
-            if (!process.waitFor(DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 long elapsed = System.currentTimeMillis() - start;
                 log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
