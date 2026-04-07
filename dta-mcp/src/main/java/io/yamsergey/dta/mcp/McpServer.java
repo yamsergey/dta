@@ -107,16 +107,37 @@ public class McpServer {
             }
         ));
 
-        // screenshot (device screenshot via ADB, no package needed)
+        // screenshot — when package is provided, also returns essential UI elements with screen coordinates
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("screenshot", "Capture a screenshot from the device",
-                schema("device", "string", "Device serial (optional)")),
+            tool("screenshot", "Capture a screenshot from the device. When package is provided, " +
+                "also returns essential UI elements (buttons, text, inputs) with their screen coordinates " +
+                "for tap targeting.",
+                schema(Map.of(
+                    "device", prop("string", "Device serial (optional)", false),
+                    "package", prop("string", "App package name (optional — if provided, includes UI element positions)", false)
+                ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
                     String device = getString(args, "device");
                     byte[] data = getDaemon().deviceScreenshot(device);
                     String base64 = Base64.getEncoder().encodeToString(data);
                     var imageContent = new McpSchema.ImageContent(null, base64, "image/png");
+
+                    // If package provided, also fetch essential UI elements
+                    String pkg = getString(args, "package");
+                    if (pkg != null && !pkg.isEmpty()) {
+                        try {
+                            String treeJson = getDaemon().layoutTree(pkg, device, null, null, null, null);
+                            log.info("Layout tree for screenshot: {} chars", treeJson != null ? treeJson.length() : "null");
+                            String elements = extractEssentialElements(treeJson);
+                            var textContent = new McpSchema.TextContent(elements);
+                            return CallToolResult.builder().content(List.of(imageContent, textContent)).build();
+                        } catch (Exception e) {
+                            // Layout tree failed — return screenshot without elements
+                            log.warn("Failed to fetch UI elements: {}", e.getMessage());
+                        }
+                    }
+
                     return CallToolResult.builder().content(List.of(imageContent)).build();
                 } catch (Exception e) {
                     return errorResult("Failed to capture screenshot: " + e.getMessage());
@@ -1011,6 +1032,77 @@ public class McpServer {
 
     private static CallToolResult errorResult(String message) {
         return CallToolResult.builder().content(List.of(new McpSchema.TextContent("Error: " + message))).isError(true).build();
+    }
+
+    /**
+     * Extracts essential UI elements (with text, roles, or content descriptions) from a layout tree JSON.
+     * Returns a compact JSON string with element positions for tap targeting.
+     */
+    private static String extractEssentialElements(String treeJson) {
+        try {
+            var node = mapper.readTree(treeJson);
+            var root = node.has("root") ? node.get("root") : node;
+            var elements = new java.util.ArrayList<Map<String, Object>>();
+            collectEssentialElements(root, elements);
+
+            var result = new java.util.LinkedHashMap<String, Object>();
+            result.put("elementCount", elements.size());
+            result.put("elements", elements);
+            log.debug("Extracted {} essential elements from tree (root class: {})",
+                    elements.size(), root.has("className") ? root.get("className").asText() : "?");
+            return mapper.writeValueAsString(result);
+        } catch (Exception e) {
+            log.warn("Failed to extract elements: {}", e.getMessage());
+            return "{\"error\":\"Failed to extract elements: " + e.getMessage() + "\"}";
+        }
+    }
+
+    private static void collectEssentialElements(tools.jackson.databind.JsonNode node,
+                                                  java.util.List<Map<String, Object>> elements) {
+        if (node == null) return;
+
+        String text = node.has("text") ? node.get("text").asText() : null;
+        String role = node.has("role") ? node.get("role").asText() : null;
+        String contentDesc = node.has("contentDescription") ? node.get("contentDescription").asText() : null;
+        String testTag = node.has("testTag") ? node.get("testTag").asText() : null;
+        String className = node.has("className") ? node.get("className").asText() :
+                           node.has("composable") ? node.get("composable").asText() : null;
+
+        boolean isEssential = (text != null && !text.isEmpty())
+                || (role != null && !role.isEmpty())
+                || (contentDesc != null && !contentDesc.isEmpty())
+                || (testTag != null && !testTag.isEmpty());
+
+        if (isEssential && node.has("bounds")) {
+            var bounds = node.get("bounds");
+            int left = bounds.has("left") ? bounds.get("left").asInt() : 0;
+            int top = bounds.has("top") ? bounds.get("top").asInt() : 0;
+            int right = bounds.has("right") ? bounds.get("right").asInt() : 0;
+            int bottom = bounds.has("bottom") ? bounds.get("bottom").asInt() : 0;
+            int w = right - left;
+            int h = bottom - top;
+
+            if (w > 0 && h > 0) {
+                var elem = new java.util.LinkedHashMap<String, Object>();
+                if (className != null) elem.put("type", className);
+                if (text != null) elem.put("text", text);
+                if (role != null) elem.put("role", role);
+                if (contentDesc != null) elem.put("contentDescription", contentDesc);
+                if (testTag != null) elem.put("testTag", testTag);
+                elem.put("bounds", Map.of(
+                    "left", left, "top", top, "right", right, "bottom", bottom,
+                    "centerX", left + w / 2, "centerY", top + h / 2
+                ));
+                elements.add(elem);
+            }
+        }
+
+        // Recurse children
+        if (node.has("children")) {
+            for (var child : node.get("children")) {
+                collectEssentialElements(child, elements);
+            }
+        }
     }
 
     private static String schema(String propName, String propType, String description) {
