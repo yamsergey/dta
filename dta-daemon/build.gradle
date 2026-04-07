@@ -1,6 +1,11 @@
 plugins {
     id 'java-library'
+    id 'application'
     id 'com.vanniktech.maven.publish'
+}
+
+application {
+    mainClass = 'io.yamsergey.dta.daemon.DtaDaemon'
 }
 
 repositories {
@@ -18,8 +23,12 @@ dependencies {
     implementation libs.jackson.databind
     implementation libs.jackson.annotations
 
+    // Javalin HTTP server (embedded Jetty)
+    implementation 'io.javalin:javalin:6.6.0'
+
     // SLF4J for logging
     implementation 'org.slf4j:slf4j-api:2.0.16'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.16'
 
     // Lombok
     implementation libs.sugar.lombok
@@ -38,6 +47,12 @@ java {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'io.yamsergey.dta.daemon.DtaDaemon'
+    }
 }
 
 tasks.withType(Javadoc).configureEach {
