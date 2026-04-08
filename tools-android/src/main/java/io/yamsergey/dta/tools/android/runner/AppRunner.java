@@ -88,6 +88,10 @@ public class AppRunner {
             progress(listener, "INSTALL", "Installing " + packageName + "...");
             connectionManager.installApk(request.device(), apkPath);
 
+            // Brief pause after install — the system needs time to kill the old process
+            // and register the new APK before we can launch
+            Thread.sleep(1000);
+
             // 6. Launch
             progress(listener, "LAUNCH", "Launching " + packageName + "...");
             String component = connectionManager.resolveMainActivity(request.device(), packageName);
@@ -203,21 +207,47 @@ public class AppRunner {
             return null;
         }
 
-        // Search for APKs matching the variant
-        try (Stream<Path> walk = Files.walk(outputDir, 4)) {
+        // Split camelCase variant into segments for path matching.
+        // "exampleAppUatDebug" → ["example", "app", "uat", "debug"]
+        // APK path uses these as directories: exampleApp/uat/debug/app-exampleApp-uat-debug.apk
+        List<String> variantSegments = splitCamelCase(variant);
+
+        // Search for APKs where all variant segments appear in the relative path
+        try (Stream<Path> walk = Files.walk(outputDir, 6)) {
             return walk
                 .filter(p -> p.toString().endsWith(".apk"))
                 .filter(p -> !p.getFileName().toString().contains("androidTest"))
                 .filter(p -> {
-                    // Match variant in path: debug/app-debug.apk or staging/debug/app-staging-debug.apk
                     String rel = outputDir.relativize(p).toString().toLowerCase();
-                    return rel.contains(variant.toLowerCase());
+                    return variantSegments.stream().allMatch(seg -> rel.contains(seg.toLowerCase()));
                 })
                 .map(Path::toAbsolutePath)
                 .map(Path::toString)
                 .findFirst()
                 .orElse(null);
         }
+    }
+
+    /**
+     * Splits a camelCase string into lowercase segments.
+     * "exampleAppUatDebug" → ["example", "app", "uat", "debug"]
+     * "debug" → ["debug"]
+     */
+    private static List<String> splitCamelCase(String s) {
+        List<String> segments = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isUpperCase(c) && current.length() > 0) {
+                segments.add(current.toString().toLowerCase());
+                current = new StringBuilder();
+            }
+            current.append(c);
+        }
+        if (current.length() > 0) {
+            segments.add(current.toString().toLowerCase());
+        }
+        return segments;
     }
 
     // ========================================================================
