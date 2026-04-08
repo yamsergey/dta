@@ -64,6 +64,10 @@ public class SidekickSseListener implements AutoCloseable {
         stop();
     }
 
+    public int getPort() {
+        return port;
+    }
+
     public boolean isRunning() {
         return running.get();
     }

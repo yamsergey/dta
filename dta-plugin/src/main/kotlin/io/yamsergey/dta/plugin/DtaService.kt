@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.android.tools.idea.adb.AdbFileProvider
 import io.yamsergey.dta.daemon.DaemonClient
 import io.yamsergey.dta.daemon.DaemonLauncher
+import io.yamsergey.dta.daemon.DtaDaemon
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket
@@ -36,6 +37,7 @@ class DtaService : Disposable {
 
     private var pollingFuture: ScheduledFuture<*>? = null
     private var daemon: DaemonClient? = null
+    private var embeddedDaemon: DtaDaemon? = null
 
     @Volatile var devices: List<Device> = emptyList(); private set
     @Volatile var selectedDevice: Device? = null
@@ -89,10 +91,24 @@ class DtaService : Disposable {
 
     private fun ensureDaemon(): DaemonClient {
         daemon?.let { return it }
-        val client = DaemonLauncher.ensureDaemonRunning()
+
+        // Try external daemon first (dta-cli server), fall back to embedded
+        val client = try {
+            DaemonLauncher.ensureDaemonRunning()
+        } catch (e: Exception) {
+            log.info("External daemon not available (${e.message}), starting embedded daemon")
+            startEmbeddedDaemon()
+        }
         daemon = client
         log.info("Connected to DTA daemon at ${client.baseUrl}")
         return client
+    }
+
+    private fun startEmbeddedDaemon(): DaemonClient {
+        val dtaDaemon = DtaDaemon()
+        val port = dtaDaemon.start(0)
+        embeddedDaemon = dtaDaemon
+        return DaemonClient("http://localhost:$port")
     }
 
     // ========================================================================
@@ -316,5 +332,7 @@ class DtaService : Disposable {
         stopPolling()
         scheduler.shutdownNow()
         listeners.clear()
+        embeddedDaemon?.stop()
+        embeddedDaemon = null
     }
 }

@@ -570,9 +570,18 @@ public class DtaOrchestrator {
     private synchronized void ensureCdpWatcher(String packageName, String device, ConnectionInfo conn) {
         String listenerKey = makeListenerKey(packageName, device);
 
-        // Already running — nothing to do
-        if (sseListeners.containsKey(listenerKey)) {
-            return;
+        // Check if an SSE listener already exists for this key
+        SidekickSseListener existing = sseListeners.get(listenerKey);
+        if (existing != null) {
+            // If the existing listener is on the same port, keep it
+            if (existing.getPort() == conn.port()) {
+                return;
+            }
+            // Port changed (app restarted) — tear down the stale listener
+            log.info("Sidekick port changed for {}, re-arming CDP capture", listenerKey);
+            existing.stop();
+            sseListeners.remove(listenerKey);
+            CdpWatcherManager.getInstance().stopWatcher(packageName, device);
         }
 
         try {
