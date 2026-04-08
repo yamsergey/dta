@@ -1,0 +1,48 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Weekly scan on Monday at 8am UTC
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  snyk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/gradle@master
+        continue-on-error: true  # Don't block PRs on vulnerabilities
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: >-
+            --all-sub-projects
+            --severity-threshold=high
+            --sarif-file-output=snyk.sarif
+            --exclude=dta-plugin,dta-sidekick
+
+      - name: Upload Snyk results to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk.sarif
