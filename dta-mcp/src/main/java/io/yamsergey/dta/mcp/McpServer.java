@@ -968,7 +968,10 @@ public class McpServer {
                 "and launches the main activity. After launch, use layout/network/websocket tools to inspect the app.",
                 schema(Map.of(
                     "project", prop("string", "Absolute path to the Android project root directory", true),
-                    "variant", prop("string", "Build variant (default: debug). Examples: debug, release, stagingDebug", false),
+                    "variant", prop("string", "Build variant in camelCase (default: debug). " +
+                        "Must be a debug variant — sidekick requires debuggable build. " +
+                        "No flavors: debug. " +
+                        "With flavors: stagingDebug, exampleAppUatDebug, freeProductionDebug.", false),
                     "module", prop("string", "Gradle module to build (default: :app)", false),
                     "device", prop("string", "Device serial number (optional, uses default device if omitted)", false)
                 ))),
