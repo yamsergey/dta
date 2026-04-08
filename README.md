@@ -3,7 +3,7 @@
 > Work is in progress, bugs expected, nothing has been finalised.
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.yamsergey/dta-sidekick)](https://central.sonatype.com/artifact/io.github.yamsergey/dta-sidekick)
-[![Known Vulnerabilities](https://snyk.io/test/github/yamsergey/dta/badge.svg)](https://snyk.io/test/github/yamsergey/dta)
+[![Snyk Security](https://github.com/yamsergey/dta/actions/workflows/snyk-security.yml/badge.svg)](https://github.com/yamsergey/dta/actions/workflows/snyk-security.yml)
 
 A terminal-first toolkit that gives AI assistants direct access to Android devices through the Model Context Protocol. Your coding agent can see the screen, read network traffic, mock responses, and interact with the app — without opening Android Studio.
 
