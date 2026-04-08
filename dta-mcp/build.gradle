@@ -39,6 +39,15 @@ sourceSets {
     }
 }
 
+configurations.all {
+    resolutionStrategy {
+        // Force Jackson 3.1.1 — MCP SDK transitively brings 3.0.3 which has CVE
+        force 'tools.jackson.core:jackson-core:3.1.1',
+              'tools.jackson.core:jackson-databind:3.1.1',
+              'tools.jackson.dataformat:jackson-dataformat-yaml:3.1.1'
+    }
+}
+
 dependencies {
     // Core tools (for AppRunner)
     implementation project(':tools-android')
