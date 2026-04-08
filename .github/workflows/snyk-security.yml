@@ -29,17 +29,44 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/gradle@master
-        continue-on-error: true  # Don't block PRs on vulnerabilities
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      - name: Run Snyk security scan
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: >-
-            --all-sub-projects
-            --severity-threshold=high
-            --sarif-file-output=snyk.sarif
-            --exclude=dta-plugin,dta-sidekick
+        run: |
+          snyk test \
+            --gradle-sub-project=tools-android \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-tools-android.sarif || true
+          snyk test \
+            --gradle-sub-project=dta-mcp \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-dta-mcp.sarif || true
+          snyk test \
+            --gradle-sub-project=dta-server \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-dta-server.sarif || true
+          snyk test \
+            --gradle-sub-project=dta-cli \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-dta-cli.sarif || true
+
+          # Merge SARIF files
+          echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[]}' > snyk.sarif
+          for f in snyk-*.sarif; do
+            if [ -f "$f" ]; then
+              python3 -c "
+          import json, sys
+          main = json.load(open('snyk.sarif'))
+          part = json.load(open('$f'))
+          main['runs'].extend(part.get('runs', []))
+          json.dump(main, open('snyk.sarif', 'w'))
+          "
+            fi
+          done
 
       - name: Upload Snyk results to GitHub Code Scanning
         if: always()
