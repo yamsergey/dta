@@ -80,8 +80,9 @@ public class AppRunner {
             }
             log.info("APK found: {}", apkPath);
 
-            // 4. Get package name
-            String packageName = discoverPackageName(apkPath);
+            // 4. Get package name and launcher activity from APK
+            ApkInfo apkInfo = discoverApkInfo(apkPath);
+            String packageName = apkInfo.packageName();
             log.info("Package: {}", packageName);
 
             // 5. Install
@@ -92,10 +93,18 @@ public class AppRunner {
             // and register the new APK before we can launch
             Thread.sleep(1000);
 
-            // 6. Launch
+            // 6. Launch — use launcher activity from APK metadata (aapt2)
+            // rather than device-side resolve-activity, which can pick the wrong
+            // activity when debug builds have multiple launcher activities
             progress(listener, "LAUNCH", "Launching " + packageName + "...");
-            String component = connectionManager.resolveMainActivity(request.device(), packageName);
-            connectionManager.launchActivity(request.device(), component);
+            String component;
+            if (apkInfo.launcherActivity() != null) {
+                component = packageName + "/" + apkInfo.launcherActivity();
+                connectionManager.launchActivity(request.device(), component);
+            } else {
+                component = connectionManager.resolveMainActivity(request.device(), packageName);
+                connectionManager.launchActivity(request.device(), component);
+            }
             log.info("Launched: {}", component);
 
             return new RunResult(true, packageName, apkPath, buildLog.toString(), component, null);
@@ -254,7 +263,12 @@ public class AppRunner {
     // Package name discovery
     // ========================================================================
 
-    String discoverPackageName(String apkPath) throws IOException, InterruptedException {
+    /**
+     * Information extracted from APK via aapt2.
+     */
+    record ApkInfo(String packageName, String launcherActivity) {}
+
+    ApkInfo discoverApkInfo(String apkPath) throws IOException, InterruptedException {
         String aapt2 = findAapt2();
 
         ProcessBuilder pb = new ProcessBuilder(aapt2, "dump", "badging", apkPath);
@@ -268,12 +282,25 @@ public class AppRunner {
             throw new IOException("aapt2 timed out");
         }
 
-        // Parse: package: name='com.example.app' ...
-        Matcher m = Pattern.compile("package:\\s+name='([^']+)'").matcher(output);
-        if (m.find()) {
-            return m.group(1);
+        // Parse package name
+        String packageName = null;
+        Matcher pkgMatcher = Pattern.compile("package:\\s+name='([^']+)'").matcher(output);
+        if (pkgMatcher.find()) {
+            packageName = pkgMatcher.group(1);
         }
-        throw new IOException("Could not parse package name from aapt2 output");
+        if (packageName == null) {
+            throw new IOException("Could not parse package name from aapt2 output");
+        }
+
+        // Parse launcher activity — aapt2 picks the primary one (MAIN+LAUNCHER+DEFAULT),
+        // matching Android Studio's DefaultActivityLocator behavior
+        String launcherActivity = null;
+        Matcher actMatcher = Pattern.compile("launchable-activity:\\s+name='([^']+)'").matcher(output);
+        if (actMatcher.find()) {
+            launcherActivity = actMatcher.group(1);
+        }
+
+        return new ApkInfo(packageName, launcherActivity);
     }
 
     private String findAapt2() throws IOException {
