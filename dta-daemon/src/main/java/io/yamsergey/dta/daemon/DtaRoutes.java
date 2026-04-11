@@ -43,6 +43,7 @@ public final class DtaRoutes {
     public static void register(Javalin app) {
         DtaOrchestrator orchestrator = DtaOrchestrator.getInstance();
         SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
+        String daemonVersion = readDaemonVersion();
 
         // ====================================================================
         // Version
@@ -51,10 +52,41 @@ public final class DtaRoutes {
         app.get("/api/version", ctx -> {
             Map<String, Object> info = new HashMap<>();
             info.put("name", "dta-daemon");
-            info.put("version", "standalone");
+            info.put("version", daemonVersion);
             info.put("daemon", true);
             info.put("pid", ProcessHandle.current().pid());
             ctx.json(info);
+        });
+
+        // ====================================================================
+        // Shutdown — used by DaemonLauncher for version-aware takeover
+        // ====================================================================
+
+        app.post("/api/shutdown", ctx -> {
+            log.info("Received /api/shutdown request — daemon will stop shortly");
+            ctx.json(Map.of("status", "shutting down", "version", daemonVersion));
+            // Stop in a background thread so the response can flush first.
+            // For standalone daemons this exits the JVM via the shutdown hook
+            // chain (cleaning up forwards). For embedded daemons (plugin) it
+            // just stops Javalin — the host process keeps running.
+            Thread.ofVirtual().name("dta-shutdown").start(() -> {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                try {
+                    app.stop();
+                } catch (Exception e) {
+                    log.warn("Error during app.stop(): {}", e.getMessage());
+                }
+                // For standalone daemons, exit so the JVM shutdown hook fires.
+                // The hook is a no-op for embedded daemons because they'll be
+                // running inside a long-lived host process (the plugin).
+                if (Boolean.parseBoolean(System.getProperty("dta.daemon.standalone", "false"))) {
+                    System.exit(0);
+                }
+            });
         });
 
         app.get("/api/connection-status", ctx -> {
@@ -700,5 +732,23 @@ public final class DtaRoutes {
         if (v == null || v.isNull()) return null;
         String s = v.asText();
         return s.isEmpty() ? null : s;
+    }
+
+    /**
+     * Reads the dta-daemon version from {@code /version.properties} on the
+     * classpath. Generated at build time from {@code dtaVersion} in
+     * gradle.properties. Returns "unknown" if the resource is missing.
+     */
+    private static String readDaemonVersion() {
+        try (var is = DtaRoutes.class.getResourceAsStream("/version.properties")) {
+            if (is != null) {
+                var props = new java.util.Properties();
+                props.load(is);
+                return props.getProperty("version", "unknown");
+            }
+        } catch (Exception e) {
+            log.debug("Failed to read version.properties: {}", e.getMessage());
+        }
+        return "unknown";
     }
 }

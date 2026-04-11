@@ -45,6 +45,40 @@ java {
     }
 }
 
+// Generate version.properties from centralized version (consumed by DtaDaemon
+// for /api/version reporting and DaemonLauncher version-compat checks).
+def versionPropsDir = layout.buildDirectory.dir("generated/resources")
+def dtaVersionValue = rootProject.findProperty('dtaVersion') ?: '0.0.0'
+
+tasks.register('generateVersionProperties') {
+    outputs.dir(versionPropsDir)
+    inputs.property('version', dtaVersionValue)
+    doLast {
+        def outDir = versionPropsDir.get().asFile
+        outDir.mkdirs()
+        new File(outDir, "version.properties").text = "version=${dtaVersionValue}\n"
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn 'generateVersionProperties'
+}
+
+// sourcesJar (added by vanniktech maven publish plugin) reads from the
+// generated resources dir; declare the dependency explicitly so Gradle's
+// validation doesn't complain about implicit task ordering.
+tasks.matching { it.name == 'sourcesJar' }.configureEach {
+    dependsOn 'generateVersionProperties'
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDir versionPropsDir
+        }
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform()
 }

@@ -29,6 +29,46 @@ public class DaemonLauncher {
     private static final Path DAEMON_STATE_FILE = Path.of(System.getProperty("user.home"), ".dta", "daemon.json");
     private static final int HEALTH_CHECK_INTERVAL_MS = 500;
     private static final int MAX_WAIT_MS = 15_000;
+    private static final int SHUTDOWN_WAIT_MS = 5_000;
+
+    /**
+     * Version of the launching binary (e.g. dta-cli, dta-mcp, plugin), used
+     * to compare against the running daemon's version and detect mismatches.
+     * Resolved lazily from {@code /version.properties} on the launcher's own
+     * classpath — since each entry-point binary bundles dta-daemon and all
+     * three version.properties files come from the same {@code gradle.properties}
+     * at build time, this gives the correct answer for whichever process the
+     * launcher is loaded into. No caller registration needed.
+     *
+     * <p>Tests can override via {@link #setLauncherVersion(String)}.</p>
+     */
+    private static volatile String launcherVersion = null;
+
+    /**
+     * Test/override hook: explicitly sets the launcher version, bypassing the
+     * classpath self-read. Production code does not need to call this.
+     */
+    public static void setLauncherVersion(String version) {
+        launcherVersion = version;
+        log.debug("Launcher version overridden to {}", version);
+    }
+
+    private static String getLauncherVersion() {
+        if (launcherVersion != null) return launcherVersion;
+        try (var is = DaemonLauncher.class.getResourceAsStream("/version.properties")) {
+            if (is != null) {
+                var props = new java.util.Properties();
+                props.load(is);
+                String v = props.getProperty("version", "unknown");
+                launcherVersion = v;
+                return v;
+            }
+        } catch (Exception e) {
+            log.debug("Failed to read launcher version.properties: {}", e.getMessage());
+        }
+        launcherVersion = "unknown";
+        return "unknown";
+    }
 
     /**
      * Ensures the daemon is running and returns a DaemonClient connected to it.
@@ -37,7 +77,7 @@ public class DaemonLauncher {
      * @throws DaemonException if the daemon cannot be started
      */
     public static DaemonClient ensureDaemonRunning() {
-        // Step 1: Check if daemon is already running
+        // Step 1: Check if daemon is already running and version-compatible
         DaemonClient existing = tryConnectExisting();
         if (existing != null) {
             return existing;
@@ -69,7 +109,8 @@ public class DaemonLauncher {
 
     /**
      * Tries to connect to an existing daemon by reading the state file.
-     * Returns null if daemon is not running or not healthy.
+     * Returns null if the daemon is not running, not healthy, or its version
+     * doesn't match the launcher version (after triggering a takeover).
      */
     private static DaemonClient tryConnectExisting() {
         if (!Files.exists(DAEMON_STATE_FILE)) {
@@ -90,17 +131,101 @@ public class DaemonLauncher {
 
             // Health check
             DaemonClient client = new DaemonClient("http://localhost:" + port);
+            String versionJson;
             try {
-                client.version();
-                return client;
+                versionJson = client.version();
             } catch (Exception e) {
                 log.debug("Daemon health check failed: {}", e.getMessage());
                 return null;
             }
+
+            // Version-compat check
+            String myVersion = getLauncherVersion();
+            String daemonVersion = parseDaemonVersion(versionJson);
+            if (!isCompatible(myVersion, daemonVersion)) {
+                log.warn("Daemon version mismatch: running {} vs launcher {} — triggering takeover",
+                    daemonVersion, myVersion);
+                requestShutdown(client);
+                waitForShutdown();
+                return null; // caller will spawn fresh daemon
+            }
+            return client;
         } catch (Exception e) {
             log.debug("Failed to read daemon state: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Compares major.minor of two version strings. Returns true if both are
+     * null/unknown, or if their major and minor components match.
+     */
+    static boolean isCompatible(String launcher, String daemon) {
+        if (launcher == null || daemon == null) return true;
+        if ("unknown".equals(launcher) || "unknown".equals(daemon)) return true;
+        String[] l = launcher.split("\\.");
+        String[] d = daemon.split("\\.");
+        if (l.length < 2 || d.length < 2) return true;
+        return l[0].equals(d[0]) && l[1].equals(d[1]);
+    }
+
+    private static String parseDaemonVersion(String versionJson) {
+        try {
+            JsonNode node = mapper.readTree(versionJson);
+            JsonNode v = node.get("version");
+            return v != null ? v.asText("unknown") : "unknown";
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    /**
+     * POSTs /api/shutdown to the running daemon, ignoring errors. The old
+     * daemon is expected to clean up via its shutdown hook (releasing forwards
+     * and the state file).
+     */
+    private static void requestShutdown(DaemonClient client) {
+        try {
+            // Use raw HTTP since DaemonClient doesn't expose a shutdown helper
+            // (intentionally — only DaemonLauncher should ever call this).
+            var http = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(2))
+                .build();
+            var req = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(client.getBaseUrl() + "/api/shutdown"))
+                .timeout(java.time.Duration.ofSeconds(2))
+                .POST(java.net.http.HttpRequest.BodyPublishers.noBody())
+                .build();
+            http.send(req, java.net.http.HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            log.debug("Shutdown request to old daemon failed (expected if it died fast): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Polls until the state file disappears, indicating the old daemon's
+     * shutdown hook ran and cleaned up. Bounded by SHUTDOWN_WAIT_MS so a
+     * stuck-shutdown daemon doesn't block us forever — we'll start a new
+     * one anyway and the new one's startup sweep will catch any leaks.
+     */
+    private static void waitForShutdown() {
+        long deadline = System.currentTimeMillis() + SHUTDOWN_WAIT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            if (!Files.exists(DAEMON_STATE_FILE)) {
+                log.info("Old daemon shut down cleanly");
+                return;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        log.warn("Old daemon did not exit within {}ms — proceeding anyway (startup sweep will clean leaks)",
+            SHUTDOWN_WAIT_MS);
+        // Force-delete the state file so the new daemon doesn't see it.
+        try { Files.deleteIfExists(DAEMON_STATE_FILE); } catch (Exception ignored) {}
     }
 
     /**

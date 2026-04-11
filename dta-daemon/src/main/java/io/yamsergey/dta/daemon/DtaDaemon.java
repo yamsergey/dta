@@ -23,6 +23,10 @@ public class DtaDaemon {
     private Javalin app;
 
     public static void main(String[] args) {
+        // Mark this JVM as a standalone daemon process — DtaRoutes uses this
+        // when handling /api/shutdown so it knows to System.exit() (and trigger
+        // the shutdown hook chain) rather than just stop Javalin.
+        System.setProperty("dta.daemon.standalone", "true");
         int port = parsePort(args);
         DtaDaemon daemon = new DtaDaemon();
         daemon.start(port);
@@ -36,6 +40,17 @@ public class DtaDaemon {
      */
     public int start(int port) {
         DtaOrchestrator orchestrator = DtaOrchestrator.getInstance();
+
+        // Sweep orphan dta_sidekick_* port forwards left by a previous daemon
+        // that crashed or was killed with kill -9. Must run BEFORE binding the
+        // HTTP port and BEFORE accepting any connections, so the new daemon
+        // starts with a clean slate. Idempotent + best-effort — never blocks startup.
+        int orphans = io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager
+                .getInstance()
+                .cleanupOwnedSidekickForwards();
+        if (orphans > 0) {
+            log.info("Startup sweep removed {} orphan sidekick forward(s)", orphans);
+        }
 
         // Configure Jackson 3 JSON mapper for Javalin
         ObjectMapper objectMapper = new ObjectMapper();
@@ -123,13 +138,28 @@ public class DtaDaemon {
     private void writeStateFile(int port) {
         try {
             java.nio.file.Files.createDirectories(STATE_FILE.getParent());
-            String json = String.format("{\"port\":%d,\"pid\":%d,\"startTime\":%d}",
-                    port, ProcessHandle.current().pid(), System.currentTimeMillis());
+            String json = String.format("{\"port\":%d,\"pid\":%d,\"startTime\":%d,\"version\":\"%s\"}",
+                    port, ProcessHandle.current().pid(), System.currentTimeMillis(), readDaemonVersion());
             java.nio.file.Files.writeString(STATE_FILE, json);
             log.debug("Wrote daemon state: {}", STATE_FILE);
         } catch (Exception e) {
             log.warn("Failed to write daemon state file: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Reads the dta-daemon version from {@code /version.properties} on the
+     * classpath. Generated at build time from {@code dtaVersion}.
+     */
+    private static String readDaemonVersion() {
+        try (var is = DtaDaemon.class.getResourceAsStream("/version.properties")) {
+            if (is != null) {
+                var props = new java.util.Properties();
+                props.load(is);
+                return props.getProperty("version", "unknown");
+            }
+        } catch (Exception ignored) {}
+        return "unknown";
     }
 
     private static void deleteStateFile() {

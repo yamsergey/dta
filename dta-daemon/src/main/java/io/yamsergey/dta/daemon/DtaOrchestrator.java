@@ -533,7 +533,7 @@ public class DtaOrchestrator {
      * Shuts down all SSE listeners and CDP watchers. Call this on application shutdown.
      */
     public void shutdown() {
-        log.info("Shutting down DtaOrchestrator — cleaning up CDP watchers");
+        log.info("Shutting down DtaOrchestrator — cleaning up CDP watchers and forwards");
         sseListeners.forEach((key, listener) -> {
             try {
                 listener.stop();
@@ -552,6 +552,9 @@ public class DtaOrchestrator {
         });
         sseListeners.clear();
         CdpWatcherManager.getInstance().stopAll();
+        // Release every sidekick port forward this daemon created. Crash/kill-9
+        // path is handled by the startup sweep in DtaDaemon.start().
+        connectionManager.shutdown();
     }
 
     // ========================================================================

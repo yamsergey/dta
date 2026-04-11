@@ -135,9 +135,16 @@ public class SidekickConnectionManager {
             String socketName = "dta_sidekick_" + packageName;
 
             // Create new forward with auto-allocated port.
-            // We intentionally skip checking adb forward --list because multiple
-            // processes (inspector-web, MCP) may have their own forwards to the
-            // same socket. Reusing or removing another process's forward breaks it.
+            //
+            // We don't scan `adb forward --list` here for an existing forward
+            // to reuse — the in-process cache above already handles within-
+            // process dedup, and cross-process leaks are handled at a different
+            // layer: DtaDaemon.start() calls cleanupOwnedSidekickForwards()
+            // before binding, sweeping orphans left by a crashed/killed
+            // previous daemon. Daemon shutdown also releases everything via
+            // SidekickConnectionManager.shutdown(). So the forward list is
+            // owned by *this* daemon process — no need to interrogate it on
+            // every cache miss.
             int port;
             try {
                 port = setupPortForwardAuto(device, socketName);
@@ -182,6 +189,78 @@ public class SidekickConnectionManager {
             removePortForward(device, conn.port());
             stopCdpWatcher(packageName, device);
         }
+    }
+
+    // ========================================================================
+    // Lifecycle: cleanup of leaked / orphaned ADB forwards
+    // ========================================================================
+
+    /**
+     * Scans {@code adb forward --list} and removes every forward whose target
+     * matches {@code localabstract:dta_sidekick_*}. Intended for two scenarios:
+     * <ol>
+     *   <li>Daemon startup — sweep orphans left by a previous daemon that
+     *       crashed or was killed with {@code kill -9}, before any new
+     *       connections are made.</li>
+     *   <li>Tooling update — when a new daemon takes over from an older one,
+     *       wipe the slate so the new code doesn't inherit polluted state.</li>
+     * </ol>
+     *
+     * <p>Only sweeps forwards we provably own ({@code dta_sidekick_*}). Does NOT
+     * touch {@code chrome_devtools_remote} or {@code webview_devtools_remote_*}
+     * because those names are not unique to DTA — a developer running
+     * {@code chrome://inspect} could legitimately own one.</p>
+     *
+     * <p>Idempotent. Logs failures but never throws — cleanup is best-effort
+     * and must never block daemon startup.</p>
+     *
+     * @return the number of forwards removed
+     */
+    public int cleanupOwnedSidekickForwards() {
+        int removed = 0;
+        try {
+            String output = runAdb(null, "forward", "--list");
+            // Format: "<serial>\ttcp:<port>\tlocalabstract:dta_sidekick_<package>"
+            Pattern pattern = Pattern.compile(
+                "^(\\S+)\\s+tcp:(\\d+)\\s+localabstract:(dta_sidekick_\\S+)\\s*$",
+                Pattern.MULTILINE);
+            Matcher matcher = pattern.matcher(output);
+            while (matcher.find()) {
+                String device = matcher.group(1);
+                int port = Integer.parseInt(matcher.group(2));
+                String socketName = matcher.group(3);
+                try {
+                    runAdb(device, "forward", "--remove", "tcp:" + port);
+                    log.info("Removed orphan forward tcp:{} -> {} on {}", port, socketName, device);
+                    removed++;
+                } catch (Exception e) {
+                    log.debug("Failed to remove orphan forward tcp:{} on {}: {}",
+                        port, device, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("cleanupOwnedSidekickForwards failed (non-fatal): {}", e.getMessage());
+        }
+        return removed;
+    }
+
+    /**
+     * Removes every cached connection and its port forward. Called from
+     * {@link DtaOrchestrator#shutdown()} on graceful daemon exit.
+     *
+     * <p>Does NOT call {@link #cleanupOwnedSidekickForwards()} — that's the
+     * startup-side defense for the kill-9 / crash case. Shutdown should only
+     * tear down what THIS daemon created, leaving anything it didn't recognize
+     * alone.</p>
+     */
+    public void shutdown() {
+        log.info("Shutting down SidekickConnectionManager — releasing {} forward(s)", connections.size());
+        for (ConnectionInfo conn : connections.values()) {
+            removePortForward(conn.device(), conn.port());
+        }
+        connections.clear();
+        connectionLocks.clear();
+        failedConnectionTimestamps.clear();
     }
 
     // ========================================================================
