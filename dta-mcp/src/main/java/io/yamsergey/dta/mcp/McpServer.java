@@ -973,7 +973,10 @@ public class McpServer {
                         "No flavors: debug. " +
                         "With flavors: stagingDebug, exampleAppUatDebug, freeProductionDebug.", false),
                     "module", prop("string", "Gradle module to build (default: :app)", false),
-                    "device", prop("string", "Device serial number (optional, uses default device if omitted)", false)
+                    "device", prop("string", "Device serial number (optional, uses default device if omitted)", false),
+                    "activity", prop("string", "Activity to launch (optional, auto-detected from APK if omitted). " +
+                        "Accepts fully-qualified (io.example.MainActivity), relative (.MainActivity), or bare (MainActivity). " +
+                        "Use this to override the default launcher when a debug build has multiple launcher activities.", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -984,10 +987,11 @@ public class McpServer {
                     String module = getString(args, "module");
                     if (module == null) module = ":app";
                     String device = getString(args, "device");
+                    String activity = getString(args, "activity");
 
                     var runner = new io.yamsergey.dta.tools.android.runner.AppRunner();
                     var req = new io.yamsergey.dta.tools.android.runner.AppRunner.RunRequest(
-                        project, device, variant, module);
+                        project, device, variant, module, activity);
 
                     var result = runner.run(req, (stage, message) ->
                         log.debug("[{}] {}", stage, message));

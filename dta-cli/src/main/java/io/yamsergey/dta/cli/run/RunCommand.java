@@ -38,10 +38,15 @@ public class RunCommand implements Callable<Integer> {
             description = "Gradle module (default: :app)")
     private String module;
 
+    @Option(names = {"--activity", "-a"},
+            description = "Activity to launch (default: auto-detected from APK). " +
+                    "Accepts fully-qualified (io.example.MainActivity), relative (.MainActivity), or bare (MainActivity).")
+    private String activity;
+
     @Override
     public Integer call() {
         AppRunner runner = new AppRunner();
-        RunRequest request = new RunRequest(projectPath, deviceSerial, variant, module);
+        RunRequest request = new RunRequest(projectPath, deviceSerial, variant, module, activity);
 
         RunResult result = runner.run(request, (stage, message) -> {
             if ("BUILD".equals(stage)) {
