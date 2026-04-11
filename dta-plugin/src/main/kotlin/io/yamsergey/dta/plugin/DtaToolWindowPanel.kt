@@ -16,6 +16,7 @@ import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket
 import io.yamsergey.dta.plugin.DtaService.DtaServiceListener
 import io.yamsergey.dta.plugin.ui.LayoutPanel
+import io.yamsergey.dta.plugin.ui.McpPanel
 import io.yamsergey.dta.plugin.ui.NetworkPanel
 import io.yamsergey.dta.plugin.ui.WebSocketPanel
 import java.awt.BorderLayout
@@ -49,6 +50,7 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
     private val layoutPanel = LayoutPanel()
     private val networkPanel = NetworkPanel()
     private val webSocketPanel = WebSocketPanel()
+    private val mcpPanel = McpPanel()
 
     init {
         // Build toolbar
@@ -88,6 +90,7 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
         tabbedPane.addTab("Layout", layoutPanel)
         tabbedPane.addTab("Network", networkPanel)
         tabbedPane.addTab("WebSocket", webSocketPanel)
+        tabbedPane.addTab("MCP", mcpPanel)
         add(tabbedPane, BorderLayout.CENTER)
 
         // Combo listeners
@@ -170,5 +173,6 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
 
     override fun dispose() {
         service.removeListener(this)
+        mcpPanel.dispose()
     }
 }

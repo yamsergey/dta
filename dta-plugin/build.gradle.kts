@@ -41,6 +41,9 @@ dependencies {
     }
 
     implementation(project(":dta-daemon"))
+    // dta-mcp gives us McpHttpServer + McpInstaller for the in-plugin MCP
+    // tab. The plugin hosts the same HTTP MCP server the CLI does.
+    implementation(project(":dta-mcp"))
     implementation("tools.jackson.core:jackson-databind:3.1.1")
 }
 

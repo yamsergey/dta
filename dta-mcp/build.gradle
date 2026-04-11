@@ -56,6 +56,13 @@ dependencies {
     // MCP Java SDK
     implementation 'io.modelcontextprotocol.sdk:mcp:1.0.1'
 
+    // Embedded Jetty 11 — hosts the MCP HTTP transport servlet
+    // (HttpServletStreamableServerTransportProvider). Same Jetty version Javalin
+    // uses transitively, so we don't pull in two copies. Required for
+    // McpHttpServer; the stdio transport doesn't touch it.
+    implementation 'org.eclipse.jetty:jetty-server:11.0.25'
+    implementation 'org.eclipse.jetty:jetty-servlet:11.0.25'
+
     // Jackson for JSON
     implementation libs.jackson.core
     implementation libs.jackson.databind
