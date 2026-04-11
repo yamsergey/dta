@@ -308,6 +308,20 @@ class DtaService : Disposable {
     }
 
     // ========================================================================
+    // Detail fetchers (called from UI panels on selection)
+    // ========================================================================
+
+    fun fetchNetworkRequestDetail(pkg: String, requestId: String, device: String?): String {
+        val client = ensureDaemon()
+        return client.networkRequest(pkg, requestId, device)
+    }
+
+    fun fetchWebSocketDetail(pkg: String, connectionId: String, device: String?): String {
+        val client = ensureDaemon()
+        return client.websocketConnection(pkg, connectionId, device)
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
 
