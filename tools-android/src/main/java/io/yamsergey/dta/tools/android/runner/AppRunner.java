@@ -27,12 +27,14 @@ public class AppRunner {
         String projectPath,
         String device,
         String variant,
-        String module
+        String module,
+        String activity
     ) {
         public RunRequest {
             if (projectPath == null || projectPath.isEmpty()) throw new IllegalArgumentException("projectPath required");
             if (variant == null || variant.isEmpty()) variant = "debug";
             if (module == null || module.isEmpty()) module = ":app";
+            if (activity != null && activity.isEmpty()) activity = null;
         }
     }
 
@@ -93,18 +95,19 @@ public class AppRunner {
             // and register the new APK before we can launch
             Thread.sleep(1000);
 
-            // 6. Launch — use launcher activity from APK metadata (aapt2)
-            // rather than device-side resolve-activity, which can pick the wrong
-            // activity when debug builds have multiple launcher activities
+            // 6. Launch — priority: user override → aapt2 launchable-activity → device resolve-activity.
+            // aapt2 is preferred over resolve-activity because debug builds sometimes have multiple
+            // launcher activities and resolve-activity picks the wrong one.
             progress(listener, "LAUNCH", "Launching " + packageName + "...");
             String component;
-            if (apkInfo.launcherActivity() != null) {
+            if (request.activity() != null) {
+                component = packageName + "/" + normalizeActivity(request.activity());
+            } else if (apkInfo.launcherActivity() != null) {
                 component = packageName + "/" + apkInfo.launcherActivity();
-                connectionManager.launchActivity(request.device(), component);
             } else {
                 component = connectionManager.resolveMainActivity(request.device(), packageName);
-                connectionManager.launchActivity(request.device(), component);
             }
+            connectionManager.launchActivity(request.device(), component);
             log.info("Launched: {}", component);
 
             return new RunResult(true, packageName, apkPath, buildLog.toString(), component, null);
@@ -349,6 +352,17 @@ public class AppRunner {
     private static String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /**
+     * Normalizes an activity name for use in {@code am start -n package/activity}.
+     * Accepts fully-qualified ({@code io.example.MainActivity}), relative ({@code .MainActivity}),
+     * or bare ({@code MainActivity}). Bare names get a leading dot so {@code am start} resolves
+     * them against the package.
+     */
+    private static String normalizeActivity(String activity) {
+        if (activity.contains(".")) return activity;
+        return "." + activity;
     }
 
     private static void progress(ProgressListener listener, String stage, String message) {
