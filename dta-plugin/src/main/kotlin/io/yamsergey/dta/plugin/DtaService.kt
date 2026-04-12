@@ -351,6 +351,40 @@ class DtaService : Disposable {
     }
 
     // ========================================================================
+    // Selection sync (bidirectional with daemon)
+    // ========================================================================
+
+    fun syncElementSelection(pkg: String, device: String?, elementJson: String) {
+        try {
+            val client = ensureDaemon()
+            client.clearSelectedElements(pkg, device)
+            client.addSelectedElement(pkg, device, elementJson)
+        } catch (e: Exception) {
+            log.debug("Element selection sync failed: ${e.message}")
+        }
+    }
+
+    fun syncNetworkSelection(pkg: String, device: String?, requestJson: String) {
+        try {
+            val client = ensureDaemon()
+            client.clearSelectedNetworkRequests(pkg, device)
+            client.addSelectedNetworkRequest(pkg, device, requestJson)
+        } catch (e: Exception) {
+            log.debug("Network selection sync failed: ${e.message}")
+        }
+    }
+
+    fun syncWebSocketSelection(pkg: String, device: String?, messageJson: String) {
+        try {
+            val client = ensureDaemon()
+            client.clearSelectedWebSocketMessages(pkg, device)
+            client.addSelectedWebSocketMessage(pkg, device, messageJson)
+        } catch (e: Exception) {
+            log.debug("WebSocket selection sync failed: ${e.message}")
+        }
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
 

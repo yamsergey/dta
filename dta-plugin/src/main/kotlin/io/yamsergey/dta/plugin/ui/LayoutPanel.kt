@@ -1,5 +1,6 @@
 package io.yamsergey.dta.plugin.ui
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
@@ -63,6 +64,17 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
             val data = node.userObject as? LayoutNodeData ?: return@addTreeSelectionListener
             screenshotPanel.highlightBounds = data.bounds
             screenshotPanel.repaint()
+
+            // Sync selection to daemon so MCP/CLI/inspector-web can see it
+            if (data.bounds != null) {
+                val service = DtaService.getInstance()
+                val pkg = service.selectedApp?.packageName() ?: return@addTreeSelectionListener
+                val device = service.selectedDevice?.serial()
+                val json = """{"className":"${data.type}","text":${if (data.text != null) "\"${data.text}\"" else "null"},"bounds":{"left":${data.bounds.x},"top":${data.bounds.y},"right":${data.bounds.x + data.bounds.width},"bottom":${data.bounds.y + data.bounds.height}}}"""
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    service.syncElementSelection(pkg, device, json)
+                }
+            }
         }
 
         DtaService.getInstance().addListener(this)

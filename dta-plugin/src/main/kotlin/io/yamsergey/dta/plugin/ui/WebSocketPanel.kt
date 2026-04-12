@@ -87,6 +87,16 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
                 val row = messagesTable.selectedRow
                 if (row in 0 until messagesTableModel.rowCount) {
                     showMessageDetail(row)
+                    // Sync selection to daemon
+                    val connId = viewingConnectionId ?: return@addListSelectionListener
+                    val msg = currentMessages.getOrNull(row) ?: return@addListSelectionListener
+                    val service = DtaService.getInstance()
+                    val pkg = service.selectedApp?.packageName() ?: return@addListSelectionListener
+                    val device = service.selectedDevice?.serial()
+                    val json = """{"connectionId":"$connId","messageIndex":$row,"direction":"${msg.direction}"}"""
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        service.syncWebSocketSelection(pkg, device, json)
+                    }
                 }
             }
         }

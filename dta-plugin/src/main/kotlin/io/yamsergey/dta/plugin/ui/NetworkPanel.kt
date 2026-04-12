@@ -50,7 +50,16 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
             if (!e.valueIsAdjusting) {
                 val row = table.selectedRow
                 if (row in 0 until tableModel.rowCount) {
-                    fetchDetail(tableModel.getRequest(row).id)
+                    val req = tableModel.getRequest(row)
+                    fetchDetail(req.id)
+                    // Sync selection to daemon
+                    val service = DtaService.getInstance()
+                    val pkg = service.selectedApp?.packageName() ?: return@addListSelectionListener
+                    val device = service.selectedDevice?.serial()
+                    val json = """{"id":"${req.id}","url":"${req.url}","method":"${req.method}"}"""
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        service.syncNetworkSelection(pkg, device, json)
+                    }
                 }
             }
         }
