@@ -62,39 +62,54 @@ public class McpHttpServer {
 
         log.info("Starting DTA MCP HTTP server v{} on port {}", McpServer.getVersion(), port);
 
-        // Build the streamable HTTP transport provider. The default endpoint
-        // path "/mcp" is what Android Studio Gemini and other clients expect,
-        // so we don't override it.
-        var transportProvider = HttpServletStreamableServerTransportProvider.builder()
-            .jsonMapper(McpServer.getMcpJsonMapper())
-            .build();
+        // IntelliJ plugins use isolated classloaders. The MCP SDK discovers
+        // its JsonSchemaValidatorSupplier via ServiceLoader, which uses the
+        // thread's context classloader — and that doesn't see the plugin's
+        // JARs. Temporarily swapping the context classloader to our own is
+        // the standard IntelliJ plugin fix for ServiceLoader-dependent libs.
+        // IntelliJ plugins use isolated classloaders. The MCP SDK discovers
+        // its JsonSchemaValidatorSupplier via ServiceLoader, which uses the
+        // thread's context classloader — and that doesn't see the plugin's
+        // JARs. Temporarily swapping the context classloader to our own is
+        // the standard IntelliJ plugin fix for ServiceLoader-dependent libs.
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(McpHttpServer.class.getClassLoader());
 
-        // Build the MCP server using the SAME tool list as the stdio path.
-        List<McpServerFeatures.SyncToolSpecification> tools = McpServer.buildToolList();
-        io.modelcontextprotocol.server.McpServer.sync(transportProvider)
-            .serverInfo("dta-mcp", McpServer.getVersion())
-            .capabilities(ServerCapabilities.builder().tools(true).build())
-            .tools(tools)
-            .build();
+            // Build the streamable HTTP transport provider. The default endpoint
+            // path "/mcp" is what Android Studio Gemini and other clients expect,
+            // so we don't override it.
+            var transportProvider = HttpServletStreamableServerTransportProvider.builder()
+                .jsonMapper(McpServer.getMcpJsonMapper())
+                .build();
 
-        // Wire the servlet into Jetty. The transport provider IS an HttpServlet —
-        // we just mount it at /* on a ServletContextHandler. The MCP routing is
-        // entirely inside the servlet (it handles /mcp internally based on
-        // mcpEndpoint configured on the builder).
-        ServletContextHandler context = new ServletContextHandler();
-        context.setContextPath("/");
-        context.addServlet(new ServletHolder(transportProvider), "/*");
+            // Build the MCP server using the SAME tool list as the stdio path.
+            List<McpServerFeatures.SyncToolSpecification> tools = McpServer.buildToolList();
+            io.modelcontextprotocol.server.McpServer.sync(transportProvider)
+                .serverInfo("dta-mcp", McpServer.getVersion())
+                .capabilities(ServerCapabilities.builder().tools(true).build())
+                .tools(tools)
+                .build();
 
-        jettyServer = new Server();
-        ServerConnector connector = new ServerConnector(jettyServer);
-        connector.setPort(port);
-        jettyServer.addConnector(connector);
-        jettyServer.setHandler(context);
+            // Wire the servlet into Jetty. The transport provider IS an
+            // HttpServlet — mount it at /* on a ServletContextHandler.
+            ServletContextHandler context = new ServletContextHandler();
+            context.setContextPath("/");
+            context.addServlet(new ServletHolder(transportProvider), "/*");
 
-        jettyServer.start();
-        boundPort = connector.getLocalPort();
-        log.info("DTA MCP HTTP server started: {} tools served at http://localhost:{}/mcp",
-            tools.size(), boundPort);
+            jettyServer = new Server();
+            ServerConnector connector = new ServerConnector(jettyServer);
+            connector.setPort(port);
+            jettyServer.addConnector(connector);
+            jettyServer.setHandler(context);
+
+            jettyServer.start();
+            boundPort = connector.getLocalPort();
+            log.info("DTA MCP HTTP server started: {} tools served at http://localhost:{}/mcp",
+                tools.size(), boundPort);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
         return boundPort;
     }
 
