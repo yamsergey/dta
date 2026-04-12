@@ -1,24 +1,27 @@
 package io.yamsergey.dta.plugin.ui
 
 import com.intellij.ui.JBSplitter
-import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.plugin.DtaService
 import io.yamsergey.dta.plugin.DtaService.DtaServiceListener
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
-import java.awt.Image
+import java.awt.Point
 import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
+import java.util.Enumeration
 import javax.imageio.ImageIO
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
@@ -27,9 +30,16 @@ import javax.swing.tree.TreePath
  * Layout inspection panel with a split view:
  * - Left: device screenshot with highlight overlay
  * - Right: layout tree hierarchy
+ *
+ * Tree state (expansion, selection, scroll position) is preserved across
+ * data refreshes. Identical JSON responses are skipped entirely. Parsing
+ * uses Jackson (available via dta-daemon transitive dep) instead of the
+ * old hand-rolled regex parser that couldn't handle the Chrome Custom Tab
+ * enriched response format.
  */
 class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
 
+    private val mapper = ObjectMapper()
     private val screenshotPanel = ScreenshotPanel()
     private val rootNode = DefaultMutableTreeNode("No data")
     private val treeModel = DefaultTreeModel(rootNode)
@@ -39,6 +49,9 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
         firstComponent = JBScrollPane(screenshotPanel)
         secondComponent = JBScrollPane(layoutTree)
     }
+
+    /** Last JSON string received — skip rebuild when unchanged. */
+    private var lastTreeJson: String? = null
 
     init {
         add(splitter, BorderLayout.CENTER)
@@ -60,7 +73,7 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
             try {
                 val image = ImageIO.read(ByteArrayInputStream(screenshotBytes))
                 screenshotPanel.setScreenshot(image)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 screenshotPanel.setScreenshot(null)
             }
         }
@@ -68,25 +81,39 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
         if (treeJson != null) {
             rebuildTree(treeJson)
         } else {
+            lastTreeJson = null
             rootNode.removeAllChildren()
             rootNode.userObject = "No data"
             treeModel.reload()
         }
     }
 
-    /**
-     * Parses the layout tree JSON and rebuilds the tree model.
-     * Uses simple string parsing to avoid depending on a JSON library.
-     */
+    // ========================================================================
+    // Tree rebuild with state preservation
+    // ========================================================================
+
     private fun rebuildTree(json: String) {
+        // Skip identical refreshes — the daemon returns the same tree on
+        // each poll when nothing changed. This is the single biggest win
+        // for stopping the "constant redraw + collapse" problem.
+        if (json == lastTreeJson) return
+        lastTreeJson = json
+
+        // Capture expansion/selection/scroll state BEFORE rebuilding
+        val expandedKeys = captureExpandedKeys()
+        val selectedKey = captureSelectedKey()
+        val scrollPane = (layoutTree.parent?.parent as? JBScrollPane)
+        val scrollPos = scrollPane?.viewport?.viewPosition
+
+        // Rebuild tree from JSON
         rootNode.removeAllChildren()
         try {
-            val nodes = parseLayoutNodes(json)
-            if (nodes.isNotEmpty()) {
+            val tree = mapper.readTree(json)
+            val rootJsonNode = findRootNode(tree)
+            if (rootJsonNode != null) {
                 rootNode.userObject = "Layout"
-                for (node in nodes) {
-                    rootNode.add(node)
-                }
+                val child = parseJsonNode(rootJsonNode)
+                rootNode.add(child)
             } else {
                 rootNode.userObject = "Empty layout"
             }
@@ -94,180 +121,169 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
             rootNode.userObject = "Parse error: ${e.message}"
         }
         treeModel.reload()
-        // Expand the first two levels
-        for (i in 0 until layoutTree.rowCount.coerceAtMost(20)) {
-            layoutTree.expandRow(i)
+
+        // Restore state — match by stable key (className + childIndex path)
+        if (expandedKeys.isNotEmpty()) {
+            restoreExpandedKeys(rootNode, expandedKeys)
+        } else {
+            // First load: expand the first two levels
+            for (i in 0 until layoutTree.rowCount.coerceAtMost(20)) {
+                layoutTree.expandRow(i)
+            }
+        }
+        if (selectedKey != null) {
+            restoreSelectedKey(rootNode, selectedKey)
+        }
+        if (scrollPos != null) {
+            SwingUtilities.invokeLater {
+                scrollPane?.viewport?.viewPosition = scrollPos
+            }
         }
     }
 
     /**
-     * Minimal JSON array/object parser for layout nodes.
-     * Expects the sidekick /layout/tree response format:
-     * { "nodes": [ { "type": "...", "bounds": {...}, "children": [...], ... } ] }
-     * or a direct array of nodes.
+     * Finds the root layout node in the daemon's response. Handles:
+     * - `{"root": {...}}` — standard enriched response (including ChromeCustomTab)
+     * - `{"windows": [{"tree": {...}}, ...]}` — multi-window response
+     * - Direct object — single node
      */
-    private fun parseLayoutNodes(json: String): List<DefaultMutableTreeNode> {
-        val trimmed = json.trim()
+    private fun findRootNode(tree: JsonNode): JsonNode? {
+        // Enriched response with "root" (normal case + Chrome Custom Tab)
+        val root = tree.get("root")
+        if (root != null && root.isObject) return root
 
-        // Response format: {"windows": [{"tree": {...}}, ...], "screen": {...}}
-        // Extract each window's "tree" object as a root node
-        val windowsArr = extractArrayField(trimmed, "windows")
-        if (windowsArr != null) {
-            val windowObjects = parseObjectsFromArray(windowsArr)
-            return windowObjects.mapNotNull { windowObj ->
-                val treeObj = extractObjectField(windowObj, "tree")
-                if (treeObj != null) parseNode(treeObj) else null
+        // Multi-window: extract first window's tree
+        val windows = tree.get("windows")
+        if (windows != null && windows.isArray) {
+            for (w in windows) {
+                val windowTree = w.get("tree")
+                if (windowTree != null && windowTree.isObject) return windowTree
             }
         }
 
-        // Fallback: try "nodes" array or direct array
-        val nodesArr = extractArrayField(trimmed, "nodes")
-        if (nodesArr != null) return parseNodeArray(nodesArr)
+        // Direct node
+        if (tree.isObject && tree.has("className")) return tree
 
-        if (trimmed.startsWith("[")) return parseNodeArray(trimmed)
-
-        // Single tree object
-        if (trimmed.startsWith("{")) return listOf(parseNode(trimmed))
-
-        return emptyList()
+        return null
     }
 
-    private fun parseObjectsFromArray(arrayJson: String): List<String> {
-        val inner = arrayJson.trim().removeSurrounding("[", "]").trim()
-        if (inner.isEmpty()) return emptyList()
-        val objects = mutableListOf<String>()
-        var i = 0
-        while (i < inner.length) {
-            if (inner[i] == '{') {
-                val objStr = extractBalanced(inner, i, '{', '}')
-                objects.add(objStr)
-                i += objStr.length
-            } else {
-                i++
-            }
+    // ========================================================================
+    // Jackson-based node parsing
+    // ========================================================================
+
+    private fun parseJsonNode(node: JsonNode): DefaultMutableTreeNode {
+        val nodeType = node.path("nodeType").asText(null)
+        val role = node.path("role").asText(null)
+        // For web nodes (Chrome Custom Tab / WebView DOM), use role as the
+        // primary name since they don't have className/composable. For native
+        // nodes, prefer className → composable → role → "Unknown".
+        val className = if (nodeType == "web" && !role.isNullOrEmpty()) {
+            role
+        } else {
+            node.path("className").asText(
+                node.path("composable").asText(
+                    role ?: "Unknown"
+                )
+            )
         }
-        return objects
-    }
-
-    private fun parseNodeArray(arrayJson: String): List<DefaultMutableTreeNode> {
-        val inner = arrayJson.trim().removeSurrounding("[", "]").trim()
-        if (inner.isEmpty()) return emptyList()
-
-        val nodes = mutableListOf<DefaultMutableTreeNode>()
-        var i = 0
-        while (i < inner.length) {
-            val c = inner[i]
-            if (c == '{') {
-                val objStr = extractBalanced(inner, i, '{', '}')
-                nodes.add(parseNode(objStr))
-                i += objStr.length
-            } else {
-                i++
-            }
-        }
-        return nodes
-    }
-
-    private fun parseNode(objJson: String): DefaultMutableTreeNode {
-        val type = extractStringField(objJson, "type")
-            ?: extractStringField(objJson, "className")
-            ?: "Unknown"
-        val text = extractStringField(objJson, "text")
-        val recompCount = extractIntField(objJson, "recompositionCount")
+        val text = node.path("text").asText(null)
+        val recompCount = if (node.has("recompositionCount")) node.get("recompositionCount").asInt() else null
+        val webViewUrl = node.path("webViewUrl").asText(null)
 
         // Parse bounds
-        val boundsObj = extractObjectField(objJson, "bounds")
-        val bounds = if (boundsObj != null) {
-            val left = extractIntField(boundsObj, "left") ?: extractIntField(boundsObj, "x") ?: 0
-            val top = extractIntField(boundsObj, "top") ?: extractIntField(boundsObj, "y") ?: 0
-            val width = extractIntField(boundsObj, "width")
-                ?: ((extractIntField(boundsObj, "right") ?: left) - left)
-            val height = extractIntField(boundsObj, "height")
-                ?: ((extractIntField(boundsObj, "bottom") ?: top) - top)
-            Rectangle(left, top, width, height)
+        val boundsNode = node.get("bounds")
+        val bounds = if (boundsNode != null && boundsNode.isObject) {
+            val left = boundsNode.path("left").asInt(boundsNode.path("x").asInt(0))
+            val top = boundsNode.path("top").asInt(boundsNode.path("y").asInt(0))
+            val right = boundsNode.path("right").asInt(left)
+            val bottom = boundsNode.path("bottom").asInt(top)
+            val w = boundsNode.path("width").asInt(right - left)
+            val h = boundsNode.path("height").asInt(bottom - top)
+            if (w > 0 || h > 0) Rectangle(left, top, w, h) else null
         } else null
 
         val label = buildString {
-            append(type.substringAfterLast('.'))
-            if (!text.isNullOrEmpty()) append(" \"${text.take(30)}\"")
+            append(className.substringAfterLast('.'))
+            if (nodeType == "web") append(" ⌂")
+            if (!role.isNullOrEmpty()) append(" ($role)")
+            if (!text.isNullOrEmpty()) append(" \"${text.take(40)}\"")
+            if (!webViewUrl.isNullOrEmpty()) append(" → ${webViewUrl.take(50)}")
             if (recompCount != null && recompCount > 0) append(" [$recompCount]")
-            if (bounds != null) append(" [${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}]")
+            if (bounds != null) append(" [${bounds.x},${bounds.y} ${bounds.width}×${bounds.height}]")
         }
 
-        val data = LayoutNodeData(label, type, text, bounds, recompCount)
+        val data = LayoutNodeData(label, className, text, bounds, recompCount)
         val treeNode = DefaultMutableTreeNode(data)
 
-        // Parse children
-        val childrenArr = extractArrayField(objJson, "children")
-        if (childrenArr != null) {
-            val children = parseNodeArray(childrenArr)
-            children.forEach { treeNode.add(it) }
+        // Recurse children
+        val children = node.get("children")
+        if (children != null && children.isArray) {
+            for (child in children) {
+                treeNode.add(parseJsonNode(child))
+            }
         }
 
         return treeNode
     }
 
     // ========================================================================
-    // Simple JSON field extraction helpers
+    // Expansion state capture / restore
     // ========================================================================
 
-    private fun extractStringField(json: String, field: String): String? {
-        val pattern = "\"$field\"\\s*:\\s*\"([^\"]*)\""
-        val match = Regex(pattern).find(json) ?: return null
-        return match.groupValues[1]
-    }
-
-    private fun extractIntField(json: String, field: String): Int? {
-        val pattern = "\"$field\"\\s*:\\s*(-?\\d+)"
-        val match = Regex(pattern).find(json) ?: return null
-        return match.groupValues[1].toIntOrNull()
-    }
-
-    private fun extractObjectField(json: String, field: String): String? {
-        val key = "\"$field\""
-        val keyIdx = json.indexOf(key)
-        if (keyIdx < 0) return null
-        val colonIdx = json.indexOf(':', keyIdx + key.length)
-        if (colonIdx < 0) return null
-        val objStart = json.indexOf('{', colonIdx)
-        if (objStart < 0) return null
-        return extractBalanced(json, objStart, '{', '}')
-    }
-
-    private fun extractArrayField(json: String, field: String): String? {
-        val key = "\"$field\""
-        val keyIdx = json.indexOf(key)
-        if (keyIdx < 0) return null
-        val colonIdx = json.indexOf(':', keyIdx + key.length)
-        if (colonIdx < 0) return null
-        val arrStart = json.indexOf('[', colonIdx)
-        if (arrStart < 0 || arrStart > colonIdx + 10) return null
-        return extractBalanced(json, arrStart, '[', ']')
-    }
-
-    private fun extractBalanced(json: String, start: Int, open: Char, close: Char): String {
-        var depth = 0
-        var inString = false
-        var escape = false
-        var i = start
-        while (i < json.length) {
-            val c = json[i]
-            if (escape) {
-                escape = false
-            } else if (c == '\\') {
-                escape = true
-            } else if (c == '"') {
-                inString = !inString
-            } else if (!inString) {
-                if (c == open) depth++
-                else if (c == close) {
-                    depth--
-                    if (depth == 0) return json.substring(start, i + 1)
-                }
+    /**
+     * A "key" is the path of child-indices from the root to a node,
+     * e.g. [0, 2, 1]. This survives tree rebuilds because the tree
+     * structure is stable between polls (same app, same layout).
+     */
+    private fun captureExpandedKeys(): Set<List<Int>> {
+        val keys = mutableSetOf<List<Int>>()
+        val rows = layoutTree.rowCount
+        for (i in 0 until rows) {
+            if (layoutTree.isExpanded(i)) {
+                val path = layoutTree.getPathForRow(i) ?: continue
+                keys.add(pathToKey(path))
             }
-            i++
         }
-        return json.substring(start)
+        return keys
+    }
+
+    private fun captureSelectedKey(): List<Int>? {
+        val sel = layoutTree.selectionPath ?: return null
+        return pathToKey(sel)
+    }
+
+    private fun pathToKey(path: TreePath): List<Int> {
+        val key = mutableListOf<Int>()
+        for (i in 1 until path.pathCount) {
+            val node = path.getPathComponent(i) as DefaultMutableTreeNode
+            val parent = node.parent as? DefaultMutableTreeNode ?: break
+            key.add(parent.getIndex(node))
+        }
+        return key
+    }
+
+    private fun restoreExpandedKeys(root: DefaultMutableTreeNode, keys: Set<List<Int>>) {
+        for (key in keys) {
+            val node = resolveKey(root, key) ?: continue
+            val path = TreePath((treeModel.getPathToRoot(node)))
+            layoutTree.expandPath(path)
+        }
+    }
+
+    private fun restoreSelectedKey(root: DefaultMutableTreeNode, key: List<Int>) {
+        val node = resolveKey(root, key) ?: return
+        val path = TreePath((treeModel.getPathToRoot(node)))
+        layoutTree.selectionPath = path
+        layoutTree.scrollPathToVisible(path)
+    }
+
+    private fun resolveKey(root: DefaultMutableTreeNode, key: List<Int>): DefaultMutableTreeNode? {
+        var current = root
+        for (idx in key) {
+            if (idx < 0 || idx >= current.childCount) return null
+            current = current.getChildAt(idx) as? DefaultMutableTreeNode ?: return null
+        }
+        return current
     }
 
     // ========================================================================

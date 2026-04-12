@@ -68,8 +68,14 @@ public class SidekickSseListener implements AutoCloseable {
         return port;
     }
 
+    /**
+     * Returns true if the listener is actively running. Checks both the
+     * running flag AND whether the listener thread is still alive — the
+     * thread can exit (e.g. connection permanently lost) while the flag
+     * is momentarily still true.
+     */
     public boolean isRunning() {
-        return running.get();
+        return running.get() && listenerThread != null && listenerThread.isAlive();
     }
 
     private void listenLoop() {

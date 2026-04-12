@@ -213,10 +213,18 @@ class DtaService : Disposable {
                 // Trigger a layout tree fetch to verify the connection works
                 // This also triggers ensureCdpWatcher in the daemon
                 client.layoutTree(app.packageName(), device.serial(), null, null, null, null)
+
+                // Guard against stale background threads: if the user switched
+                // to a different app while this thread was blocked on the
+                // daemon call (e.g. a 30s timeout for a dead sidekick), don't
+                // overwrite the status that the newer connect() already set.
+                if (selectedApp?.packageName() != app.packageName()) return@executeOnPooledThread
+
                 connected = true
                 updateConnectionStatus("Connected")
                 startPolling()
             } catch (e: Exception) {
+                if (selectedApp?.packageName() != app.packageName()) return@executeOnPooledThread
                 log.warn("Failed to connect to ${app.packageName()}", e)
                 connected = false
                 updateConnectionStatus("Connection failed")
@@ -259,7 +267,16 @@ class DtaService : Disposable {
     private fun fetchLayoutData(client: DaemonClient, pkg: String, device: String) {
         try {
             val tree = client.layoutTree(pkg, device, null, null, null, null)
-            val screenshot = try { client.screenshot(pkg, device) } catch (_: Exception) { null }
+
+            // When a Chrome Custom Tab is in the foreground, the sidekick's
+            // screenshot shows the app behind Chrome (wrong). Detect the
+            // ChromeCustomTab node in the tree and use the device-level
+            // screenshot instead — it captures whatever's actually on screen.
+            val hasCustomTab = tree.contains("ChromeCustomTab")
+            val screenshot = try {
+                if (hasCustomTab) client.deviceScreenshot(device)
+                else client.screenshot(pkg, device)
+            } catch (_: Exception) { null }
 
             if (tree != layoutTreeJson || screenshot != null) {
                 layoutTreeJson = tree

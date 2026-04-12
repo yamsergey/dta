@@ -576,12 +576,19 @@ public class DtaOrchestrator {
         // Check if an SSE listener already exists for this key
         SidekickSseListener existing = sseListeners.get(listenerKey);
         if (existing != null) {
-            // If the existing listener is on the same port, keep it
-            if (existing.getPort() == conn.port()) {
+            if (existing.getPort() == conn.port() && existing.isRunning()) {
+                // Same port and listener thread is alive — keep it.
                 return;
             }
-            // Port changed (app restarted) — tear down the stale listener
-            log.info("Sidekick port changed for {}, re-arming CDP capture", listenerKey);
+            // Either port changed (app restarted), or the SSE listener thread
+            // died silently (connection dropped, sidekick restarted, etc.).
+            // Tear down the stale listener + watcher and re-create below.
+            if (existing.getPort() != conn.port()) {
+                log.info("Sidekick port changed for {} ({} → {}), re-arming CDP capture",
+                    listenerKey, existing.getPort(), conn.port());
+            } else {
+                log.info("SSE listener for {} is no longer running, re-arming CDP capture", listenerKey);
+            }
             existing.stop();
             sseListeners.remove(listenerKey);
             CdpWatcherManager.getInstance().stopWatcher(packageName, device);
