@@ -38,6 +38,12 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
 
     private val cardLayout = CardLayout()
     private val cardPanel = JPanel(cardLayout)
+    private val focusButton = JButton("Focus (0)").apply { isEnabled = false }
+    private val selectToggle = JButton("Select").apply {
+        toolTipText = "Select this message on device"
+    }
+    private var deviceSelectedConnectionId: String? = null
+    private var deviceSelectedMessages: List<tools.jackson.databind.JsonNode> = emptyList()
 
     // Current connection context for messages list header
     private val messagesHeaderLabel = JBLabel()
@@ -87,22 +93,14 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
                 val row = messagesTable.selectedRow
                 if (row in 0 until messagesTableModel.rowCount) {
                     showMessageDetail(row)
-                    // Sync selection to daemon
-                    val connId = viewingConnectionId ?: return@addListSelectionListener
-                    val msg = currentMessages.getOrNull(row) ?: return@addListSelectionListener
-                    val service = DtaService.getInstance()
-                    val pkg = service.selectedApp?.packageName() ?: return@addListSelectionListener
-                    val device = service.selectedDevice?.serial()
-                    val json = """{"connectionId":"$connId","messageIndex":$row,"direction":"${msg.direction}"}"""
-                    ApplicationManager.getApplication().executeOnPooledThread {
-                        service.syncWebSocketSelection(pkg, device, json)
-                    }
                 }
             }
         }
 
-        // -- Card 1: Connections list with clear button --
+        // -- Card 1: Connections list with clear + focus buttons --
+        focusButton.addActionListener { showFocusDropdown() }
         val connectionsToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
+            add(focusButton)
             add(JButton("Clear").apply {
                 addActionListener { clearWebSocketConnections() }
             })
@@ -140,8 +138,10 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
                 }
             }
         }
+        selectToggle.addActionListener { toggleWsDeviceSelection() }
         val detailToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
             add(detailBackButton)
+            add(selectToggle)
             add(detailCopyButton)
         }
         val detailPanel = JPanel(BorderLayout()).apply {
@@ -562,6 +562,103 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
                 else -> ""
             }
         }
+    }
+
+    override fun onDeviceSelectionsChanged(elements: String?, networkRequests: String?, wsMessages: String?) {
+        try {
+            if (wsMessages != null) {
+                val m = tools.jackson.databind.ObjectMapper()
+                val root = m.readTree(wsMessages)
+                val arr = root.get("messages") ?: root
+                if (arr.isArray && arr.size() > 0) {
+                    deviceSelectedMessages = (0 until arr.size()).map { arr.get(it) }
+                    focusButton.text = "Focus (${deviceSelectedMessages.size}) ▾"
+                    focusButton.isEnabled = true
+                    updateSelectToggle()
+                    return
+                }
+            }
+        } catch (_: Exception) {}
+        deviceSelectedMessages = emptyList()
+        focusButton.text = "Focus (0)"
+        focusButton.isEnabled = false
+        updateSelectToggle()
+    }
+
+    private fun updateSelectToggle() {
+        val connId = viewingConnectionId
+        val msgRow = messagesTable.selectedRow
+        val isSelected = connId != null && msgRow >= 0 &&
+            deviceSelectedMessages.any {
+                it.path("connectionId").asText() == connId &&
+                it.path("messageIndex").asInt(-1) == msgRow
+            }
+        selectToggle.text = if (isSelected) "Deselect" else "Select"
+    }
+
+    private fun toggleWsDeviceSelection() {
+        val connId = viewingConnectionId ?: return
+        val row = messagesTable.selectedRow
+        if (row < 0 || row >= currentMessages.size) return
+        val service = DtaService.getInstance()
+        val pkg = service.selectedApp?.packageName() ?: return
+        val device = service.selectedDevice?.serial()
+        val isSelected = deviceSelectedMessages.any {
+            it.path("connectionId").asText() == connId &&
+            it.path("messageIndex").asInt(-1) == row
+        }
+        val msg = currentMessages[row]
+        val json = """{"connectionId":"$connId","messageIndex":$row,"direction":"${msg.direction}"}"""
+        if (isSelected) {
+            deviceSelectedMessages = deviceSelectedMessages.filter {
+                !(it.path("connectionId").asText() == connId && it.path("messageIndex").asInt(-1) == row)
+            }
+            selectToggle.text = "Select"
+            focusButton.text = "Focus (${deviceSelectedMessages.size})" + if (deviceSelectedMessages.isNotEmpty()) " ▾" else ""
+            focusButton.isEnabled = deviceSelectedMessages.isNotEmpty()
+            ApplicationManager.getApplication().executeOnPooledThread {
+                service.removeWebSocketSelection(pkg, device, json)
+            }
+        } else {
+            val m = tools.jackson.databind.ObjectMapper()
+            deviceSelectedMessages = deviceSelectedMessages + m.readTree(json)
+            selectToggle.text = "Deselect"
+            focusButton.text = "Focus (${deviceSelectedMessages.size}) ▾"
+            focusButton.isEnabled = true
+            ApplicationManager.getApplication().executeOnPooledThread {
+                service.addWebSocketSelection(pkg, device, json)
+            }
+        }
+    }
+
+    private fun showFocusDropdown() {
+        if (deviceSelectedMessages.isEmpty()) return
+        val popup = javax.swing.JPopupMenu()
+        for (el in deviceSelectedMessages) {
+            val connId = el.path("connectionId").asText("?")
+            val msgIdx = el.path("messageIndex").asInt(-1)
+            popup.add(javax.swing.JMenuItem("Connection $connId / Message #$msgIdx").apply {
+                addActionListener {
+                    // Navigate to the connection, then to the message
+                    for (i in 0 until connectionsTableModel.rowCount) {
+                        if (connectionsTableModel.getConnection(i).id == connId) {
+                            connectionsTable.setRowSelectionInterval(i, i)
+                            fetchConnectionDetail(connectionsTableModel.getConnection(i))
+                            // After messages load, select the message row
+                            SwingUtilities.invokeLater {
+                                if (msgIdx in 0 until messagesTableModel.rowCount) {
+                                    messagesTable.setRowSelectionInterval(msgIdx, msgIdx)
+                                    messagesTable.scrollRectToVisible(messagesTable.getCellRect(msgIdx, 0, true))
+                                    showMessageDetail(msgIdx)
+                                }
+                            }
+                            break
+                        }
+                    }
+                }
+            })
+        }
+        popup.show(focusButton, 0, focusButton.height)
     }
 
     private fun clearWebSocketConnections() {

@@ -74,6 +74,8 @@ class DtaService : Disposable {
         fun onLayoutDataChanged(treeJson: String?, screenshotBytes: ByteArray?) {}
         fun onNetworkDataChanged(json: String?) {}
         fun onWebSocketDataChanged(json: String?) {}
+        /** Called when device-side selections change (from MCP/CLI/inspector-web). */
+        fun onDeviceSelectionsChanged(elements: String?, networkRequests: String?, wsMessages: String?) {}
     }
 
     fun addListener(listener: DtaServiceListener) { listeners.add(listener) }
@@ -262,6 +264,22 @@ class DtaService : Disposable {
         fetchLayoutData(client, app.packageName(), device.serial())
         fetchNetworkData(client, app.packageName(), device.serial())
         fetchWebSocketData(client, app.packageName(), device.serial())
+        fetchDeviceSelections(client, app.packageName(), device.serial())
+    }
+
+    private var lastSelectionsJson: String? = null
+
+    private fun fetchDeviceSelections(client: DaemonClient, pkg: String, device: String) {
+        try {
+            val elements = try { client.getSelectedElements(pkg, device) } catch (_: Exception) { null }
+            val network = try { client.getSelectedNetworkRequests(pkg, device) } catch (_: Exception) { null }
+            val ws = try { client.getSelectedWebSocketMessages(pkg, device) } catch (_: Exception) { null }
+            val combined = "$elements|$network|$ws"
+            if (combined != lastSelectionsJson) {
+                lastSelectionsJson = combined
+                notifyOnEdt { it.onDeviceSelectionsChanged(elements, network, ws) }
+            }
+        } catch (_: Exception) {}
     }
 
     private fun fetchLayoutData(client: DaemonClient, pkg: String, device: String) {
@@ -354,35 +372,38 @@ class DtaService : Disposable {
     // Selection sync (bidirectional with daemon)
     // ========================================================================
 
-    fun syncElementSelection(pkg: String, device: String?, elementJson: String) {
-        try {
-            val client = ensureDaemon()
-            client.clearSelectedElements(pkg, device)
-            client.addSelectedElement(pkg, device, elementJson)
-        } catch (e: Exception) {
-            log.debug("Element selection sync failed: ${e.message}")
-        }
+    // Add to selection (multi-select)
+    fun addElementSelection(pkg: String, device: String?, json: String) {
+        try { ensureDaemon().addSelectedElement(pkg, device, json) } catch (_: Exception) {}
+    }
+    fun removeElementSelection(pkg: String, device: String?, json: String) {
+        try { ensureDaemon().removeSelectedElement(pkg, device, json) } catch (_: Exception) {}
+    }
+    fun clearElementSelection(pkg: String, device: String?) {
+        try { ensureDaemon().clearSelectedElements(pkg, device) } catch (_: Exception) {}
     }
 
-    fun syncNetworkSelection(pkg: String, device: String?, requestJson: String) {
-        try {
-            val client = ensureDaemon()
-            client.clearSelectedNetworkRequests(pkg, device)
-            client.addSelectedNetworkRequest(pkg, device, requestJson)
-        } catch (e: Exception) {
-            log.debug("Network selection sync failed: ${e.message}")
-        }
+    fun addNetworkSelection(pkg: String, device: String?, json: String) {
+        try { ensureDaemon().addSelectedNetworkRequest(pkg, device, json) } catch (_: Exception) {}
+    }
+    fun removeNetworkSelection(pkg: String, device: String?, json: String) {
+        try { ensureDaemon().removeSelectedNetworkRequest(pkg, device, json) } catch (_: Exception) {}
+    }
+    fun clearNetworkSelection(pkg: String, device: String?) {
+        try { ensureDaemon().clearSelectedNetworkRequests(pkg, device) } catch (_: Exception) {}
     }
 
-    fun syncWebSocketSelection(pkg: String, device: String?, messageJson: String) {
-        try {
-            val client = ensureDaemon()
-            client.clearSelectedWebSocketMessages(pkg, device)
-            client.addSelectedWebSocketMessage(pkg, device, messageJson)
-        } catch (e: Exception) {
-            log.debug("WebSocket selection sync failed: ${e.message}")
-        }
+    fun addWebSocketSelection(pkg: String, device: String?, json: String) {
+        try { ensureDaemon().addSelectedWebSocketMessage(pkg, device, json) } catch (_: Exception) {}
     }
+    fun removeWebSocketSelection(pkg: String, device: String?, json: String) {
+        try { ensureDaemon().removeSelectedWebSocketMessage(pkg, device, json) } catch (_: Exception) {}
+    }
+    fun clearWebSocketSelection(pkg: String, device: String?) {
+        try { ensureDaemon().clearSelectedWebSocketMessages(pkg, device) } catch (_: Exception) {}
+    }
+
+    // Old sync methods removed — use add/remove/clear granular methods above
 
     // ========================================================================
     // Helpers

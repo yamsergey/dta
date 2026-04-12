@@ -32,6 +32,13 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
     private val table = JBTable(tableModel)
     private val cardLayout = CardLayout()
     private val cardPanel = JPanel(cardLayout)
+    private val focusButton = JButton("Focus (0)").apply { isEnabled = false }
+    private val selectToggle = JButton("Select").apply {
+        toolTipText = "Select this request on device"
+    }
+    private var deviceSelectedRequestId: String? = null
+    private var deviceSelectedRequests: List<tools.jackson.databind.JsonNode> = emptyList()
+    private var currentDetailRequestId: String? = null
 
     // Detail view components
     private val detailContainer = JPanel().apply {
@@ -50,16 +57,7 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
             if (!e.valueIsAdjusting) {
                 val row = table.selectedRow
                 if (row in 0 until tableModel.rowCount) {
-                    val req = tableModel.getRequest(row)
-                    fetchDetail(req.id)
-                    // Sync selection to daemon
-                    val service = DtaService.getInstance()
-                    val pkg = service.selectedApp?.packageName() ?: return@addListSelectionListener
-                    val device = service.selectedDevice?.serial()
-                    val json = """{"id":"${req.id}","url":"${req.url}","method":"${req.method}"}"""
-                    ApplicationManager.getApplication().executeOnPooledThread {
-                        service.syncNetworkSelection(pkg, device, json)
-                    }
+                    fetchDetail(tableModel.getRequest(row).id)
                 }
             }
         }
@@ -68,16 +66,20 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
         val backButton = JButton("\u2190 Back").apply {
             addActionListener { cardLayout.show(cardPanel, "list") }
         }
+        selectToggle.addActionListener { toggleNetworkDeviceSelection() }
         val detailToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
             add(backButton)
+            add(selectToggle)
         }
         val detailPanel = JPanel(BorderLayout()).apply {
             add(detailToolbar, BorderLayout.NORTH)
             add(JBScrollPane(detailContainer), BorderLayout.CENTER)
         }
 
-        // List view with clear button
+        // List view with clear + focus buttons
+        focusButton.addActionListener { showFocusDropdown() }
         val listToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
+            add(focusButton)
             add(JButton("Clear").apply {
                 addActionListener { clearNetworkRequests() }
             })
@@ -101,6 +103,8 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
 
     private fun fetchDetail(requestId: String) {
         if (requestId.isEmpty()) return
+        currentDetailRequestId = requestId
+        updateSelectToggle()
         val service = DtaService.getInstance()
         val pkg = service.selectedApp?.packageName() ?: return
         val device = service.selectedDevice?.serial()
@@ -562,6 +566,85 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
                 4 -> req.source; else -> ""
             }
         }
+    }
+
+    override fun onDeviceSelectionsChanged(elements: String?, networkRequests: String?, wsMessages: String?) {
+        try {
+            if (networkRequests != null) {
+                val m = tools.jackson.databind.ObjectMapper()
+                val root = m.readTree(networkRequests)
+                val arr = root.get("requests") ?: root
+                if (arr.isArray && arr.size() > 0) {
+                    deviceSelectedRequests = (0 until arr.size()).map { arr.get(it) }
+                    focusButton.text = "Focus (${deviceSelectedRequests.size}) ▾"
+                    focusButton.isEnabled = true
+                    updateSelectToggle()
+                    return
+                }
+            }
+        } catch (_: Exception) {}
+        deviceSelectedRequests = emptyList()
+        focusButton.text = "Focus (0)"
+        focusButton.isEnabled = false
+        updateSelectToggle()
+    }
+
+    private fun updateSelectToggle() {
+        val isSelected = currentDetailRequestId != null &&
+            deviceSelectedRequests.any { it.path("id").asText() == currentDetailRequestId }
+        selectToggle.text = if (isSelected) "Deselect" else "Select"
+    }
+
+    private fun toggleNetworkDeviceSelection() {
+        val reqId = currentDetailRequestId ?: return
+        val service = DtaService.getInstance()
+        val pkg = service.selectedApp?.packageName() ?: return
+        val device = service.selectedDevice?.serial()
+        val row = (0 until tableModel.rowCount).firstOrNull { tableModel.getRequest(it).id == reqId } ?: return
+        val req = tableModel.getRequest(row)
+        val json = """{"id":"${req.id}","url":"${req.url}","method":"${req.method}"}"""
+        val isSelected = deviceSelectedRequests.any { it.path("id").asText() == reqId }
+        if (isSelected) {
+            deviceSelectedRequests = deviceSelectedRequests.filter { it.path("id").asText() != reqId }
+            selectToggle.text = "Select"
+            focusButton.text = "Focus (${deviceSelectedRequests.size})" + if (deviceSelectedRequests.isNotEmpty()) " ▾" else ""
+            focusButton.isEnabled = deviceSelectedRequests.isNotEmpty()
+            ApplicationManager.getApplication().executeOnPooledThread {
+                service.removeNetworkSelection(pkg, device, json)
+            }
+        } else {
+            val m = tools.jackson.databind.ObjectMapper()
+            deviceSelectedRequests = deviceSelectedRequests + m.readTree(json)
+            selectToggle.text = "Deselect"
+            focusButton.text = "Focus (${deviceSelectedRequests.size}) ▾"
+            focusButton.isEnabled = true
+            ApplicationManager.getApplication().executeOnPooledThread {
+                service.addNetworkSelection(pkg, device, json)
+            }
+        }
+    }
+
+    private fun showFocusDropdown() {
+        if (deviceSelectedRequests.isEmpty()) return
+        val popup = javax.swing.JPopupMenu()
+        for (el in deviceSelectedRequests) {
+            val id = el.path("id").asText("?")
+            val method = el.path("method").asText("")
+            val url = el.path("url").asText("").take(60)
+            popup.add(javax.swing.JMenuItem("$method $url").apply {
+                addActionListener {
+                    for (i in 0 until tableModel.rowCount) {
+                        if (tableModel.getRequest(i).id == id) {
+                            table.setRowSelectionInterval(i, i)
+                            table.scrollRectToVisible(table.getCellRect(i, 0, true))
+                            fetchDetail(id)
+                            break
+                        }
+                    }
+                }
+            })
+        }
+        popup.show(focusButton, 0, focusButton.height)
     }
 
     private fun clearNetworkRequests() {
