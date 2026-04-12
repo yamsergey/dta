@@ -1,5 +1,6 @@
 package io.yamsergey.dta.plugin.ui
 
+import com.intellij.ide.BrowserUtil
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
@@ -8,60 +9,52 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.mcp.McpHttpServer
 import io.yamsergey.dta.mcp.McpInstaller
-import io.yamsergey.dta.mcp.McpServer
 import java.awt.BorderLayout
 import java.awt.Color
-import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.datatransfer.StringSelection
 import java.nio.file.Path
+import java.util.Locale
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
-import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JCheckBox
-import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
- * Plugin tab that exposes the dta-mcp HTTP server in-process and lets the
- * user install its config into known agents (Android Studio Gemini in
- * particular). Enable + port are persisted via [PropertiesComponent], so the
- * server auto-starts on plugin load if the user previously enabled it.
- *
- * <p>Architecture: this tab does NOT reimplement any MCP behavior. It hosts
- * an [McpHttpServer] from the dta-mcp module and calls into [McpInstaller]
- * for config writes — exactly what {@code dta-cli mcp serve --http} and
- * {@code dta-cli mcp install} do, just driven from the IDE UI instead of
- * the command line.</p>
+ * Plugin tab for the dta-mcp HTTP server. Lets the user enable/disable
+ * the server, pick a port, install into known agents, and see the config
+ * snippet for manual setup.
  */
 class McpPanel : JPanel(BorderLayout()) {
 
     private val log = Logger.getInstance(McpPanel::class.java)
 
-    // Persisted settings
     private val props = PropertiesComponent.getInstance()
     private val enableCheckbox = JCheckBox("Enable MCP HTTP server")
     private val portField = JBTextField(8)
     private val statusLabel = JBLabel("○ Stopped").apply {
         foreground = JBColor.GRAY
     }
-    private val toolListModel = DefaultListModel<String>()
-    private val toolList = JList(toolListModel).apply {
-        visibleRowCount = 12
+    private val snippetArea = JBTextArea(6, 40).apply {
+        isEditable = false
+        font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
     }
 
     @Volatile
     private var server: McpHttpServer? = null
+
+    private val isMacOs = System.getProperty("os.name", "").lowercase(Locale.ROOT).contains("mac")
 
     init {
         border = JBUI.Borders.empty(8)
@@ -70,17 +63,15 @@ class McpPanel : JPanel(BorderLayout()) {
         portField.text = props.getInt(PROP_PORT, DEFAULT_PORT).toString()
         enableCheckbox.isSelected = props.getBoolean(PROP_ENABLED, false)
 
-        val top = buildTopSection()
-        add(top, BorderLayout.NORTH)
+        add(buildTopSection(), BorderLayout.NORTH)
         add(buildCenterSection(), BorderLayout.CENTER)
 
-        // Wire toggle
         enableCheckbox.addActionListener {
             props.setValue(PROP_ENABLED, enableCheckbox.isSelected)
             if (enableCheckbox.isSelected) startServer() else stopServer()
+            updateSnippet()
         }
 
-        // Wire port edit (re-bind on change if running)
         portField.addActionListener {
             val newPort = portField.text.toIntOrNull() ?: DEFAULT_PORT
             props.setValue(PROP_PORT, newPort, DEFAULT_PORT)
@@ -88,13 +79,11 @@ class McpPanel : JPanel(BorderLayout()) {
                 stopServer()
                 startServer()
             }
+            updateSnippet()
         }
 
-        // Initial tool list (best-effort — works without daemon since
-        // buildToolList() is lazy on the daemon connection)
-        refreshToolList()
+        updateSnippet()
 
-        // Auto-start if user previously enabled
         if (enableCheckbox.isSelected) {
             ApplicationManager.getApplication().executeOnPooledThread { startServer() }
         }
@@ -113,55 +102,82 @@ class McpPanel : JPanel(BorderLayout()) {
             fill = GridBagConstraints.NONE
         }
 
-        // Row 0: enable checkbox spans 2 cols
         gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2
         top.add(enableCheckbox, gbc)
 
-        // Row 1: port label + input
         gbc.gridwidth = 1
         gbc.gridx = 0; gbc.gridy = 1
         top.add(JBLabel("Port:"), gbc)
         gbc.gridx = 1
         top.add(portField, gbc)
 
-        // Row 2: status
         gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2
         top.add(statusLabel, gbc)
 
-        // Row 3: install buttons
         gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2
         top.add(buildInstallButtons(), gbc)
+
         return top
     }
 
     private fun buildInstallButtons(): JPanel {
         val row = JPanel(FlowLayout(FlowLayout.LEFT, 4, 4))
         row.add(JBLabel("Install to:"))
-        row.add(JButton("Android Studio Gemini").apply {
-            addActionListener { installTo(McpInstaller.Target.AS_GEMINI, asGeminiHint()) }
+
+        // AS Gemini — only on macOS (MCP server support confirmed for macOS AS only so far)
+        if (isMacOs) {
+            row.add(JButton("Android Studio Gemini").apply {
+                addActionListener { installTo(McpInstaller.Target.AS_GEMINI, asGeminiHint()) }
+            })
+        }
+
+        row.add(JButton("Cursor").apply {
+            addActionListener { openCursorInstallLink() }
         })
+
         row.add(JButton("Claude Code").apply {
             addActionListener { installTo(McpInstaller.Target.CLAUDE_CODE, null) }
         })
-        row.add(JButton("Copy snippet").apply {
-            addActionListener { copySnippetToClipboard() }
-        })
-        row.add(JButton("Uninstall AS Gemini").apply {
-            addActionListener { uninstallFrom(McpInstaller.Target.AS_GEMINI, asGeminiHint()) }
-        })
+
+        if (isMacOs) {
+            row.add(JButton("Uninstall AS Gemini").apply {
+                addActionListener { uninstallFrom(McpInstaller.Target.AS_GEMINI, asGeminiHint()) }
+            })
+        }
+
         return row
     }
 
     private fun buildCenterSection(): JPanel {
         val center = JPanel(BorderLayout())
-        val box = Box.createVerticalBox().apply {
-            border = BorderFactory.createTitledBorder("Available tools")
-            add(JBScrollPane(toolList).apply {
-                preferredSize = Dimension(360, 240)
-            })
+        val box = JPanel(BorderLayout()).apply {
+            border = BorderFactory.createTitledBorder("Configuration snippet")
         }
+        box.add(JBScrollPane(snippetArea), BorderLayout.CENTER)
+
+        val copyBtn = JButton("Copy to clipboard").apply {
+            addActionListener {
+                val snippet = snippetArea.text
+                java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                    .setContents(StringSelection(snippet), null)
+                Messages.showInfoMessage(this@McpPanel, "Snippet copied to clipboard.", "DTA")
+            }
+        }
+        val btnPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 4))
+        btnPanel.add(copyBtn)
+        box.add(btnPanel, BorderLayout.SOUTH)
+
         center.add(box, BorderLayout.CENTER)
         return center
+    }
+
+    // ========================================================================
+    // Snippet
+    // ========================================================================
+
+    private fun updateSnippet() {
+        val port = portField.text.toIntOrNull() ?: DEFAULT_PORT
+        snippetArea.text = McpInstaller.snippet(port)
     }
 
     // ========================================================================
@@ -179,7 +195,6 @@ class McpPanel : JPanel(BorderLayout()) {
             val s = McpHttpServer()
             val actualPort = s.start(port)
             server = s
-            // If user passed 0, sync the displayed port back to what was bound
             if (port == 0) {
                 SwingUtilities.invokeLater { portField.text = actualPort.toString() }
             }
@@ -216,31 +231,12 @@ class McpPanel : JPanel(BorderLayout()) {
         }
     }
 
-    private fun refreshToolList() {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                val names = McpServer.getToolNames()
-                SwingUtilities.invokeLater {
-                    toolListModel.clear()
-                    names.forEach { toolListModel.addElement(it) }
-                }
-            } catch (e: Exception) {
-                log.debug("Failed to load tool list: ${e.message}")
-            }
-        }
-    }
-
     // ========================================================================
     // Install actions
     // ========================================================================
 
-    /**
-     * Returns the AS Gemini mcp.json path resolved via the IDE's own
-     * [PathManager], so we don't have to scan filesystems for AS installs.
-     * This is the killer advantage of running inside AS.
-     */
     private fun asGeminiHint(): Path =
-        Path.of(PathManager.getConfigPath()).resolve("options").resolve("mcp.json")
+        Path.of(PathManager.getConfigPath()).resolve("mcp.json")
 
     private fun installTo(target: McpInstaller.Target, hint: Path?) {
         val port = currentPort()
@@ -257,11 +253,13 @@ class McpPanel : JPanel(BorderLayout()) {
         }
     }
 
-    private fun copySnippetToClipboard() {
-        val snippet = McpInstaller.snippet(currentPort())
-        java.awt.Toolkit.getDefaultToolkit().systemClipboard
-            .setContents(StringSelection(snippet), null)
-        Messages.showInfoMessage(this, "MCP config snippet copied to clipboard.", "DTA")
+    private fun openCursorInstallLink() {
+        val link = McpInstaller.cursorInstallLink(currentPort())
+        if (link != null) {
+            BrowserUtil.browse(link)
+        } else {
+            Messages.showErrorDialog(this, "Failed to generate Cursor install link.", "DTA")
+        }
     }
 
     private fun currentPort(): Int = portField.text.toIntOrNull() ?: DEFAULT_PORT

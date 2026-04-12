@@ -338,6 +338,18 @@ class DtaService : Disposable {
         return client.websocketConnection(pkg, connectionId, device)
     }
 
+    fun clearNetworkRequests(pkg: String, device: String?) {
+        val client = ensureDaemon()
+        client.clearNetworkRequests(pkg, device)
+        networkRequestsJson = null
+    }
+
+    fun clearWebSocketConnections(pkg: String, device: String?) {
+        val client = ensureDaemon()
+        client.clearWebsocketConnections(pkg, device)
+        webSocketConnectionsJson = null
+    }
+
     // ========================================================================
     // Helpers
     // ========================================================================

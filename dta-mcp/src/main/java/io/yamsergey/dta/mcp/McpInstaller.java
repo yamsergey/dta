@@ -87,6 +87,24 @@ public class McpInstaller {
     }
 
     /**
+     * Generates a Cursor one-click install deep link.
+     * Format: {@code cursor://anysphere.cursor-deeplink/mcp/install?name=NAME&config=BASE64}
+     *
+     * @see <a href="https://cursor.com/docs/mcp/install-links">Cursor MCP install links</a>
+     */
+    public static String cursorInstallLink(int port) {
+        try {
+            ObjectNode config = mapper.createObjectNode();
+            config.put("url", "http://localhost:" + port + "/mcp");
+            String json = mapper.writeValueAsString(config);
+            String base64 = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes());
+            return "cursor://anysphere.cursor-deeplink/mcp/install?name=dta&config=" + base64;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * Writes the {@code dta} entry into the target agent's config.
      *
      * @param target which agent to write to
@@ -133,7 +151,10 @@ public class McpInstaller {
         if (hint != null) return hint;
         List<Path> candidates = findAndroidStudioConfigDirs();
         if (candidates.isEmpty()) return null;
-        return candidates.get(0).resolve("options").resolve("mcp.json");
+        // mcp.json lives at the ROOT of the AS config directory, NOT inside
+        // options/. Verified by AS startup log: the file appears in the
+        // top-level config entry list alongside "options", "ssl", etc.
+        return candidates.get(0).resolve("mcp.json");
     }
 
     /**

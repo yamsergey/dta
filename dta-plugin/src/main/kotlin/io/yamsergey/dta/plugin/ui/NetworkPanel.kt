@@ -67,7 +67,18 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
             add(JBScrollPane(detailContainer), BorderLayout.CENTER)
         }
 
-        cardPanel.add(JBScrollPane(table), "list")
+        // List view with clear button
+        val listToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
+            add(JButton("Clear").apply {
+                addActionListener { clearNetworkRequests() }
+            })
+        }
+        val listPanel = JPanel(BorderLayout()).apply {
+            add(listToolbar, BorderLayout.NORTH)
+            add(JBScrollPane(table), BorderLayout.CENTER)
+        }
+
+        cardPanel.add(listPanel, "list")
         cardPanel.add(detailPanel, "detail")
 
         add(cardPanel, BorderLayout.CENTER)
@@ -541,6 +552,23 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
                 3 -> if (req.durationMs > 0) "${req.durationMs}ms" else "-"
                 4 -> req.source; else -> ""
             }
+        }
+    }
+
+    private fun clearNetworkRequests() {
+        val service = DtaService.getInstance()
+        val pkg = service.selectedApp?.packageName() ?: return
+        val device = service.selectedDevice?.serial()
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                service.clearNetworkRequests(pkg, device)
+                SwingUtilities.invokeLater {
+                    tableModel.updateData(emptyList())
+                    detailContainer.removeAll()
+                    detailContainer.repaint()
+                    cardLayout.show(cardPanel, "list")
+                }
+            } catch (_: Exception) {}
         }
     }
 }

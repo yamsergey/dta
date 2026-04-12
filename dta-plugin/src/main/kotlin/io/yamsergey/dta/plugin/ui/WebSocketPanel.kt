@@ -54,6 +54,9 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
     // Keep loaded messages for navigating to detail
     private var currentMessages: List<WsMessage> = emptyList()
     private var currentConnectionUrl: String = ""
+    /** ID of the connection currently being viewed (messages card visible). */
+    var viewingConnectionId: String? = null
+        private set
 
     init {
         // -- Connections table setup --
@@ -88,14 +91,20 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
             }
         }
 
-        // -- Card 1: Connections list --
+        // -- Card 1: Connections list with clear button --
+        val connectionsToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
+            add(JButton("Clear").apply {
+                addActionListener { clearWebSocketConnections() }
+            })
+        }
         val connectionsPanel = JPanel(BorderLayout()).apply {
+            add(connectionsToolbar, BorderLayout.NORTH)
             add(JBScrollPane(connectionsTable), BorderLayout.CENTER)
         }
 
         // -- Card 2: Messages list --
         val messagesBackButton = JButton("\u2190 Back").apply {
-            addActionListener { cardLayout.show(cardPanel, "connections") }
+            addActionListener { viewingConnectionId = null; cardLayout.show(cardPanel, "connections") }
         }
         val messagesToolbar = JPanel(BorderLayout()).apply {
             val left = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2)).apply {
@@ -150,6 +159,7 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
         val pkg = service.selectedApp?.packageName() ?: return
         val device = service.selectedDevice?.serial()
 
+        viewingConnectionId = connection.id
         messagesHeaderLabel.text = " ${connection.url}"
         messagesTableModel.updateData(emptyList())
         currentMessages = emptyList()
@@ -213,7 +223,28 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
     override fun onWebSocketDataChanged(json: String?) {
         if (json != null) {
             connectionsTableModel.updateData(parseConnections(json))
+
+            // Auto-refresh messages if we're viewing a specific connection.
+            // The connections list poll doesn't include per-connection messages,
+            // so we fetch them separately to keep the messages view live.
+            val connId = viewingConnectionId
+            if (connId != null) {
+                val service = DtaService.getInstance()
+                val pkg = service.selectedApp?.packageName() ?: return
+                val device = service.selectedDevice?.serial()
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    try {
+                        val detail = service.fetchWebSocketDetail(pkg, connId, device)
+                        val messages = parseMessages(extractArray(detail, "messages") ?: "[]")
+                        SwingUtilities.invokeLater {
+                            currentMessages = messages
+                            messagesTableModel.updateData(messages)
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
         } else {
+            viewingConnectionId = null
             connectionsTableModel.updateData(emptyList())
             messagesTableModel.updateData(emptyList())
             currentMessages = emptyList()
@@ -520,6 +551,23 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
                 3 -> if (msg.payloadSize > 0) "${msg.payloadSize}B" else "-"
                 else -> ""
             }
+        }
+    }
+
+    private fun clearWebSocketConnections() {
+        val service = DtaService.getInstance()
+        val pkg = service.selectedApp?.packageName() ?: return
+        val device = service.selectedDevice?.serial()
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                service.clearWebSocketConnections(pkg, device)
+                SwingUtilities.invokeLater {
+                    connectionsTableModel.updateData(emptyList())
+                    messagesTableModel.updateData(emptyList())
+                    detailArea.text = ""
+                    cardLayout.show(cardPanel, "connections")
+                }
+            } catch (_: Exception) {}
         }
     }
 }
