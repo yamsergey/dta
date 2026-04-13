@@ -125,10 +125,10 @@ class DtaService : Disposable {
                 val node = mapper.readTree(json)
                 val found = mutableListOf<Device>()
                 node.get("devices")?.forEach { d ->
-                    val serial = d.get("serial")?.asText() ?: return@forEach
-                    val state = d.get("state")?.asText() ?: "unknown"
-                    val model = d.get("model")?.asText()
-                    val product = d.get("product")?.asText()
+                    val serial = d.get("serial")?.stringValue() ?: return@forEach
+                    val state = d.get("state")?.stringValue() ?: "unknown"
+                    val model = d.get("model")?.stringValue()
+                    val product = d.get("product")?.stringValue()
                     if (state == "device") {
                         found.add(Device(serial, state, model, product))
                     }
@@ -171,8 +171,8 @@ class DtaService : Disposable {
                 val node = mapper.readTree(json)
                 val found = mutableListOf<SidekickSocket>()
                 node.get("apps")?.forEach { a ->
-                    val pkg = a.get("package")?.asText() ?: return@forEach
-                    val socket = a.get("socket")?.asText() ?: ""
+                    val pkg = a.get("package")?.stringValue() ?: return@forEach
+                    val socket = a.get("socket")?.stringValue() ?: ""
                     found.add(SidekickSocket(socket, pkg))
                 }
                 apps = found

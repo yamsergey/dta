@@ -2,6 +2,7 @@ package io.yamsergey.dta.plugin
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import org.gradle.util.GradleVersion
 import org.jetbrains.plugins.gradle.service.task.GradleTaskManagerExtension
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings
@@ -17,6 +18,11 @@ import java.io.File
 class SidekickInjector : GradleTaskManagerExtension {
 
     private val log = Logger.getInstance(SidekickInjector::class.java)
+
+    override fun cancelTask(
+        id: ExternalSystemTaskId,
+        listener: ExternalSystemTaskNotificationListener
+    ): Boolean = false
 
     override fun configureTasks(
         projectPath: String,

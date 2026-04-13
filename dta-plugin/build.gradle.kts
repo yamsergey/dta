@@ -29,8 +29,9 @@ fun findLocalAndroidStudio(): String? {
 }
 
 // For CI: downloaded AS SDK version (only used when local AS is not found).
-// Update this when targeting a new AS release.
-val androidStudioVersion = "2025.2.2.6"
+// Must be a published stable version from JetBrains repos.
+// See: https://plugins.jetbrains.com/docs/intellij/android-studio-releases-list.html
+val androidStudioVersion = "2024.3.2.14"
 
 dependencies {
     intellijPlatform {
@@ -45,7 +46,6 @@ dependencies {
         bundledPlugin("org.jetbrains.android")
         bundledPlugin("com.intellij.gradle")
         pluginVerifier()
-        instrumentationTools()
     }
 
     implementation(project(":dta-daemon"))
@@ -77,6 +77,13 @@ intellijPlatform {
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
         channels = listOf(providers.environmentVariable("PUBLISH_CHANNEL").getOrElse("eap"))
+    }
+
+    // Plugin verification — checks for deprecated/removed API usage
+    pluginVerification {
+        ides {
+            ide(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.AndroidStudio, androidStudioVersion)
+        }
     }
 }
 
