@@ -256,7 +256,18 @@ class McpPanel : JPanel(BorderLayout()) {
     private fun openCursorInstallLink() {
         val link = McpInstaller.cursorInstallLink(currentPort())
         if (link != null) {
-            BrowserUtil.browse(link)
+            try {
+                // cursor:// is a custom protocol — use Desktop.browse with URI
+                // (BrowserUtil only handles http/https reliably)
+                java.awt.Desktop.getDesktop().browse(java.net.URI(link))
+            } catch (_: Exception) {
+                // Fallback: copy the link so the user can open it manually
+                java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                    .setContents(java.awt.datatransfer.StringSelection(link), null)
+                Messages.showInfoMessage(this,
+                    "Could not open Cursor automatically.\nThe install link has been copied to your clipboard — paste it in a browser.",
+                    "DTA")
+            }
         } else {
             Messages.showErrorDialog(this, "Failed to generate Cursor install link.", "DTA")
         }
