@@ -56,7 +56,17 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
 
+      - name: Build plugin + CLI
+        run: |
+          VERSION=${{ steps.versions.outputs.unique }}
+          ./gradlew :dta-plugin:buildPlugin :dta-cli:installDist \
+            -PdtaVersion=${VERSION} --no-configuration-cache
+          cd dta-cli/build/install
+          tar -czf dta-cli-${VERSION}.tar.gz dta-cli
+          mv dta-cli-${VERSION}.tar.gz ../../../
+
       - name: Publish plugin to JetBrains Marketplace (EAP)
+        continue-on-error: true
         run: |
           ./gradlew :dta-plugin:publishPlugin \
             -PdtaVersion=${{ steps.versions.outputs.unique }} \
@@ -65,15 +75,8 @@ jobs:
           PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
           PUBLISH_CHANNEL: eap
 
-      - name: Build CLI distribution
-        run: |
-          VERSION=${{ steps.versions.outputs.unique }}
-          ./gradlew :dta-cli:installDist -PdtaVersion=${VERSION}
-          cd dta-cli/build/install
-          tar -czf dta-cli-${VERSION}.tar.gz dta-cli
-          mv dta-cli-${VERSION}.tar.gz ../../../
-
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dta-snapshot-${{ steps.versions.outputs.unique }}
