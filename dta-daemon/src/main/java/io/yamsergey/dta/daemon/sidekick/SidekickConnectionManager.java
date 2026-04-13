@@ -103,6 +103,22 @@ public class SidekickConnectionManager {
     public ConnectionInfo getConnection(String packageName, String device) throws Exception {
         String key = (device != null ? device : "default") + ":" + packageName;
 
+        // When device is null (MCP agents often omit it), check if there's
+        // already a cached connection for this package on ANY device. Reuse
+        // it to avoid creating a conflicting second ADB forward.
+        if (device == null) {
+            for (var entry : connections.entrySet()) {
+                if (entry.getKey().endsWith(":" + packageName)) {
+                    ConnectionInfo cached = entry.getValue();
+                    Result<String> health = cached.client().checkHealth();
+                    if (health instanceof Success) {
+                        log.debug("Reusing connection for {} (matched from {})", packageName, entry.getKey());
+                        return cached;
+                    }
+                }
+            }
+        }
+
         // Check cooldown before acquiring lock to fail fast
         Long failedAt = failedConnectionTimestamps.get(key);
         if (failedAt != null) {
@@ -118,7 +134,7 @@ public class SidekickConnectionManager {
 
         Object lock = connectionLocks.computeIfAbsent(key, k -> new Object());
         synchronized (lock) {
-            // 1. Check in-memory cache
+            // 1. Check in-memory cache (exact key match)
             ConnectionInfo existing = connections.get(key);
             if (existing != null) {
                 Result<String> health = existing.client().checkHealth();
