@@ -139,6 +139,16 @@ public class DaemonLauncher {
                 return null;
             }
 
+            // Verify this is actually a Javalin dta-daemon, not the old
+            // Spring Boot dta-server (which has different routes and will
+            // 404 on /api/layout/tree). The daemon sets "daemon":true.
+            if (!isDaemonProcess(versionJson)) {
+                log.warn("Found a server at port {} but it's not a dta-daemon (missing \"daemon\":true). " +
+                    "Cleaning up state file — the plugin will start an embedded daemon.", port);
+                Files.deleteIfExists(DAEMON_STATE_FILE);
+                return null;
+            }
+
             // Version-compat check
             String myVersion = getLauncherVersion();
             String daemonVersion = parseDaemonVersion(versionJson);
@@ -167,6 +177,15 @@ public class DaemonLauncher {
         String[] d = daemon.split("\\.");
         if (l.length < 2 || d.length < 2) return true;
         return l[0].equals(d[0]) && l[1].equals(d[1]);
+    }
+
+    private static boolean isDaemonProcess(String versionJson) {
+        try {
+            JsonNode node = mapper.readTree(versionJson);
+            return node.path("daemon").asBoolean(false);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static String parseDaemonVersion(String versionJson) {
