@@ -31,7 +31,7 @@ fun findLocalAndroidStudio(): String? {
 // For CI: downloaded AS SDK version (only used when local AS is not found).
 // Must be a published stable version from JetBrains repos.
 // See: https://plugins.jetbrains.com/docs/intellij/android-studio-releases-list.html
-val androidStudioVersion = "2024.3.2.14"
+val androidStudioVersion = "2025.2.2.7"
 
 dependencies {
     intellijPlatform {
@@ -66,7 +66,7 @@ intellijPlatform {
             url = "https://github.com/yamsergey/dta"
         }
         ideaVersion {
-            sinceBuild = "243"  // Android Studio Meerkat Feature Drop (2024.3.2)+
+            sinceBuild = "252"  // Android Studio Otter 3 Feature Drop (2025.2.2)+
             untilBuild = provider { null }  // no upper bound
         }
     }
