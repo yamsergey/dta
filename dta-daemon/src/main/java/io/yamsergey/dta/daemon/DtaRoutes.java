@@ -180,6 +180,14 @@ public final class DtaRoutes {
                     json.put("launchActivity", result.launchActivity());
                 } else {
                     json.put("error", result.error());
+                    // Include the last part of the build log so agents can
+                    // diagnose why the build failed without guessing.
+                    if (result.buildLog() != null) {
+                        String log = result.buildLog();
+                        // Last 2000 chars — enough for the error but not overwhelming
+                        if (log.length() > 2000) log = "...\n" + log.substring(log.length() - 2000);
+                        json.put("buildLog", log);
+                    }
                 }
                 jsonNode(ctx, json);
             } catch (Exception e) {

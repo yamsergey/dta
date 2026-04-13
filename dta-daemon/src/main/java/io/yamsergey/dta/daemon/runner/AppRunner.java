@@ -389,7 +389,14 @@ public class AppRunner {
             if (is != null) {
                 var props = new java.util.Properties();
                 props.load(is);
-                return props.getProperty("version", "0.9.35");
+                String version = props.getProperty("version", "0.9.35");
+                // The plugin/CLI use unique versions like 0.9.36-SNAPSHOT.9 but
+                // the Maven artifact is published as 0.9.36-SNAPSHOT (mutable).
+                // Strip the build number so the init script resolves correctly.
+                if (version.contains("-SNAPSHOT.")) {
+                    version = version.replaceFirst("-SNAPSHOT\\.\\d+$", "-SNAPSHOT");
+                }
+                return version;
             }
         } catch (Exception ignored) {}
         return "0.9.35";
