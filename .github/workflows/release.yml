@@ -212,9 +212,27 @@ jobs:
         run: chmod +x gradlew
 
       - name: Publish to Maven Central
-        run: ./gradlew :dta-sidekick:publishAllPublicationsToMavenCentral :tools-android:publishAllPublicationsToMavenCentral --no-configuration-cache
+        run: |
+          ./gradlew \
+            :dta-sidekick:publishAllPublicationsToMavenCentral \
+            :tools-android:publishAllPublicationsToMavenCentral \
+            :dta-daemon:publishAllPublicationsToMavenCentral \
+            --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Publish plugin to JetBrains Marketplace (stable)
+        run: ./gradlew :dta-plugin:publishPlugin --no-configuration-cache
+        env:
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          PUBLISH_CHANNEL: stable
+
+      - name: Attach plugin ZIP to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dta-plugin/build/distributions/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

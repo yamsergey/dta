@@ -1,0 +1,95 @@
+name: Publish SNAPSHOT
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'SNAPSHOT version (e.g. 0.9.36-SNAPSHOT)'
+        required: true
+        default: '0.9.36-SNAPSHOT'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate version
+        run: |
+          if [[ ! "${{ inputs.version }}" =~ -SNAPSHOT$ ]]; then
+            echo "Error: version must end with -SNAPSHOT"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: Publish libraries to OSSRH snapshots
+        run: |
+          ./gradlew \
+            :dta-sidekick:publishAllPublicationsToMavenCentral \
+            :tools-android:publishAllPublicationsToMavenCentral \
+            :dta-daemon:publishAllPublicationsToMavenCentral \
+            -PdtaVersion=${{ inputs.version }} \
+            --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Publish plugin to JetBrains Marketplace (EAP)
+        run: |
+          ./gradlew :dta-plugin:publishPlugin \
+            -PdtaVersion=${{ inputs.version }} \
+            --no-configuration-cache
+        env:
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          PUBLISH_CHANNEL: eap
+
+      - name: Build CLI distribution
+        run: |
+          ./gradlew :dta-cli:installDist -PdtaVersion=${{ inputs.version }}
+          cd dta-cli/build/install
+          tar -czf dta-cli-${{ inputs.version }}.tar.gz dta-cli
+          mv dta-cli-${{ inputs.version }}.tar.gz ../../../
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dta-snapshot-${{ inputs.version }}
+          path: |
+            dta-cli-${{ inputs.version }}.tar.gz
+            dta-plugin/build/distributions/*.zip
+
+      - name: Summary
+        run: |
+          echo "## SNAPSHOT Published" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Libraries (OSSRH snapshots)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`io.github.yamsergey:dta-sidekick:${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`io.github.yamsergey:tools-android:${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`io.github.yamsergey:dta-daemon:${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Plugin → JetBrains Marketplace (EAP channel)" >> $GITHUB_STEP_SUMMARY
+          echo "### CLI → download from artifacts above" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Resolve SNAPSHOTs in consumer projects" >> $GITHUB_STEP_SUMMARY
+          echo '```kotlin' >> $GITHUB_STEP_SUMMARY
+          echo 'repositories {' >> $GITHUB_STEP_SUMMARY
+          echo '    maven("https://central.sonatype.com/repository/maven-snapshots/")' >> $GITHUB_STEP_SUMMARY
+          echo '}' >> $GITHUB_STEP_SUMMARY
+          echo 'dependencies {' >> $GITHUB_STEP_SUMMARY
+          echo '    debugImplementation("io.github.yamsergey:dta-sidekick:${{ inputs.version }}")' >> $GITHUB_STEP_SUMMARY
+          echo '}' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -17,23 +17,31 @@ repositories {
     }
 }
 
-fun findAndroidStudio(): String {
-    // 1. Gradle property: -PandroidStudioPath=/path
+fun findLocalAndroidStudio(): String? {
     findProperty("androidStudioPath")?.toString()?.let { return it }
-    // 2. Environment variable
     System.getenv("ANDROID_STUDIO_PATH")?.let { return it }
-    // 3. Common install locations
     listOf(
         "/Applications/Android Studio.app",
         "${System.getProperty("user.home")}/android-studio",
         "C:\\Program Files\\Android\\Android Studio",
     ).forEach { if (file(it).exists()) return it }
-    error("Android Studio not found. Set -PandroidStudioPath=/path or ANDROID_STUDIO_PATH env var.")
+    return null
 }
+
+// For CI: downloaded AS SDK version (only used when local AS is not found).
+// Update this when targeting a new AS release.
+val androidStudioVersion = "2025.2.2.6"
 
 dependencies {
     intellijPlatform {
-        local(findAndroidStudio())
+        val localAs = findLocalAndroidStudio()
+        if (localAs != null) {
+            local(localAs)
+        } else {
+            // CI path: downloads the AS SDK for compilation (not the full IDE).
+            // Works on any OS — no macOS runner needed.
+            androidStudio(androidStudioVersion)
+        }
         bundledPlugin("org.jetbrains.android")
         bundledPlugin("com.intellij.gradle")
         pluginVerifier()
@@ -61,6 +69,14 @@ intellijPlatform {
             sinceBuild = "243"  // Android Studio Meerkat Feature Drop (2024.3.2)+
             untilBuild = provider { null }  // no upper bound
         }
+    }
+
+    // JetBrains Marketplace publishing
+    // Token: Settings > Manage Accounts > generate token with "Plugin Upload" scope
+    // Channels: "stable" (default), "eap" (early access)
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+        channels = listOf(providers.environmentVariable("PUBLISH_CHANNEL").getOrElse("eap"))
     }
 }
 
