@@ -30,6 +30,15 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
+      - name: Derive versions
+        id: versions
+        run: |
+          # Maven: 0.9.36-SNAPSHOT (mutable, overwrites on OSSRH)
+          echo "maven=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          # Plugin + CLI: 0.9.36-SNAPSHOT.{run_number} (unique per CI run,
+          # required by JetBrains Marketplace which rejects duplicate versions)
+          echo "unique=${{ inputs.version }}.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
       - name: Grant execute permission
         run: chmod +x gradlew
 
@@ -39,7 +48,7 @@ jobs:
             :dta-sidekick:publishAllPublicationsToMavenCentral \
             :tools-android:publishAllPublicationsToMavenCentral \
             :dta-daemon:publishAllPublicationsToMavenCentral \
-            -PdtaVersion=${{ inputs.version }} \
+            -PdtaVersion=${{ steps.versions.outputs.maven }} \
             --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
@@ -50,7 +59,7 @@ jobs:
       - name: Publish plugin to JetBrains Marketplace (EAP)
         run: |
           ./gradlew :dta-plugin:publishPlugin \
-            -PdtaVersion=${{ inputs.version }} \
+            -PdtaVersion=${{ steps.versions.outputs.unique }} \
             --no-configuration-cache
         env:
           PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
@@ -58,31 +67,34 @@ jobs:
 
       - name: Build CLI distribution
         run: |
-          ./gradlew :dta-cli:installDist -PdtaVersion=${{ inputs.version }}
+          VERSION=${{ steps.versions.outputs.unique }}
+          ./gradlew :dta-cli:installDist -PdtaVersion=${VERSION}
           cd dta-cli/build/install
-          tar -czf dta-cli-${{ inputs.version }}.tar.gz dta-cli
-          mv dta-cli-${{ inputs.version }}.tar.gz ../../../
+          tar -czf dta-cli-${VERSION}.tar.gz dta-cli
+          mv dta-cli-${VERSION}.tar.gz ../../../
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dta-snapshot-${{ inputs.version }}
+          name: dta-snapshot-${{ steps.versions.outputs.unique }}
           path: |
-            dta-cli-${{ inputs.version }}.tar.gz
+            dta-cli-*.tar.gz
             dta-plugin/build/distributions/*.zip
 
       - name: Summary
         run: |
           echo "## SNAPSHOT Published" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Libraries (OSSRH snapshots)" >> $GITHUB_STEP_SUMMARY
-          echo "- \`io.github.yamsergey:dta-sidekick:${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`io.github.yamsergey:tools-android:${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`io.github.yamsergey:dta-daemon:${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Libraries (OSSRH — mutable)" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ steps.versions.outputs.maven }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`io.github.yamsergey:dta-sidekick:${{ steps.versions.outputs.maven }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`io.github.yamsergey:tools-android:${{ steps.versions.outputs.maven }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`io.github.yamsergey:dta-daemon:${{ steps.versions.outputs.maven }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Plugin → JetBrains Marketplace (EAP channel)" >> $GITHUB_STEP_SUMMARY
-          echo "### CLI → download from artifacts above" >> $GITHUB_STEP_SUMMARY
+          echo "### Plugin + CLI (unique per build)" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ steps.versions.outputs.unique }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Plugin → JetBrains Marketplace **EAP** channel" >> $GITHUB_STEP_SUMMARY
+          echo "- CLI → download from artifacts above" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Resolve SNAPSHOTs in consumer projects" >> $GITHUB_STEP_SUMMARY
           echo '```kotlin' >> $GITHUB_STEP_SUMMARY
@@ -90,6 +102,6 @@ jobs:
           echo '    maven("https://central.sonatype.com/repository/maven-snapshots/")' >> $GITHUB_STEP_SUMMARY
           echo '}' >> $GITHUB_STEP_SUMMARY
           echo 'dependencies {' >> $GITHUB_STEP_SUMMARY
-          echo '    debugImplementation("io.github.yamsergey:dta-sidekick:${{ inputs.version }}")' >> $GITHUB_STEP_SUMMARY
+          echo '    debugImplementation("io.github.yamsergey:dta-sidekick:${{ steps.versions.outputs.maven }}")' >> $GITHUB_STEP_SUMMARY
           echo '}' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
