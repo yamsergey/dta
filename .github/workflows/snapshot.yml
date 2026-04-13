@@ -75,6 +75,55 @@ jobs:
           PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
           PUBLISH_CHANNEL: eap
 
+      - name: Update Homebrew dev formula
+        continue-on-error: true
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION=${{ steps.versions.outputs.unique }}
+          SHA256=$(shasum -a 256 dta-cli-${VERSION}.tar.gz | awk '{print $1}')
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/yamsergey/homebrew-packages.git
+          cd homebrew-packages
+
+          # Upload binary to homebrew-packages releases
+          gh release delete "dta-cli-dev-${VERSION}" --yes 2>/dev/null || true
+          gh release create "dta-cli-dev-${VERSION}" \
+            ../dta-cli-${VERSION}.tar.gz \
+            --title "dta-cli-dev ${VERSION}" \
+            --notes "SNAPSHOT build ${VERSION}"
+
+          # Update dev formula
+          cat > Formula/dta-cli-dev.rb << EOF
+          class DtaCliDev < Formula
+            desc "Development Tools for Android - CLI (SNAPSHOT/dev channel)"
+            homepage "https://github.com/yamsergey/dta"
+            url "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-dev-${VERSION}/dta-cli-${VERSION}.tar.gz"
+            sha256 "${SHA256}"
+            license "Apache-2.0"
+            version "${VERSION}"
+
+            depends_on "openjdk@21"
+
+            def install
+              libexec.install Dir["*"]
+              bin.install_symlink libexec/"bin/dta-cli"
+            end
+
+            test do
+              assert_match "dta-cli", shell_output("#{bin}/dta-cli --version")
+            end
+          end
+          EOF
+
+          git add Formula/dta-cli-dev.rb
+          git commit -m "Update dta-cli-dev to ${VERSION}"
+          git push
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
