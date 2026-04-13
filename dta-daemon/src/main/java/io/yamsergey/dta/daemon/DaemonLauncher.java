@@ -71,7 +71,22 @@ public class DaemonLauncher {
     }
 
     /**
+     * Connects to an already-running daemon if one exists and is version-compatible.
+     * Returns null if no daemon is running, not healthy, wrong type (Spring Boot),
+     * or version-incompatible. Does NOT spawn a new daemon process.
+     *
+     * <p>Used by the plugin to prefer its embedded daemon: if a compatible external
+     * daemon is already running (e.g. from dta-cli), share it. Otherwise the plugin
+     * starts its own in-process daemon without risking spawning an incompatible
+     * external process.</p>
+     */
+    public static DaemonClient connectIfCompatible() {
+        return tryConnectExisting();
+    }
+
+    /**
      * Ensures the daemon is running and returns a DaemonClient connected to it.
+     * Will spawn a new daemon process if none is running.
      *
      * @return a DaemonClient connected to the running daemon
      * @throws DaemonException if the daemon cannot be started

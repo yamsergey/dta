@@ -590,7 +590,7 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
         val msgRow = messagesTable.selectedRow
         val isSelected = connId != null && msgRow >= 0 &&
             deviceSelectedMessages.any {
-                it.path("connectionId").stringValue() == connId &&
+                it.get("connectionId")?.stringValue() == connId &&
                 it.path("messageIndex").asInt(-1) == msgRow
             }
         selectToggle.text = if (isSelected) "Deselect" else "Select"
@@ -604,14 +604,14 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
         val pkg = service.selectedApp?.packageName() ?: return
         val device = service.selectedDevice?.serial()
         val isSelected = deviceSelectedMessages.any {
-            it.path("connectionId").stringValue() == connId &&
+            it.get("connectionId")?.stringValue() == connId &&
             it.path("messageIndex").asInt(-1) == row
         }
         val msg = currentMessages[row]
         val json = """{"connectionId":"$connId","messageIndex":$row,"direction":"${msg.direction}"}"""
         if (isSelected) {
             deviceSelectedMessages = deviceSelectedMessages.filter {
-                !(it.path("connectionId").stringValue() == connId && it.path("messageIndex").asInt(-1) == row)
+                !(it.get("connectionId")?.stringValue() == connId && it.path("messageIndex").asInt(-1) == row)
             }
             selectToggle.text = "Select"
             focusButton.text = "Focus (${deviceSelectedMessages.size})" + if (deviceSelectedMessages.isNotEmpty()) " ▾" else ""
@@ -635,7 +635,7 @@ class WebSocketPanel : JPanel(BorderLayout()), DtaServiceListener {
         if (deviceSelectedMessages.isEmpty()) return
         val popup = javax.swing.JPopupMenu()
         for (el in deviceSelectedMessages) {
-            val connId = el.path("connectionId").stringValue() ?: "?"
+            val connId = el.get("connectionId")?.stringValue() ?: "?"
             val msgIdx = el.path("messageIndex").asInt(-1)
             popup.add(javax.swing.JMenuItem("Connection $connId / Message #$msgIdx").apply {
                 addActionListener {

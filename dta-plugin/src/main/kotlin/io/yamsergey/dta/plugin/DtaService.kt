@@ -97,11 +97,14 @@ class DtaService : Disposable {
     private fun ensureDaemon(): DaemonClient {
         daemon?.let { return it }
 
-        // Try external daemon first (dta-cli server), fall back to embedded
+        // Prefer an already-running compatible daemon (shared with dta-cli).
+        // If none found, start an embedded daemon in-process. We intentionally
+        // do NOT spawn an external dta-cli process from the plugin — an old
+        // dta-cli on PATH might start the Spring Boot dta-server (wrong routes).
         val client = try {
-            DaemonLauncher.ensureDaemonRunning()
+            DaemonLauncher.connectIfCompatible() ?: startEmbeddedDaemon()
         } catch (e: Exception) {
-            log.info("External daemon not available (${e.message}), starting embedded daemon")
+            log.info("No compatible daemon found (${e.message}), starting embedded daemon")
             startEmbeddedDaemon()
         }
         daemon = client

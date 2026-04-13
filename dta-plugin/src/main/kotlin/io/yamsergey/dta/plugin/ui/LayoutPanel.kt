@@ -257,7 +257,7 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
         if (deviceSelectedElements.isEmpty()) return
         val popup = javax.swing.JPopupMenu()
         for ((idx, el) in deviceSelectedElements.withIndex()) {
-            val label = el.path("className").stringValue() ?: el.path("composable").stringValue() ?: "Element $idx"
+            val label = el.get("className")?.stringValue() ?: el.get("composable")?.stringValue() ?: "Element $idx"
             popup.add(javax.swing.JMenuItem(label).apply {
                 addActionListener {
                     val b = el.get("bounds") ?: return@addActionListener
@@ -357,21 +357,21 @@ class LayoutPanel : JPanel(BorderLayout()), DtaServiceListener {
     // ========================================================================
 
     private fun parseJsonNode(node: JsonNode): DefaultMutableTreeNode {
-        val nodeType = node.path("nodeType").stringValue()
-        val role = node.path("role").stringValue()
+        val nodeType = node.get("nodeType")?.stringValue()
+        val role = node.get("role")?.stringValue()
         // For web nodes (Chrome Custom Tab / WebView DOM), use role as the
         // primary name since they don't have className/composable. For native
         // nodes, prefer className → composable → role → "Unknown".
         val className = if (nodeType == "web" && !role.isNullOrEmpty()) {
             role
         } else {
-            node.path("className").stringValue()
-                ?: node.path("composable").stringValue()
+            node.get("className")?.stringValue()
+                ?: node.get("composable")?.stringValue()
                 ?: role ?: "Unknown"
         }
-        val text = node.path("text").stringValue()
+        val text = node.get("text")?.stringValue()
         val recompCount = if (node.has("recompositionCount")) node.get("recompositionCount").asInt() else null
-        val webViewUrl = node.path("webViewUrl").stringValue()
+        val webViewUrl = node.get("webViewUrl")?.stringValue()
 
         // Parse bounds
         val boundsNode = node.get("bounds")

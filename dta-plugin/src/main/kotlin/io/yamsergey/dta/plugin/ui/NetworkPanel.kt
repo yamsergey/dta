@@ -591,7 +591,7 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
 
     private fun updateSelectToggle() {
         val isSelected = currentDetailRequestId != null &&
-            deviceSelectedRequests.any { it.path("id").stringValue() == currentDetailRequestId }
+            deviceSelectedRequests.any { it.get("id")?.stringValue() == currentDetailRequestId }
         selectToggle.text = if (isSelected) "Deselect" else "Select"
     }
 
@@ -603,9 +603,9 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
         val row = (0 until tableModel.rowCount).firstOrNull { tableModel.getRequest(it).id == reqId } ?: return
         val req = tableModel.getRequest(row)
         val json = """{"id":"${req.id}","url":"${req.url}","method":"${req.method}"}"""
-        val isSelected = deviceSelectedRequests.any { it.path("id").stringValue() == reqId }
+        val isSelected = deviceSelectedRequests.any { it.get("id")?.stringValue() == reqId }
         if (isSelected) {
-            deviceSelectedRequests = deviceSelectedRequests.filter { it.path("id").stringValue() != reqId }
+            deviceSelectedRequests = deviceSelectedRequests.filter { it.get("id")?.stringValue() != reqId }
             selectToggle.text = "Select"
             focusButton.text = "Focus (${deviceSelectedRequests.size})" + if (deviceSelectedRequests.isNotEmpty()) " ▾" else ""
             focusButton.isEnabled = deviceSelectedRequests.isNotEmpty()
@@ -628,9 +628,9 @@ class NetworkPanel : JPanel(BorderLayout()), DtaServiceListener {
         if (deviceSelectedRequests.isEmpty()) return
         val popup = javax.swing.JPopupMenu()
         for (el in deviceSelectedRequests) {
-            val id = el.path("id").stringValue() ?: "?"
-            val method = el.path("method").stringValue() ?: ""
-            val url = (el.path("url").stringValue() ?: "").take(60)
+            val id = el.get("id")?.stringValue() ?: "?"
+            val method = el.get("method")?.stringValue() ?: ""
+            val url = (el.get("url")?.stringValue() ?: "").take(60)
             popup.add(javax.swing.JMenuItem("$method $url").apply {
                 addActionListener {
                     for (i in 0 until tableModel.rowCount) {
