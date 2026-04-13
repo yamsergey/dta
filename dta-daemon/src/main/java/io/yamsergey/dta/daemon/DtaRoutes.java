@@ -59,6 +59,20 @@ public final class DtaRoutes {
         });
 
         // ====================================================================
+        // Configuration
+        // ====================================================================
+
+        app.post("/api/config/adb", ctx -> {
+            String path = ctx.queryParam("path");
+            if (path != null && !path.isEmpty()) {
+                connectionManager.setAdbPath(path);
+                ctx.json(Map.of("status", "ok", "adbPath", path));
+            } else {
+                error(ctx, "Missing 'path' query parameter");
+            }
+        });
+
+        // ====================================================================
         // Shutdown — used by DaemonLauncher for version-aware takeover
         // ====================================================================
 

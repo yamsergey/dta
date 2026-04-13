@@ -34,6 +34,10 @@ public class DaemonClient {
         return get("/api/version");
     }
 
+    public String setAdbPath(String path) {
+        return post("/api/config/adb?path=" + encode(path), null);
+    }
+
     public String devices() {
         return get("/api/devices");
     }

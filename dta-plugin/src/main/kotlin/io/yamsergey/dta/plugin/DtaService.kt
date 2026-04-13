@@ -55,11 +55,14 @@ class DtaService : Disposable {
 
     private val listeners = CopyOnWriteArrayList<DtaServiceListener>()
 
+    private var adbPath: String? = null
+
     init {
         // Use Android Studio's SDK configuration to find ADB
         try {
             val adbFile = AdbFileProvider.fromApplication().get()
             if (adbFile != null) {
+                adbPath = adbFile.absolutePath
                 SidekickConnectionManager.setAdbPath(adbFile.absolutePath)
             }
         } catch (e: Exception) {
@@ -103,6 +106,19 @@ class DtaService : Disposable {
         }
         daemon = client
         log.info("Connected to DTA daemon at ${client.baseUrl}")
+
+        // Propagate ADB path to the daemon — critical when the daemon runs
+        // in a separate process (external dta-cli daemon) that doesn't have
+        // access to AS's SDK configuration. Without this, the daemon falls
+        // back to bare "adb" on PATH which may not exist.
+        if (adbPath != null) {
+            try {
+                client.setAdbPath(adbPath!!)
+            } catch (e: Exception) {
+                log.debug("Failed to set ADB path on daemon: ${e.message}")
+            }
+        }
+
         return client
     }
 
