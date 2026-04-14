@@ -1,5 +1,7 @@
 package io.yamsergey.dta.daemon.cdp;
 
+import io.yamsergey.dta.daemon.sidekick.AdbShellLimiter;
+import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,12 +39,28 @@ import java.util.regex.Pattern;
 public final class ChromeSocketDiscovery {
 
     private static final Logger log = LoggerFactory.getLogger(ChromeSocketDiscovery.class);
-    private static final String ADB = "adb";
 
     // Pattern to match DevTools sockets in /proc/net/unix output
     // Examples: @chrome_devtools_remote, @webview_devtools_remote_12345
     private static final Pattern DEVTOOLS_SOCKET_PATTERN =
         Pattern.compile("@((?:chrome_devtools_remote|webview_devtools_remote_\\d+|[\\w.]+_devtools_remote))");
+
+    // TTL for socket discovery cache. Layout tree polls this on every request
+    // via WebViewNetworkWatcher.refresh(); a 2s TTL coalesces burst polls
+    // while still picking up a new WebView within one poll cycle.
+    private static final long DISCOVERY_CACHE_TTL_MS = 2_000;
+    private static final ConcurrentHashMap<String, CacheEntry> DISCOVERY_CACHE = new ConcurrentHashMap<>();
+    // Per-device lock around cache refresh so a burst of concurrent callers
+    // collapses to one ADB shell instead of N.
+    private static final ConcurrentHashMap<String, Object> DISCOVERY_CACHE_LOCKS = new ConcurrentHashMap<>();
+
+    // Cache entry carries either a socket list or an IOException. Negative
+    // caching matters when adbd is wedged: otherwise each serialized caller
+    // re-runs the 5s ADB timeout.
+    private record CacheEntry(long timestampMs, List<String> sockets, IOException failure) {
+        static CacheEntry ok(long ts, List<String> s) { return new CacheEntry(ts, s, null); }
+        static CacheEntry err(long ts, IOException e) { return new CacheEntry(ts, null, e); }
+    }
 
     private ChromeSocketDiscovery() {}
 
@@ -56,6 +75,33 @@ public final class ChromeSocketDiscovery {
     public static List<String> findDevToolsSockets(String deviceSerial)
             throws IOException, InterruptedException {
 
+        // Cached discovery — plugin poll cadence (1–3s) would otherwise fire
+        // one grep per request. 2s TTL coalesces bursts, still reacts fast
+        // enough to a new WebView for the next poll cycle.
+        String cacheKey = deviceSerial == null ? "default" : deviceSerial;
+        CacheEntry cached = DISCOVERY_CACHE.get(cacheKey);
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cached.timestampMs() <= DISCOVERY_CACHE_TTL_MS) {
+            if (cached.failure() != null) throw cached.failure();
+            return new ArrayList<>(cached.sockets());
+        }
+
+        // Miss: serialize concurrent callers so a burst collapses to one ADB call.
+        Object lock = DISCOVERY_CACHE_LOCKS.computeIfAbsent(cacheKey, k -> new Object());
+        synchronized (lock) {
+            cached = DISCOVERY_CACHE.get(cacheKey);
+            now = System.currentTimeMillis();
+            if (cached != null && now - cached.timestampMs() <= DISCOVERY_CACHE_TTL_MS) {
+                if (cached.failure() != null) throw cached.failure();
+                return new ArrayList<>(cached.sockets());
+            }
+            return doDiscover(deviceSerial, cacheKey);
+        }
+    }
+
+    private static List<String> doDiscover(String deviceSerial, String cacheKey)
+            throws IOException, InterruptedException {
+
         // Use grep on-device to avoid transferring the entire /proc/net/unix table.
         // cat on large socket tables can hang adb/adbd, especially when the app is closing.
         List<String> cmd = buildAdbCommand(deviceSerial, "shell", "grep", "devtools_remote", "/proc/net/unix");
@@ -63,34 +109,51 @@ public final class ChromeSocketDiscovery {
         log.debug("ADB exec: {}", cmdStr);
         long start = System.currentTimeMillis();
 
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-
-        // Read output in a separate thread to avoid blocking if the process hangs
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        // Run under the per-device shell limiter so sidekick + WebView
+        // discovery can't gang up on adbd's shell slots.
         String output;
         try {
-            Future<String> future = executor.submit(() -> readStream(process.getInputStream()));
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                long elapsed = System.currentTimeMillis() - start;
-                log.error("ADB timed out after {}ms: {}", elapsed, cmdStr);
-                throw new IOException("ADB command timed out: " + cmdStr);
-            }
-            output = future.get(5, TimeUnit.SECONDS);
-        } catch (ExecutionException e) {
-            process.destroyForcibly();
-            Throwable cause = e.getCause();
-            if (cause instanceof IOException io) throw io;
-            throw new IOException("Failed to read ADB output", cause);
-        } catch (TimeoutException e) {
-            process.destroyForcibly();
-            long elapsed = System.currentTimeMillis() - start;
-            log.error("ADB read timed out after {}ms: {}", elapsed, cmdStr);
-            throw new IOException("Timed out reading ADB output: " + cmdStr);
-        } finally {
-            executor.shutdownNow();
+            output = AdbShellLimiter.withPermit(deviceSerial, 3_000, () -> {
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                ExecutorService executor = Executors.newSingleThreadExecutor();
+                try {
+                    Future<String> future = executor.submit(() -> readStream(process.getInputStream()));
+                    // 5s timeout: this command either returns in <1s or adbd is wedged —
+                    // 10s just holds the slot hostage for longer.
+                    if (!process.waitFor(5, TimeUnit.SECONDS)) {
+                        process.destroyForcibly();
+                        long elapsedInner = System.currentTimeMillis() - start;
+                        log.error("ADB timed out after {}ms: {}", elapsedInner, cmdStr);
+                        throw new IOException("ADB command timed out: " + cmdStr);
+                    }
+                    return future.get(3, TimeUnit.SECONDS);
+                } catch (ExecutionException e) {
+                    process.destroyForcibly();
+                    Throwable cause = e.getCause();
+                    if (cause instanceof IOException io) throw io;
+                    throw new IOException("Failed to read ADB output", cause);
+                } catch (TimeoutException e) {
+                    process.destroyForcibly();
+                    long elapsedInner = System.currentTimeMillis() - start;
+                    log.error("ADB read timed out after {}ms: {}", elapsedInner, cmdStr);
+                    throw new IOException("Timed out reading ADB output: " + cmdStr);
+                } finally {
+                    executor.shutdownNow();
+                }
+            });
+        } catch (IOException e) {
+            // Negative-cache the failure so concurrent callers fail fast instead
+            // of each re-running the 5s ADB timeout. Stamp at failure time.
+            DISCOVERY_CACHE.put(cacheKey, CacheEntry.err(System.currentTimeMillis(), e));
+            throw e;
+        } catch (InterruptedException e) {
+            throw e;
+        } catch (Exception e) {
+            IOException wrapped = new IOException("DevTools socket discovery failed: " + e.getMessage(), e);
+            DISCOVERY_CACHE.put(cacheKey, CacheEntry.err(System.currentTimeMillis(), wrapped));
+            throw wrapped;
         }
 
         long elapsed = System.currentTimeMillis() - start;
@@ -102,7 +165,9 @@ public final class ChromeSocketDiscovery {
         }
 
         log.debug("Found {} DevTools sockets in {}ms", sockets.size(), elapsed);
-        return new ArrayList<>(sockets);
+        List<String> result = List.copyOf(sockets);
+        DISCOVERY_CACHE.put(cacheKey, CacheEntry.ok(System.currentTimeMillis(), result));
+        return new ArrayList<>(result);
     }
 
     /**
@@ -176,10 +241,12 @@ public final class ChromeSocketDiscovery {
         log.debug("Setting up port forward: tcp:{} -> localabstract:{}", localPort, socketName);
         ProcessBuilder pb = new ProcessBuilder(cmd);
         Process process = pb.start();
-        if (!process.waitFor(30, TimeUnit.SECONDS)) {
+        // 5s: `adb forward` is a local operation against the ADB server; it
+        // should be instant. A long timeout just masks a wedged ADB server.
+        if (!process.waitFor(5, TimeUnit.SECONDS)) {
             process.destroyForcibly();
             log.error("Port forwarding timed out: tcp:{} -> {}", localPort, socketName);
-            throw new IOException("ADB port forwarding timed out after 30 seconds");
+            throw new IOException("ADB port forwarding timed out after 5 seconds");
         }
         boolean success = process.exitValue() == 0;
         if (!success) {
@@ -200,7 +267,7 @@ public final class ChromeSocketDiscovery {
                 "forward", "--remove", "tcp:" + localPort);
             ProcessBuilder pb = new ProcessBuilder(cmd);
             Process process = pb.start();
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+            if (!process.waitFor(3, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
             }
         } catch (Exception ignored) {
@@ -242,7 +309,9 @@ public final class ChromeSocketDiscovery {
 
     private static List<String> buildAdbCommand(String deviceSerial, String... args) {
         List<String> cmd = new ArrayList<>();
-        cmd.add(ADB);
+        // Honor the SDK path that the plugin passes to SidekickConnectionManager.setAdbPath().
+        // Falls back to "adb" when nothing's been set.
+        cmd.add(SidekickConnectionManager.getAdbPath());
         if (deviceSerial != null && !deviceSerial.isEmpty()) {
             cmd.add("-s");
             cmd.add(deviceSerial);

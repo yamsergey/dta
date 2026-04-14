@@ -32,11 +32,40 @@ public class SidekickConnectionManager {
 
     private static volatile String ADB = findAdb();
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+    // Short timeout for "should return instantly or adbd is wedged" shells.
+    // Used by findSidekickSockets / anything that greps /proc/net/unix.
+    private static final int ADB_DISCOVERY_TIMEOUT_SECONDS = 5;
     private static final long RECONNECT_COOLDOWN_MS = 10_000;
+    // TTL for socket-discovery cache. Plugin polls on ~1–3s cadence, so 2s
+    // coalesces bursts without visibly lagging newly launched apps.
+    private static final long SIDEKICK_SOCKETS_CACHE_TTL_MS = 2_000;
 
     private final ConcurrentHashMap<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> connectionLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> failedConnectionTimestamps = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SidekickSocketsCacheEntry> sidekickSocketsCache = new ConcurrentHashMap<>();
+    // Per-device lock around cache refresh so concurrent callers collapse to
+    // a single ADB shell — without this, 20 parallel requests all miss the
+    // cache simultaneously and spawn 20 adb shells before any of them can
+    // populate it.
+    private final ConcurrentHashMap<String, Object> sidekickSocketsCacheLocks = new ConcurrentHashMap<>();
+
+    // Cache entry carries either sockets or a failure. Negative caching matters
+    // when adbd is wedged: without it, each serialized caller re-runs the 5s
+    // ADB timeout, so 10 parallel requests take ~50s. With it, the first caller
+    // eats 5s, the next 9 fail fast off the cached exception.
+    private record SidekickSocketsCacheEntry(
+        long timestampMs,
+        List<SidekickSocket> sockets,
+        IOException failure
+    ) {
+        static SidekickSocketsCacheEntry ok(long ts, List<SidekickSocket> s) {
+            return new SidekickSocketsCacheEntry(ts, s, null);
+        }
+        static SidekickSocketsCacheEntry err(long ts, IOException e) {
+            return new SidekickSocketsCacheEntry(ts, null, e);
+        }
+    }
 
     private SidekickConnectionManager() {}
 
@@ -75,6 +104,15 @@ public class SidekickConnectionManager {
     public static void setAdbPath(String path) {
         ADB = path;
         log.info("ADB path set to: {}", path);
+    }
+
+    /**
+     * Returns the current ADB executable path. Exposed so collaborators
+     * like {@code ChromeSocketDiscovery} honor the plugin-supplied SDK path
+     * instead of hardcoding {@code "adb"}.
+     */
+    public static String getAdbPath() {
+        return ADB;
     }
 
     // ========================================================================
@@ -322,24 +360,75 @@ public class SidekickConnectionManager {
      * Discovers sidekick sockets on a device.
      */
     public List<SidekickSocket> findSidekickSockets(String device) throws IOException, InterruptedException {
-        // Use grep on-device to avoid transferring the entire /proc/net/unix table.
-        // cat on large socket tables can hang adb/adbd, especially when the app is closing.
-        String output = runAdb(device, "shell", "grep", "dta_sidekick", "/proc/net/unix");
+        String cacheKey = device == null ? "default" : device;
 
-        List<SidekickSocket> sockets = new ArrayList<>();
-        Pattern pattern = Pattern.compile("@(dta_sidekick_([\\w.]+))");
-        Matcher matcher = pattern.matcher(output);
-
-        Set<String> seen = new HashSet<>();
-        while (matcher.find()) {
-            String socketName = matcher.group(1);
-            String packageName = matcher.group(2);
-            if (seen.add(socketName)) {
-                sockets.add(new SidekickSocket(socketName, packageName));
-            }
+        // Fast path: fresh cache hit, no locking. Replay either success or failure.
+        SidekickSocketsCacheEntry cached = sidekickSocketsCache.get(cacheKey);
+        long now = System.currentTimeMillis();
+        if (cached != null && now - cached.timestampMs() <= SIDEKICK_SOCKETS_CACHE_TTL_MS) {
+            if (cached.failure() != null) throw cached.failure();
+            return cached.sockets();
         }
 
-        return sockets;
+        // Miss: serialize concurrent callers so a burst collapses to one ADB call.
+        Object lock = sidekickSocketsCacheLocks.computeIfAbsent(cacheKey, k -> new Object());
+        synchronized (lock) {
+            // Re-check under lock — another thread may have just populated the cache.
+            cached = sidekickSocketsCache.get(cacheKey);
+            now = System.currentTimeMillis();
+            if (cached != null && now - cached.timestampMs() <= SIDEKICK_SOCKETS_CACHE_TTL_MS) {
+                if (cached.failure() != null) throw cached.failure();
+                return cached.sockets();
+            }
+
+            // Run grep on-device to avoid transferring the entire /proc/net/unix table.
+            // Under the per-device shell limiter so concurrent discovery across call
+            // sites can't saturate adbd's shell slots. Short discovery timeout —
+            // this command either returns in <1s or adbd is wedged; 30s just holds
+            // the slot hostage.
+            String output;
+            try {
+                output = AdbShellLimiter.withPermit(device, 3_000, () ->
+                    new String(
+                        runAdbBytes(device, ADB_DISCOVERY_TIMEOUT_SECONDS,
+                            "shell", "grep", "dta_sidekick", "/proc/net/unix"),
+                        StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                // Stamp with the time of failure, not the time we started —
+                // otherwise a 5s ADB timeout produces a cache entry that's
+                // already expired when written (2s TTL) and subsequent callers
+                // all re-hit adbd.
+                sidekickSocketsCache.put(cacheKey,
+                    SidekickSocketsCacheEntry.err(System.currentTimeMillis(), e));
+                throw e;
+            } catch (InterruptedException e) {
+                throw e;
+            } catch (Exception e) {
+                IOException wrapped = new IOException("Sidekick socket discovery failed: " + e.getMessage(), e);
+                sidekickSocketsCache.put(cacheKey,
+                    SidekickSocketsCacheEntry.err(System.currentTimeMillis(), wrapped));
+                throw wrapped;
+            }
+
+            List<SidekickSocket> sockets = new ArrayList<>();
+            Pattern pattern = Pattern.compile("@(dta_sidekick_([\\w.]+))");
+            Matcher matcher = pattern.matcher(output);
+
+            Set<String> seen = new HashSet<>();
+            while (matcher.find()) {
+                String socketName = matcher.group(1);
+                String packageName = matcher.group(2);
+                if (seen.add(socketName)) {
+                    sockets.add(new SidekickSocket(socketName, packageName));
+                }
+            }
+
+            // Cache positive and empty results alike — an empty grep is fast to
+            // re-run but still worth coalescing during burst polls.
+            List<SidekickSocket> result = List.copyOf(sockets);
+            sidekickSocketsCache.put(cacheKey, SidekickSocketsCacheEntry.ok(now, result));
+            return result;
+        }
     }
 
     // ========================================================================
