@@ -183,7 +183,18 @@ public class SidekickConnectionManager {
                 log.error("New connection health check failed for {} on port {}: {}", key, port, health);
                 removePortForward(device, port);
                 failedConnectionTimestamps.put(key, System.currentTimeMillis());
-                throw new RuntimeException("Failed to connect to sidekick: " + packageName);
+                // Include available apps in the error so agents can self-correct
+                // when they use the wrong package name
+                String availableApps = "";
+                try {
+                    var sockets = findSidekickSockets(device);
+                    if (!sockets.isEmpty()) {
+                        availableApps = ". Available apps with sidekick: " +
+                            sockets.stream().map(SidekickSocket::packageName)
+                                .collect(java.util.stream.Collectors.joining(", "));
+                    }
+                } catch (Exception ignored) {}
+                throw new RuntimeException("Failed to connect to sidekick: " + packageName + availableApps);
             }
 
             String sidekickVersion = getSidekickVersion(client);
