@@ -83,6 +83,9 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
     // Optional: SidekickClient for posting transactions to sidekick
     private volatile SidekickClient sidekickClient;
 
+    // Source label for posted transactions (default "CustomTab", set to "WebView" for WebViews)
+    private volatile String sourceLabel = "CustomTab";
+
     // Optional: ChromeDevToolsClient for fetching response bodies
     private volatile ChromeDevToolsClient cdpClient;
 
@@ -174,6 +177,14 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
      */
     public void setSidekickClient(SidekickClient client) {
         this.sidekickClient = client;
+    }
+
+    /**
+     * Sets the source label for posted transactions.
+     * Default is "CustomTab"; use "WebView" for in-app WebView network events.
+     */
+    public void setSourceLabel(String label) {
+        this.sourceLabel = label;
     }
 
     /**
@@ -530,7 +541,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 data.put("id", tx.requestId); // stable ID for updates (pending → completed)
                 data.put("url", tx.url);
                 data.put("method", tx.method);
-                data.put("source", "CustomTab");
+                data.put("source", sourceLabel);
                 if (tx.resourceType != null) {
                     data.put("resourceType", tx.resourceType);
                 }

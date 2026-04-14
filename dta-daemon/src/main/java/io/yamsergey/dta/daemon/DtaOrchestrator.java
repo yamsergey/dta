@@ -8,7 +8,9 @@ import io.yamsergey.dta.daemon.cdp.CdpAccessibilityInspector;
 import io.yamsergey.dta.daemon.cdp.CdpWatcherManager;
 import io.yamsergey.dta.daemon.cdp.ChromeDevToolsClient;
 import io.yamsergey.dta.daemon.cdp.WebViewCdpManager;
+import io.yamsergey.dta.daemon.cdp.WebViewNetworkWatcher;
 import io.yamsergey.dta.daemon.runner.AppRunner;
+import io.yamsergey.dta.daemon.sidekick.SidekickClient;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device;
@@ -51,6 +53,7 @@ public class DtaOrchestrator {
     private final SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
     private final ObjectMapper mapper = new ObjectMapper();
     private final Map<String, SidekickSseListener> sseListeners = new ConcurrentHashMap<>();
+    private final Map<String, WebViewNetworkWatcher> webViewWatchers = new ConcurrentHashMap<>();
 
     private DtaOrchestrator() {}
 
@@ -552,6 +555,9 @@ public class DtaOrchestrator {
         });
         sseListeners.clear();
         CdpWatcherManager.getInstance().stopAll();
+        // Shut down WebView network watchers
+        webViewWatchers.values().forEach(WebViewNetworkWatcher::shutdown);
+        webViewWatchers.clear();
         // Release every sidekick port forward this daemon created. Crash/kill-9
         // path is handled by the startup sweep in DtaDaemon.start().
         connectionManager.shutdown();
@@ -725,7 +731,7 @@ public class DtaOrchestrator {
      * and Chrome Custom Tabs. Non-fatal — the tree is returned unchanged on errors.
      */
     private void enrichWebViewNodes(JsonNode adapted, String packageName, String device) {
-        // Stage 5: Enrich in-app WebView nodes
+        // Stage 5: Enrich in-app WebView nodes + enable WebView network capture
         try {
             JsonNode root = adapted.get("root");
             if (root != null) {
@@ -733,11 +739,28 @@ public class DtaOrchestrator {
                 collectWebViewNodes(root, webViewNodes);
 
                 if (!webViewNodes.isEmpty()) {
-                    try (WebViewCdpManager manager = new WebViewCdpManager(device)) {
-                        List<WebViewCdpManager.WebViewTreeResult> trees = manager.fetchWebViewTrees();
-                        if (!trees.isEmpty()) {
-                            matchAndInjectWebViewTrees(webViewNodes, trees);
-                        }
+                    // Get or create a persistent watcher for this device
+                    String watcherKey = device != null ? device : "default";
+                    WebViewNetworkWatcher watcher = webViewWatchers.computeIfAbsent(
+                        watcherKey, k -> new WebViewNetworkWatcher(device));
+
+                    // Get the sidekick client for posting network events
+                    SidekickClient sidekickClient = null;
+                    try {
+                        ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+                        sidekickClient = conn.client();
+                    } catch (Exception ignored) {}
+
+                    // Refresh discovers new WebViews, enables Network.enable,
+                    // and returns accessibility trees — all in one call
+                    List<WebViewNetworkWatcher.WebViewTreeResult> trees = watcher.refresh(sidekickClient);
+                    if (!trees.isEmpty()) {
+                        // Convert to the format matchAndInjectWebViewTrees expects
+                        List<WebViewCdpManager.WebViewTreeResult> converted = trees.stream()
+                            .map(t -> new WebViewCdpManager.WebViewTreeResult(
+                                t.url(), t.children(), t.viewportWidth(), t.viewportHeight()))
+                            .toList();
+                        matchAndInjectWebViewTrees(webViewNodes, converted);
                     }
                 }
             }
