@@ -477,9 +477,41 @@ public class SidekickConnectionManager {
 
     /**
      * Installs an APK on the device. Uses a longer timeout (120s) since installs can be slow.
+     *
+     * <p>{@code adb install} is pathological: it exits 0 on every outcome — the real
+     * status is in stdout as either {@code "Success"} or
+     * {@code "Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]"} (or another
+     * {@code INSTALL_FAILED_*} code). We scan for that string and throw on
+     * anything that isn't a clear success so callers can't silently accept
+     * a failed install.</p>
      */
     public String installApk(String device, String apkPath) throws IOException, InterruptedException {
-        return runAdbWithTimeout(device, 120, "install", "-r", apkPath);
+        String output = runAdbWithTimeout(device, 120, "install", "-r", apkPath);
+        String trimmed = output == null ? "" : output.trim();
+        // Success is usually the single word "Success" on its own line, sometimes
+        // preceded by "Performing Streamed Install". Match that specifically so
+        // we don't mis-read a stray occurrence of the substring.
+        boolean succeeded = false;
+        for (String line : trimmed.split("\\r?\\n")) {
+            if ("Success".equals(line.trim())) {
+                succeeded = true;
+                break;
+            }
+        }
+        if (!succeeded) {
+            // Prefer to surface the Failure [CODE] line; fall back to the full
+            // output so we never eat useful diagnostics.
+            String reason = trimmed;
+            for (String line : trimmed.split("\\r?\\n")) {
+                String l = line.trim();
+                if (l.startsWith("Failure") || l.startsWith("adb: failed to install")) {
+                    reason = l;
+                    break;
+                }
+            }
+            throw new IOException("adb install failed: " + reason);
+        }
+        return output;
     }
 
     /**
