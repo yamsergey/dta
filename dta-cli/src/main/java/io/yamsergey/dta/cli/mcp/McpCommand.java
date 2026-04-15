@@ -1,6 +1,7 @@
 package io.yamsergey.dta.cli.mcp;
 
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
@@ -35,14 +36,24 @@ public class McpCommand implements Callable<Integer> {
     @Spec
     private CommandSpec spec;
 
+    // Keep log options on the parent so existing configs like
+    // "dta-cli mcp --log-file /tmp/x.log" keep working (backwards compat).
+    @Option(names = {"--log-file"}, description = "Path to log file")
+    private String logFile;
+
+    @Option(names = {"--log-level"}, description = "Log level: TRACE, DEBUG, INFO, WARN, ERROR")
+    private String logLevel;
+
     /**
      * Default behavior when invoked without a subcommand: run the stdio
-     * server. This keeps {@code dta-cli mcp} working for existing MCP client
-     * configurations that point at the bare command.
+     * server. This keeps {@code dta-cli mcp --log-file ...} working for
+     * existing MCP client configurations.
      */
     @Override
     public Integer call() throws Exception {
-        // Delegate to McpServeCommand with default options (stdio)
-        return new McpServeCommand().call();
+        McpServeCommand serve = new McpServeCommand();
+        serve.setLogFile(logFile);
+        serve.setLogLevel(logLevel);
+        return serve.call();
     }
 }

@@ -44,6 +44,10 @@ public class McpServeCommand implements Callable<Integer> {
             description = "Log level: TRACE, DEBUG, INFO, WARN, ERROR (default: DEBUG when --log-file is set)")
     private String logLevel;
 
+    // Setters for when McpCommand delegates with its own --log-file/--log-level
+    void setLogFile(String logFile) { if (logFile != null) this.logFile = logFile; }
+    void setLogLevel(String logLevel) { if (logLevel != null) this.logLevel = logLevel; }
+
     @Override
     public Integer call() throws Exception {
         if (logFile != null && !logFile.isEmpty()) {
