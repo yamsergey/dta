@@ -150,6 +150,40 @@ public class SidekickConnectionManager {
 
             String socketName = "dta_sidekick_" + packageName;
 
+            // Pre-flight: verify the sidekick socket actually exists on the
+            // device before creating a forward.
+            //
+            // `adb forward tcp:N localabstract:X` lies: it registers the TCP
+            // listener and returns success even when nothing is listening on
+            // the abstract socket side. Connections to that listener then hang
+            // waiting for a backend, and `checkHealth()` falls through to the
+            // full 30s read timeout. Under plugin retries that multiplies:
+            // each reconnect allocates a fresh port, leaks a forward, eats
+            // 30s. Checking /proc/net/unix first fails fast in the legitimate
+            // "sidekick not running" case (crashed, app process gone,
+            // not-yet-started) so the plugin can back off instead of piling
+            // up stuck forwards.
+            try {
+                var sockets = findSidekickSockets(device);
+                boolean present = sockets.stream()
+                    .anyMatch(s -> socketName.equals(s.socketName()));
+                if (!present) {
+                    failedConnectionTimestamps.put(key, System.currentTimeMillis());
+                    String availableApps = sockets.isEmpty()
+                        ? ""
+                        : ". Available apps with sidekick: " +
+                            sockets.stream().map(SidekickSocket::packageName)
+                                .collect(java.util.stream.Collectors.joining(", "));
+                    throw new RuntimeException(
+                        "Sidekick not running in " + packageName
+                        + " (socket @" + socketName + " not found on " + (device != null ? device : "default device")
+                        + "). Ensure the app is running and built with dta-sidekick injected" + availableApps);
+                }
+            } catch (IOException | InterruptedException e) {
+                failedConnectionTimestamps.put(key, System.currentTimeMillis());
+                throw e;
+            }
+
             // Create new forward with auto-allocated port.
             //
             // We don't scan `adb forward --list` here for an existing forward

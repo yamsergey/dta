@@ -150,7 +150,13 @@ public class SidekickClient {
      * @return Result containing health status JSON on success
      */
     public Result<String> checkHealth() {
-        return httpGet("/health");
+        // Use a short timeout here. The default timeoutMs (30s) is right for
+        // real endpoints like /layout/tree, but a dead sidekick makes every
+        // health check eat 30s before the caller learns the connection is
+        // gone. Under plugin reconnect retries that multiplied into minutes
+        // of stalled HTTP threads + leaked adb forwards. 2s is plenty for a
+        // living sidekick to respond to /health.
+        return httpGet("/health", 2000);
     }
 
     /**
@@ -676,13 +682,17 @@ public class SidekickClient {
     }
 
     private Result<String> httpGet(String path) {
+        return httpGet(path, timeoutMs);
+    }
+
+    private Result<String> httpGet(String path, int timeoutMsOverride) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL("http://localhost:" + port + path);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(timeoutMs);
-            connection.setReadTimeout(timeoutMs);
+            connection.setConnectTimeout(timeoutMsOverride);
+            connection.setReadTimeout(timeoutMsOverride);
 
             int responseCode = connection.getResponseCode();
             if (responseCode == 200) {
