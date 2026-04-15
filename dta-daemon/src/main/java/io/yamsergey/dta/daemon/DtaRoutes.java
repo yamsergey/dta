@@ -189,6 +189,17 @@ public final class DtaRoutes {
                         json.put("buildLog", log);
                     }
                 }
+                // Surface the shell equivalent of what run_app did (or would
+                // have done) so agents with a sandboxed MCP server can fall
+                // back to running the commands themselves via their Bash tool.
+                if (result.manualSteps() != null) {
+                    var steps = json.putObject("manualSteps");
+                    steps.put("initScriptContent", result.manualSteps().initScriptContent());
+                    steps.put("gradleCommand", result.manualSteps().gradleCommand());
+                    steps.put("installCommand", result.manualSteps().installCommand());
+                    steps.put("launchCommand", result.manualSteps().launchCommand());
+                    steps.put("notes", result.manualSteps().notes());
+                }
                 jsonNode(ctx, json);
             } catch (Exception e) {
                 log.error("run_app failed", e);

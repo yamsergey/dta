@@ -44,12 +44,30 @@ public class AppRunner {
         String apkPath,
         String buildLog,
         String launchActivity,
-        String error
+        String error,
+        /** Shell commands equivalent to what this tool would have run. Always
+         *  populated — callers can use them as a fallback when the in-process
+         *  build fails (sandbox denies {@code ~/.gradle} lock, offline caches,
+         *  etc.) by writing {@code initScriptContent} to a file and executing
+         *  {@code gradleCommand} via a shell. */
+        ManualSteps manualSteps
     ) {
-        public static RunResult failure(String error, String buildLog) {
-            return new RunResult(false, null, null, buildLog, null, error);
+        public static RunResult failure(String error, String buildLog, ManualSteps steps) {
+            return new RunResult(false, null, null, buildLog, null, error, steps);
         }
     }
+
+    /**
+     * The commands run_app executes internally, exposed as a runbook so agents
+     * can re-run them via an unsandboxed shell if the tool itself is blocked.
+     */
+    public record ManualSteps(
+        String initScriptContent,
+        String gradleCommand,
+        String installCommand,
+        String launchCommand,
+        String notes
+    ) {}
 
     public interface ProgressListener {
         void onProgress(String stage, String message);
@@ -59,6 +77,27 @@ public class AppRunner {
 
     public RunResult run(RunRequest request, ProgressListener listener) {
         StringBuilder buildLog = new StringBuilder();
+
+        // Build manualSteps up front — always populated so a failing tool
+        // call returns a runnable fallback, and a successful one tells the
+        // caller exactly what it did.
+        String initScriptContent = generateInitScriptContent(request.variant());
+        String projectPath = request.projectPath();
+        String taskName = request.module() + ":assemble" + capitalize(request.variant());
+        String deviceArg = request.device() != null && !request.device().isEmpty()
+            ? "-s " + shellQuote(request.device()) + " " : "";
+        String gradleCommand =
+            "cd " + shellQuote(projectPath) + " && \\\n"
+            + "  cat > /tmp/dta-sidekick-inject.gradle <<'DTA_EOF'\n"
+            + initScriptContent
+            + "DTA_EOF\n"
+            + "  ./gradlew " + taskName + " --init-script /tmp/dta-sidekick-inject.gradle";
+        String installCommand = "adb " + deviceArg + "install -r <path-to-APK>";
+        String launchCommand = "adb " + deviceArg + "shell am start -n <package>/<activity>";
+        String notes = "If run_app is blocked by your sandbox (e.g. ~/.gradle lock denied), "
+            + "execute the commands above via your shell. Pipe the init script into a file, "
+            + "then run gradleCommand; after build, find the APK under "
+            + "<module>/build/outputs/apk/<variant>/ and use installCommand + launchCommand.";
 
         try {
             // 1. Generate init script
@@ -71,14 +110,18 @@ public class AppRunner {
             int exitCode = runGradleBuild(request.projectPath(), request.module(),
                 request.variant(), initScript, buildLog, listener);
             if (exitCode != 0) {
-                return RunResult.failure("Gradle build failed (exit code " + exitCode + ")", buildLog.toString());
+                return RunResult.failure("Gradle build failed (exit code " + exitCode + ")",
+                    buildLog.toString(),
+                    new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes));
             }
 
             // 3. Find APK
             progress(listener, "APK_DISCOVERY", "Locating APK...");
             String apkPath = findApk(request.projectPath(), request.module(), request.variant());
             if (apkPath == null) {
-                return RunResult.failure("Could not find APK for variant " + request.variant(), buildLog.toString());
+                return RunResult.failure("Could not find APK for variant " + request.variant(),
+                    buildLog.toString(),
+                    new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes));
             }
             log.info("APK found: {}", apkPath);
 
@@ -86,6 +129,11 @@ public class AppRunner {
             ApkInfo apkInfo = discoverApkInfo(apkPath);
             String packageName = apkInfo.packageName();
             log.info("Package: {}", packageName);
+
+            // Fill in the concrete APK/package/activity for the runbook now
+            // that we know them. Agents re-using these get real commands, not
+            // placeholders.
+            String resolvedInstall = "adb " + deviceArg + "install -r " + shellQuote(apkPath);
 
             // 5. Install
             progress(listener, "INSTALL", "Installing " + packageName + "...");
@@ -107,15 +155,24 @@ public class AppRunner {
             } else {
                 component = connectionManager.resolveMainActivity(request.device(), packageName);
             }
+            String resolvedLaunch = "adb " + deviceArg + "shell am start -n " + shellQuote(component);
             connectionManager.launchActivity(request.device(), component);
             log.info("Launched: {}", component);
 
-            return new RunResult(true, packageName, apkPath, buildLog.toString(), component, null);
+            return new RunResult(true, packageName, apkPath, buildLog.toString(), component, null,
+                new ManualSteps(initScriptContent, gradleCommand, resolvedInstall, resolvedLaunch, notes));
 
         } catch (Exception e) {
             log.error("Run failed: {}", e.getMessage(), e);
-            return RunResult.failure(e.getMessage(), buildLog.toString());
+            return RunResult.failure(e.getMessage(), buildLog.toString(),
+                new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes));
         }
+    }
+
+    private static String shellQuote(String s) {
+        if (s == null || s.isEmpty()) return "''";
+        // Standard POSIX single-quote quoting with escape-via-break for internal '.
+        return "'" + s.replace("'", "'\\''") + "'";
     }
 
     // ========================================================================
@@ -123,6 +180,18 @@ public class AppRunner {
     // ========================================================================
 
     File generateInitScript(String variant) throws IOException {
+        String script = generateInitScriptContent(variant);
+        File tmpFile = File.createTempFile("dta-sidekick-inject-", ".gradle");
+        tmpFile.deleteOnExit();
+        Files.writeString(tmpFile.toPath(), script);
+        return tmpFile;
+    }
+
+    /**
+     * The init script body — split out of {@link #generateInitScript} so it
+     * can also be surfaced in {@link ManualSteps} without writing to disk.
+     */
+    static String generateInitScriptContent(String variant) {
         // Always use debugImplementation — sidekick requires a debuggable build
         // (uses JVMTI hooks). This covers all debug variants: debug, stagingDebug, etc.
         //
@@ -132,7 +201,7 @@ public class AppRunner {
         String snapshotRepo = isSnapshot
             ? "\n                        maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }"
             : "";
-        String script = """
+        return """
             // Auto-generated by DTA
             beforeSettings {
                 it.dependencyResolutionManagement {
@@ -152,11 +221,6 @@ public class AppRunner {
                 }
             }
             """.formatted(snapshotRepo, SIDEKICK_VERSION, SIDEKICK_VERSION, variant);
-
-        File tmpFile = File.createTempFile("dta-sidekick-inject-", ".gradle");
-        tmpFile.deleteOnExit();
-        Files.writeString(tmpFile.toPath(), script);
-        return tmpFile;
     }
 
     // ========================================================================
