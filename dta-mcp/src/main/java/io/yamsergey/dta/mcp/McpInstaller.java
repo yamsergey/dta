@@ -66,23 +66,70 @@ public class McpInstaller {
         }
     }
 
+    /** Agent preset for the per-agent snippet generator. */
+    public enum SnippetAgent {
+        AS_GEMINI,      // ~/Library/Application Support/Google/AndroidStudioXXX/mcp.json
+        CLAUDE_CODE,    // ~/.claude.json OR `claude mcp add` command
+        CLAUDE_DESKTOP, // ~/Library/Application Support/Claude/claude_desktop_config.json
+        CURSOR,         // ~/.cursor/mcp.json OR project .cursor/mcp.json
+        VSCODE          // .vscode/mcp.json (Copilot Chat)
+    }
+
     /**
-     * Generates the JSON snippet that points an MCP client at the local
-     * dta-mcp HTTP server. Same shape used by {@link Target#AS_GEMINI},
-     * {@link Target#CLAUDE_CODE}, and the clipboard/print fallbacks.
-     *
-     * @param port the dta-mcp HTTP server port
-     * @return a pretty-printed JSON snippet, ready to paste
+     * Generates the JSON (or CLI) snippet that points the given agent at the
+     * local dta-mcp HTTP server. Different agents want different shapes — same
+     * semantic target, different keys.
      */
+    public static String snippet(SnippetAgent agent, int port) {
+        String url = "http://localhost:" + port + "/mcp";
+        return switch (agent) {
+            case AS_GEMINI -> prettyJson(dtaEntry("httpUrl", url));
+            case CURSOR -> prettyJson(dtaEntry("url", url));
+            case CLAUDE_DESKTOP -> prettyJson(dtaEntryWithType(url));
+            case CLAUDE_CODE -> "# Option A: run this once\n"
+                + "claude mcp add --transport http dta " + url + "\n\n"
+                + "# Option B: add to ~/.claude.json under \"mcpServers\"\n"
+                + prettyJson(dtaEntryWithType(url));
+            case VSCODE -> prettyJson(vscodeServerEntry(url));
+        };
+    }
+
+    /** Legacy single-shape snippet (kept for {@link #install}/{@link #uninstall} file writes). */
     public static String snippet(int port) {
+        return prettyJson(dtaEntry("httpUrl", "http://localhost:" + port + "/mcp"));
+    }
+
+    private static ObjectNode dtaEntry(String urlKey, String url) {
         ObjectNode root = mapper.createObjectNode();
         ObjectNode servers = root.putObject("mcpServers");
         ObjectNode dta = servers.putObject(DTA_ENTRY_KEY);
-        dta.put("httpUrl", "http://localhost:" + port + "/mcp");
+        dta.put(urlKey, url);
+        return root;
+    }
+
+    private static ObjectNode dtaEntryWithType(String url) {
+        ObjectNode root = mapper.createObjectNode();
+        ObjectNode servers = root.putObject("mcpServers");
+        ObjectNode dta = servers.putObject(DTA_ENTRY_KEY);
+        dta.put("type", "http");
+        dta.put("url", url);
+        return root;
+    }
+
+    private static ObjectNode vscodeServerEntry(String url) {
+        ObjectNode root = mapper.createObjectNode();
+        ObjectNode servers = root.putObject("servers");
+        ObjectNode dta = servers.putObject(DTA_ENTRY_KEY);
+        dta.put("type", "http");
+        dta.put("url", url);
+        return root;
+    }
+
+    private static String prettyJson(ObjectNode node) {
         try {
-            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
         } catch (Exception e) {
-            return "{\n  \"mcpServers\": {\n    \"dta\": { \"httpUrl\": \"http://localhost:" + port + "/mcp\" }\n  }\n}";
+            return node.toString();
         }
     }
 

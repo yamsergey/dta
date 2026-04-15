@@ -20,8 +20,10 @@ import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.datatransfer.StringSelection
 import javax.swing.BorderFactory
+import javax.swing.DefaultComboBoxModel
 import javax.swing.JButton
 import javax.swing.JCheckBox
+import javax.swing.JComboBox
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
@@ -40,9 +42,13 @@ class McpPanel : JPanel(BorderLayout()) {
     private val statusLabel = JBLabel("○ Stopped").apply {
         foreground = JBColor.GRAY
     }
-    private val snippetArea = JBTextArea(6, 40).apply {
+    private val snippetArea = JBTextArea(8, 40).apply {
         isEditable = false
         font = java.awt.Font("Monospaced", java.awt.Font.PLAIN, 12)
+    }
+    private val agentCombo = JComboBox(DefaultComboBoxModel(AGENTS.map { it.label }.toTypedArray()))
+    private val pathHintLabel = JBLabel(" ").apply {
+        foreground = JBColor.GRAY
     }
 
     @Volatile
@@ -71,6 +77,14 @@ class McpPanel : JPanel(BorderLayout()) {
                 stopServer()
                 startServer()
             }
+            updateSnippet()
+        }
+
+        // Restore last-selected agent, default to first in list.
+        agentCombo.selectedIndex = AGENTS.indexOfFirst { it.label == props.getValue(PROP_AGENT, AGENTS[0].label) }
+            .coerceAtLeast(0)
+        agentCombo.addActionListener {
+            props.setValue(PROP_AGENT, selectedAgent().label)
             updateSnippet()
         }
 
@@ -114,6 +128,17 @@ class McpPanel : JPanel(BorderLayout()) {
         val box = JPanel(BorderLayout()).apply {
             border = BorderFactory.createTitledBorder("Configuration snippet")
         }
+
+        val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 4)).apply {
+            add(JBLabel("Agent:"))
+            add(agentCombo)
+        }
+        val headerCol = JPanel().apply {
+            layout = BorderLayout()
+            add(header, BorderLayout.NORTH)
+            add(pathHintLabel, BorderLayout.SOUTH)
+        }
+        box.add(headerCol, BorderLayout.NORTH)
         box.add(JBScrollPane(snippetArea), BorderLayout.CENTER)
 
         val copyBtn = JButton("Copy to clipboard").apply {
@@ -138,8 +163,12 @@ class McpPanel : JPanel(BorderLayout()) {
 
     private fun updateSnippet() {
         val port = portField.text.toIntOrNull() ?: DEFAULT_PORT
-        snippetArea.text = McpInstaller.snippet(port)
+        val agent = selectedAgent()
+        snippetArea.text = McpInstaller.snippet(agent.snippet, port)
+        pathHintLabel.text = "Paste into: ${agent.path}"
     }
+
+    private fun selectedAgent(): AgentPreset = AGENTS[agentCombo.selectedIndex.coerceIn(0, AGENTS.size - 1)]
 
     // ========================================================================
     // Server lifecycle
@@ -196,9 +225,44 @@ class McpPanel : JPanel(BorderLayout()) {
         stopServer()
     }
 
+    private data class AgentPreset(
+        val label: String,
+        val snippet: McpInstaller.SnippetAgent,
+        val path: String,
+    )
+
     companion object {
         private const val PROP_ENABLED = "dta.mcp.enabled"
         private const val PROP_PORT = "dta.mcp.port"
+        private const val PROP_AGENT = "dta.mcp.agent"
         private const val DEFAULT_PORT = 12321
+
+        private val AGENTS = listOf(
+            AgentPreset(
+                "Claude Code",
+                McpInstaller.SnippetAgent.CLAUDE_CODE,
+                "run the shell command, or merge the JSON into ~/.claude.json",
+            ),
+            AgentPreset(
+                "Cursor",
+                McpInstaller.SnippetAgent.CURSOR,
+                "~/.cursor/mcp.json (user-scope) or .cursor/mcp.json (project-scope)",
+            ),
+            AgentPreset(
+                "Android Studio Gemini",
+                McpInstaller.SnippetAgent.AS_GEMINI,
+                "~/Library/Application Support/Google/AndroidStudio<ver>/mcp.json (macOS) — see AS docs on other OSes",
+            ),
+            AgentPreset(
+                "Claude Desktop",
+                McpInstaller.SnippetAgent.CLAUDE_DESKTOP,
+                "macOS: ~/Library/Application Support/Claude/claude_desktop_config.json",
+            ),
+            AgentPreset(
+                "VS Code (Copilot Chat)",
+                McpInstaller.SnippetAgent.VSCODE,
+                ".vscode/mcp.json in your workspace",
+            ),
+        )
     }
 }
