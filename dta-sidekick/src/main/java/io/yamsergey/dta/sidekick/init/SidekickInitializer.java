@@ -20,6 +20,7 @@ import io.yamsergey.dta.sidekick.network.BodyStorage;
 import io.yamsergey.dta.sidekick.network.adapter.NetworkInterceptorManager;
 import io.yamsergey.dta.sidekick.compose.RecompositionHooks;
 import io.yamsergey.dta.sidekick.webview.WebViewDebugHook;
+import io.yamsergey.dta.sidekick.webview.WebViewLoadUrlHook;
 import io.yamsergey.dta.sidekick.server.InspectorServer;
 
 /**
@@ -185,6 +186,12 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
         } catch (Exception e) {
             SidekickLog.e(TAG, "Failed to register WebView debug hook", e);
         }
+        // WebViewLoadUrlHook is NOT registered: it would need to instrument
+        // android.webkit.WebView, a boot classloader class. Boot-classloader
+        // bytecode can't reach HookDispatcher (which lives in the app
+        // classloader), so the injected invokestatic throws NoClassDefFoundError
+        // at runtime and crashes the app. The hook class is kept in the tree
+        // for future use once we have a boot-visible dispatcher.
     }
 
     /**

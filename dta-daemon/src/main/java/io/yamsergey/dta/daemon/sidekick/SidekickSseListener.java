@@ -26,6 +26,17 @@ public class SidekickSseListener implements AutoCloseable {
 
     public interface EventListener {
         void onCustomTabWillLaunch(String eventId, String url, long timestamp);
+
+        /**
+         * A WebView is about to load a URL in the target process. The hook on
+         * the app side is blocked on a latch; the host should attach CDP +
+         * enable Network capture on {@code webview_devtools_remote_<pid>}, then
+         * POST {@code /webviews/ack/{eventId}} to release it.
+         */
+        default void onWebViewWillLoad(String eventId, int pid, String packageName, String url, long timestamp) {
+            // Default: ignore. Implementations that care (DtaOrchestrator) override.
+        }
+
         void onConnected();
         void onDisconnected();
     }
@@ -146,6 +157,15 @@ public class SidekickSseListener implements AutoCloseable {
                     String eventUrl = node.path("url").asText();
                     long timestamp = node.path("timestamp").asLong();
                     listener.onCustomTabWillLaunch(eventId, eventUrl, timestamp);
+                }
+                case "webview_will_load" -> {
+                    JsonNode node = mapper.readTree(data);
+                    String eventId = node.path("id").asText();
+                    int pid = node.path("pid").asInt();
+                    String pkg = node.path("packageName").asText();
+                    String eventUrl = node.path("url").asText();
+                    long timestamp = node.path("timestamp").asLong();
+                    listener.onWebViewWillLoad(eventId, pid, pkg, eventUrl, timestamp);
                 }
                 default -> log.debug("Ignoring SSE event: {}", eventType);
             }

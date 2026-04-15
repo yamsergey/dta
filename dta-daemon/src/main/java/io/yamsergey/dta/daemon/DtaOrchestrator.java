@@ -611,8 +611,14 @@ public class DtaOrchestrator {
             CdpWatcherManager.getInstance().startWatcher(
                 packageName, device, DEFAULT_CDP_PORT, conn.port(), conn.client(), null);
 
+            // Capture immutable copies for the listener closure. sidekickPort
+            // stays stable for the connection lifetime; bootstrap+events use it.
+            final int sidekickPort = conn.port();
+            final SidekickClient sidekickClient = conn.client();
+            final String watcherKey = device != null ? device : "default";
+
             // Start SSE listener for push events
-            SidekickSseListener sseListener = new SidekickSseListener(conn.port(),
+            SidekickSseListener sseListener = new SidekickSseListener(sidekickPort,
                 new SidekickSseListener.EventListener() {
                     @Override
                     public void onCustomTabWillLaunch(String eventId, String url, long timestamp) {
@@ -621,8 +627,27 @@ public class DtaOrchestrator {
                     }
 
                     @Override
+                    public void onWebViewWillLoad(String eventId, int pid, String pkg, String url, long timestamp) {
+                        log.info("SSE: WebView will load: {} (pid={}, event={})", url, pid, eventId);
+                        WebViewNetworkWatcher watcher = webViewWatchers.computeIfAbsent(
+                            watcherKey, k -> new WebViewNetworkWatcher(device));
+                        // Run the attach off the SSE reader thread so we don't
+                        // block the stream while tight-polling / ACKing.
+                        new Thread(() ->
+                            watcher.onWebViewWillLoad(eventId, pid, url, sidekickClient, sidekickPort),
+                            "webview-attach-" + pid).start();
+                    }
+
+                    @Override
                     public void onConnected() {
                         log.info("SSE: Connected to sidekick for {}", packageName);
+                        // One-shot bootstrap sweep: catch WebViews that were
+                        // already live before this SSE connection. Future loads
+                        // come in via webview_will_load events.
+                        WebViewNetworkWatcher watcher = webViewWatchers.computeIfAbsent(
+                            watcherKey, k -> new WebViewNetworkWatcher(device));
+                        new Thread(() -> watcher.bootstrapDiscovery(sidekickClient),
+                            "webview-bootstrap").start();
                     }
 
                     @Override

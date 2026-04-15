@@ -39,6 +39,7 @@ import io.yamsergey.dta.sidekick.layout.UnifiedTreeFilter;
 import io.yamsergey.dta.sidekick.view.WindowRootDiscovery;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabEvent;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabsInspector;
+import io.yamsergey.dta.sidekick.webview.WebViewLoadEvent;
 import io.yamsergey.dta.sidekick.mock.MockConfig;
 import io.yamsergey.dta.sidekick.mock.MockDirection;
 import io.yamsergey.dta.sidekick.mock.MockHttpResponse;
@@ -107,6 +108,17 @@ public class InspectorServer {
 
     // CDP capture ack mechanism
     private final ConcurrentHashMap<String, CountDownLatch> pendingCdpAcks = new ConcurrentHashMap<>();
+    // Pending ACKs and last-ACK-per-pid for the WebView flow. Unlike the
+    // Custom Tabs path (which moved to an about:blank trick), WebView blocks
+    // the caller thread on a latch until the host attaches CDP — the debug
+    // socket already exists at loadUrl time, so we can arm capture before
+    // letting the call proceed.
+    private final ConcurrentHashMap<String, CountDownLatch> pendingWebViewAcks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Integer, Long> lastWebViewAckByPid = new ConcurrentHashMap<>();
+    // How long a prior ACK for a pid counts as "capture still armed" — within
+    // this window the hook lets the call through without broadcasting/blocking.
+    private static final long WEBVIEW_ACK_FRESH_MS = 10_000;
+    private static final long WEBVIEW_ACK_TIMEOUT_MS = 2_000;
     private volatile boolean cdpCaptureRequested = false;
 
     private volatile LocalServerSocket serverSocket;
@@ -575,6 +587,11 @@ public class InspectorServer {
         if (path.startsWith("/customtabs/ack/") && "POST".equals(method)) {
             String eventId = path.substring("/customtabs/ack/".length());
             handleCdpAck(eventId, out);
+            return;
+        }
+        if (path.startsWith("/webviews/ack/") && "POST".equals(method)) {
+            String eventId = path.substring("/webviews/ack/".length());
+            handleWebViewAck(eventId, out);
             return;
         }
 
@@ -2454,6 +2471,100 @@ public class InspectorServer {
             Map<String, Object> error = new HashMap<>();
             error.put("error", "No pending ack for event: " + eventId);
             sendJson(out, 404, error);
+        }
+    }
+
+    /**
+     * POST /webviews/ack/{eventId} — host signals CDP is attached and Network
+     * capture is enabled for the WebView whose pid the event carried. Releases
+     * the latch so {@code loadUrl} can proceed with capture already armed, and
+     * stamps the pid as "capture armed" so further loadUrls on the same pid
+     * can skip the broadcast/block for {@link #WEBVIEW_ACK_FRESH_MS}.
+     */
+    private void handleWebViewAck(String eventId, OutputStream out) throws IOException {
+        CountDownLatch latch = pendingWebViewAcks.get(eventId);
+        if (latch == null) {
+            SidekickLog.w(TAG, "WebView ack for unknown event: " + eventId);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "No pending ack for event: " + eventId);
+            sendJson(out, 404, error);
+            return;
+        }
+        latch.countDown();
+        SidekickLog.i(TAG, "WebView ack received for event: " + eventId);
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "acked");
+        response.put("eventId", eventId);
+        sendJson(out, 200, response);
+    }
+
+    /**
+     * Broadcasts a WebView load event to all connected SSE clients and blocks
+     * the calling thread (the app's UI thread) for up to {@link #WEBVIEW_ACK_TIMEOUT_MS}
+     * waiting for the host to ACK. On ACK, capture is armed and the load may
+     * proceed. On timeout, the load proceeds anyway — we'd rather miss one
+     * capture than hang the app.
+     *
+     * <p>Skips broadcast + block and returns immediately if the host has ACKed
+     * for this pid within {@link #WEBVIEW_ACK_FRESH_MS} — capture is already
+     * armed from a prior load. Also skips if no SSE clients are connected.</p>
+     *
+     * @return true if ACK was received (capture armed), false on timeout or skip
+     */
+    public boolean broadcastWebViewLoadAndWait(WebViewLoadEvent event) {
+        // Throttle: prior ACK for this pid still counts as "capture armed".
+        Long lastAck = lastWebViewAckByPid.get(event.getPid());
+        if (lastAck != null && System.currentTimeMillis() - lastAck < WEBVIEW_ACK_FRESH_MS) {
+            SidekickLog.d(TAG, "WebView throttled: pid=" + event.getPid()
+                + " last ACK " + (System.currentTimeMillis() - lastAck) + "ms ago");
+            return true;
+        }
+        // No SSE subscribers → no host listening, don't block.
+        if (sseClients.isEmpty()) {
+            return false;
+        }
+
+        CountDownLatch latch = new CountDownLatch(1);
+        pendingWebViewAcks.put(event.getId(), latch);
+        try {
+            // Broadcast off the current thread — same reasoning as Custom Tabs
+            // path: sendSseEvent writes to the SSE OutputStream which shares a
+            // lock with the heartbeat thread. If that's stuck we'd deadlock.
+            executor.submit(() -> broadcastWebViewLoad(event));
+            boolean acked = latch.await(WEBVIEW_ACK_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (acked) {
+                lastWebViewAckByPid.put(event.getPid(), System.currentTimeMillis());
+            } else {
+                SidekickLog.w(TAG, "WebView ACK timeout for event " + event.getId()
+                    + " (pid=" + event.getPid() + ") — proceeding without capture");
+            }
+            return acked;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } finally {
+            pendingWebViewAcks.remove(event.getId());
+        }
+    }
+
+    private void broadcastWebViewLoad(WebViewLoadEvent event) {
+        if (sseClients.isEmpty()) {
+            return;
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", event.getId());
+        data.put("pid", event.getPid());
+        data.put("url", event.getUrl());
+        data.put("packageName", event.getPackageName());
+        data.put("timestamp", event.getTimestamp());
+        data.put("eventType", "webview_will_load");
+
+        for (OutputStream client : sseClients) {
+            try {
+                sendSseEvent(client, "webview_will_load", data);
+            } catch (IOException e) {
+                sseClients.remove(client);
+            }
         }
     }
 

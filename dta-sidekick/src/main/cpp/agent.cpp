@@ -61,7 +61,16 @@ static void JNICALL ClassFileLoadHook(
         return;
     }
 
-    // Quick check: skip system classes for performance
+    // Quick check: skip system classes for performance.
+    //
+    // Note: we intentionally do NOT carve exceptions for android/webkit/* or
+    // other framework classes here. Instrumenting boot-classloader classes
+    // (like android.webkit.WebView) would inject bytecode that references
+    // HookDispatcher — which lives in the APP classloader. Boot classloader
+    // can't resolve app-classloader classes, so the first invocation would
+    // throw NoClassDefFoundError and crash the app. Hooks on framework types
+    // need a dispatcher reachable from the boot classloader before we can
+    // re-enable this.
     if (strncmp(name, "java/", 5) == 0 ||
         strncmp(name, "sun/", 4) == 0 ||
         strncmp(name, "com/android/", 12) == 0 ||
