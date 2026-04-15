@@ -200,6 +200,15 @@ public final class DtaRoutes {
                     steps.put("launchCommand", result.manualSteps().launchCommand());
                     steps.put("notes", result.manualSteps().notes());
                 }
+                // Concrete fix snippet when a known Gradle failure pattern is
+                // detected (e.g. SNAPSHOT repo shadowing). Lets the agent
+                // patch the project config without guessing.
+                if (result.resolutionHint() != null) {
+                    var hint = json.putObject("resolutionHint");
+                    hint.put("summary", result.resolutionHint().summary());
+                    hint.put("snippet", result.resolutionHint().snippet());
+                    hint.put("target", result.resolutionHint().target());
+                }
                 jsonNode(ctx, json);
             } catch (Exception e) {
                 log.error("run_app failed", e);

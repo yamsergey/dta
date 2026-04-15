@@ -1030,11 +1030,9 @@ public class McpServer {
                     String activity = getString(args, "activity");
 
                     String json = getDaemon().runApp(project, device, variant, module, activity);
-                    var result = mapper.readTree(json);
                     // Always return the full JSON payload — it carries the
-                    // `manualSteps` runbook (init-script content + gradle/adb
-                    // commands) which a sandboxed agent can execute via its
-                    // Bash tool when this MCP tool can't acquire ~/.gradle.
+                    // `manualSteps` runbook + `resolutionHint` which a sandboxed
+                    // or repo-misconfigured agent needs to fall back or fix.
                     return ok(json);
                 } catch (Exception e) {
                     return errorResult("Failed to run app: " + e.getMessage());

@@ -50,12 +50,25 @@ public class AppRunner {
          *  build fails (sandbox denies {@code ~/.gradle} lock, offline caches,
          *  etc.) by writing {@code initScriptContent} to a file and executing
          *  {@code gradleCommand} via a shell. */
-        ManualSteps manualSteps
+        ManualSteps manualSteps,
+        /** Optional diagnostic for known failure patterns (e.g. snapshot
+         *  resolution failing because the project overrides settings-level
+         *  repos). Null when the build succeeded or no pattern matched. */
+        ResolutionHint resolutionHint
     ) {
-        public static RunResult failure(String error, String buildLog, ManualSteps steps) {
-            return new RunResult(false, null, null, buildLog, null, error, steps);
+        public static RunResult failure(String error, String buildLog, ManualSteps steps, ResolutionHint hint) {
+            return new RunResult(false, null, null, buildLog, null, error, steps, hint);
         }
     }
+
+    /** Actionable hint for a recognized failure mode. */
+    public record ResolutionHint(
+        String summary,
+        /** Gradle snippet the caller should apply to the project. */
+        String snippet,
+        /** Where to paste the snippet. */
+        String target
+    ) {}
 
     /**
      * The commands run_app executes internally, exposed as a runbook so agents
@@ -112,7 +125,8 @@ public class AppRunner {
             if (exitCode != 0) {
                 return RunResult.failure("Gradle build failed (exit code " + exitCode + ")",
                     buildLog.toString(),
-                    new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes));
+                    new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes),
+                    detectResolutionHint(buildLog.toString()));
             }
 
             // 3. Find APK
@@ -121,7 +135,8 @@ public class AppRunner {
             if (apkPath == null) {
                 return RunResult.failure("Could not find APK for variant " + request.variant(),
                     buildLog.toString(),
-                    new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes));
+                    new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes),
+                    null);
             }
             log.info("APK found: {}", apkPath);
 
@@ -160,13 +175,80 @@ public class AppRunner {
             log.info("Launched: {}", component);
 
             return new RunResult(true, packageName, apkPath, buildLog.toString(), component, null,
-                new ManualSteps(initScriptContent, gradleCommand, resolvedInstall, resolvedLaunch, notes));
+                new ManualSteps(initScriptContent, gradleCommand, resolvedInstall, resolvedLaunch, notes),
+                null);
 
         } catch (Exception e) {
             log.error("Run failed: {}", e.getMessage(), e);
             return RunResult.failure(e.getMessage(), buildLog.toString(),
-                new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes));
+                new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes),
+                detectResolutionHint(buildLog.toString()));
         }
+    }
+
+    /**
+     * Inspects the Gradle build log for known failure patterns and returns
+     * a concrete fix snippet the caller can apply. Currently recognizes:
+     *
+     * <ul>
+     *   <li>"Could not find io.github.yamsergey:dta-sidekick:...-SNAPSHOT" —
+     *       project-level repos shadow our init-script-level Sonatype
+     *       snapshots repo (default {@code RepositoriesMode.PREFER_PROJECT}
+     *       or an explicit {@code allprojects { repositories { } }} in the
+     *       root build script). Returns the snippet to add to either
+     *       {@code settings.gradle(.kts)} or the root {@code build.gradle(.kts)}.</li>
+     * </ul>
+     *
+     * <p>We surface this rather than patching the init script to inject
+     * repos at {@code allprojects} level unconditionally — that only affects
+     * SNAPSHOT users (release artifacts resolve from mavenCentral which most
+     * projects already declare) and avoids mutating repo lists for everyone.</p>
+     */
+    private ResolutionHint detectResolutionHint(String buildLog) {
+        if (buildLog == null) return null;
+        boolean isSnapshot = SIDEKICK_VERSION.contains("SNAPSHOT");
+        if (!isSnapshot) return null;
+        String sidekickCoord = "io.github.yamsergey:dta-sidekick:" + SIDEKICK_VERSION;
+        if (!buildLog.contains("Could not find " + sidekickCoord)
+            && !buildLog.contains("Could not resolve " + sidekickCoord)) {
+            return null;
+        }
+        String summary =
+            "dta-sidekick " + SIDEKICK_VERSION + " is a SNAPSHOT and was not resolved. "
+            + "The sidekick init script adds the Sonatype snapshots repo at the settings level, "
+            + "but your project declares repositories at the project level (RepositoriesMode.PREFER_PROJECT, "
+            + "the Gradle default) or in `allprojects { repositories { } }`, which overrides settings-level "
+            + "repos. Add the Sonatype snapshots repo to one of the places below and retry.";
+        String snippet =
+            """
+            // Option A — Kotlin DSL, settings.gradle.kts (preferred, modern projects)
+            dependencyResolutionManagement {
+                repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+                repositories {
+                    mavenCentral()
+                    maven("https://central.sonatype.com/repository/maven-snapshots/")
+                }
+            }
+
+            // Option B — Groovy DSL, settings.gradle
+            dependencyResolutionManagement {
+                repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+                repositories {
+                    mavenCentral()
+                    maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
+                }
+            }
+
+            // Option C — if you must keep project-level repositories, add to root build.gradle(.kts)
+            //            under `allprojects { repositories { ... } }`
+            allprojects {
+                repositories {
+                    maven { url = uri("https://central.sonatype.com/repository/maven-snapshots/") }
+                }
+            }
+            """;
+        String target = "settings.gradle(.kts) — or root build.gradle(.kts) if you keep project-level repos";
+        return new ResolutionHint(summary, snippet, target);
     }
 
     private static String shellQuote(String s) {
