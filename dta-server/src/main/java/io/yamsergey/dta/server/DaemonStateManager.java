@@ -11,14 +11,14 @@ import java.time.Instant;
 import java.util.Map;
 
 /**
- * Manages the daemon state file (~/.dta/daemon.json).
+ * Manages the daemon state file (~/.config/dta/daemon.json).
  * This file allows clients to discover the running daemon's port.
  */
 public class DaemonStateManager {
 
     private static final Logger log = LoggerFactory.getLogger(DaemonStateManager.class);
     private static final ObjectMapper mapper = new ObjectMapper();
-    private static final Path DAEMON_STATE_FILE = Path.of(System.getProperty("user.home"), ".dta", "daemon.json");
+    private static final Path DAEMON_STATE_FILE = io.yamsergey.dta.daemon.DtaPaths.daemonStateFile();
 
     /**
      * Writes the daemon state file with the given port.

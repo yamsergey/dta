@@ -132,8 +132,7 @@ public class DtaDaemon {
         return app;
     }
 
-    private static final java.nio.file.Path STATE_FILE =
-            java.nio.file.Path.of(System.getProperty("user.home"), ".dta", "daemon.json");
+    private static final java.nio.file.Path STATE_FILE = DtaPaths.daemonStateFile();
 
     private void writeStateFile(int port) {
         try {

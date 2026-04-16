@@ -13,7 +13,7 @@ import java.nio.file.Path;
  * Auto-starts and discovers the DTA daemon server.
  *
  * Discovery order:
- * 1. Read ~/.dta/daemon.json -> get port -> health check
+ * 1. Read ~/.config/dta/daemon.json -> get port -> health check
  * 2. If not running, spawn "dta-cli server --port 0" as detached process
  * 3. Poll health every 500ms, up to 15s
  *
@@ -26,7 +26,7 @@ public class DaemonLauncher {
 
     private static final Logger log = LoggerFactory.getLogger(DaemonLauncher.class);
     private static final ObjectMapper mapper = new ObjectMapper();
-    private static final Path DAEMON_STATE_FILE = Path.of(System.getProperty("user.home"), ".dta", "daemon.json");
+    private static final Path DAEMON_STATE_FILE = DtaPaths.daemonStateFile();
     private static final int HEALTH_CHECK_INTERVAL_MS = 500;
     private static final int MAX_WAIT_MS = 15_000;
     private static final int SHUTDOWN_WAIT_MS = 5_000;

@@ -25,7 +25,7 @@ import java.util.List;
  * REST API on purpose:</p>
  * <ul>
  *   <li>The daemon port is internal coordination, dynamically assigned, and
- *       lives at {@code ~/.dta/daemon.json}.</li>
+ *       lives at {@code ~/.config/dta/daemon.json}.</li>
  *   <li>The MCP port is external integration, user-picked, and stable so
  *       agent configs (Android Studio Gemini's {@code mcp.json}, Claude Code,
  *       Cursor, etc.) don't need rewriting on every restart.</li>
