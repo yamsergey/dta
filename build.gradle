@@ -12,7 +12,7 @@ buildscript {
         gradlePluginPortal()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath 'com.android.tools.build:gradle:9.1.0'
         classpath 'com.vanniktech.maven.publish:com.vanniktech.maven.publish.gradle.plugin:0.36.0'
         // Force 1.25.0+ so Spring Boot's bootJar works (AGP transitively brings 1.21)
         classpath 'org.apache.commons:commons-compress:1.25.0'
