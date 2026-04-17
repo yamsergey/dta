@@ -1,6 +1,6 @@
 package io.yamsergey.dta.cli.inspector;
 
-import io.yamsergey.dta.server.DtaServerApplication;
+import io.yamsergey.dta.daemon.DtaDaemon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine.Command;
@@ -30,13 +30,15 @@ public class ServerCommand implements Callable<Integer> {
             System.setProperty("dta.log.file", logFile);
         }
 
-        log.info("Starting DTA server on port {}", port == 0 ? "(auto)" : port);
-        if (logFile != null) {
-            log.info("Logging to file: {}", logFile);
-        }
+        log.info("Starting DTA daemon on port {}", port == 0 ? "(auto)" : port);
         log.info("Press Ctrl+C to stop");
 
-        DtaServerApplication.start(port, logFile);
+        DtaDaemon daemon = new DtaDaemon();
+        int actualPort = daemon.start(port);
+        log.info("DTA daemon listening on http://localhost:{}", actualPort);
+
+        // Block until shutdown
+        Thread.currentThread().join();
         return 0;
     }
 }

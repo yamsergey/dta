@@ -43,6 +43,7 @@ sourceSets {
 dependencies {
     // Core DTA library
     implementation project(':tools-android')
+    implementation project(':dta-daemon')
 
     // Spring Boot with explicit versions
     implementation "org.springframework.boot:spring-boot-starter-web:${springBootVersion}"

@@ -1,7 +1,7 @@
 package io.yamsergey.dta.cli.mock;
 
-import io.yamsergey.dta.mcp.DaemonClient;
-import io.yamsergey.dta.mcp.DaemonLauncher;
+import io.yamsergey.dta.daemon.DaemonClient;
+import io.yamsergey.dta.daemon.DaemonLauncher;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 

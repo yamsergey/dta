@@ -169,7 +169,13 @@ public class InspectorServer {
             if (!cdpCaptureRequested || sseClients.isEmpty()) {
                 return false;
             }
-            broadcastCustomTabEvent(event);
+            // Broadcast off the main thread — sendSseEvent writes to the SSE
+            // OutputStream which shares a lock with the heartbeat thread.
+            // If the daemon disconnected and the heartbeat is stuck in a
+            // socket write (sock_alloc_send_pskb), the main thread would
+            // deadlock waiting for the same lock. Running the broadcast
+            // asynchronously keeps the main thread (and the UI) responsive.
+            executor.submit(() -> broadcastCustomTabEvent(event));
             return true;
         } catch (Exception e) {
             SidekickLog.w(TAG, "CDP broadcast failed", e);
@@ -2532,6 +2538,17 @@ public class InspectorServer {
         } finally {
             sseClients.remove(out);
             SidekickLog.i(TAG, "SSE client disconnected");
+
+            // Auto-disarm CDP capture when the last SSE client disconnects.
+            // The daemon is the only SSE consumer — if it dies (AS restart,
+            // crash, kill -9), no one will receive the Custom Tab launch
+            // event or navigate Chrome from about:blank to the real URL.
+            // Disarming prevents the about:blank trick from firing without
+            // a listener, which would strand the user on a blank page.
+            if (sseClients.isEmpty() && cdpCaptureRequested) {
+                cdpCaptureRequested = false;
+                SidekickLog.i(TAG, "CDP capture auto-disarmed (last SSE client disconnected)");
+            }
         }
     }
 

@@ -1,8 +1,8 @@
 package io.yamsergey.dta.cli.run;
 
-import io.yamsergey.dta.tools.android.runner.AppRunner;
-import io.yamsergey.dta.tools.android.runner.AppRunner.RunRequest;
-import io.yamsergey.dta.tools.android.runner.AppRunner.RunResult;
+import io.yamsergey.dta.daemon.runner.AppRunner;
+import io.yamsergey.dta.daemon.runner.AppRunner.RunRequest;
+import io.yamsergey.dta.daemon.runner.AppRunner.RunResult;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 

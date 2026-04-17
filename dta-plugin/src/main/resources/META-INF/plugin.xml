@@ -1,0 +1,25 @@
+<idea-plugin>
+    <id>io.yamsergey.dta</id>
+    <name>DTA - Development Tools for Android</name>
+    <vendor url="https://github.com/yamsergey/dta">Sergey Yamshchikov</vendor>
+    <description><![CDATA[
+        AI-powered Android development tools with layout inspection, network capture,
+        WebSocket monitoring, and MCP server integration.
+    ]]></description>
+
+    <depends>com.intellij.modules.androidstudio</depends>
+    <depends>org.jetbrains.android</depends>
+    <depends>com.intellij.gradle</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="DTA Inspector"
+                    anchor="bottom"
+                    factoryClass="io.yamsergey.dta.plugin.DtaToolWindowFactory"
+                    icon="/icons/dta-13.svg"/>
+        <applicationService serviceImplementation="io.yamsergey.dta.plugin.DtaService"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
+        <taskManager implementation="io.yamsergey.dta.plugin.SidekickInjector"/>
+    </extensions>
+</idea-plugin>

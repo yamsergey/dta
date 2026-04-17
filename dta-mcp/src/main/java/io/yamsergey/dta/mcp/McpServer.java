@@ -1,5 +1,7 @@
 package io.yamsergey.dta.mcp;
 
+import io.yamsergey.dta.daemon.DaemonClient;
+import io.yamsergey.dta.daemon.DaemonLauncher;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 import io.modelcontextprotocol.json.McpJsonMapper;
@@ -40,13 +42,7 @@ public class McpServer {
             log.info("File logging enabled: {} (level: {})", logFile, logLevel != null ? logLevel : "INFO");
         }
 
-        List<McpServerFeatures.SyncToolSpecification> tools = new ArrayList<>();
-        collectDeviceTools(tools);
-        collectAppTools(tools);
-        collectLayoutTools(tools);
-        collectMockTools(tools);
-        collectCdpTools(tools);
-        collectRunTools(tools);
+        List<McpServerFeatures.SyncToolSpecification> tools = buildToolList();
 
         var server = io.modelcontextprotocol.server.McpServer.sync(
                 new StdioServerTransportProvider(jsonMapper))
@@ -57,8 +53,52 @@ public class McpServer {
             .tools(tools)
             .build();
 
-        log.info("MCP server started with {} tools", tools.size());
+        log.info("MCP server started with {} tools (stdio transport)", tools.size());
         Thread.currentThread().join();
+    }
+
+    /**
+     * Builds the full list of MCP tool specifications. Single source of truth —
+     * shared by every transport (stdio, HTTP, future variants). Adding a new
+     * tool means editing exactly one place: the appropriate {@code collectXxxTools}
+     * method below.
+     *
+     * <p>Calling this triggers a lazy daemon connection on the first tool
+     * invocation, not at build time — safe to call without a daemon running.</p>
+     */
+    public static List<McpServerFeatures.SyncToolSpecification> buildToolList() {
+        List<McpServerFeatures.SyncToolSpecification> tools = new ArrayList<>();
+        collectDeviceTools(tools);
+        collectAppTools(tools);
+        collectLayoutTools(tools);
+        collectMockTools(tools);
+        collectCdpTools(tools);
+        collectRunTools(tools);
+        return tools;
+    }
+
+    /**
+     * Returns the shared {@link McpJsonMapper} configured for Jackson 3.
+     * Transport entry points (stdio, HTTP) need this to construct their
+     * transport providers.
+     */
+    public static McpJsonMapper getMcpJsonMapper() {
+        return jsonMapper;
+    }
+
+    /**
+     * Returns the plain names of every registered MCP tool. Exposed as a
+     * {@code List<String>} so consumers (like the plugin's MCP tab UI) can
+     * display the tool list without depending on MCP SDK types directly —
+     * the SDK is an {@code implementation} dep of dta-mcp and isn't
+     * transitively visible to dta-plugin.
+     */
+    public static List<String> getToolNames() {
+        List<String> names = new ArrayList<>();
+        for (var spec : buildToolList()) {
+            names.add(spec.tool().name());
+        }
+        return names;
     }
 
     /**
@@ -989,23 +1029,11 @@ public class McpServer {
                     String device = getString(args, "device");
                     String activity = getString(args, "activity");
 
-                    var runner = new io.yamsergey.dta.tools.android.runner.AppRunner();
-                    var req = new io.yamsergey.dta.tools.android.runner.AppRunner.RunRequest(
-                        project, device, variant, module, activity);
-
-                    var result = runner.run(req, (stage, message) ->
-                        log.debug("[{}] {}", stage, message));
-
-                    if (result.success()) {
-                        ObjectNode json = mapper.createObjectNode();
-                        json.put("success", true);
-                        json.put("packageName", result.packageName());
-                        json.put("apkPath", result.apkPath());
-                        json.put("launchActivity", result.launchActivity());
-                        return ok(mapper.writeValueAsString(json));
-                    } else {
-                        return errorResult("Build failed: " + result.error());
-                    }
+                    String json = getDaemon().runApp(project, device, variant, module, activity);
+                    // Always return the full JSON payload — it carries the
+                    // `manualSteps` runbook + `resolutionHint` which a sandboxed
+                    // or repo-misconfigured agent needs to fall back or fix.
+                    return ok(json);
                 } catch (Exception e) {
                     return errorResult("Failed to run app: " + e.getMessage());
                 }
@@ -1161,7 +1189,11 @@ public class McpServer {
         return map;
     }
 
-    private static String getVersion() {
+    /**
+     * Returns the dta-mcp version read from {@code /version.properties}.
+     * Public so HTTP transport entry points can pass it to {@code serverInfo()}.
+     */
+    public static String getVersion() {
         try (var is = McpServer.class.getResourceAsStream("/version.properties")) {
             if (is != null) {
                 var props = new java.util.Properties();

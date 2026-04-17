@@ -1,0 +1,129 @@
+plugins {
+    id 'java-library'
+    id 'application'
+    id 'com.vanniktech.maven.publish'
+}
+
+application {
+    mainClass = 'io.yamsergey.dta.daemon.DtaDaemon'
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven { url = uri("https://repo.gradle.org/gradle/libs-releases") }
+}
+
+dependencies {
+    // Core DTA library (for Result, Success, Failure, ViewNode, etc.)
+    api project(':tools-android')
+
+    // Jackson for JSON serialization
+    implementation libs.jackson.core
+    implementation libs.jackson.databind
+    implementation libs.jackson.annotations
+
+    // Javalin HTTP server (embedded Jetty)
+    implementation 'io.javalin:javalin:6.6.0'
+
+    // SLF4J for logging
+    implementation 'org.slf4j:slf4j-api:2.0.16'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.16'
+
+    // Lombok
+    implementation libs.sugar.lombok
+    annotationProcessor libs.sugar.lombok
+
+    // Testing
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// Generate version.properties from centralized version (consumed by DtaDaemon
+// for /api/version reporting and DaemonLauncher version-compat checks).
+def versionPropsDir = layout.buildDirectory.dir("generated/resources")
+def dtaVersionValue = rootProject.findProperty('dtaVersion') ?: '0.0.0'
+
+tasks.register('generateVersionProperties') {
+    outputs.dir(versionPropsDir)
+    inputs.property('version', dtaVersionValue)
+    doLast {
+        def outDir = versionPropsDir.get().asFile
+        outDir.mkdirs()
+        new File(outDir, "version.properties").text = "version=${dtaVersionValue}\n"
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn 'generateVersionProperties'
+}
+
+// sourcesJar (added by vanniktech maven publish plugin) reads from the
+// generated resources dir; declare the dependency explicitly so Gradle's
+// validation doesn't complain about implicit task ordering.
+tasks.matching { it.name == 'sourcesJar' }.configureEach {
+    dependsOn 'generateVersionProperties'
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDir versionPropsDir
+        }
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'io.yamsergey.dta.daemon.DtaDaemon'
+    }
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.addBooleanOption('Xdoclint:none', true)
+    failOnError = false
+}
+
+mavenPublishing {
+    publishToMavenCentral()
+    if (project.findProperty("signingInMemoryKey") != null) {
+        signAllPublications()
+    }
+    coordinates("io.github.yamsergey", "dta-daemon", dtaVersion)
+
+    pom {
+        name = 'Development Tools for Android - Daemon Library'
+        description = 'Daemon components for DTA including CDP, Sidekick, and scroll capture'
+        url = 'https://github.com/yamsergey/dta'
+
+        licenses {
+            license {
+                name = 'Apache License 2.0'
+                url = 'https://www.apache.org/licenses/LICENSE-2.0'
+            }
+        }
+
+        developers {
+            developer {
+                id = 'yamsergey'
+                name = 'Sergey Yamshchikov'
+            }
+        }
+
+        scm {
+            connection = 'scm:git:git://github.com/yamsergey/dta.git'
+            developerConnection = 'scm:git:ssh://github.com/yamsergey/dta.git'
+            url = 'https://github.com/yamsergey/dta'
+        }
+    }
+}
