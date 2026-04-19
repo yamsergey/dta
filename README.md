@@ -29,7 +29,19 @@ brew install dta-cli
 
 **Requirements:** Java 21+
 
-Then add sidekick to your app (debug builds only):
+#### Auto-inject (recommended)
+
+No project changes needed. Use the CLI or the MCP `run_app` tool to build and launch your app with sidekick injected automatically:
+
+```bash
+dta-cli run --project /path/to/your/android/project
+```
+
+This runs Gradle with an init script that adds `dta-sidekick` as a `debugImplementation` dependency, builds the APK, installs it on the device, and launches the main activity. Your AI assistant can do the same via the `run_app` MCP tool.
+
+#### Manual (alternative)
+
+If you prefer to add sidekick to your build files directly:
 
 ```gradle
 dependencies {
@@ -37,7 +49,7 @@ dependencies {
 }
 ```
 
-Sidekick auto-initializes via AndroidX Startup — no code changes needed.
+Sidekick auto-initializes via AndroidX Startup — no code changes beyond the dependency.
 
 ### Connect your AI assistant
 
