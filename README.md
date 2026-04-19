@@ -55,38 +55,30 @@ Sidekick auto-initializes via AndroidX Startup — no code changes beyond the de
 
 ### Connect your AI assistant
 
-#### Claude Code
+**With the AS plugin:** open the MCP tab, enable the server, pick your agent from the dropdown — it shows the exact config snippet to copy-paste. Works with Claude Code, Cursor, Android Studio Gemini, Claude Desktop, VS Code, and others.
+
+**Without the plugin (CLI only):**
 
 ```bash
-claude mcp add --transport http dta http://localhost:12321/mcp
-```
-
-Or via stdio:
-```bash
+# Claude Code
 claude mcp add dta -- dta-cli mcp
+
+# Cursor
 ```
-
-#### Cursor
-
 [![Add DTA to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=dta-mcp&config=eyJjb21tYW5kIjogImR0YS1jbGkiLCAiYXJncyI6IFsibWNwIl19)
-
-#### Android Studio Gemini
-
-Enable the MCP HTTP server in the plugin's MCP tab, then add to your AS config `mcp.json`:
-
+```bash
+# Claude Desktop — add to ~/Library/Application Support/Claude/claude_desktop_config.json
+```
 ```json
 {
   "mcpServers": {
     "dta": {
-      "httpUrl": "http://localhost:12321/mcp"
+      "command": "dta-cli",
+      "args": ["mcp"]
     }
   }
 }
 ```
-
-#### Claude Desktop / VS Code / Other
-
-The plugin's MCP tab has per-agent config snippets — pick your agent, copy, paste.
 
 ## What Can Your Agent Do?
 
