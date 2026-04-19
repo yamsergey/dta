@@ -3,8 +3,38 @@
     <name>DTA - Development Tools for Android</name>
     <vendor url="https://github.com/yamsergey/dta">Sergey Yamshchikov</vendor>
     <description><![CDATA[
-        AI-powered Android development tools with layout inspection, network capture,
-        WebSocket monitoring, and MCP server integration.
+<p>Give your AI coding assistant direct access to Android devices. DTA connects AI agents to your running app through the <a href="https://modelcontextprotocol.io">Model Context Protocol</a> — they can see the screen, read network traffic, inspect the layout tree, mock responses, and interact with the UI.</p>
+
+<h2>Features</h2>
+
+<p><b>Layout Inspector</b> — Full UI hierarchy with Compose support (composable names, recomposition counts), WebView DOM trees, and Chrome Custom Tab content. Device screenshot with hover highlighting and click-to-select. Bidirectional selection sync between the tree, screenshot, and MCP tools.</p>
+
+<p><b>Network Inspector</b> — Auto-captures HTTP traffic (OkHttp), Chrome Custom Tab requests, and WebView network activity from the moment the app launches. Request/response headers, bodies, and timing.</p>
+
+<p><b>WebSocket Inspector</b> — Live WebSocket connections with sent/received messages and connection lifecycle.</p>
+
+<p><b>MCP Server</b> — Built-in HTTP MCP server for connecting AI agents (Claude Code, Cursor, Android Studio Gemini, Claude Desktop, VS Code Copilot). Pick your agent from the dropdown, copy the config snippet, paste — done.</p>
+
+<p><b>Auto-Inject Sidekick</b> — No changes to your project files. The plugin injects the <a href="https://central.sonatype.com/artifact/io.github.yamsergey/dta-sidekick">dta-sidekick</a> inspection library into debug builds automatically via a Gradle init script.</p>
+
+<p><b>Build & Launch</b> — The <code>run_app</code> MCP tool builds, installs, and launches your app with sidekick injected — your AI assistant can go from source code to a running, inspectable app in a single tool call.</p>
+
+<h2>How It Works</h2>
+
+<ol>
+<li>Install the plugin and open any Android project</li>
+<li>Run your app on a device or emulator (debug build)</li>
+<li>Open the <b>DTA Inspector</b> tool window — select your device and app</li>
+<li>Browse layout, network, and WebSocket data in the inspector tabs</li>
+<li>Connect your AI agent via the MCP tab for AI-powered debugging</li>
+</ol>
+
+<h2>Links</h2>
+<ul>
+<li><a href="https://youtu.be/y_XaG8E1QuU">Video overview</a></li>
+<li><a href="https://medium.com/@yamsergey/debugging-android-apps-with-ai-how-i-replaced-android-studios-inspector-with-an-mcp-server-848d17cbc989">Article: Debugging Android Apps with AI</a></li>
+<li><a href="https://github.com/yamsergey/dta">GitHub</a></li>
+</ul>
     ]]></description>
 
     <depends>com.intellij.modules.androidstudio</depends>
