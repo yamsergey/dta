@@ -6,7 +6,9 @@
 
 A toolkit that gives AI assistants direct access to Android devices through the Model Context Protocol. Your coding agent can see the screen, read network traffic, inspect layout trees, mock responses, and interact with the app — from Android Studio, the terminal, or any MCP client.
 
-[Overview of use cases](https://medium.com/@yamsergey/debugging-android-apps-with-ai-how-i-replaced-android-studios-inspector-with-an-mcp-server-848d17cbc989)
+[![Video overview](https://img.youtube.com/vi/y_XaG8E1QuU/maxresdefault.jpg)](https://youtu.be/y_XaG8E1QuU?si=lCdrDfhWe-IjyGK7)
+
+[Article: Debugging Android Apps with AI](https://medium.com/@yamsergey/debugging-android-apps-with-ai-how-i-replaced-android-studios-inspector-with-an-mcp-server-848d17cbc989)
 
 ## Quick Start
 
