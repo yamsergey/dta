@@ -59,17 +59,19 @@ Sidekick auto-initializes via AndroidX Startup — no code changes beyond the de
 
 **Without the plugin (CLI only):**
 
+#### Claude Code
+
 ```bash
-# Claude Code
 claude mcp add dta -- dta-cli mcp
 ```
 
-# Cursor
+#### Cursor
 
 [![Add DTA to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=dta-mcp&config=eyJjb21tYW5kIjogImR0YS1jbGkiLCAiYXJncyI6IFsibWNwIl19)
 
 
-# Claude Desktop — add to ~/Library/Application Support/Claude/claude_desktop_config.json
+#### Claude Desktop
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
