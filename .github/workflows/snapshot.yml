@@ -6,7 +6,7 @@ on:
       version:
         description: 'SNAPSHOT version (e.g. 0.9.36-SNAPSHOT)'
         required: true
-        default: '0.9.36-SNAPSHOT'
+        default: '0.9.37-SNAPSHOT'
 
 permissions:
   contents: read
