@@ -127,7 +127,7 @@ public class McpServer {
                     String json = getDaemon().devices();
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to list devices: " + e.getMessage());
+                    return friendlyError("list_devices", e);
                 }
             }
         ));
@@ -142,7 +142,7 @@ public class McpServer {
                     String json = getDaemon().apps(device);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to list apps: " + e.getMessage());
+                    return friendlyError("list_apps", e);
                 }
             }
         ));
@@ -180,7 +180,7 @@ public class McpServer {
 
                     return CallToolResult.builder().content(List.of(imageContent)).build();
                 } catch (Exception e) {
-                    return errorResult("Failed to capture screenshot: " + e.getMessage());
+                    return friendlyError("screenshot", e);
                 }
             }
         ));
@@ -222,7 +222,7 @@ public class McpServer {
                     }
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to capture scroll screenshot: " + e.getMessage());
+                    return friendlyError("scroll_screenshot", e);
                 }
             }
         ));
@@ -243,7 +243,7 @@ public class McpServer {
                     String json = getDaemon().tap(x, y, device);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to tap: " + e.getMessage());
+                    return friendlyError("tap", e);
                 }
             }
         ));
@@ -266,7 +266,7 @@ public class McpServer {
                         getInt(args, "x2"), getInt(args, "y2"), getInt(args, "duration", 300), device);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to swipe: " + e.getMessage());
+                    return friendlyError("swipe", e);
                 }
             }
         ));
@@ -283,7 +283,7 @@ public class McpServer {
                     String json = getDaemon().inputText(getString(args, "text"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to input text: " + e.getMessage());
+                    return friendlyError("input_text", e);
                 }
             }
         ));
@@ -300,7 +300,7 @@ public class McpServer {
                     String json = getDaemon().pressKey(getString(args, "key"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to press key: " + e.getMessage());
+                    return friendlyError("press_key", e);
                 }
             }
         ));
@@ -319,7 +319,7 @@ public class McpServer {
                     String json = getDaemon().networkRequests(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -338,7 +338,7 @@ public class McpServer {
                         getString(args, "package"), getString(args, "request_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -355,7 +355,7 @@ public class McpServer {
                     String json = getDaemon().websocketConnections(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -374,7 +374,7 @@ public class McpServer {
                         getString(args, "package"), getString(args, "connection_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -391,7 +391,7 @@ public class McpServer {
                     String json = getDaemon().getSelectedElements(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -414,7 +414,7 @@ public class McpServer {
                     String json = getDaemon().selectElementAt(pkg, device, x, y);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -431,7 +431,7 @@ public class McpServer {
                     getDaemon().clearSelectedElements(getString(args, "package"), getString(args, "device"));
                     return ok("{\"success\":true,\"message\":\"Element selection cleared\"}");
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -455,7 +455,7 @@ public class McpServer {
                     String json = getDaemon().removeSelectedElement(pkg, device, elementJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -472,7 +472,7 @@ public class McpServer {
                     String json = getDaemon().getSelectedNetworkRequests(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -494,7 +494,7 @@ public class McpServer {
                     String json = getDaemon().addSelectedNetworkRequest(pkg, device, selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -511,7 +511,7 @@ public class McpServer {
                     String json = getDaemon().getSelectedWebSocketMessages(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -536,7 +536,7 @@ public class McpServer {
                     String json = getDaemon().addSelectedWebSocketMessage(pkg, device, selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -553,7 +553,7 @@ public class McpServer {
                     String json = getDaemon().clearNetworkRequests(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -570,7 +570,7 @@ public class McpServer {
                     String json = getDaemon().clearWebsocketConnections(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -589,7 +589,7 @@ public class McpServer {
                         getString(args, "package"), getString(args, "request_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -606,7 +606,7 @@ public class McpServer {
                     String json = getDaemon().networkStats(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -623,7 +623,7 @@ public class McpServer {
                     getDaemon().clearSelectedNetworkRequests(getString(args, "package"), getString(args, "device"));
                     return ok("{\"success\":true,\"message\":\"Network selection cleared\"}");
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -642,7 +642,7 @@ public class McpServer {
                     String json = getDaemon().removeSelectedNetworkRequest(getString(args, "package"), getString(args, "device"), selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -659,7 +659,7 @@ public class McpServer {
                     getDaemon().clearSelectedWebSocketMessages(getString(args, "package"), getString(args, "device"));
                     return ok("{\"success\":true,\"message\":\"WebSocket selection cleared\"}");
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -683,7 +683,7 @@ public class McpServer {
                         getString(args, "package"), getString(args, "device"), selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -714,7 +714,7 @@ public class McpServer {
                         getString(args, "resource_id"), getString(args, "view_id"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -736,7 +736,7 @@ public class McpServer {
                         getString(args, "package"), getString(args, "view_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -755,7 +755,7 @@ public class McpServer {
                     String json = getDaemon().mockRules(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -834,7 +834,7 @@ public class McpServer {
                         return ok(json);
                     }
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -882,7 +882,7 @@ public class McpServer {
                     String json = getDaemon().updateMockRule(pkg, ruleId, device, mapper.writeValueAsString(update));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -901,7 +901,7 @@ public class McpServer {
                         getString(args, "package"), getString(args, "rule_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -937,7 +937,7 @@ public class McpServer {
                         return ok(json);
                     }
                 } catch (Exception e) {
-                    return errorResult("Failed: " + e.getMessage());
+                    return friendlyError("tool", e);
                 }
             }
         ));
@@ -956,7 +956,7 @@ public class McpServer {
                     String json = getDaemon().cdpWatchStart(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to start CDP watcher: " + e.getMessage());
+                    return friendlyError("cdp_watch_start", e);
                 }
             }
         ));
@@ -973,7 +973,7 @@ public class McpServer {
                     String json = getDaemon().cdpWatchStop(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to stop CDP watcher: " + e.getMessage());
+                    return friendlyError("cdp_watch_stop", e);
                 }
             }
         ));
@@ -990,7 +990,7 @@ public class McpServer {
                     String json = getDaemon().cdpWatchStatus(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to get CDP watcher status: " + e.getMessage());
+                    return friendlyError("cdp_watch_status", e);
                 }
             }
         ));
@@ -1035,7 +1035,7 @@ public class McpServer {
                     // or repo-misconfigured agent needs to fall back or fix.
                     return ok(json);
                 } catch (Exception e) {
-                    return errorResult("Failed to run app: " + e.getMessage());
+                    return friendlyError("run_app", e);
                 }
             }
         ));
@@ -1045,9 +1045,19 @@ public class McpServer {
         return CallToolResult.builder().content(List.of(new McpSchema.TextContent(json))).build();
     }
 
+    /**
+     * Gets a string argument. For "device" and "package" keys, auto-resolves
+     * when the caller omits them and there's exactly one option — so agents
+     * don't need to call list_devices / list_apps first in the common
+     * single-device single-app scenario.
+     */
     private static String getString(Map<String, Object> args, String key) {
         Object value = args.get(key);
-        return value != null ? value.toString() : null;
+        if (value != null) return value.toString();
+        // Auto-resolve device and package when omitted
+        if ("device".equals(key)) return resolveDevice(args);
+        if ("package".equals(key)) return resolvePackage(args, resolveDevice(args));
+        return null;
     }
 
     private static int getInt(Map<String, Object> args, String key) {
@@ -1063,6 +1073,83 @@ public class McpServer {
         if (value instanceof Number n) return n.intValue();
         if (value instanceof String s) return Integer.parseInt(s);
         return defaultValue;
+    }
+
+    /**
+     * Resolves the device serial. If the caller omitted it, auto-selects
+     * when exactly one device is connected. Returns null only when no devices
+     * are connected; returns an error result when multiple devices exist and
+     * the caller didn't disambiguate.
+     */
+    private static String resolveDevice(Map<String, Object> args) {
+        String device = getString(args, "device");
+        if (device != null && !device.isEmpty()) return device;
+        try {
+            String json = getDaemon().devices();
+            var node = mapper.readTree(json);
+            var devices = node.path("devices");
+            if (devices.isArray()) {
+                List<String> serials = new ArrayList<>();
+                for (var d : devices) {
+                    if ("device".equals(d.path("state").asText())) {
+                        serials.add(d.path("serial").asText());
+                    }
+                }
+                if (serials.size() == 1) return serials.get(0);
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * Resolves the package name. If the caller omitted it, auto-selects when
+     * exactly one app with sidekick is running on the resolved device.
+     */
+    private static String resolvePackage(Map<String, Object> args, String device) {
+        String pkg = getString(args, "package");
+        if (pkg != null && !pkg.isEmpty()) return pkg;
+        try {
+            String json = getDaemon().apps(device);
+            var node = mapper.readTree(json);
+            var apps = node.path("apps");
+            if (apps.isArray() && apps.size() == 1) {
+                return apps.get(0).path("package").asText();
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * Turns exceptions into agent-friendly error messages with corrective
+     * guidance, stripping Java stack traces that waste tokens and confuse.
+     */
+    private static CallToolResult friendlyError(String toolName, Exception e) {
+        String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+
+        // Strip stack traces and daemon HTTP wrapper noise
+        if (msg.contains("HTTP GET failed") || msg.contains("HTTP POST failed")) {
+            int idx = msg.indexOf("Caused by:");
+            if (idx > 0) msg = msg.substring(0, idx).trim();
+        }
+
+        // Add corrective hints based on common patterns
+        String hint = "";
+        if (msg.contains("Sidekick not running")) {
+            hint = "\nHint: The app must be running with dta-sidekick injected. "
+                + "Use run_app to build and launch it, or check list_apps to see which apps have sidekick.";
+        } else if (msg.contains("Connection to") && msg.contains("failed recently")) {
+            hint = "\nHint: A recent connection attempt failed. The app may have crashed or been stopped. "
+                + "Wait a few seconds and retry, or use list_apps to check if sidekick is still running.";
+        } else if (msg.contains("timed out") || msg.contains("Read timed out")) {
+            hint = "\nHint: The device or app is not responding. Check that the emulator/device is running "
+                + "and the app is in the foreground.";
+        } else if (msg.contains("No device") || msg.contains("device not found")) {
+            hint = "\nHint: No Android device connected. Use list_devices to check connected devices.";
+        }
+
+        return CallToolResult.builder()
+            .content(List.of(new McpSchema.TextContent(toolName + " failed: " + msg + hint)))
+            .isError(true).build();
     }
 
     private static CallToolResult errorResult(String message) {
