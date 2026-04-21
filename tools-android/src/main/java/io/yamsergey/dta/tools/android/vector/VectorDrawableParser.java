@@ -28,7 +28,13 @@ public class VectorDrawableParser {
      * @throws Exception if parsing fails
      */
     public static String parseAndConvertToSvg(File vectorFile) throws Exception {
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        Thread currentThread = Thread.currentThread();
+        ClassLoader original = currentThread.getContextClassLoader();
+        try { currentThread.setContextClassLoader(ClassLoader.getSystemClassLoader()); }
+        catch (SecurityException ignored) {}
+        DocumentBuilderFactory factory;
+        try { factory = DocumentBuilderFactory.newInstance(); }
+        finally { currentThread.setContextClassLoader(original); }
         factory.setNamespaceAware(true);
         DocumentBuilder builder = factory.newDocumentBuilder();
         Document doc = builder.parse(vectorFile);

@@ -46,7 +46,23 @@ public class ViewHierarchyParser {
      */
     public static Result<ViewNode> parse(String xmlContent) {
         try {
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            // DocumentBuilderFactory.newInstance() uses ServiceLoader which
+            // breaks inside IntelliJ plugins: the platform's PathClassLoader
+            // provides Xerces while the plugin's PluginClassLoader has the
+            // JDK's javax.xml.parsers — ClassCastException on cross-cast.
+            // Temporarily swap to the bootstrap classloader so the JDK's
+            // built-in factory is used.
+            Thread currentThread = Thread.currentThread();
+            ClassLoader original = currentThread.getContextClassLoader();
+            try {
+                currentThread.setContextClassLoader(ClassLoader.getSystemClassLoader());
+            } catch (SecurityException ignored) {}
+            DocumentBuilderFactory factory;
+            try {
+                factory = DocumentBuilderFactory.newInstance();
+            } finally {
+                currentThread.setContextClassLoader(original);
+            }
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.parse(new ByteArrayInputStream(xmlContent.getBytes()));
 
