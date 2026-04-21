@@ -616,6 +616,30 @@ public class InspectorServer {
             return;
         }
 
+        // Runtime data inspection endpoints
+        if (path.equals("/runtime/authenticate") && "POST".equals(method)) {
+            handleRuntimeAuthenticate(out); return;
+        }
+        if (path.equals("/runtime/databases") && "GET".equals(method)) {
+            handleRuntimeDatabases(out); return;
+        }
+        if (path.startsWith("/runtime/databases/") && path.endsWith("/schema") && "GET".equals(method)) {
+            String dbName = path.substring(19, path.length() - 7);
+            handleRuntimeDatabaseSchema(dbName, out); return;
+        }
+        if (path.startsWith("/runtime/databases/") && path.endsWith("/query") && "POST".equals(method)) {
+            String dbName = path.substring(19, path.length() - 6);
+            handleRuntimeDatabaseQuery(dbName, body, out); return;
+        }
+        if (path.equals("/runtime/shared-prefs") && "GET".equals(method)) {
+            handleRuntimeSharedPrefsList(out); return;
+        }
+        if (path.startsWith("/runtime/shared-prefs/") && path.length() > 22) {
+            String prefsName = path.substring(22);
+            if ("GET".equals(method)) { handleRuntimeSharedPrefsRead(prefsName, out); return; }
+            if ("PUT".equals(method)) { handleRuntimeSharedPrefsWrite(prefsName, body, out); return; }
+        }
+
         switch (path) {
             case "/":
             case "/health":
@@ -678,6 +702,114 @@ public class InspectorServer {
     /**
      * GET /health - Health check endpoint.
      */
+    // ========================================================================
+    // Runtime Data Inspection
+    // ========================================================================
+
+    private io.yamsergey.dta.sidekick.data.DataInspector getDataInspector() {
+        android.app.Activity activity = io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getCurrentActivity();
+        if (activity != null) {
+            return new io.yamsergey.dta.sidekick.data.DataInspector(activity);
+        }
+        // Fallback: reflectively get the Application context
+        try {
+            Class<?> atClass = Class.forName("android.app.ActivityThread");
+            Object at = atClass.getMethod("currentActivityThread").invoke(null);
+            android.app.Application app = (android.app.Application) atClass.getMethod("getApplication").invoke(at);
+            return new io.yamsergey.dta.sidekick.data.DataInspector(app);
+        } catch (Exception e) {
+            throw new RuntimeException("Cannot get app context for data inspection", e);
+        }
+    }
+
+    private void handleRuntimeAuthenticate(OutputStream out) throws IOException {
+        try {
+            sendJson(out, 200, getDataInspector().authenticate());
+        } catch (Exception e) {
+            sendError(out, 500, "Authentication failed: " + e.getMessage());
+        }
+    }
+
+    private void handleRuntimeDatabases(OutputStream out) throws IOException {
+        try {
+            var inspector = getDataInspector();
+            Map<String, Object> response = new HashMap<>();
+            response.put("databases", inspector.listDatabases());
+            sendJson(out, 200, response);
+        } catch (Exception e) {
+            sendError(out, 500, "Failed to list databases: " + e.getMessage());
+        }
+    }
+
+    private void handleRuntimeDatabaseSchema(String dbName, OutputStream out) throws IOException {
+        try {
+            // passphrase passed via query param for GET: /runtime/databases/name/schema?passphrase=X
+            // We don't have query params parsed here — pass null for now, agent uses query command for encrypted DBs
+            sendJson(out, 200, getDataInspector().databaseSchema(dbName));
+        } catch (Exception e) {
+            sendError(out, 500, "Failed to get schema: " + e.getMessage());
+        }
+    }
+
+    private void handleRuntimeDatabaseQuery(String dbName, String body, OutputStream out) throws IOException {
+        try {
+            Gson gson = new Gson();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> request = gson.fromJson(body, Map.class);
+            String sql = (String) request.get("sql");
+            if (sql == null || sql.isEmpty()) {
+                sendError(out, 400, "Missing 'sql' in request body");
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            List<String> args = (List<String>) request.get("args");
+            boolean readOnly = !Boolean.FALSE.equals(request.get("readOnly"));
+            String passphrase = (String) request.get("passphrase");
+            sendJson(out, 200, getDataInspector().databaseQuery(dbName, sql, args, readOnly, passphrase));
+        } catch (Exception e) {
+            sendError(out, 500, "Query failed: " + e.getMessage());
+        }
+    }
+
+    private void handleRuntimeSharedPrefsList(OutputStream out) throws IOException {
+        try {
+            Map<String, Object> response = new HashMap<>();
+            response.put("files", getDataInspector().listSharedPrefs());
+            sendJson(out, 200, response);
+        } catch (Exception e) {
+            sendError(out, 500, "Failed to list prefs: " + e.getMessage());
+        }
+    }
+
+    private void handleRuntimeSharedPrefsRead(String name, OutputStream out) throws IOException {
+        try {
+            sendJson(out, 200, getDataInspector().readSharedPrefs(name));
+        } catch (Exception e) {
+            sendError(out, 500, "Failed to read prefs: " + e.getMessage());
+        }
+    }
+
+    private void handleRuntimeSharedPrefsWrite(String name, String body, OutputStream out) throws IOException {
+        try {
+            Gson gson = new Gson();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> request = gson.fromJson(body, Map.class);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> entries = (Map<String, Object>) request.get("entries");
+            if (entries == null || entries.isEmpty()) {
+                sendError(out, 400, "Missing 'entries' in request body");
+                return;
+            }
+            sendJson(out, 200, getDataInspector().writeSharedPrefs(name, entries));
+        } catch (Exception e) {
+            sendError(out, 500, "Failed to write prefs: " + e.getMessage());
+        }
+    }
+
+    // ========================================================================
+    // Health + Layout
+    // ========================================================================
+
     private void handleHealth(OutputStream out) throws IOException {
         Map<String, Object> response = new HashMap<>();
         response.put("status", "ok");
@@ -717,6 +849,11 @@ public class InspectorServer {
                 "/mock/config",
                 "/mock/from-request/{id}",
                 "/mock/from-message/{id}",
+                "/runtime/databases",
+                "/runtime/databases/{name}/schema",
+                "/runtime/databases/{name}/query",
+                "/runtime/shared-prefs",
+                "/runtime/shared-prefs/{name}",
                 "/layout/tree",
                 "/layout/properties/{viewId}"
         });

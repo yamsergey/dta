@@ -154,6 +154,52 @@ public final class DtaRoutes {
         });
 
         // ====================================================================
+        // Runtime Data Inspection (proxy to sidekick)
+        // ====================================================================
+
+        app.post("/api/runtime/authenticate", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.authenticate(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        app.get("/api/runtime/databases", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.listDatabases(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        app.get("/api/runtime/databases/{name}/schema", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.databaseSchema(ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("name")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        app.post("/api/runtime/databases/{name}/query", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.databaseQuery(ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("name"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        app.get("/api/runtime/shared-prefs", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.listSharedPrefs(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        app.get("/api/runtime/shared-prefs/{name}", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.readSharedPrefs(ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("name")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        app.put("/api/runtime/shared-prefs/{name}", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.writeSharedPrefs(ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("name"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        // ====================================================================
         // App build/install/launch
         // ====================================================================
 

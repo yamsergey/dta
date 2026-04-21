@@ -27,6 +27,7 @@ import io.yamsergey.example.compose.layout.example.ui.network.NetworkScreen
 import io.yamsergey.example.compose.layout.example.ui.overlays.OverlaysScreen
 import io.yamsergey.example.compose.layout.example.ui.theme.ComposeLayoutExampleTheme
 import io.yamsergey.example.compose.layout.example.ui.websocket.WebSocketScreen
+import io.yamsergey.example.compose.layout.example.ui.data.DataScreen
 import io.yamsergey.example.compose.layout.example.ui.webview.WebViewScreen
 
 class MainActivity : ComponentActivity() {
@@ -58,7 +59,8 @@ fun AppNavigation() {
                     onNavigateToCustomTabs = { navController.navigate("customtabs") },
                     onNavigateToOverlays = { navController.navigate("overlays") },
                     onNavigateToFragments = { navController.navigate("fragments") },
-                    onNavigateToWebView = { navController.navigate("webview") }
+                    onNavigateToWebView = { navController.navigate("webview") },
+                    onNavigateToData = { navController.navigate("data") }
                 )
             }
         }
@@ -87,6 +89,11 @@ fun AppNavigation() {
                 onNavigateBack = { navController.popBackStack() }
             )
         }
+        composable("data") {
+            DataScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
         composable("fragments") {
             val context = LocalContext.current
             FragmentsScreen(
@@ -107,7 +114,8 @@ fun MainContent(
     onNavigateToCustomTabs: () -> Unit = {},
     onNavigateToOverlays: () -> Unit = {},
     onNavigateToFragments: () -> Unit = {},
-    onNavigateToWebView: () -> Unit = {}
+    onNavigateToWebView: () -> Unit = {},
+    onNavigateToData: () -> Unit = {}
 ) {
     var counter by remember { mutableIntStateOf(0) }
 
@@ -173,6 +181,14 @@ fun MainContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("WebView Demo (Embedded Web Content)")
+        }
+
+        // Data Demo Button
+        Button(
+            onClick = onNavigateToData,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Data Demo (Database + SharedPreferences)")
         }
 
         // Counter section

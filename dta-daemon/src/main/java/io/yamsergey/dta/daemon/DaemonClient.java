@@ -112,6 +112,36 @@ public class DaemonClient {
         return get("/api/layout/properties/" + encode(viewId) + "?package=" + encode(pkg) + deviceParam(device, false));
     }
 
+    // --- Runtime Data ---
+
+    public String authenticate(String pkg, String device) {
+        return post("/api/runtime/authenticate?package=" + encode(pkg) + deviceParam(device, false), "");
+    }
+
+    public String listDatabases(String pkg, String device) {
+        return get("/api/runtime/databases?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    public String databaseSchema(String pkg, String dbName, String device) {
+        return get("/api/runtime/databases/" + encode(dbName) + "/schema?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    public String databaseQuery(String pkg, String dbName, String body, String device) {
+        return post("/api/runtime/databases/" + encode(dbName) + "/query?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+
+    public String listSharedPrefs(String pkg, String device) {
+        return get("/api/runtime/shared-prefs?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    public String readSharedPrefs(String pkg, String prefsName, String device) {
+        return get("/api/runtime/shared-prefs/" + encode(prefsName) + "?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    public String writeSharedPrefs(String pkg, String prefsName, String body, String device) {
+        return put("/api/runtime/shared-prefs/" + encode(prefsName) + "?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+
     // --- Network ---
 
     public String networkRequests(String pkg, String device) {

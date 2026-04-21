@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -43,8 +44,7 @@ android {
 
 dependencies {
     // DTA Sidekick for compose inspection (debug only)
-    debugImplementation("io.github.yamsergey:dta-sidekick:0.9.27-SNAPSHOT.1")
-    // implementation("com.github.yamsergey.dta:dta-sidekick:0.9.2")
+    debugImplementation("io.github.yamsergey:dta-sidekick:0.9.37-SNAPSHOT.1")
     // Network - HTTP
     implementation(libs.okhttp)
     implementation(libs.gson)
@@ -61,6 +61,14 @@ dependencies {
 
     // Chrome Custom Tabs
     implementation(libs.androidx.browser)
+
+    // Room database
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    // Encrypted SharedPreferences
+    implementation(libs.security.crypto)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

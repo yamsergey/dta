@@ -170,6 +170,45 @@ public class DtaOrchestrator {
     }
 
     // ========================================================================
+    // Runtime Data Inspection
+    // ========================================================================
+
+    public String authenticate(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().authenticate(), "Authentication failed");
+    }
+
+    public String listDatabases(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().listDatabases(), "Failed to list databases");
+    }
+
+    public String databaseSchema(String packageName, String device, String dbName) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().databaseSchema(dbName), "Failed to get schema");
+    }
+
+    public String databaseQuery(String packageName, String device, String dbName, String body) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().databaseQuery(dbName, body), "Query failed");
+    }
+
+    public String listSharedPrefs(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().listSharedPrefs(), "Failed to list prefs");
+    }
+
+    public String readSharedPrefs(String packageName, String device, String name) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().readSharedPrefs(name), "Failed to read prefs");
+    }
+
+    public String writeSharedPrefs(String packageName, String device, String name, String body) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().writeSharedPrefs(name, body), "Failed to write prefs");
+    }
+
+    // ========================================================================
     // Network requests
     // ========================================================================
 

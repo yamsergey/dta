@@ -74,6 +74,7 @@ public class McpServer {
         collectMockTools(tools);
         collectCdpTools(tools);
         collectRunTools(tools);
+        collectDataTools(tools);
         return tools;
     }
 
@@ -999,6 +1000,98 @@ public class McpServer {
     // ========================================================================
     // Helper methods
     // ========================================================================
+
+    private static void collectDataTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("app_data",
+                "Inspect app-local data stores: SQLite databases and SharedPreferences (including encrypted). " +
+                "Use the 'command' parameter to select the operation.\n\n" +
+                "Commands:\n" +
+                "- list_databases: List all databases (detects Room, SQLCipher, WAL mode)\n" +
+                "- database_schema: Show tables, columns, types, row counts for a database\n" +
+                "- database_query: Execute a SQL query and return results as JSON\n" +
+                "- list_prefs: List all SharedPreferences files (detects encrypted + backup status)\n" +
+                "- read_prefs: Read all entries from a prefs file (auto-decrypts EncryptedSharedPreferences)\n" +
+                "- write_prefs: Write entries to a prefs file\n" +
+                "- authenticate: Show biometric/PIN prompt on device to unlock KeyStore-protected data. " +
+                "Call this first if read_prefs returns authRequired:true or a database needs a KeyStore-derived passphrase.",
+                schema(Map.of(
+                    "command", prop("string", "Operation: list_databases, database_schema, database_query, list_prefs, read_prefs, write_prefs, authenticate", true),
+                    "package", prop("string", "App package name (auto-detected if only one app)", false),
+                    "device", prop("string", "Device serial (auto-detected if only one device)", false),
+                    "database", prop("string", "Database name (for database_schema, database_query)", false),
+                    "sql", prop("string", "SQL query (for database_query)", false),
+                    "args", prop("array", "SQL bind arguments (for database_query)", false),
+                    "read_only", prop("boolean", "If false, allows write SQL (INSERT/UPDATE/DELETE). Default: true", false),
+                    "passphrase", prop("string", "Decryption passphrase for SQLCipher databases (for database_query, database_schema)", false),
+                    "file", prop("string", "SharedPreferences file name (for read_prefs, write_prefs)", false),
+                    "entries", prop("object", "Key-value pairs to write (for write_prefs)", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String command = getString(args, "command");
+                    if (command == null) return errorResult("'command' is required");
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return switch (command) {
+                        case "authenticate" -> ok(getDaemon().authenticate(pkg, device));
+                        case "list_databases" -> ok(getDaemon().listDatabases(pkg, device));
+                        case "database_schema" -> {
+                            String db = getString(args, "database");
+                            if (db == null) yield errorResult("'database' parameter required for database_schema");
+                            yield ok(getDaemon().databaseSchema(pkg, db, device));
+                        }
+                        case "database_query" -> {
+                            String db = getString(args, "database");
+                            String sql = getString(args, "sql");
+                            if (db == null) yield errorResult("'database' parameter required for database_query");
+                            if (sql == null) yield errorResult("'sql' parameter required for database_query");
+                            boolean readOnly = !Boolean.FALSE.equals(args.get("read_only"));
+                            String passphrase = getString(args, "passphrase");
+                            @SuppressWarnings("unchecked")
+                            List<String> sqlArgs = args.get("args") instanceof List ? (List<String>) args.get("args") : null;
+                            ObjectNode body = mapper.createObjectNode();
+                            body.put("sql", sql);
+                            body.put("readOnly", readOnly);
+                            if (passphrase != null) body.put("passphrase", passphrase);
+                            if (sqlArgs != null) {
+                                var arr = body.putArray("args");
+                                sqlArgs.forEach(arr::add);
+                            }
+                            yield ok(getDaemon().databaseQuery(pkg, db, mapper.writeValueAsString(body), device));
+                        }
+                        case "list_prefs" -> ok(getDaemon().listSharedPrefs(pkg, device));
+                        case "read_prefs" -> {
+                            String file = getString(args, "file");
+                            if (file == null) yield errorResult("'file' parameter required for read_prefs");
+                            yield ok(getDaemon().readSharedPrefs(pkg, file, device));
+                        }
+                        case "write_prefs" -> {
+                            String file = getString(args, "file");
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> entries = args.get("entries") instanceof Map ? (Map<String, Object>) args.get("entries") : null;
+                            if (file == null) yield errorResult("'file' parameter required for write_prefs");
+                            if (entries == null) yield errorResult("'entries' parameter required for write_prefs");
+                            ObjectNode body = mapper.createObjectNode();
+                            ObjectNode entriesNode = body.putObject("entries");
+                            for (var entry : entries.entrySet()) {
+                                if (entry.getValue() instanceof String s) entriesNode.put(entry.getKey(), s);
+                                else if (entry.getValue() instanceof Number n) entriesNode.put(entry.getKey(), n.doubleValue());
+                                else if (entry.getValue() instanceof Boolean b) entriesNode.put(entry.getKey(), b);
+                                else entriesNode.put(entry.getKey(), String.valueOf(entry.getValue()));
+                            }
+                            yield ok(getDaemon().writeSharedPrefs(pkg, file, mapper.writeValueAsString(body), device));
+                        }
+                        default -> errorResult("Unknown command: " + command +
+                            ". Use: list_databases, database_schema, database_query, list_prefs, read_prefs, write_prefs");
+                    };
+                } catch (Exception e) {
+                    return friendlyError("app_data", e);
+                }
+            }
+        ));
+    }
 
     private static void collectRunTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         tools.add(new McpServerFeatures.SyncToolSpecification(
