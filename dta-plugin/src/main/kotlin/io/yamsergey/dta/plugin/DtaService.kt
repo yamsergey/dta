@@ -242,7 +242,15 @@ class DtaService : Disposable {
                 if (selectedApp?.packageName() != app.packageName()) return@executeOnPooledThread
 
                 connected = true
-                updateConnectionStatus("Connected")
+                // Fetch sidekick version for display
+                var statusText = "Connected"
+                try {
+                    val connJson = client.connectionStatus(app.packageName(), device.serial())
+                    val node = tools.jackson.databind.ObjectMapper().readTree(connJson)
+                    val skVersion = node.get("sidekickVersion")?.stringValue() ?: ""
+                    if (skVersion.isNotEmpty()) statusText = "Connected (sidekick $skVersion)"
+                } catch (_: Exception) {}
+                updateConnectionStatus(statusText)
                 startPolling()
             } catch (e: Exception) {
                 if (selectedApp?.packageName() != app.packageName()) return@executeOnPooledThread
