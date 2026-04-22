@@ -242,13 +242,21 @@ class DtaService : Disposable {
                 if (selectedApp?.packageName() != app.packageName()) return@executeOnPooledThread
 
                 connected = true
-                // Fetch sidekick version for display
+                // Fetch sidekick version for display + mismatch check
                 var statusText = "Connected"
                 try {
                     val connJson = client.connectionStatus(app.packageName(), device.serial())
                     val node = tools.jackson.databind.ObjectMapper().readTree(connJson)
                     val skVersion = node.get("sidekickVersion")?.stringValue() ?: ""
-                    if (skVersion.isNotEmpty()) statusText = "Connected (sidekick $skVersion)"
+                    val toolVersion = node.get("toolVersion")?.stringValue() ?: ""
+                    if (skVersion.isNotEmpty()) {
+                        statusText = "Connected (sidekick $skVersion)"
+                        // Warn if sidekick version doesn't match the tools
+                        if (toolVersion.isNotEmpty() && skVersion != toolVersion
+                            && !skVersion.startsWith(toolVersion.substringBefore("-SNAPSHOT"))) {
+                            statusText += " ⚠ version mismatch (tools $toolVersion) — rebuild the app"
+                        }
+                    }
                 } catch (_: Exception) {}
                 updateConnectionStatus(statusText)
                 startPolling()
