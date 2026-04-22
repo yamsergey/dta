@@ -110,7 +110,10 @@ class SidekickInjector : GradleTaskManagerExtension {
                         }
                     }
                 }
-                allprojects {$cachePolicy
+                allprojects {${if (isSnapshot) """
+                    repositories {
+                        maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
+                    }""" else ""}$cachePolicy
                     afterEvaluate {
                         if (plugins.hasPlugin('com.android.application') || plugins.hasPlugin('com.android.library')) {
                             dependencies {
