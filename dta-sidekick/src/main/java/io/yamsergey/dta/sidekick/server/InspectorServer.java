@@ -620,6 +620,10 @@ public class InspectorServer {
         if (path.equals("/runtime/authenticate") && "POST".equals(method)) {
             handleRuntimeAuthenticate(out); return;
         }
+        if (path.startsWith("/runtime/files") && "GET".equals(method)) {
+            String subPath = path.length() > 15 ? path.substring(15) : "";
+            handleRuntimeListFiles(subPath, out); return;
+        }
         if (path.equals("/runtime/databases") && "GET".equals(method)) {
             handleRuntimeDatabases(out); return;
         }
@@ -719,6 +723,14 @@ public class InspectorServer {
             return new io.yamsergey.dta.sidekick.data.DataInspector(app);
         } catch (Exception e) {
             throw new RuntimeException("Cannot get app context for data inspection", e);
+        }
+    }
+
+    private void handleRuntimeListFiles(String path, OutputStream out) throws IOException {
+        try {
+            sendJson(out, 200, getDataInspector().listFiles(path));
+        } catch (Exception e) {
+            sendError(out, 500, "Failed to list files: " + e.getMessage());
         }
     }
 

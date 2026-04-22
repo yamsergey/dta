@@ -114,6 +114,11 @@ public class DaemonClient {
 
     // --- Runtime Data ---
 
+    public String listFiles(String pkg, String path, String device) {
+        String pathParam = path != null && !path.isEmpty() ? "/" + encode(path) : "";
+        return get("/api/runtime/files" + pathParam + "?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
     public String authenticate(String pkg, String device) {
         return post("/api/runtime/authenticate?package=" + encode(pkg) + deviceParam(device, false), "");
     }

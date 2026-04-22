@@ -173,6 +173,11 @@ public class DtaOrchestrator {
     // Runtime Data Inspection
     // ========================================================================
 
+    public String listFiles(String packageName, String device, String path) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().listFiles(path), "Failed to list files");
+    }
+
     public String authenticate(String packageName, String device) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);
         return unwrap(conn.client().authenticate(), "Authentication failed");

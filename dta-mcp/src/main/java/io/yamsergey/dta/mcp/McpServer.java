@@ -1013,19 +1013,22 @@ public class McpServer {
                 "- list_prefs: List all SharedPreferences files (detects encrypted + backup status)\n" +
                 "- read_prefs: Read all entries from a prefs file (auto-decrypts EncryptedSharedPreferences)\n" +
                 "- write_prefs: Write entries to a prefs file\n" +
+                "- list_files: Browse the app's data directory. Returns file names, sizes, types. " +
+                "Use 'path' to navigate subdirectories (e.g. 'files', 'cache', 'shared_prefs').\n" +
                 "- authenticate: Show biometric/PIN prompt on device to unlock KeyStore-protected data. " +
                 "Call this first if read_prefs returns authRequired:true or a database needs a KeyStore-derived passphrase.",
-                schema(Map.of(
-                    "command", prop("string", "Operation: list_databases, database_schema, database_query, list_prefs, read_prefs, write_prefs, authenticate", true),
-                    "package", prop("string", "App package name (auto-detected if only one app)", false),
-                    "device", prop("string", "Device serial (auto-detected if only one device)", false),
-                    "database", prop("string", "Database name (for database_schema, database_query)", false),
-                    "sql", prop("string", "SQL query (for database_query)", false),
-                    "args", prop("array", "SQL bind arguments (for database_query)", false),
-                    "read_only", prop("boolean", "If false, allows write SQL (INSERT/UPDATE/DELETE). Default: true", false),
-                    "passphrase", prop("string", "Decryption passphrase for SQLCipher databases (for database_query, database_schema)", false),
-                    "file", prop("string", "SharedPreferences file name (for read_prefs, write_prefs)", false),
-                    "entries", prop("object", "Key-value pairs to write (for write_prefs)", false)
+                schema(Map.ofEntries(
+                    Map.entry("command", prop("string", "Operation: list_files, list_databases, database_schema, database_query, list_prefs, read_prefs, write_prefs, authenticate", true)),
+                    Map.entry("package", prop("string", "App package name (auto-detected if only one app)", false)),
+                    Map.entry("device", prop("string", "Device serial (auto-detected if only one device)", false)),
+                    Map.entry("database", prop("string", "Database name (for database_schema, database_query)", false)),
+                    Map.entry("sql", prop("string", "SQL query (for database_query)", false)),
+                    Map.entry("args", prop("array", "SQL bind arguments (for database_query)", false)),
+                    Map.entry("read_only", prop("boolean", "If false, allows write SQL (INSERT/UPDATE/DELETE). Default: true", false)),
+                    Map.entry("passphrase", prop("string", "Decryption passphrase for SQLCipher databases (for database_query, database_schema)", false)),
+                    Map.entry("path", prop("string", "Relative path within app data dir (for list_files, e.g. 'files', 'cache')", false)),
+                    Map.entry("file", prop("string", "SharedPreferences file name (for read_prefs, write_prefs)", false)),
+                    Map.entry("entries", prop("object", "Key-value pairs to write (for write_prefs)", false))
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -1035,6 +1038,7 @@ public class McpServer {
                     String device = getString(args, "device");
 
                     return switch (command) {
+                        case "list_files" -> ok(getDaemon().listFiles(pkg, getString(args, "path"), device));
                         case "authenticate" -> ok(getDaemon().authenticate(pkg, device));
                         case "list_databases" -> ok(getDaemon().listDatabases(pkg, device));
                         case "database_schema" -> {

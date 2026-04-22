@@ -157,6 +157,18 @@ public final class DtaRoutes {
         // Runtime Data Inspection (proxy to sidekick)
         // ====================================================================
 
+        app.get("/api/runtime/files", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.listFiles(ctx.queryParam("package"), ctx.queryParam("device"), ""));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
+        app.get("/api/runtime/files/{path}", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.listFiles(ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("path")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
         app.post("/api/runtime/authenticate", ctx -> {
             try {
                 jsonString(ctx, orchestrator.authenticate(ctx.queryParam("package"), ctx.queryParam("device")));

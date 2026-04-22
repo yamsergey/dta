@@ -235,6 +235,76 @@ public class DataInspector {
     }
 
     // ========================================================================
+    // File listing
+    // ========================================================================
+
+    public Map<String, Object> listFiles(String relativePath) {
+        Map<String, Object> result = new HashMap<>();
+
+        File baseDir = new File(context.getApplicationInfo().dataDir);
+        File targetDir;
+        if (relativePath == null || relativePath.isEmpty() || ".".equals(relativePath)) {
+            targetDir = baseDir;
+        } else {
+            targetDir = new File(baseDir, relativePath);
+        }
+
+        // Prevent path traversal outside the app's data dir
+        try {
+            if (!targetDir.getCanonicalPath().startsWith(baseDir.getCanonicalPath())) {
+                result.put("error", "Path is outside the app's data directory");
+                return result;
+            }
+        } catch (Exception e) {
+            result.put("error", "Invalid path: " + e.getMessage());
+            return result;
+        }
+
+        if (!targetDir.exists()) {
+            result.put("error", "Path not found: " + relativePath);
+            return result;
+        }
+
+        result.put("path", relativePath != null ? relativePath : ".");
+
+        if (!targetDir.isDirectory()) {
+            // Single file info
+            result.put("type", "file");
+            result.put("name", targetDir.getName());
+            result.put("sizeBytes", targetDir.length());
+            result.put("lastModified", targetDir.lastModified());
+            return result;
+        }
+
+        result.put("type", "directory");
+        File[] children = targetDir.listFiles();
+        List<Map<String, Object>> entries = new ArrayList<>();
+        long totalSize = 0;
+
+        if (children != null) {
+            for (File child : children) {
+                Map<String, Object> entry = new HashMap<>();
+                entry.put("name", child.getName());
+                entry.put("isDirectory", child.isDirectory());
+                if (child.isDirectory()) {
+                    File[] subFiles = child.listFiles();
+                    entry.put("childCount", subFiles != null ? subFiles.length : 0);
+                } else {
+                    entry.put("sizeBytes", child.length());
+                    totalSize += child.length();
+                }
+                entry.put("lastModified", child.lastModified());
+                entries.add(entry);
+            }
+        }
+
+        result.put("entries", entries);
+        result.put("entryCount", entries.size());
+        result.put("totalSizeBytes", totalSize);
+        return result;
+    }
+
+    // ========================================================================
     // SharedPreferences
     // ========================================================================
 
