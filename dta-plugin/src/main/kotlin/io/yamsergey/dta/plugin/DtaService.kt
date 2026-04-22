@@ -251,9 +251,15 @@ class DtaService : Disposable {
                     val toolVersion = node.get("toolVersion")?.stringValue() ?: ""
                     if (skVersion.isNotEmpty()) {
                         statusText = "Connected (sidekick $skVersion)"
-                        // Warn if sidekick version doesn't match the tools
-                        if (toolVersion.isNotEmpty() && skVersion != toolVersion
-                            && !skVersion.startsWith(toolVersion.substringBefore("-SNAPSHOT"))) {
+                        // Compare major.minor.patch only — strip SNAPSHOT build
+                        // numbers since Maven uses mutable X.Y.Z-SNAPSHOT while
+                        // plugin/CLI use unique X.Y.Z-SNAPSHOT.N
+                        val skBase = skVersion.replace(Regex("-SNAPSHOT\\.\\d+$"), "-SNAPSHOT")
+                            .replace("-SNAPSHOT", "").trimEnd('.')
+                        val toolBase = toolVersion.replace(Regex("-SNAPSHOT\\.\\d+$"), "-SNAPSHOT")
+                            .replace("-SNAPSHOT", "").trimEnd('.')
+                        if (toolBase.isNotEmpty() && toolBase != "standalone"
+                            && skBase.isNotEmpty() && skBase != toolBase) {
                             statusText += " ⚠ version mismatch (tools $toolVersion) — rebuild the app"
                         }
                     }
