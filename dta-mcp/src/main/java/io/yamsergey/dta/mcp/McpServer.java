@@ -1175,8 +1175,8 @@ public class McpServer {
      * the caller didn't disambiguate.
      */
     private static String resolveDevice(Map<String, Object> args) {
-        String device = getString(args, "device");
-        if (device != null && !device.isEmpty()) return device;
+        Object raw = args.get("device");
+        if (raw != null && !raw.toString().isEmpty()) return raw.toString();
         try {
             String json = getDaemon().devices();
             var node = mapper.readTree(json);
@@ -1199,8 +1199,8 @@ public class McpServer {
      * exactly one app with sidekick is running on the resolved device.
      */
     private static String resolvePackage(Map<String, Object> args, String device) {
-        String pkg = getString(args, "package");
-        if (pkg != null && !pkg.isEmpty()) return pkg;
+        Object raw = args.get("package");
+        if (raw != null && !raw.toString().isEmpty()) return raw.toString();
         try {
             String json = getDaemon().apps(device);
             var node = mapper.readTree(json);
