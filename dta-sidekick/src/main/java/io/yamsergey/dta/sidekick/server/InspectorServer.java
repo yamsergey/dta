@@ -620,6 +620,22 @@ public class InspectorServer {
         if (path.equals("/runtime/authenticate") && "POST".equals(method)) {
             handleRuntimeAuthenticate(out); return;
         }
+        if (path.equals("/runtime/navigation/backstack") && "GET".equals(method)) {
+            handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().navigationBackstack(), out); return;
+        }
+        if (path.equals("/runtime/navigation/graph") && "GET".equals(method)) {
+            handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().navigationGraph(), out); return;
+        }
+        if (path.equals("/runtime/lifecycle") && "GET".equals(method)) {
+            handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().lifecycle(), out); return;
+        }
+        if (path.equals("/runtime/memory") && "GET".equals(method)) {
+            handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().memory(), out); return;
+        }
+        if (path.equals("/runtime/threads") && "GET".equals(method)) {
+            boolean stacks = path.contains("stackTraces=true");
+            handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().threads(stacks), out); return;
+        }
         if (path.startsWith("/runtime/files") && "GET".equals(method)) {
             String subPath = path.length() > 15 ? path.substring(15) : "";
             handleRuntimeListFiles(subPath, out); return;
@@ -723,6 +739,14 @@ public class InspectorServer {
             return new io.yamsergey.dta.sidekick.data.DataInspector(app);
         } catch (Exception e) {
             throw new RuntimeException("Cannot get app context for data inspection", e);
+        }
+    }
+
+    private void handleRuntimeJson(Map<String, Object> data, OutputStream out) throws IOException {
+        try {
+            sendJson(out, 200, data);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
         }
     }
 

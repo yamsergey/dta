@@ -75,6 +75,7 @@ public class McpServer {
         collectCdpTools(tools);
         collectRunTools(tools);
         collectDataTools(tools);
+        collectRuntimeTools(tools);
         return tools;
     }
 
@@ -1000,6 +1001,45 @@ public class McpServer {
     // ========================================================================
     // Helper methods
     // ========================================================================
+
+    private static void collectRuntimeTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("app_runtime",
+                "Inspect app runtime state: navigation, lifecycle, memory, threads.\n\n" +
+                "Commands:\n" +
+                "- navigation_backstack: Current navigation backstack with routes and arguments\n" +
+                "- navigation_graph: Full navigation graph structure (destinations, routes, deeplinks)\n" +
+                "- lifecycle: All activities with their lifecycle state (RESUMED/PAUSED/STOPPED)\n" +
+                "- memory: Heap and native memory usage (heapUsed, heapMax, nativeHeap)\n" +
+                "- threads: List all threads with state. Set stack_traces=true for full traces.",
+                schema(Map.of(
+                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads", true),
+                    "package", prop("string", "App package name (auto-detected if only one app)", false),
+                    "device", prop("string", "Device serial (auto-detected if only one device)", false),
+                    "stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String command = getString(args, "command");
+                    if (command == null) return errorResult("'command' is required");
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+
+                    return switch (command) {
+                        case "navigation_backstack" -> ok(getDaemon().navigationBackstack(pkg, device));
+                        case "navigation_graph" -> ok(getDaemon().navigationGraph(pkg, device));
+                        case "lifecycle" -> ok(getDaemon().lifecycle(pkg, device));
+                        case "memory" -> ok(getDaemon().memory(pkg, device));
+                        case "threads" -> ok(getDaemon().threads(pkg, device,
+                            Boolean.TRUE.equals(args.get("stack_traces"))));
+                        default -> errorResult("Unknown command: " + command);
+                    };
+                } catch (Exception e) {
+                    return friendlyError("app_runtime", e);
+                }
+            }
+        ));
+    }
 
     private static void collectDataTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         tools.add(new McpServerFeatures.SyncToolSpecification(

@@ -119,6 +119,22 @@ public class DaemonClient {
         return get("/api/runtime/files" + pathParam + "?package=" + encode(pkg) + deviceParam(device, false));
     }
 
+    public String navigationBackstack(String pkg, String device) {
+        return get("/api/runtime/navigation/backstack?package=" + encode(pkg) + deviceParam(device, false));
+    }
+    public String navigationGraph(String pkg, String device) {
+        return get("/api/runtime/navigation/graph?package=" + encode(pkg) + deviceParam(device, false));
+    }
+    public String lifecycle(String pkg, String device) {
+        return get("/api/runtime/lifecycle?package=" + encode(pkg) + deviceParam(device, false));
+    }
+    public String memory(String pkg, String device) {
+        return get("/api/runtime/memory?package=" + encode(pkg) + deviceParam(device, false));
+    }
+    public String threads(String pkg, String device, boolean stackTraces) {
+        return get("/api/runtime/threads?package=" + encode(pkg) + deviceParam(device, false) + (stackTraces ? "&stackTraces=true" : ""));
+    }
+
     public String authenticate(String pkg, String device) {
         return post("/api/runtime/authenticate?package=" + encode(pkg) + deviceParam(device, false), "");
     }

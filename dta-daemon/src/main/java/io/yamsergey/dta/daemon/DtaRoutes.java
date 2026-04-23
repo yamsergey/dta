@@ -157,6 +157,28 @@ public final class DtaRoutes {
         // Runtime Data Inspection (proxy to sidekick)
         // ====================================================================
 
+        app.get("/api/runtime/navigation/backstack", ctx -> {
+            try { jsonString(ctx, orchestrator.navigationBackstack(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/navigation/graph", ctx -> {
+            try { jsonString(ctx, orchestrator.navigationGraph(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/lifecycle", ctx -> {
+            try { jsonString(ctx, orchestrator.lifecycle(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/memory", ctx -> {
+            try { jsonString(ctx, orchestrator.memory(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/threads", ctx -> {
+            try { boolean stacks = "true".equals(ctx.queryParam("stackTraces"));
+                jsonString(ctx, orchestrator.threads(ctx.queryParam("package"), ctx.queryParam("device"), stacks));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
         app.get("/api/runtime/files", ctx -> {
             try {
                 jsonString(ctx, orchestrator.listFiles(ctx.queryParam("package"), ctx.queryParam("device"), ""));

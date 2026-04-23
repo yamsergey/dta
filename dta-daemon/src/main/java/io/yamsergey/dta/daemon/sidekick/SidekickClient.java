@@ -279,6 +279,11 @@ public class SidekickClient {
     // ========================================================================
 
     public Result<String> authenticate() { return httpPost("/runtime/authenticate", ""); }
+    public Result<String> navigationBackstack() { return httpGet("/runtime/navigation/backstack"); }
+    public Result<String> navigationGraph() { return httpGet("/runtime/navigation/graph"); }
+    public Result<String> lifecycle() { return httpGet("/runtime/lifecycle"); }
+    public Result<String> memory() { return httpGet("/runtime/memory"); }
+    public Result<String> threads(boolean stackTraces) { return httpGet("/runtime/threads" + (stackTraces ? "?stackTraces=true" : "")); }
     public Result<String> listFiles(String path) { return httpGet("/runtime/files/" + (path != null ? path : "")); }
     public Result<String> listDatabases() { return httpGet("/runtime/databases"); }
     public Result<String> databaseSchema(String name) { return httpGet("/runtime/databases/" + name + "/schema"); }

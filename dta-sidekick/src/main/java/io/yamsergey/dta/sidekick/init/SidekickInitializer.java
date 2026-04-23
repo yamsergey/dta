@@ -143,6 +143,9 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             // Register WebView debug hook
             registerWebViewHooks();
 
+            // Register navigation hook (captures NavController on setGraph)
+            registerNavigationHooks();
+
             // Register Compose recomposition tracking hooks
             registerRecompositionHooks();
         } else {
@@ -184,6 +187,15 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             SidekickLog.i(TAG, "WebView debug hook registered");
         } catch (Exception e) {
             SidekickLog.e(TAG, "Failed to register WebView debug hook", e);
+        }
+    }
+
+    private void registerNavigationHooks() {
+        try {
+            JvmtiAgent.registerHook(new io.yamsergey.dta.sidekick.data.NavControllerHook());
+            SidekickLog.i(TAG, "Navigation hook registered");
+        } catch (Exception e) {
+            SidekickLog.e(TAG, "Failed to register navigation hook", e);
         }
     }
 

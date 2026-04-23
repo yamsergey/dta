@@ -173,6 +173,22 @@ public class DtaOrchestrator {
     // Runtime Data Inspection
     // ========================================================================
 
+    public String navigationBackstack(String packageName, String device) throws Exception {
+        return unwrap(getConnection(packageName, device).client().navigationBackstack(), "Failed");
+    }
+    public String navigationGraph(String packageName, String device) throws Exception {
+        return unwrap(getConnection(packageName, device).client().navigationGraph(), "Failed");
+    }
+    public String lifecycle(String packageName, String device) throws Exception {
+        return unwrap(getConnection(packageName, device).client().lifecycle(), "Failed");
+    }
+    public String memory(String packageName, String device) throws Exception {
+        return unwrap(getConnection(packageName, device).client().memory(), "Failed");
+    }
+    public String threads(String packageName, String device, boolean stackTraces) throws Exception {
+        return unwrap(getConnection(packageName, device).client().threads(stackTraces), "Failed");
+    }
+
     public String listFiles(String packageName, String device, String path) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);
         return unwrap(conn.client().listFiles(path), "Failed to list files");
