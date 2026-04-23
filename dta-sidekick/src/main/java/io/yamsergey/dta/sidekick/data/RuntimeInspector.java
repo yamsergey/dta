@@ -309,6 +309,57 @@ public class RuntimeInspector {
             if (className != null) map.put("className", className.toString());
         } catch (Exception ignored) {}
 
+        // Declared arguments (name, type, default, nullable)
+        try {
+            Method getArguments = dest.getClass().getMethod("getArguments");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> argsMap = (Map<String, Object>) getArguments.invoke(dest);
+            if (argsMap != null && !argsMap.isEmpty()) {
+                List<Map<String, Object>> argsList = new ArrayList<>();
+                for (Map.Entry<String, Object> argEntry : argsMap.entrySet()) {
+                    Map<String, Object> argInfo = new HashMap<>();
+                    argInfo.put("name", argEntry.getKey());
+                    Object navArg = argEntry.getValue();
+                    if (navArg != null) {
+                        try {
+                            Method getType = navArg.getClass().getMethod("getType");
+                            Object type = getType.invoke(navArg);
+                            if (type != null) argInfo.put("type", type.getClass().getSimpleName());
+                        } catch (Exception ignored2) {}
+                        try {
+                            Method isNullable = navArg.getClass().getMethod("isNullable");
+                            argInfo.put("nullable", isNullable.invoke(navArg));
+                        } catch (Exception ignored2) {}
+                        try {
+                            Method getDefault = navArg.getClass().getMethod("getDefaultValue");
+                            Object def = getDefault.invoke(navArg);
+                            if (def != null) argInfo.put("defaultValue", def.toString());
+                        } catch (Exception ignored2) {}
+                    }
+                    argsList.add(argInfo);
+                }
+                map.put("arguments", argsList);
+            }
+        } catch (Exception ignored) {}
+
+        // Deep links
+        try {
+            Field deepLinksField = dest.getClass().getDeclaredField("deepLinks");
+            deepLinksField.setAccessible(true);
+            Object deepLinks = deepLinksField.get(dest);
+            if (deepLinks instanceof List && !((List<?>) deepLinks).isEmpty()) {
+                List<String> uris = new ArrayList<>();
+                for (Object dl : (List<?>) deepLinks) {
+                    try {
+                        Method getUriPattern = dl.getClass().getMethod("getUriPattern");
+                        Object uri = getUriPattern.invoke(dl);
+                        if (uri != null) uris.add(uri.toString());
+                    } catch (Exception ignored2) {}
+                }
+                if (!uris.isEmpty()) map.put("deepLinks", uris);
+            }
+        } catch (Exception ignored) {}
+
         return map;
     }
 
