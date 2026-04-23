@@ -324,7 +324,18 @@ public class RuntimeInspector {
                         try {
                             Method getType = navArg.getClass().getMethod("getType");
                             Object type = getType.invoke(navArg);
-                            if (type != null) argInfo.put("type", type.getClass().getSimpleName());
+                            if (type != null) {
+                                // NavType.getName() returns "string", "integer", etc.
+                                String typeName = null;
+                                try {
+                                    Method getName = type.getClass().getMethod("getName");
+                                    typeName = (String) getName.invoke(type);
+                                } catch (Exception ignored3) {}
+                                if (typeName == null || typeName.isEmpty()) {
+                                    typeName = type.toString();
+                                }
+                                argInfo.put("type", typeName);
+                            }
                         } catch (Exception ignored2) {}
                         try {
                             Method isNullable = navArg.getClass().getMethod("isNullable");
