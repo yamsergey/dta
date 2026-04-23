@@ -45,18 +45,39 @@ public class RuntimeInspector {
 
             // NavController.getCurrentBackStack() or iterate backQueue
             List<Map<String, Object>> entries = new ArrayList<>();
+            // Try currentBackStack StateFlow first (public API, Navigation 2.7+)
+            boolean gotStack = false;
             try {
-                // backQueue is a Deque<NavBackStackEntry> (internal but accessible)
-                Field backQueueField = navController.getClass().getDeclaredField("backQueue");
-                backQueueField.setAccessible(true);
-                Object backQueue = backQueueField.get(navController);
-                if (backQueue instanceof Iterable) {
-                    for (Object entry : (Iterable<?>) backQueue) {
-                        entries.add(backStackEntryToMap(entry));
+                Method getCurrentBackStack = navController.getClass().getMethod("getCurrentBackStack");
+                Object stateFlow = getCurrentBackStack.invoke(navController);
+                if (stateFlow != null) {
+                    Method getValue = stateFlow.getClass().getMethod("getValue");
+                    Object list = getValue.invoke(stateFlow);
+                    if (list instanceof List) {
+                        for (Object entry : (List<?>) list) {
+                            entries.add(backStackEntryToMap(entry));
+                        }
+                        gotStack = true;
                     }
                 }
-            } catch (NoSuchFieldException e) {
-                // Try public API: currentBackStackEntry + previousBackStackEntry
+            } catch (Exception ignored) {}
+
+            // Fallback: internal backQueue field
+            if (!gotStack) {
+                try {
+                    Field backQueueField = navController.getClass().getDeclaredField("backQueue");
+                    backQueueField.setAccessible(true);
+                    Object backQueue = backQueueField.get(navController);
+                    if (backQueue instanceof Iterable) {
+                        for (Object entry : (Iterable<?>) backQueue) {
+                            entries.add(backStackEntryToMap(entry));
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // Last resort: just the current entry
+            if (entries.isEmpty()) {
                 try {
                     Method getCurrent = navController.getClass().getMethod("getCurrentBackStackEntry");
                     Object current = getCurrent.invoke(navController);
