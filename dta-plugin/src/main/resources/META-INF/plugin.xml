@@ -45,7 +45,7 @@
         <toolWindow id="DTA Inspector"
                     anchor="bottom"
                     factoryClass="io.yamsergey.dta.plugin.DtaToolWindowFactory"
-                    icon="AllIcons.General.Information"/>
+                    icon="/icons/dta-13.svg"/>
         <applicationService serviceImplementation="io.yamsergey.dta.plugin.DtaService"/>
     </extensions>
 
