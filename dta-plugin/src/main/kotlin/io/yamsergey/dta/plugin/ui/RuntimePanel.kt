@@ -136,9 +136,32 @@ private class NavigationSubPanel : JPanel(BorderLayout()) {
                             val dests = graph.get("destinations")
                             if (dests != null && dests.isArray) {
                                 for (dest in dests) {
-                                    val route = dest.get("route")?.asText() ?: "?"
+                                    val route = dest.get("route")?.asText() ?: dest.get("label")?.asText() ?: "?"
                                     val nav = dest.get("navigatorName")?.asText() ?: ""
-                                    sb.append("  • $route ($nav)\n")
+                                    sb.append("  • $route ($nav)")
+                                    val className = dest.get("className")?.asText()
+                                    if (className != null) sb.append("  → $className")
+                                    sb.append("\n")
+                                    // Arguments
+                                    val destArgs = dest.get("arguments")
+                                    if (destArgs != null && destArgs.isArray) {
+                                        for (arg in destArgs) {
+                                            val name = arg.get("name")?.asText() ?: "?"
+                                            val type = arg.get("type")?.asText() ?: ""
+                                            val nullable = if (arg.get("nullable")?.asBoolean() == true) "?" else ""
+                                            val default = arg.get("defaultValue")?.asText()
+                                            sb.append("      arg: $name: $type$nullable")
+                                            if (default != null) sb.append(" = $default")
+                                            sb.append("\n")
+                                        }
+                                    }
+                                    // Deep links
+                                    val deepLinks = dest.get("deepLinks")
+                                    if (deepLinks != null && deepLinks.isArray) {
+                                        for (dl in deepLinks) {
+                                            sb.append("      deepLink: ${dl.asText()}\n")
+                                        }
+                                    }
                                 }
                             }
                         }
