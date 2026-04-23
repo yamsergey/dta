@@ -257,14 +257,35 @@ public class RuntimeInspector {
             if (label != null) map.put("label", label.toString());
         } catch (Exception ignored) {}
 
+        int destId = 0;
         try {
             Method getId = dest.getClass().getMethod("getId");
-            map.put("id", getId.invoke(dest));
+            Object id = getId.invoke(dest);
+            if (id instanceof Integer) destId = (Integer) id;
+            map.put("id", id);
         } catch (Exception ignored) {}
 
+        // Resolve XML resource ID to name (for Fragment-based navigation)
+        if (!map.containsKey("route") && destId != 0) {
+            try {
+                Activity activity = WindowRootDiscovery.getCurrentActivity();
+                if (activity != null) {
+                    String resName = activity.getResources().getResourceEntryName(destId);
+                    map.put("route", resName);
+                }
+            } catch (Exception ignored) {}
+        }
+
         try {
-            Method getClassName = dest.getClass().getMethod("getNavigatorName");
-            map.put("navigatorName", getClassName.invoke(dest));
+            Method getNavigatorName = dest.getClass().getMethod("getNavigatorName");
+            map.put("navigatorName", getNavigatorName.invoke(dest));
+        } catch (Exception ignored) {}
+
+        // For fragment destinations, get the fragment class name
+        try {
+            Method getClassName = dest.getClass().getMethod("getClassName");
+            Object className = getClassName.invoke(dest);
+            if (className != null) map.put("className", className.toString());
         } catch (Exception ignored) {}
 
         return map;
