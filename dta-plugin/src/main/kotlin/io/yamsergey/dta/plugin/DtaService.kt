@@ -78,6 +78,7 @@ class DtaService : Disposable {
         fun onNetworkDataChanged(json: String?) {}
         fun onWebSocketDataChanged(json: String?) {}
         fun onDataStoreChanged(databasesJson: String?, prefsJson: String?) {}
+        fun onRuntimeChanged(lifecycleJson: String?, memoryJson: String?, threadsJson: String?, navBackstackJson: String?, navGraphJson: String?) {}
         /** Called when device-side selections change (from MCP/CLI/inspector-web). */
         fun onDeviceSelectionsChanged(elements: String?, networkRequests: String?, wsMessages: String?) {}
     }
@@ -307,6 +308,7 @@ class DtaService : Disposable {
         fetchNetworkData(client, app.packageName(), device.serial())
         fetchWebSocketData(client, app.packageName(), device.serial())
         fetchDataStoreData(client, app.packageName(), device.serial())
+        fetchRuntimeData(client, app.packageName(), device.serial())
         fetchDeviceSelections(client, app.packageName(), device.serial())
     }
 
@@ -387,6 +389,19 @@ class DtaService : Disposable {
             }
         } catch (e: Exception) {
             log.debug("Data store fetch failed: ${e.message}")
+        }
+    }
+
+    private fun fetchRuntimeData(client: DaemonClient, pkg: String, device: String) {
+        try {
+            val lifecycle = try { client.lifecycle(pkg, device) } catch (_: Exception) { null }
+            val memory = try { client.memory(pkg, device) } catch (_: Exception) { null }
+            val threads = try { client.threads(pkg, device, false) } catch (_: Exception) { null }
+            val backstack = try { client.navigationBackstack(pkg, device) } catch (_: Exception) { null }
+            val graph = try { client.navigationGraph(pkg, device) } catch (_: Exception) { null }
+            notifyOnEdt { it.onRuntimeChanged(lifecycle, memory, threads, backstack, graph) }
+        } catch (e: Exception) {
+            log.debug("Runtime fetch failed: ${e.message}")
         }
     }
 

@@ -15,8 +15,8 @@ import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket
 import io.yamsergey.dta.plugin.DtaService.DtaServiceListener
-import io.yamsergey.dta.plugin.ui.DataPanel
 import io.yamsergey.dta.plugin.ui.LayoutPanel
+import io.yamsergey.dta.plugin.ui.RuntimePanel
 import io.yamsergey.dta.plugin.ui.McpPanel
 import io.yamsergey.dta.plugin.ui.NetworkPanel
 import io.yamsergey.dta.plugin.ui.WebSocketPanel
@@ -51,7 +51,7 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
     private val layoutPanel = LayoutPanel()
     private val networkPanel = NetworkPanel()
     private val webSocketPanel = WebSocketPanel()
-    private val dataPanel = DataPanel()
+    private val runtimePanel = RuntimePanel()
     private val mcpPanel = McpPanel()
 
     init {
@@ -92,7 +92,7 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
         tabbedPane.addTab("Layout", layoutPanel)
         tabbedPane.addTab("Network", networkPanel)
         tabbedPane.addTab("WebSocket", webSocketPanel)
-        tabbedPane.addTab("Data", dataPanel)
+        tabbedPane.addTab("Runtime", runtimePanel)
         tabbedPane.addTab("MCP", mcpPanel)
         add(tabbedPane, BorderLayout.CENTER)
 
