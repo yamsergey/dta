@@ -77,6 +77,7 @@ class DtaService : Disposable {
         fun onLayoutDataChanged(treeJson: String?, screenshotBytes: ByteArray?) {}
         fun onNetworkDataChanged(json: String?) {}
         fun onWebSocketDataChanged(json: String?) {}
+        fun onDataStoreChanged(databasesJson: String?, prefsJson: String?) {}
         /** Called when device-side selections change (from MCP/CLI/inspector-web). */
         fun onDeviceSelectionsChanged(elements: String?, networkRequests: String?, wsMessages: String?) {}
     }
@@ -305,6 +306,7 @@ class DtaService : Disposable {
         fetchLayoutData(client, app.packageName(), device.serial())
         fetchNetworkData(client, app.packageName(), device.serial())
         fetchWebSocketData(client, app.packageName(), device.serial())
+        fetchDataStoreData(client, app.packageName(), device.serial())
         fetchDeviceSelections(client, app.packageName(), device.serial())
     }
 
@@ -371,6 +373,23 @@ class DtaService : Disposable {
         }
     }
 
+    private var databasesJson: String? = null
+    private var prefsJson: String? = null
+
+    private fun fetchDataStoreData(client: DaemonClient, pkg: String, device: String) {
+        try {
+            val dbs = client.listDatabases(pkg, device)
+            val prefs = client.listSharedPrefs(pkg, device)
+            if (dbs != databasesJson || prefs != prefsJson) {
+                databasesJson = dbs
+                prefsJson = prefs
+                notifyOnEdt { it.onDataStoreChanged(dbs, prefs) }
+            }
+        } catch (e: Exception) {
+            log.debug("Data store fetch failed: ${e.message}")
+        }
+    }
+
     private fun clearDataCaches() {
         layoutTreeJson = null
         screenshotBytes = null
@@ -401,6 +420,21 @@ class DtaService : Disposable {
         val client = ensureDaemon()
         client.clearNetworkRequests(pkg, device)
         networkRequestsJson = null
+    }
+
+    fun fetchDatabaseSchema(pkg: String, dbName: String, device: String?): String {
+        val client = ensureDaemon()
+        return client.databaseSchema(pkg, dbName, device ?: "")
+    }
+
+    fun fetchDatabaseQuery(pkg: String, dbName: String, body: String, device: String?): String {
+        val client = ensureDaemon()
+        return client.databaseQuery(pkg, dbName, body, device ?: "")
+    }
+
+    fun fetchSharedPrefs(pkg: String, prefsName: String, device: String?): String {
+        val client = ensureDaemon()
+        return client.readSharedPrefs(pkg, prefsName, device ?: "")
     }
 
     fun clearWebSocketConnections(pkg: String, device: String?) {
