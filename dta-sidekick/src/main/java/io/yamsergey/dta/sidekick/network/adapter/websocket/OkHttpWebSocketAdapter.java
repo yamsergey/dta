@@ -61,7 +61,8 @@ public class OkHttpWebSocketAdapter implements NetworkAdapter {
             new OkHttpWebSocketSendBinaryHook(),
             new OkHttpWebSocketReceiveTextHook(),
             new OkHttpWebSocketReceiveBinaryHook(),
-            new OkHttpWebSocketCloseHook()
+            new OkHttpWebSocketCloseHook(),
+            new OkHttpWebSocketFailureHook()
         );
     }
 
