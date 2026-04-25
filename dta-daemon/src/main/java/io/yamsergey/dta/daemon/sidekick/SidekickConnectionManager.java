@@ -77,6 +77,15 @@ public class SidekickConnectionManager {
         log.info("ADB path set to: {}", path);
     }
 
+    /**
+     * Returns the currently-configured ADB executable path. Callers that need
+     * to invoke ADB directly (e.g. UI hierarchy fallback via uiautomator) read
+     * this so they pick up any plugin-supplied override from setAdbPath.
+     */
+    public static String getAdbPath() {
+        return ADB;
+    }
+
     // ========================================================================
     // Records
     // ========================================================================

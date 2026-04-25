@@ -147,6 +147,19 @@ public class DtaOrchestrator {
             }
 
             JsonNode adapted = adaptUnfilteredResponse(tree);
+
+            // Fallback to uiautomator when sidekick returned an empty tree.
+            // Triggers only on the unfiltered path; filter queries that match
+            // nothing are legitimate "no matches", not empty-tree cases.
+            if (isEmptyTree(adapted)) {
+                JsonNode fallback = UiAutomatorLayoutFallback.convert(
+                    device, SidekickConnectionManager.getAdbPath(), packageName, mapper);
+                if (fallback != null) {
+                    log.info("Layout tree empty for {} — using uiautomator fallback", packageName);
+                    return fallback;
+                }
+            }
+
             enrichWebViewNodes(adapted, packageName, device);
             return adapted;
         }
@@ -697,6 +710,20 @@ public class DtaOrchestrator {
     // ========================================================================
     // Internal: Layout tree adaptation and enrichment
     // ========================================================================
+
+    /**
+     * Considers a layout-tree response empty when there is no {@code root} or
+     * the root has no children. Used to decide whether to engage the
+     * uiautomator fallback. We only check the root's direct children — a tree
+     * with deeply-nested empty wrappers is a separate edge case and not worth
+     * the extra walk.
+     */
+    private static boolean isEmptyTree(JsonNode adapted) {
+        JsonNode root = adapted.get("root");
+        if (root == null || root.isNull()) return true;
+        JsonNode children = root.get("children");
+        return children == null || !children.isArray() || children.isEmpty();
+    }
 
     /**
      * Adapts unfiltered layout_tree response: flattens {@code windows} into a single {@code root}.
