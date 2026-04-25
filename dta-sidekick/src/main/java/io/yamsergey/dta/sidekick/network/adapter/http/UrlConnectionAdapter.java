@@ -56,7 +56,13 @@ public class UrlConnectionAdapter implements NetworkAdapter {
     @Override
     public List<MethodHook> getHooks() {
         return Arrays.asList(
-            new UrlConnectionGetInputStreamHook()
+            // http:// URLs — direct HttpURLConnectionImpl dispatch
+            new UrlConnectionGetInputStreamHook(),
+            // https:// URLs — JVM dispatches via HttpsURLConnectionImpl bridge to
+            // DelegatingHttpsURLConnection.getInputStream() which delegates internally;
+            // hooking the delegating class catches every HTTPS call regardless of
+            // whether ART's final-method optimization elides the inner delegate hook.
+            new UrlConnectionGetInputStreamHook("com.android.okhttp.internal.huc.DelegatingHttpsURLConnection")
         );
     }
 

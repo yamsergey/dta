@@ -30,12 +30,26 @@ public class UrlConnectionGetInputStreamHook implements MethodHook {
 
     private static final String TAG = "UrlConnectionHook";
 
-    // Target the internal Android implementation for more reliable hooking
-    private static final String TARGET_CLASS = "com.android.okhttp.internal.huc.HttpURLConnectionImpl";
+    // Default target: Android's bundled OkHttp HTTP impl (covers http:// URLs).
+    // For https:// URLs the JVM dispatches via HttpsURLConnectionImpl →
+    // DelegatingHttpsURLConnection.getInputStream() → delegate.getInputStream(),
+    // and ART's optimization of the final delegate call doesn't reliably trigger
+    // the bytecode-level hook on HttpURLConnectionImpl. So we register a
+    // separate hook (this same class with a different target) on the delegating
+    // class to catch HTTPS — see UrlConnectionAdapter.getHooks().
+    private final String targetClass;
+
+    public UrlConnectionGetInputStreamHook() {
+        this("com.android.okhttp.internal.huc.HttpURLConnectionImpl");
+    }
+
+    public UrlConnectionGetInputStreamHook(String targetClass) {
+        this.targetClass = targetClass;
+    }
 
     @Override
     public String getTargetClass() {
-        return TARGET_CLASS;
+        return targetClass;
     }
 
     @Override
@@ -50,7 +64,10 @@ public class UrlConnectionGetInputStreamHook implements MethodHook {
 
     @Override
     public String getId() {
-        return "urlconnection-getinputstream";
+        // Distinguish hooks by target class so multiple instances don't collide
+        // in the JvmtiAgent's HookRegistry.
+        String shortName = targetClass.substring(targetClass.lastIndexOf('.') + 1);
+        return "urlconnection-getinputstream-" + shortName;
     }
 
     @Override
