@@ -44,7 +44,11 @@ android {
 
 dependencies {
     // DTA Sidekick for compose inspection (debug only)
-    debugImplementation("io.github.yamsergey:dta-sidekick:0.9.37-SNAPSHOT.1")
+    // Plugin auto-injects dta-sidekick — no hardcoded version needed.
+    // Hardcoded version pins to a specific snapshot which can lock the fixture
+    // to a build older than the running plugin (root cause of 404s on newly
+    // added /runtime/* endpoints — see release-test-plan / 2026-04-26 finding).
+    // debugImplementation("io.github.yamsergey:dta-sidekick:0.9.37-SNAPSHOT.1")
     // Network - HTTP
     implementation(libs.okhttp)
     implementation(libs.gson)
