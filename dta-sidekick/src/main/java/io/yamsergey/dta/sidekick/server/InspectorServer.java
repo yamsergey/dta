@@ -890,6 +890,14 @@ public class InspectorServer {
                 "/runtime/databases/{name}/query",
                 "/runtime/shared-prefs",
                 "/runtime/shared-prefs/{name}",
+                "/runtime/files",
+                "/runtime/files/{path}",
+                "/runtime/authenticate",
+                "/runtime/navigation/backstack",
+                "/runtime/navigation/graph",
+                "/runtime/lifecycle",
+                "/runtime/memory",
+                "/runtime/threads",
                 "/layout/tree",
                 "/layout/properties/{viewId}"
         });
