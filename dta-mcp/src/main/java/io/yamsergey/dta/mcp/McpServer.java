@@ -282,7 +282,7 @@ public class McpServer {
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
-                    String json = getDaemon().inputText(getString(args, "text"), getString(args, "device"));
+                    String json = getDaemon().inputText(requireString(args, "text"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
                     return friendlyError("input_text", e);
@@ -299,7 +299,7 @@ public class McpServer {
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
-                    String json = getDaemon().pressKey(getString(args, "key"), getString(args, "device"));
+                    String json = getDaemon().pressKey(requireString(args, "key"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
                     return friendlyError("press_key", e);
@@ -337,10 +337,10 @@ public class McpServer {
             (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().networkRequest(
-                        getString(args, "package"), getString(args, "request_id"), getString(args, "device"));
+                        getString(args, "package"), requireString(args, "request_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("network_request", e);
                 }
             }
         ));
@@ -357,7 +357,7 @@ public class McpServer {
                     String json = getDaemon().websocketConnections(getString(args, "package"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("websocket_connections", e);
                 }
             }
         ));
@@ -373,10 +373,10 @@ public class McpServer {
             (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().websocketConnection(
-                        getString(args, "package"), getString(args, "connection_id"), getString(args, "device"));
+                        getString(args, "package"), requireString(args, "connection_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("websocket_connection", e);
                 }
             }
         ));
@@ -490,13 +490,13 @@ public class McpServer {
             (exchange, request) -> { var args = request.arguments();
                 try {
                     String pkg = getString(args, "package");
-                    String requestId = getString(args, "request_id");
+                    String requestId = requireString(args, "request_id");
                     String device = getString(args, "device");
                     String selectionJson = mapper.writeValueAsString(Map.of("id", requestId));
                     String json = getDaemon().addSelectedNetworkRequest(pkg, device, selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("select_network_request", e);
                 }
             }
         ));
@@ -532,13 +532,13 @@ public class McpServer {
                     String pkg = getString(args, "package");
                     String device = getString(args, "device");
                     String selectionJson = mapper.writeValueAsString(Map.of(
-                        "connectionId", getString(args, "connection_id"),
+                        "connectionId", requireString(args, "connection_id"),
                         "messageIndex", getInt(args, "message_index")
                     ));
                     String json = getDaemon().addSelectedWebSocketMessage(pkg, device, selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("select_websocket_message", e);
                 }
             }
         ));
@@ -588,10 +588,10 @@ public class McpServer {
             (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().networkRequestBody(
-                        getString(args, "package"), getString(args, "request_id"), getString(args, "device"));
+                        getString(args, "package"), requireString(args, "request_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("network_request_body", e);
                 }
             }
         ));
@@ -640,11 +640,11 @@ public class McpServer {
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
-                    String selectionJson = mapper.writeValueAsString(Map.of("id", getString(args, "request_id")));
+                    String selectionJson = mapper.writeValueAsString(Map.of("id", requireString(args, "request_id")));
                     String json = getDaemon().removeSelectedNetworkRequest(getString(args, "package"), getString(args, "device"), selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("remove_selected_network_request", e);
                 }
             }
         ));
@@ -678,14 +678,14 @@ public class McpServer {
             (exchange, request) -> { var args = request.arguments();
                 try {
                     String selectionJson = mapper.writeValueAsString(Map.of(
-                        "connectionId", getString(args, "connection_id"),
+                        "connectionId", requireString(args, "connection_id"),
                         "messageIndex", getInt(args, "message_index")
                     ));
                     String json = getDaemon().removeSelectedWebSocketMessage(
                         getString(args, "package"), getString(args, "device"), selectionJson);
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("remove_selected_websocket_message", e);
                 }
             }
         ));
@@ -735,10 +735,10 @@ public class McpServer {
             (exchange, request) -> { var args = request.arguments();
                 try {
                     String json = getDaemon().layoutProperties(
-                        getString(args, "package"), getString(args, "view_id"), getString(args, "device"));
+                        getString(args, "package"), requireString(args, "view_id"), getString(args, "device"));
                     return ok(json);
                 } catch (Exception e) {
-                    return friendlyError("tool", e);
+                    return friendlyError("layout_properties", e);
                 }
             }
         ));
@@ -1195,6 +1195,21 @@ public class McpServer {
         if ("device".equals(key)) return resolveDevice(args);
         if ("package".equals(key)) return resolvePackage(args, resolveDevice(args));
         return null;
+    }
+
+    /**
+     * Like {@link #getString} but throws a friendly error when a required
+     * argument is missing. Use this for params marked {@code required: true}
+     * in the tool schema (other than {@code device} / {@code package}, which
+     * auto-resolve in {@code getString}).
+     */
+    private static String requireString(Map<String, Object> args, String key) {
+        Object value = args.get(key);
+        if (value != null) {
+            String s = value.toString();
+            if (!s.isEmpty()) return s;
+        }
+        throw new IllegalArgumentException("Missing required parameter: " + key);
     }
 
     private static int getInt(Map<String, Object> args, String key) {
