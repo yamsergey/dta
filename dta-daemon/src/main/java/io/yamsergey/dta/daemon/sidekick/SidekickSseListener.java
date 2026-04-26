@@ -26,6 +26,15 @@ public class SidekickSseListener implements AutoCloseable {
 
     public interface EventListener {
         void onCustomTabWillLaunch(String eventId, String url, long timestamp);
+        /**
+         * Fires when sidekick observes the host app launching {@code Intent.ACTION_VIEW}
+         * for an http(s) URL that resolves to a Chromium-based browser (i.e. not
+         * Custom Tabs). The daemon uses this to correlate the resulting Chrome
+         * tab against the originating app call. Default no-op preserves binary
+         * compatibility for older listener implementations.
+         */
+        default void onChromeWillLaunch(String eventId, String url, long timestamp,
+                                        String packageName, String targetBrowserPackage) {}
         void onConnected();
         void onDisconnected();
     }
@@ -146,6 +155,15 @@ public class SidekickSseListener implements AutoCloseable {
                     String eventUrl = node.path("url").asText();
                     long timestamp = node.path("timestamp").asLong();
                     listener.onCustomTabWillLaunch(eventId, eventUrl, timestamp);
+                }
+                case "chrome_will_launch" -> {
+                    JsonNode node = mapper.readTree(data);
+                    String eventId = node.path("id").asText();
+                    String eventUrl = node.path("url").asText();
+                    long timestamp = node.path("timestamp").asLong();
+                    String pkg = node.path("packageName").asText();
+                    String target = node.path("targetBrowserPackage").asText();
+                    listener.onChromeWillLaunch(eventId, eventUrl, timestamp, pkg, target);
                 }
                 default -> log.debug("Ignoring SSE event: {}", eventType);
             }

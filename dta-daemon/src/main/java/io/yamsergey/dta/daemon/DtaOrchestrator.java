@@ -6,6 +6,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 import io.yamsergey.dta.daemon.cdp.CdpAccessibilityInspector;
 import io.yamsergey.dta.daemon.cdp.CdpWatcherManager;
+import io.yamsergey.dta.daemon.cdp.ChromeBrowserCdpManager;
 import io.yamsergey.dta.daemon.cdp.ChromeDevToolsClient;
 import io.yamsergey.dta.daemon.cdp.WebViewCdpManager;
 import io.yamsergey.dta.daemon.runner.AppRunner;
@@ -685,6 +686,15 @@ public class DtaOrchestrator {
                     public void onCustomTabWillLaunch(String eventId, String url, long timestamp) {
                         log.info("SSE: Custom Tab will launch: {} (event={})", url, eventId);
                         CdpWatcherManager.getInstance().onCustomTabWillLaunch(packageName, device, eventId, url);
+                    }
+
+                    @Override
+                    public void onChromeWillLaunch(String eventId, String url, long timestamp,
+                                                   String pkg, String targetBrowserPackage) {
+                        log.info("SSE: Chrome will launch: {} (event={}, target={})",
+                                url, eventId, targetBrowserPackage);
+                        ChromeBrowserCdpManager.getInstance().onChromeWillLaunch(
+                                device, conn.client(), eventId, url, timestamp);
                     }
 
                     @Override

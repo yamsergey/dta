@@ -191,6 +191,20 @@ fun MainContent(
             Text("Data Demo (Database + SharedPreferences)")
         }
 
+        // Standalone Chrome via Intent.ACTION_VIEW.
+        // Distinct from the Custom Tabs Demo — exercises the
+        // ChromeIntentLaunchHook / ChromeBrowserCdpManager capture path.
+        val chromeIntentContext = LocalContext.current
+        Button(
+            onClick = {
+                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://jsonplaceholder.typicode.com/posts"))
+                chromeIntentContext.startActivity(intent)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Launch in Chrome (Intent.ACTION_VIEW)")
+        }
+
         // Counter section
         CounterSection(
             counter = counter,

@@ -97,11 +97,26 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
      * @param eventCallback  callback for network events
      */
     public CustomTabsNetworkMonitor(String deviceSerial, Consumer<CustomTabNetworkEvent> eventCallback) {
+        this(deviceSerial, eventCallback, "CustomTab");
+    }
+
+    /**
+     * @param sourceTag the value posted to sidekick under {@code source} for
+     *                  every captured transaction. Defaults to {@code "CustomTab"};
+     *                  {@code "Chrome"} is used by the standalone Chrome-via-Intent
+     *                  path so consumers can distinguish the two capture flows.
+     */
+    public CustomTabsNetworkMonitor(String deviceSerial,
+                                    Consumer<CustomTabNetworkEvent> eventCallback,
+                                    String sourceTag) {
         this.deviceSerial = deviceSerial;
         this.eventCallback = eventCallback;
+        this.sourceTag = sourceTag != null ? sourceTag : "CustomTab";
         this.executor = Executors.newScheduledThreadPool(2);
         this.activeClients = new ConcurrentHashMap<>();
     }
+
+    private final String sourceTag;
 
     /**
      * Pre-connects to Chrome DevTools by setting up port forwarding.
@@ -530,7 +545,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 data.put("id", tx.requestId); // stable ID for updates (pending → completed)
                 data.put("url", tx.url);
                 data.put("method", tx.method);
-                data.put("source", "CustomTab");
+                data.put("source", sourceTag);
                 if (tx.resourceType != null) {
                     data.put("resourceType", tx.resourceType);
                 }

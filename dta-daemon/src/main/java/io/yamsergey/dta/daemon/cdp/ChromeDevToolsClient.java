@@ -73,6 +73,20 @@ public class ChromeDevToolsClient implements AutoCloseable {
 
     private WebSocket webSocket;
     private Consumer<CdpNetworkEvent> networkEventListener;
+    /**
+     * Optional listener invoked on every CDP event (method + params), in
+     * addition to the typed {@link #networkEventListener}. Used by callers
+     * that need access to non-Network domains (e.g. {@code Target.*} events
+     * for the Chrome browser-CDP path).
+     */
+    private java.util.function.BiConsumer<String, JsonNode> rawEventListener;
+    /**
+     * Per-session event listeners. Used with the CDP flat protocol
+     * ({@code setAutoAttach(flatten:true)}) where child-target events arrive on
+     * the parent connection wrapped with a {@code sessionId} field. A session
+     * listener receives events whose top-level {@code sessionId} matches.
+     */
+    private final Map<String, java.util.function.BiConsumer<String, JsonNode>> sessionEventListeners = new ConcurrentHashMap<>();
     private StringBuilder messageBuffer;
     private volatile boolean connected;
 
@@ -255,6 +269,17 @@ public class ChromeDevToolsClient implements AutoCloseable {
     }
 
     /**
+     * Sets a raw CDP event listener that receives every event (method, params),
+     * regardless of domain. The typed {@link #setNetworkEventListener} still
+     * fires for {@code Network.*} events; this listener fires in addition,
+     * which is useful for {@code Target.*} dispatch when running the browser
+     * CDP connection.
+     */
+    public void setRawEventListener(java.util.function.BiConsumer<String, JsonNode> listener) {
+        this.rawEventListener = listener;
+    }
+
+    /**
      * Sends a CDP command and returns a future with the result.
      *
      * @param method the CDP method name
@@ -262,6 +287,18 @@ public class ChromeDevToolsClient implements AutoCloseable {
      * @return future that completes with the result
      */
     public CompletableFuture<JsonNode> send(String method, Map<String, Object> params) {
+        return send(method, params, null);
+    }
+
+    /**
+     * Sends a CDP command, optionally targeted at a child session via the flat
+     * protocol. When {@code sessionId} is non-null, the message is wrapped with
+     * a top-level {@code sessionId} field so Chrome routes it to the matching
+     * auto-attached target. The command's response (and any related events)
+     * arrive back with the same sessionId; events are dispatched via
+     * {@link #setSessionEventListener}.
+     */
+    public CompletableFuture<JsonNode> send(String method, Map<String, Object> params, String sessionId) {
         if (webSocket == null || !connected) {
             return CompletableFuture.failedFuture(
                 new IOException("Not connected to WebSocket"));
@@ -276,6 +313,9 @@ public class ChromeDevToolsClient implements AutoCloseable {
             message.put("id", id);
             message.put("method", method);
             message.set("params", objectMapper.valueToTree(params));
+            if (sessionId != null) {
+                message.put("sessionId", sessionId);
+            }
 
             String json = objectMapper.writeValueAsString(message);
             webSocket.sendText(json, true);
@@ -286,6 +326,20 @@ public class ChromeDevToolsClient implements AutoCloseable {
         }
 
         return future;
+    }
+
+    /**
+     * Registers a listener for events arriving on a specific child session
+     * (CDP flat protocol). The listener fires for events whose top-level
+     * {@code sessionId} matches. Pass null listener to remove.
+     */
+    public void setSessionEventListener(String sessionId, java.util.function.BiConsumer<String, JsonNode> listener) {
+        if (sessionId == null) return;
+        if (listener == null) {
+            sessionEventListeners.remove(sessionId);
+        } else {
+            sessionEventListeners.put(sessionId, listener);
+        }
     }
 
     /**
@@ -340,6 +394,17 @@ public class ChromeDevToolsClient implements AutoCloseable {
             else if (root.has("method")) {
                 String method = root.get("method").asText();
                 JsonNode params = root.path("params");
+                String sessionId = root.path("sessionId").asText(null);
+                if (sessionId != null && !sessionId.isEmpty()) {
+                    java.util.function.BiConsumer<String, JsonNode> sessionListener = sessionEventListeners.get(sessionId);
+                    if (sessionListener != null) {
+                        try {
+                            sessionListener.accept(method, params);
+                        } catch (Exception e) {
+                            log.debug("Session listener threw for {}: {}", method, e.getMessage());
+                        }
+                    }
+                }
                 handleEvent(method, params);
             }
 
@@ -349,6 +414,13 @@ public class ChromeDevToolsClient implements AutoCloseable {
     }
 
     private void handleEvent(String method, JsonNode params) {
+        if (rawEventListener != null) {
+            try {
+                rawEventListener.accept(method, params);
+            } catch (Exception e) {
+                log.debug("Raw event listener threw for {}: {}", method, e.getMessage());
+            }
+        }
         if (networkEventListener == null) {
             return;
         }

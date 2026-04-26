@@ -37,6 +37,7 @@ import io.yamsergey.dta.sidekick.compose.ComposeHitTester;
 import io.yamsergey.dta.sidekick.layout.UnifiedTreeBuilder;
 import io.yamsergey.dta.sidekick.layout.UnifiedTreeFilter;
 import io.yamsergey.dta.sidekick.view.WindowRootDiscovery;
+import io.yamsergey.dta.sidekick.chromeintent.ChromeLaunchEvent;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabEvent;
 import io.yamsergey.dta.sidekick.customtabs.CustomTabsInspector;
 import io.yamsergey.dta.sidekick.mock.MockConfig;
@@ -2670,6 +2671,44 @@ public class InspectorServer {
                 sseClients.remove(client);
             }
         }
+    }
+
+    /**
+     * Broadcasts a Chrome-via-Intent launch event to SSE clients. Used by
+     * {@link io.yamsergey.dta.sidekick.chromeintent.ChromeIntentLaunchHook}
+     * to notify the daemon that the host app is about to launch a URL in a
+     * Chromium-based browser via {@code startActivity(Intent.ACTION_VIEW)}.
+     *
+     * <p>Unlike Custom Tabs, no URL swap or ACK is needed: the daemon keeps
+     * {@code Target.setAutoAttach + waitForDebuggerOnStart} armed continuously
+     * on the browser CDP connection, so Chrome pauses the new tab automatically
+     * before any network activity. This event lets the daemon correlate the
+     * resulting {@code Target.attachedToTarget} back to the originating app.</p>
+     */
+    public void broadcastChromeLaunchEvent(ChromeLaunchEvent event) {
+        if (event == null || sseClients.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", event.getId());
+        data.put("url", event.getUrl());
+        data.put("timestamp", event.getTimestamp());
+        data.put("packageName", event.getPackageName());
+        data.put("targetBrowserPackage", event.getTargetBrowserPackage());
+        data.put("eventType", "chrome_will_launch");
+
+        // Send asynchronously to avoid blocking the host app's UI thread on
+        // SSE writes (same defensive pattern as the Custom Tabs broadcast).
+        executor.submit(() -> {
+            for (OutputStream client : sseClients) {
+                try {
+                    sendSseEvent(client, "chrome_will_launch", data);
+                } catch (IOException e) {
+                    sseClients.remove(client);
+                }
+            }
+        });
     }
 
     // =========================================================================
