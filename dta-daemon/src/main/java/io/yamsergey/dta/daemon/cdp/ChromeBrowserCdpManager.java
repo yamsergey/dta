@@ -254,20 +254,22 @@ public class ChromeBrowserCdpManager {
             }
 
             try {
-                // Decide attribution before enabling capture: only app-correlated
-                // tabs get captured. Others are released unmonitored. Targets
-                // paused by waitForDebuggerOnStart don't always surface in
-                // /json/list, so we correlate purely on the URL we already have
-                // from the Target.attachedToTarget event.
-                PendingLaunch matched = correlate(initialUrl, initialUrl);
+                // Sidekick swaps the Intent's URI to about:blank when capture is
+                // active, so the tab's initial URL is about:blank — a synthetic
+                // marker that this is one of ours. Correlate by claiming the
+                // oldest unmatched pending event in the time window. If the URL
+                // isn't about:blank (capture wasn't armed at hook time, or the
+                // host hit a code path that bypasses the swap), fall back to
+                // URL match so we still capture if we can.
+                PendingLaunch matched = correlateForTab(initialUrl);
                 if (matched == null) {
                     log.debug("Chrome target {} ({}) has no matching pending launch — releasing without capture",
                             targetId, initialUrl);
                     resumeViaBrowser(autoAttachSessionId);
                     return;
                 }
-                log.info("Chrome target {} matched chrome_will_launch event {} (url={})",
-                        targetId, matched.eventId, matched.url);
+                log.info("Chrome target {} matched chrome_will_launch event {} (tabUrl={}, realUrl={})",
+                        targetId, matched.eventId, initialUrl, matched.url);
 
                 // Use the CDP flat protocol: send commands and receive Network.*
                 // events on the existing browser WebSocket, scoped via sessionId.
@@ -295,12 +297,53 @@ public class ChromeBrowserCdpManager {
                     browserClient.send("Runtime.runIfWaitingForDebugger", Map.of(), sessionId)
                             .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).join();
                 }
+
+                // The blank-page trick: sidekick swapped to about:blank to give
+                // us a no-traffic tab to attach to. Now navigate to the real
+                // URL — Network.enable is already on, so every request from
+                // here on is captured. Skip the navigate if the tab somehow
+                // landed on the real URL already (sidekick didn't swap, e.g.
+                // CDP wasn't armed at hook time).
+                if ("about:blank".equals(initialUrl)) {
+                    browserClient.send("Page.navigate", Map.of("url", navigatedUrl), sessionId)
+                            .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).join();
+                    log.info("Chrome target {} navigated about:blank → {}", targetId, navigatedUrl);
+                }
                 log.info("Chrome target {} capture armed (session {}, waitingForDebugger={})",
                         targetId, sessionId, waitingForDebugger);
 
             } catch (Exception e) {
                 log.error("Chrome target {} attach failed: {}", targetId, e.getMessage(), e);
                 resumeViaBrowser(autoAttachSessionId);
+            }
+        }
+
+        /**
+         * Picks a pending launch to attribute a newly-attached tab to.
+         *
+         * <p>For about:blank (the marker we use after the URI swap), the URL
+         * carries no information about which event it belongs to — we just
+         * take the oldest unmatched pending event in the correlation window.
+         * For any other URL we fall back to direct URL matching so a tab that
+         * skipped the swap (no daemon at hook time, then daemon connected
+         * later) still gets captured if its URL is in flight.</p>
+         */
+        private PendingLaunch correlateForTab(String tabUrl) {
+            synchronized (pendingLock) {
+                long cutoff = System.currentTimeMillis() - CORRELATION_WINDOW_MS;
+                pending.removeIf(p -> p.timestamp < cutoff);
+                if (pending.isEmpty()) return null;
+
+                if ("about:blank".equals(tabUrl)) {
+                    return pending.remove(0);
+                }
+                for (int i = 0; i < pending.size(); i++) {
+                    PendingLaunch p = pending.get(i);
+                    if (urlsMatch(p.url, tabUrl)) {
+                        return pending.remove(i);
+                    }
+                }
+                return null;
             }
         }
 

@@ -156,6 +156,24 @@ public class InspectorServer {
     }
 
     /**
+     * Returns true if at least one SSE client (the daemon) is connected.
+     * Hooks use this to decide whether it's safe to mutate the host app's
+     * Intent for capture (e.g. swap a Chrome ACTION_VIEW URI to about:blank).
+     * When false, hooks must leave the app's behavior untouched — without a
+     * daemon listening, mutating the Intent would just land Chrome on a blank
+     * page with no recovery.
+     *
+     * <p>We deliberately do <b>not</b> require {@code cdpCaptureRequested}
+     * here: that flag is set per-app via a separate POST and races the hook
+     * timing on app cold-starts. The SSE client check is the safe minimum —
+     * if a daemon is on the stream it's by definition able to consume the
+     * launch event and drive the capture flow.</p>
+     */
+    public boolean isCdpCaptureActive() {
+        return !sseClients.isEmpty();
+    }
+
+    /**
      * Notifies the server that a Custom Tab is about to launch and checks whether
      * CDP capture is armed.
      *
@@ -2679,11 +2697,13 @@ public class InspectorServer {
      * to notify the daemon that the host app is about to launch a URL in a
      * Chromium-based browser via {@code startActivity(Intent.ACTION_VIEW)}.
      *
-     * <p>Unlike Custom Tabs, no URL swap or ACK is needed: the daemon keeps
-     * {@code Target.setAutoAttach + waitForDebuggerOnStart} armed continuously
-     * on the browser CDP connection, so Chrome pauses the new tab automatically
-     * before any network activity. This event lets the daemon correlate the
-     * resulting {@code Target.attachedToTarget} back to the originating app.</p>
+     * <p>The hook swaps the Intent's URI to {@code about:blank} when
+     * {@link #isCdpCaptureActive} is true (same trick as Custom Tabs). about:blank
+     * loads with zero network requests, so by the time the daemon attaches via
+     * {@code Target.setAutoAttach}, no traffic has been missed. The daemon then
+     * issues {@code Page.navigate(realUrl)} on the captured session and the
+     * full request stream is captured. The original URL is delivered in this
+     * event so the daemon knows where to navigate.</p>
      */
     public void broadcastChromeLaunchEvent(ChromeLaunchEvent event) {
         if (event == null || sseClients.isEmpty()) {
