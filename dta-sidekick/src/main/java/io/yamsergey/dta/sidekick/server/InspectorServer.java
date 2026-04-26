@@ -655,6 +655,22 @@ public class InspectorServer {
             boolean stacks = path.contains("stackTraces=true");
             handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().threads(stacks), out); return;
         }
+        if (path.equals("/runtime/viewmodels") && "GET".equals(method)) {
+            handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().viewModels(), out); return;
+        }
+        if (path.startsWith("/runtime/viewmodels/") && path.endsWith("/saved-state") && "GET".equals(method)) {
+            // /runtime/viewmodels/{id}/saved-state — id is between the two segments
+            // and arrives URL-encoded (the id contains ':' from
+            // ViewModelProvider.DefaultKey:<class>).
+            String rawId = path.substring("/runtime/viewmodels/".length(), path.length() - "/saved-state".length());
+            String id;
+            try {
+                id = java.net.URLDecoder.decode(rawId, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                id = rawId;
+            }
+            handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().viewModelSavedState(id), out); return;
+        }
         if (path.startsWith("/runtime/files") && "GET".equals(method)) {
             String subPath = path.length() > 15 ? path.substring(15) : "";
             handleRuntimeListFiles(subPath, out); return;
@@ -917,6 +933,8 @@ public class InspectorServer {
                 "/runtime/lifecycle",
                 "/runtime/memory",
                 "/runtime/threads",
+                "/runtime/viewmodels",
+                "/runtime/viewmodels/{id}/saved-state",
                 "/layout/tree",
                 "/layout/properties/{viewId}"
         });

@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Runtime inspection of app state: navigation, lifecycle, memory, threads.
@@ -504,5 +505,360 @@ public class RuntimeInspector {
         result.put("activities", activities);
         result.put("count", activities.size());
         return result;
+    }
+
+    // ========================================================================
+    // ViewModels
+    // ========================================================================
+
+    /** Hard cap on the rendered length of any single property value. */
+    private static final int MAX_VALUE_LEN = 1000;
+
+    /**
+     * Walks every live Activity and pulls its {@link androidx.lifecycle.ViewModelStore}.
+     * For each held ViewModel we reflect declared fields and unwrap the common
+     * holders ({@code LiveData}, {@code StateFlow}, Compose {@code State}) so the
+     * caller sees the current value, not the wrapper. Truncates per
+     * {@link #MAX_VALUE_LEN} so a list-of-thousand-items VM doesn't blow up
+     * the response.
+     *
+     * <p>v1 scope: Activity-scoped only. Fragment / NavBackStackEntry scopes
+     * are tracked under issue #48 follow-up.</p>
+     */
+    public Map<String, Object> viewModels() {
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> all = new ArrayList<>();
+
+        try {
+            Class<?> atClass = Class.forName("android.app.ActivityThread");
+            Object at = atClass.getMethod("currentActivityThread").invoke(null);
+            Field activitiesField = atClass.getDeclaredField("mActivities");
+            activitiesField.setAccessible(true);
+            Object activitiesMap = activitiesField.get(at);
+            if (!(activitiesMap instanceof Map)) {
+                result.put("error", "ActivityThread.mActivities was not a Map");
+                result.put("viewModels", all);
+                return result;
+            }
+
+            for (Object record : ((Map<?, ?>) activitiesMap).values()) {
+                Activity activity;
+                try {
+                    Field actField = record.getClass().getDeclaredField("activity");
+                    actField.setAccessible(true);
+                    activity = (Activity) actField.get(record);
+                } catch (Exception ignored) { continue; }
+                if (activity == null) continue;
+
+                Map<String, ViewModelEntry> store = readViewModelStore(activity);
+                if (store == null || store.isEmpty()) continue;
+
+                for (Map.Entry<String, ViewModelEntry> e : store.entrySet()) {
+                    Map<String, Object> vm = new HashMap<>();
+                    vm.put("id", e.getKey());
+                    vm.put("vmClass", e.getValue().vm.getClass().getName());
+                    Map<String, Object> owner = new HashMap<>();
+                    owner.put("type", "Activity");
+                    owner.put("name", activity.getClass().getName());
+                    owner.put("scope", activity.getClass().getName() + "@" + activity.getTaskId());
+                    vm.put("owner", owner);
+                    vm.put("properties", reflectViewModelProperties(e.getValue().vm));
+                    all.add(vm);
+                }
+            }
+        } catch (Exception e) {
+            result.put("error", "Failed to enumerate ViewModels: " + e.getMessage());
+        }
+
+        result.put("viewModels", all);
+        result.put("count", all.size());
+        return result;
+    }
+
+    /**
+     * Returns the {@code SavedStateHandle} contents (a flat key/value map) for a
+     * specific ViewModel, addressed by the same {@code id} returned from
+     * {@link #viewModels()}. ViewModels without a SavedStateHandle return an
+     * empty map.
+     */
+    public Map<String, Object> viewModelSavedState(String viewModelId) {
+        Map<String, Object> result = new HashMap<>();
+        if (viewModelId == null || viewModelId.isEmpty()) {
+            result.put("error", "viewModelId is required");
+            return result;
+        }
+
+        Object vm = findViewModelById(viewModelId);
+        if (vm == null) {
+            result.put("error", "ViewModel not found for id: " + viewModelId);
+            return result;
+        }
+
+        Map<String, Object> state = new HashMap<>();
+        Object handle = findSavedStateHandle(vm);
+        if (handle != null) {
+            try {
+                Method keysMethod = handle.getClass().getMethod("keys");
+                @SuppressWarnings("unchecked")
+                Set<String> keys = (Set<String>) keysMethod.invoke(handle);
+                Method getMethod = handle.getClass().getMethod("get", String.class);
+                if (keys != null) {
+                    for (String key : keys) {
+                        Object value = getMethod.invoke(handle, key);
+                        state.put(key, renderValue(value));
+                    }
+                }
+            } catch (Exception e) {
+                result.put("error", "Failed to read SavedStateHandle: " + e.getMessage());
+            }
+        } else {
+            result.put("note", "ViewModel has no SavedStateHandle field");
+        }
+        result.put("state", state);
+        result.put("viewModelId", viewModelId);
+        return result;
+    }
+
+    /** Pair of (key, vm) extracted from a ViewModelStore — keeps the API tidy. */
+    private static class ViewModelEntry {
+        final Object vm;
+        ViewModelEntry(Object vm) { this.vm = vm; }
+    }
+
+    /**
+     * Reads the underlying map from {@code activity.getViewModelStore()}.
+     * AndroidX historically stored this as a Java {@code mMap} field, but the
+     * lifecycle library was migrated to Kotlin and the field is now called
+     * {@code map}. We try both, plus any field whose runtime type is a
+     * {@code Map} as a final fallback for future renames. Null if the VM
+     * library isn't present.
+     */
+    private Map<String, ViewModelEntry> readViewModelStore(Activity activity) {
+        try {
+            Method getStore = activity.getClass().getMethod("getViewModelStore");
+            Object store = getStore.invoke(activity);
+            if (store == null) return null;
+
+            Field mapField = findField(store.getClass(), "map");
+            if (mapField == null) mapField = findField(store.getClass(), "mMap");
+            if (mapField == null) mapField = findFirstMapField(store.getClass());
+            if (mapField == null) {
+                SidekickLog.d(TAG, "ViewModelStore has no recognizable map field on " + store.getClass());
+                return null;
+            }
+            mapField.setAccessible(true);
+            Object raw = mapField.get(store);
+            if (!(raw instanceof Map)) return null;
+            Map<String, ViewModelEntry> out = new java.util.LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) raw).entrySet()) {
+                if (e.getKey() instanceof String && e.getValue() != null) {
+                    out.put((String) e.getKey(), new ViewModelEntry(e.getValue()));
+                }
+            }
+            return out;
+        } catch (NoSuchMethodException ignored) {
+            // Pre-AndroidX or non-ComponentActivity — no ViewModelStore.
+            return null;
+        } catch (Exception e) {
+            SidekickLog.d(TAG, "readViewModelStore failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** Walks the class hierarchy returning the first non-static {@code Map}-typed field. */
+    private static Field findFirstMapField(Class<?> cls) {
+        while (cls != null) {
+            for (Field f : cls.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                if (Map.class.isAssignableFrom(f.getType())) return f;
+            }
+            cls = cls.getSuperclass();
+        }
+        return null;
+    }
+
+    /** Walks the activity → vm-store map to find a vm matching {@code id}. */
+    private Object findViewModelById(String id) {
+        try {
+            Class<?> atClass = Class.forName("android.app.ActivityThread");
+            Object at = atClass.getMethod("currentActivityThread").invoke(null);
+            Field activitiesField = atClass.getDeclaredField("mActivities");
+            activitiesField.setAccessible(true);
+            Object activitiesMap = activitiesField.get(at);
+            if (!(activitiesMap instanceof Map)) return null;
+            for (Object record : ((Map<?, ?>) activitiesMap).values()) {
+                Field actField = record.getClass().getDeclaredField("activity");
+                actField.setAccessible(true);
+                Activity activity = (Activity) actField.get(record);
+                if (activity == null) continue;
+                Map<String, ViewModelEntry> store = readViewModelStore(activity);
+                if (store != null && store.containsKey(id)) {
+                    return store.get(id).vm;
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * Reflects all declared fields of the VM and produces a
+     * {@code [{name, type, value}]} list. Unwraps LiveData / StateFlow /
+     * Compose State to show the inner value, since the wrapper itself is
+     * never what the user wants to see.
+     *
+     * <p>Kotlin's "private mutable backing, public read-only view" pattern
+     * generates two fields per logical property ({@code _foo} and {@code foo}).
+     * Both unwrap to the same value, so we dedupe on the normalized name and
+     * prefer the public (non-underscore) field's <i>type</i> for display —
+     * users care that they're seeing a {@code StateFlow<Foo>} not a
+     * {@code MutableStateFlow<Foo>}.</p>
+     */
+    private List<Map<String, Object>> reflectViewModelProperties(Object vm) {
+        java.util.LinkedHashMap<String, Map<String, Object>> byName = new java.util.LinkedHashMap<>();
+        Class<?> cls = vm.getClass();
+        // Walk up to the ViewModel base — beyond that is framework noise.
+        while (cls != null && !cls.getName().equals("androidx.lifecycle.ViewModel")
+                && !cls.getName().equals("java.lang.Object")) {
+            for (Field f : cls.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                if (f.isSynthetic()) continue;
+                try {
+                    f.setAccessible(true);
+                    Object raw = f.get(vm);
+                    Object unwrapped = unwrapHolder(raw);
+                    String displayName = normalizeFieldName(f.getName());
+                    Map<String, Object> p = new HashMap<>();
+                    p.put("name", displayName);
+                    p.put("type", describeType(raw));
+                    p.put("value", renderValue(unwrapped));
+
+                    Map<String, Object> existing = byName.get(displayName);
+                    if (existing == null) {
+                        byName.put(displayName, p);
+                    } else if (f.getName().equals(displayName)) {
+                        // Public-named field beats the underscore-prefixed
+                        // backing field for type display purposes.
+                        byName.put(displayName, p);
+                    }
+                } catch (Throwable ignored) {
+                    // Field may be inaccessible on Android's hidden API list,
+                    // or its toString may throw. Skip silently — partial data
+                    // is fine.
+                }
+            }
+            cls = cls.getSuperclass();
+        }
+        return new ArrayList<>(byName.values());
+    }
+
+    /**
+     * If {@code raw} is a known wrapper (LiveData, StateFlow, Compose State,
+     * Kotlin Lazy), returns its inner value; otherwise returns {@code raw}
+     * unchanged. Soft-fails on missing methods so the caller still sees
+     * something useful.
+     */
+    private Object unwrapHolder(Object raw) {
+        if (raw == null) return null;
+        // androidx.lifecycle.LiveData has getValue()
+        if (isInstanceOf(raw, "androidx.lifecycle.LiveData")) {
+            return invokeNoArg(raw, "getValue");
+        }
+        // kotlinx.coroutines.flow.StateFlow has getValue() too
+        if (isInstanceOf(raw, "kotlinx.coroutines.flow.StateFlow")) {
+            return invokeNoArg(raw, "getValue");
+        }
+        // androidx.compose.runtime.State.getValue()
+        if (isInstanceOf(raw, "androidx.compose.runtime.State")) {
+            return invokeNoArg(raw, "getValue");
+        }
+        // kotlin.Lazy<T> — common for derived caches
+        if (isInstanceOf(raw, "kotlin.Lazy")) {
+            return invokeNoArg(raw, "getValue");
+        }
+        return raw;
+    }
+
+    private boolean isInstanceOf(Object o, String className) {
+        try {
+            Class<?> c = Class.forName(className, false, o.getClass().getClassLoader());
+            return c.isInstance(o);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private Object invokeNoArg(Object target, String method) {
+        try {
+            Method m = target.getClass().getMethod(method);
+            m.setAccessible(true);
+            return m.invoke(target);
+        } catch (Throwable t) {
+            return target;
+        }
+    }
+
+    /**
+     * Converts {@code _user} → {@code user} (the Kotlin convention for "private
+     * mutable backing field, public read-only view"). Leaves field names that
+     * already look public alone.
+     */
+    private String normalizeFieldName(String fieldName) {
+        if (fieldName.startsWith("_") && fieldName.length() > 1) {
+            return fieldName.substring(1);
+        }
+        if (fieldName.endsWith("$delegate") && fieldName.length() > "$delegate".length()) {
+            // Kotlin's by-delegation desugaring — show the property name only.
+            return fieldName.substring(0, fieldName.length() - "$delegate".length());
+        }
+        return fieldName;
+    }
+
+    private String describeType(Object raw) {
+        if (raw == null) return "null";
+        return raw.getClass().getName();
+    }
+
+    private String renderValue(Object value) {
+        String s;
+        try {
+            s = value == null ? "null" : String.valueOf(value);
+        } catch (Throwable t) {
+            return "<toString threw: " + t.getClass().getSimpleName() + ">";
+        }
+        if (s.length() > MAX_VALUE_LEN) {
+            return s.substring(0, MAX_VALUE_LEN) + "… (truncated, " + s.length() + " chars)";
+        }
+        return s;
+    }
+
+    /** Looks up a SavedStateHandle stored as a field on the VM. */
+    private Object findSavedStateHandle(Object vm) {
+        Class<?> cls = vm.getClass();
+        while (cls != null && !cls.getName().equals("java.lang.Object")) {
+            for (Field f : cls.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                try {
+                    f.setAccessible(true);
+                    Object v = f.get(vm);
+                    if (v != null && isInstanceOf(v, "androidx.lifecycle.SavedStateHandle")) {
+                        return v;
+                    }
+                } catch (Throwable ignored) {}
+            }
+            cls = cls.getSuperclass();
+        }
+        return null;
+    }
+
+    /** Walks up the class hierarchy looking for a declared field by name. */
+    private static Field findField(Class<?> cls, String name) {
+        while (cls != null) {
+            try {
+                return cls.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                cls = cls.getSuperclass();
+            }
+        }
+        return null;
     }
 }

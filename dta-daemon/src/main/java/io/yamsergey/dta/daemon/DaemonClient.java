@@ -34,6 +34,18 @@ public class DaemonClient {
         return get("/api/version");
     }
 
+    /**
+     * Asks the daemon to stop. For standalone daemons (started via dta-cli)
+     * this triggers JVM exit; for embedded daemons (plugin) it just stops the
+     * Javalin server. The daemon may not have flushed its response by the
+     * time the connection drops, so callers should treat any I/O exception
+     * here as success-ish — verify by polling {@link #version} for socket
+     * unreachability.
+     */
+    public String shutdownDaemon() {
+        return post("/api/shutdown", null);
+    }
+
     public String setAdbPath(String path) {
         return post("/api/config/adb?path=" + encode(path), null);
     }
@@ -133,6 +145,13 @@ public class DaemonClient {
     }
     public String threads(String pkg, String device, boolean stackTraces) {
         return get("/api/runtime/threads?package=" + encode(pkg) + deviceParam(device, false) + (stackTraces ? "&stackTraces=true" : ""));
+    }
+    public String viewModels(String pkg, String device) {
+        return get("/api/runtime/viewmodels?package=" + encode(pkg) + deviceParam(device, false));
+    }
+    public String viewModelSavedState(String pkg, String viewModelId, String device) {
+        return get("/api/runtime/viewmodels/" + encode(viewModelId) + "/saved-state?package="
+                + encode(pkg) + deviceParam(device, false));
     }
 
     public String authenticate(String pkg, String device) {

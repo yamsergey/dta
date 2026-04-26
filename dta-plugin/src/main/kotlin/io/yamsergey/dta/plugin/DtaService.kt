@@ -47,6 +47,35 @@ class DtaService : Disposable {
 
     @Volatile var connectionStatus: String = "Disconnected"; private set
 
+    /** Latest /api/version JSON from the active daemon, or null when not connected. */
+    @Volatile var daemonInfo: DaemonInfo? = null; private set
+    private var daemonInfoFuture: java.util.concurrent.ScheduledFuture<*>? = null
+
+    /** Snapshot of the sidekick on the currently-selected app, or null when not connected. */
+    @Volatile var sidekickInfo: SidekickInfo? = null; private set
+
+    /** Snapshot of /api/version. */
+    data class DaemonInfo(
+        val version: String,
+        val pid: Long,
+        val port: Int,
+        val startedAt: Long,
+        val baseUrl: String,
+    )
+
+    /**
+     * Snapshot of the sidekick's self-reported version + the dta-tools
+     * version baked into the AAR at build time. The latter is what was used
+     * to assemble the APK; if it diverges from the running daemon you've got
+     * a build/runtime mismatch.
+     */
+    data class SidekickInfo(
+        val packageName: String,
+        val deviceSerial: String,
+        val sidekickVersion: String,
+        val toolVersion: String,
+    )
+
     // Data caches
     @Volatile var layoutTreeJson: String? = null; private set
     @Volatile var screenshotBytes: ByteArray? = null; private set
@@ -81,6 +110,12 @@ class DtaService : Disposable {
         fun onRuntimeChanged(lifecycleJson: String?, memoryJson: String?, threadsJson: String?, navBackstackJson: String?, navGraphJson: String?) {}
         /** Called when device-side selections change (from MCP/CLI/inspector-web). */
         fun onDeviceSelectionsChanged(elements: String?, networkRequests: String?, wsMessages: String?) {}
+        /** Called whenever the daemon-info snapshot changes (or null when disconnected). */
+        fun onDaemonInfoChanged(info: DaemonInfo?) {}
+        /** Called whenever the sidekick-info snapshot changes (or null when not connected to an app). */
+        fun onSidekickInfoChanged(info: SidekickInfo?) {}
+        /** Called whenever a fresh /api/runtime/viewmodels response is fetched. */
+        fun onViewModelsChanged(json: String?) {}
     }
 
     fun addListener(listener: DtaServiceListener) { listeners.add(listener) }
@@ -124,7 +159,97 @@ class DtaService : Disposable {
             }
         }
 
+        refreshDaemonInfo(client)
+        startDaemonInfoPolling()
         return client
+    }
+
+    // ========================================================================
+    // Daemon info (header panel)
+    // ========================================================================
+
+    /** Polls /api/version every 30s. Cheap call, lets the header tick uptime. */
+    private fun startDaemonInfoPolling() {
+        daemonInfoFuture?.cancel(false)
+        daemonInfoFuture = scheduler.scheduleWithFixedDelay({
+            val client = daemon ?: return@scheduleWithFixedDelay
+            refreshDaemonInfo(client)
+        }, 30, 30, TimeUnit.SECONDS)
+    }
+
+    private fun stopDaemonInfoPolling() {
+        daemonInfoFuture?.cancel(false)
+        daemonInfoFuture = null
+    }
+
+    private fun refreshDaemonInfo(client: DaemonClient) {
+        val info = try {
+            val json = client.version()
+            val node = tools.jackson.databind.ObjectMapper().readTree(json)
+            DaemonInfo(
+                version = node.path("version").asText(""),
+                pid = node.path("pid").asLong(),
+                port = node.path("port").asInt(),
+                startedAt = node.path("startedAt").asLong(),
+                baseUrl = client.baseUrl,
+            )
+        } catch (e: Exception) {
+            log.debug("refreshDaemonInfo failed: ${e.message}")
+            null
+        }
+        if (info != daemonInfo) {
+            daemonInfo = info
+            notifyOnEdt { it.onDaemonInfoChanged(info) }
+        }
+    }
+
+    /**
+     * Asks the daemon to shut down, waits for it to be unreachable, then
+     * re-runs ensureDaemon() to spawn a new one. Returns once the new daemon
+     * is responding to /api/version, or after a hard timeout.
+     *
+     * <p>Safe to call from any thread; runs the work on a pooled thread.
+     * If the daemon was an external process (started via dta-cli), we can
+     * only ask it to stop politely — we don't have a Process handle. The
+     * subsequent ensureDaemon() will start a fresh embedded one if the old
+     * external daemon doesn't come back.</p>
+     */
+    fun restartDaemon() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val client = daemon ?: return@executeOnPooledThread
+            val oldBase = client.baseUrl
+            log.info("Restarting daemon at $oldBase")
+            updateConnectionStatus("Restarting daemon...")
+            stopPolling()
+            stopDaemonInfoPolling()
+
+            try { client.shutdownDaemon() } catch (_: Exception) { /* connection drops mid-response — expected */ }
+
+            // Wait for the old daemon to actually be gone (max 5s).
+            val deadline = System.currentTimeMillis() + 5_000
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    DaemonClient(oldBase).version()
+                } catch (_: Exception) { break }
+                Thread.sleep(150)
+            }
+
+            // Drop our cached client + embedded-daemon handle so ensureDaemon()
+            // is forced to do a fresh discover/spawn.
+            embeddedDaemon?.let { try { it.stop() } catch (_: Exception) {} }
+            embeddedDaemon = null
+            daemon = null
+            daemonInfo = null
+            notifyOnEdt { it.onDaemonInfoChanged(null) }
+
+            try {
+                ensureDaemon()
+                if (selectedApp != null) connect() else updateConnectionStatus("Disconnected")
+            } catch (e: Exception) {
+                log.warn("Failed to start replacement daemon", e)
+                updateConnectionStatus("Restart failed: ${e.message}")
+            }
+        }
     }
 
     private fun startEmbeddedDaemon(): DaemonClient {
@@ -244,13 +369,23 @@ class DtaService : Disposable {
                 if (selectedApp?.packageName() != app.packageName()) return@executeOnPooledThread
 
                 connected = true
-                // Fetch sidekick version for display + mismatch check
+                // Fetch sidekick version for display + mismatch check. Cache
+                // the result so the Daemon panel can render it without re-
+                // querying.
                 var statusText = "Connected"
                 try {
                     val connJson = client.connectionStatus(app.packageName(), device.serial())
                     val node = tools.jackson.databind.ObjectMapper().readTree(connJson)
                     val skVersion = node.get("sidekickVersion")?.stringValue() ?: ""
                     val toolVersion = node.get("toolVersion")?.stringValue() ?: ""
+                    val info = SidekickInfo(
+                        packageName = app.packageName(),
+                        deviceSerial = device.serial(),
+                        sidekickVersion = skVersion,
+                        toolVersion = toolVersion,
+                    )
+                    sidekickInfo = info
+                    notifyOnEdt { it.onSidekickInfoChanged(info) }
                     if (skVersion.isNotEmpty()) {
                         statusText = "Connected (sidekick $skVersion)"
                         // Compare major.minor.patch only — strip SNAPSHOT build
@@ -331,13 +466,14 @@ class DtaService : Disposable {
         try {
             val tree = client.layoutTree(pkg, device, null, null, null, null)
 
-            // When a Chrome Custom Tab is in the foreground, the sidekick's
-            // screenshot shows the app behind Chrome (wrong). Detect the
-            // ChromeCustomTab node in the tree and use the device-level
-            // screenshot instead — it captures whatever's actually on screen.
-            val hasCustomTab = tree.contains("ChromeCustomTab")
+            // When Chrome (Custom Tab or standalone Intent.ACTION_VIEW) is in
+            // the foreground, sidekick's screenshot shows the host app behind
+            // Chrome (wrong). Detect the synthetic Chrome node and use the
+            // device-level screenshot instead — it captures whatever's
+            // actually on screen.
+            val chromeForeground = tree.contains("ChromeCustomTab") || tree.contains("ChromeBrowser")
             val screenshot = try {
-                if (hasCustomTab) client.deviceScreenshot(device)
+                if (chromeForeground) client.deviceScreenshot(device)
                 else client.screenshot(pkg, device)
             } catch (_: Exception) { null }
 
@@ -399,10 +535,23 @@ class DtaService : Disposable {
             val threads = try { client.threads(pkg, device, false) } catch (_: Exception) { null }
             val backstack = try { client.navigationBackstack(pkg, device) } catch (_: Exception) { null }
             val graph = try { client.navigationGraph(pkg, device) } catch (_: Exception) { null }
-            notifyOnEdt { it.onRuntimeChanged(lifecycle, memory, threads, backstack, graph) }
+            val viewModels = try { client.viewModels(pkg, device) } catch (_: Exception) { null }
+            notifyOnEdt {
+                it.onRuntimeChanged(lifecycle, memory, threads, backstack, graph)
+                it.onViewModelsChanged(viewModels)
+            }
         } catch (e: Exception) {
             log.debug("Runtime fetch failed: ${e.message}")
         }
+    }
+
+    /**
+     * Pulls SavedStateHandle contents for a specific ViewModel. Synchronous —
+     * used by the ViewModels sub-panel when the user expands a row.
+     */
+    fun fetchSavedState(pkg: String, viewModelId: String, device: String): String {
+        val client = ensureDaemon()
+        return client.viewModelSavedState(pkg, viewModelId, device)
     }
 
     private fun clearDataCaches() {
@@ -410,10 +559,12 @@ class DtaService : Disposable {
         screenshotBytes = null
         networkRequestsJson = null
         webSocketConnectionsJson = null
+        sidekickInfo = null
         notifyOnEdt {
             it.onLayoutDataChanged(null, null)
             it.onNetworkDataChanged(null)
             it.onWebSocketDataChanged(null)
+            it.onSidekickInfoChanged(null)
         }
     }
 

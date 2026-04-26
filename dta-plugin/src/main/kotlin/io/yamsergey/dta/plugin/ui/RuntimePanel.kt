@@ -17,7 +17,7 @@ import javax.swing.*
 import javax.swing.table.AbstractTableModel
 
 /**
- * Top-level "Runtime" tab with sub-tabs: Data, Navigation, Lifecycle, Memory.
+ * Top-level "Runtime" tab with sub-tabs: Data, Navigation, Lifecycle, Memory, ViewModels.
  */
 class RuntimePanel : JPanel(BorderLayout()), DtaServiceListener {
 
@@ -26,6 +26,7 @@ class RuntimePanel : JPanel(BorderLayout()), DtaServiceListener {
     private val navigationPanel = NavigationSubPanel()
     private val lifecyclePanel = LifecycleSubPanel()
     private val memoryPanel = MemorySubPanel()
+    private val viewModelsPanel = ViewModelsSubPanel()
 
     init {
         service.addListener(this)
@@ -34,6 +35,7 @@ class RuntimePanel : JPanel(BorderLayout()), DtaServiceListener {
         subTabs.addTab("Navigation", navigationPanel)
         subTabs.addTab("Lifecycle", lifecyclePanel)
         subTabs.addTab("Memory", memoryPanel)
+        subTabs.addTab("ViewModels", viewModelsPanel)
         add(subTabs, BorderLayout.CENTER)
     }
 
@@ -45,6 +47,10 @@ class RuntimePanel : JPanel(BorderLayout()), DtaServiceListener {
         navigationPanel.update(navBackstackJson, navGraphJson)
         lifecyclePanel.update(lifecycleJson)
         memoryPanel.update(memoryJson, threadsJson)
+    }
+
+    override fun onViewModelsChanged(json: String?) {
+        viewModelsPanel.update(json)
     }
 }
 
@@ -311,6 +317,163 @@ private class MemorySubPanel : JPanel(BorderLayout()) {
                 1 -> n.get("state")?.asText() ?: ""
                 2 -> n.get("group")?.asText() ?: ""
                 3 -> if (n.get("daemon")?.asBoolean() == true) "✓" else ""
+                else -> ""
+            }
+        }
+    }
+}
+
+// ========================================================================
+// ViewModels sub-panel
+// ========================================================================
+
+/**
+ * Master/detail view of live Activity-scoped ViewModels.
+ *
+ * <p>Left pane: list of VMs (one row per VM, showing class + owner). Right
+ * pane: properties of the selected VM in a name/type/value table. The list
+ * preserves selection across refreshes — the periodic poll would otherwise
+ * blow away whatever the user was looking at.</p>
+ */
+private class ViewModelsSubPanel : JPanel(BorderLayout()) {
+
+    private val mapper = ObjectMapper()
+    private val vmListModel = ViewModelListModel()
+    private val vmList = JBTable(vmListModel)
+    private val propModel = PropertyTableModel()
+    private val propTable = JBTable(propModel)
+    private val emptyLabel = JBLabel("No ViewModels — select an app and interact with it.").apply {
+        horizontalAlignment = SwingConstants.CENTER
+    }
+
+    init {
+        vmList.autoResizeMode = JBTable.AUTO_RESIZE_LAST_COLUMN
+        vmList.selectionModel.addListSelectionListener { e ->
+            if (!e.valueIsAdjusting) refreshDetail()
+        }
+        propTable.autoResizeMode = JBTable.AUTO_RESIZE_LAST_COLUMN
+
+        val split = JSplitPane(
+            JSplitPane.HORIZONTAL_SPLIT,
+            JBScrollPane(vmList),
+            JBScrollPane(propTable)
+        ).apply {
+            resizeWeight = 0.4
+            border = BorderFactory.createEmptyBorder()
+        }
+
+        add(emptyLabel, BorderLayout.NORTH)
+        add(split, BorderLayout.CENTER)
+        emptyLabel.isVisible = true
+        split.isVisible = false
+    }
+
+    fun update(json: String?) {
+        if (json == null) {
+            SwingUtilities.invokeLater { setEmpty() }
+            return
+        }
+        SwingUtilities.invokeLater {
+            try {
+                val node = mapper.readTree(json)
+                val vms = node.get("viewModels")
+                if (vms == null || !vms.isArray || vms.size() == 0) {
+                    setEmpty()
+                    return@invokeLater
+                }
+                val previouslySelected = currentSelectionId()
+                vmListModel.update(vms.toList())
+                emptyLabel.isVisible = false
+                (components.last() as JSplitPane).isVisible = true
+
+                // Re-select by id so selection survives polling refresh.
+                val newRow = vmListModel.indexOfId(previouslySelected)
+                if (newRow >= 0) {
+                    vmList.setRowSelectionInterval(newRow, newRow)
+                } else if (vmListModel.rowCount > 0) {
+                    vmList.setRowSelectionInterval(0, 0)
+                }
+                refreshDetail()
+            } catch (_: Exception) {
+                setEmpty()
+            }
+        }
+    }
+
+    private fun setEmpty() {
+        vmListModel.update(emptyList())
+        propModel.update(emptyList())
+        emptyLabel.isVisible = true
+        (components.last() as JSplitPane).isVisible = false
+    }
+
+    private fun currentSelectionId(): String? {
+        val row = vmList.selectedRow
+        return if (row >= 0) vmListModel.idAt(row) else null
+    }
+
+    private fun refreshDetail() {
+        val row = vmList.selectedRow
+        if (row < 0) {
+            propModel.update(emptyList())
+            return
+        }
+        val vm = vmListModel.rowAt(row)
+        val props = vm.get("properties")
+        if (props != null && props.isArray) {
+            propModel.update(props.toList())
+        } else {
+            propModel.update(emptyList())
+        }
+    }
+
+    private class ViewModelListModel : AbstractTableModel() {
+        private val cols = arrayOf("ViewModel", "Owner")
+        private var data: List<tools.jackson.databind.JsonNode> = emptyList()
+
+        fun update(nodes: List<tools.jackson.databind.JsonNode>) {
+            data = nodes
+            fireTableDataChanged()
+        }
+
+        fun rowAt(row: Int): tools.jackson.databind.JsonNode = data[row]
+        fun idAt(row: Int): String = data[row].get("id")?.asText() ?: ""
+        fun indexOfId(id: String?): Int {
+            if (id == null) return -1
+            return data.indexOfFirst { it.get("id")?.asText() == id }
+        }
+
+        override fun getRowCount() = data.size
+        override fun getColumnCount() = cols.size
+        override fun getColumnName(col: Int) = cols[col]
+        override fun getValueAt(row: Int, col: Int): Any? {
+            val n = data[row]
+            return when (col) {
+                0 -> n.get("vmClass")?.asText()?.substringAfterLast('.') ?: ""
+                1 -> n.get("owner")?.get("name")?.asText()?.substringAfterLast('.') ?: ""
+                else -> ""
+            }
+        }
+    }
+
+    private class PropertyTableModel : AbstractTableModel() {
+        private val cols = arrayOf("Property", "Type", "Value")
+        private var data: List<tools.jackson.databind.JsonNode> = emptyList()
+
+        fun update(nodes: List<tools.jackson.databind.JsonNode>) {
+            data = nodes
+            fireTableDataChanged()
+        }
+
+        override fun getRowCount() = data.size
+        override fun getColumnCount() = cols.size
+        override fun getColumnName(col: Int) = cols[col]
+        override fun getValueAt(row: Int, col: Int): Any? {
+            val n = data[row]
+            return when (col) {
+                0 -> n.get("name")?.asText() ?: ""
+                1 -> n.get("type")?.asText()?.substringAfterLast('.') ?: ""
+                2 -> n.get("value")?.asText() ?: ""
                 else -> ""
             }
         }

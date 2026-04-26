@@ -15,6 +15,7 @@ import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket
 import io.yamsergey.dta.plugin.DtaService.DtaServiceListener
+import io.yamsergey.dta.plugin.ui.DaemonPanel
 import io.yamsergey.dta.plugin.ui.LayoutPanel
 import io.yamsergey.dta.plugin.ui.RuntimePanel
 import io.yamsergey.dta.plugin.ui.McpPanel
@@ -48,6 +49,7 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
 
     // Tabs
     private val tabbedPane = JBTabbedPane()
+    private val daemonPanel = DaemonPanel()
     private val layoutPanel = LayoutPanel()
     private val networkPanel = NetworkPanel()
     private val webSocketPanel = WebSocketPanel()
@@ -88,12 +90,14 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
 
         add(toolbar, BorderLayout.NORTH)
 
-        // Build tabs
+        // Build tabs — data tabs first, Daemon last (treats it as a
+        // settings/troubleshooting surface rather than a primary view).
         tabbedPane.addTab("Layout", layoutPanel)
         tabbedPane.addTab("Network", networkPanel)
         tabbedPane.addTab("WebSocket", webSocketPanel)
         tabbedPane.addTab("Runtime", runtimePanel)
         tabbedPane.addTab("MCP", mcpPanel)
+        tabbedPane.addTab("Daemon", daemonPanel)
         add(tabbedPane, BorderLayout.CENTER)
 
         // Combo listeners
@@ -176,6 +180,7 @@ class DtaToolWindowPanel : JPanel(BorderLayout()), Disposable, DtaServiceListene
 
     override fun dispose() {
         service.removeListener(this)
+        daemonPanel.dispose()
         mcpPanel.dispose()
     }
 }

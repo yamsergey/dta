@@ -1005,18 +1005,21 @@ public class McpServer {
     private static void collectRuntimeTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("app_runtime",
-                "Inspect app runtime state: navigation, lifecycle, memory, threads.\n\n" +
+                "Inspect app runtime state: navigation, lifecycle, memory, threads, ViewModels.\n\n" +
                 "Commands:\n" +
                 "- navigation_backstack: Current navigation backstack with routes and arguments\n" +
                 "- navigation_graph: Full navigation graph structure (destinations, routes, deeplinks)\n" +
                 "- lifecycle: All activities with their lifecycle state (RESUMED/PAUSED/STOPPED)\n" +
                 "- memory: Heap and native memory usage (heapUsed, heapMax, nativeHeap)\n" +
-                "- threads: List all threads with state. Set stack_traces=true for full traces.",
+                "- threads: List all threads with state. Set stack_traces=true for full traces.\n" +
+                "- viewmodels: Live Activity-scoped ViewModels with reflected LiveData/StateFlow/Compose state values.\n" +
+                "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).",
                 schema(Map.of(
-                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads", true),
+                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state", true),
                     "package", prop("string", "App package name (auto-detected if only one app)", false),
                     "device", prop("string", "Device serial (auto-detected if only one device)", false),
-                    "stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false)
+                    "stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false),
+                    "view_model_id", prop("string", "Required for saved_state — the id field from a viewmodels response", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -1032,6 +1035,13 @@ public class McpServer {
                         case "memory" -> ok(getDaemon().memory(pkg, device));
                         case "threads" -> ok(getDaemon().threads(pkg, device,
                             Boolean.TRUE.equals(args.get("stack_traces"))));
+                        case "viewmodels" -> ok(getDaemon().viewModels(pkg, device));
+                        case "saved_state" -> {
+                            String vmId = getString(args, "view_model_id");
+                            if (vmId == null || vmId.isEmpty())
+                                yield errorResult("'view_model_id' is required for saved_state");
+                            yield ok(getDaemon().viewModelSavedState(pkg, vmId, device));
+                        }
                         default -> errorResult("Unknown command: " + command);
                     };
                 } catch (Exception e) {

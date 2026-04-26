@@ -44,6 +44,10 @@ public final class DtaRoutes {
         DtaOrchestrator orchestrator = DtaOrchestrator.getInstance();
         SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
         String daemonVersion = readDaemonVersion();
+        // Captured at registration so /api/version reports a meaningful uptime.
+        // Routes are registered immediately before app.start(port) so the
+        // skew between this and the actual server start is at most a few ms.
+        long startedAt = System.currentTimeMillis();
 
         // ====================================================================
         // Version
@@ -55,6 +59,16 @@ public final class DtaRoutes {
             info.put("version", daemonVersion);
             info.put("daemon", true);
             info.put("pid", ProcessHandle.current().pid());
+            info.put("startedAt", startedAt);
+            // app.port() is valid once the server has started — and clients
+            // can only reach this endpoint after that, so this is safe to
+            // call here. Reporting the actual port matters when callers
+            // started the daemon with --port 0 (OS-assigned).
+            try {
+                info.put("port", app.port());
+            } catch (Exception ignored) {
+                // Server not yet started (shouldn't happen in practice).
+            }
             ctx.json(info);
         });
 
@@ -176,6 +190,15 @@ public final class DtaRoutes {
         app.get("/api/runtime/threads", ctx -> {
             try { boolean stacks = "true".equals(ctx.queryParam("stackTraces"));
                 jsonString(ctx, orchestrator.threads(ctx.queryParam("package"), ctx.queryParam("device"), stacks));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/viewmodels", ctx -> {
+            try { jsonString(ctx, orchestrator.viewModels(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/viewmodels/{id}/saved-state", ctx -> {
+            try { jsonString(ctx, orchestrator.viewModelSavedState(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("id")));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
 

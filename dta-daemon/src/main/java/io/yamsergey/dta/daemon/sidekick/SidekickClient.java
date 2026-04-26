@@ -284,6 +284,10 @@ public class SidekickClient {
     public Result<String> lifecycle() { return httpGet("/runtime/lifecycle"); }
     public Result<String> memory() { return httpGet("/runtime/memory"); }
     public Result<String> threads(boolean stackTraces) { return httpGet("/runtime/threads" + (stackTraces ? "?stackTraces=true" : "")); }
+    public Result<String> viewModels() { return httpGet("/runtime/viewmodels"); }
+    public Result<String> viewModelSavedState(String viewModelId) {
+        return httpGet("/runtime/viewmodels/" + java.net.URLEncoder.encode(viewModelId, StandardCharsets.UTF_8) + "/saved-state");
+    }
     public Result<String> listFiles(String path) { return httpGet("/runtime/files/" + (path != null ? path : "")); }
     public Result<String> listDatabases() { return httpGet("/runtime/databases"); }
     public Result<String> databaseSchema(String name) { return httpGet("/runtime/databases/" + name + "/schema"); }

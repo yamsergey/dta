@@ -206,6 +206,12 @@ public class DtaOrchestrator {
     public String threads(String packageName, String device, boolean stackTraces) throws Exception {
         return unwrap(getConnection(packageName, device).client().threads(stackTraces), "Failed");
     }
+    public String viewModels(String packageName, String device) throws Exception {
+        return unwrap(getConnection(packageName, device).client().viewModels(), "Failed");
+    }
+    public String viewModelSavedState(String packageName, String device, String viewModelId) throws Exception {
+        return unwrap(getConnection(packageName, device).client().viewModelSavedState(viewModelId), "Failed");
+    }
 
     public String listFiles(String packageName, String device, String path) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);
