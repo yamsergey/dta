@@ -74,13 +74,30 @@ public class ChromeBrowserCdpManager {
     public void onChromeWillLaunch(String deviceSerial,
                                    SidekickClient sidekickClient,
                                    String eventId,
+                                   String packageName,
                                    String url,
                                    long timestamp) {
         String key = deviceKey(deviceSerial);
         BrowserContext ctx = contexts.computeIfAbsent(key, k -> new BrowserContext(deviceSerial, sidekickClient));
-        ctx.recordPendingEvent(eventId, url, timestamp);
+        ctx.recordPendingEvent(eventId, packageName, url, timestamp);
         ctx.ensureConnectedAsync();
     }
+
+    /**
+     * Returns the most recent captured Chrome session for the given package on
+     * the given device, or null if none. Used by layout enrichment to fetch
+     * the page's accessibility tree on the same flat-protocol session that's
+     * already ingesting network events.
+     */
+    public CapturedSession getCapturedSessionForPackage(String deviceSerial, String packageName) {
+        BrowserContext ctx = contexts.get(deviceKey(deviceSerial));
+        if (ctx == null) return null;
+        return ctx.latestCaptureFor(packageName);
+    }
+
+    /** Read-only handle to a captured Chrome tab's CDP session. */
+    public record CapturedSession(ChromeDevToolsClient browserClient, String sessionId,
+                                  String url, String packageName, long capturedAt) {}
 
     /**
      * Stops the browser CDP connection for the given device (e.g. on daemon
@@ -125,6 +142,12 @@ public class ChromeBrowserCdpManager {
         // attachedToTarget events (which Chrome can emit) don't double-attach.
         private final Map<String, String> targetSessions = new ConcurrentHashMap<>();
 
+        // Append-only log of captures with the metadata layout enrichment
+        // needs (which app fired the Intent, what URL the daemon navigated
+        // the tab to). Newest entries win when multiple captures exist for
+        // the same package.
+        private final List<CaptureRecord> captures = new java.util.concurrent.CopyOnWriteArrayList<>();
+
         // The browser-level connection (browser CDP, the source of Target.* events).
         private volatile ChromeDevToolsClient browserClient;
         private volatile int cdpPort;
@@ -137,15 +160,29 @@ public class ChromeBrowserCdpManager {
             this.sidekickClient = sidekickClient;
         }
 
-        void recordPendingEvent(String eventId, String url, long timestamp) {
+        void recordPendingEvent(String eventId, String packageName, String url, long timestamp) {
             synchronized (pendingLock) {
-                pending.add(new PendingLaunch(eventId, url, timestamp));
+                pending.add(new PendingLaunch(eventId, packageName, url, timestamp));
                 // Drop events that aged out of the correlation window. A user
                 // typing a URL minutes after an app fired one shouldn't be
                 // attributed to the app.
                 long cutoff = System.currentTimeMillis() - CORRELATION_WINDOW_MS;
                 pending.removeIf(p -> p.timestamp < cutoff);
             }
+        }
+
+        CapturedSession latestCaptureFor(String packageName) {
+            if (browserClient == null || !browserClient.isConnected()) return null;
+            // Walk the captures list in reverse so the newest tab wins if the
+            // user fired multiple Intents from the same app.
+            for (int i = captures.size() - 1; i >= 0; i--) {
+                CaptureRecord c = captures.get(i);
+                if (java.util.Objects.equals(c.packageName, packageName)) {
+                    return new CapturedSession(browserClient, c.sessionId, c.url,
+                            c.packageName, c.capturedAt);
+                }
+            }
+            return null;
         }
 
         void ensureConnectedAsync() {
@@ -285,6 +322,8 @@ public class ChromeBrowserCdpManager {
                     }
                 });
                 targetSessions.put(targetId, sessionId);
+                captures.add(new CaptureRecord(targetId, sessionId, matched.packageName,
+                        navigatedUrl, System.currentTimeMillis()));
 
                 browserClient.send("Network.enable", Map.of(), sessionId)
                         .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).join();
@@ -521,6 +560,10 @@ public class ChromeBrowserCdpManager {
             executor.shutdownNow();
         }
 
-        private record PendingLaunch(String eventId, String url, long timestamp) {}
+        private record PendingLaunch(String eventId, String packageName, String url, long timestamp) {}
+
+        /** Captured tab metadata. {@link #latestCaptureFor} reads this. */
+        private record CaptureRecord(String targetId, String sessionId, String packageName,
+                                     String url, long capturedAt) {}
     }
 }

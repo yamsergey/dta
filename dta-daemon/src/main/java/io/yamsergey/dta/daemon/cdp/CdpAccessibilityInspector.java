@@ -76,6 +76,19 @@ public final class CdpAccessibilityInspector {
      * @return result containing the tree nodes, page URL, and viewport dimensions
      */
     public static AccessibilityTreeResult fetchAccessibilityTreeWithUrl(ChromeDevToolsClient client) {
+        return fetchAccessibilityTreeWithUrl(client, null);
+    }
+
+    /**
+     * Same as {@link #fetchAccessibilityTreeWithUrl(ChromeDevToolsClient)} but
+     * routes every CDP command through the flat protocol session identified
+     * by {@code sessionId}. Use this when the {@code client} is the
+     * <i>browser-level</i> WebSocket and the target you want to inspect is
+     * an attached child session (the Chrome-via-Intent capture path). When
+     * {@code sessionId} is null this collapses to the original behavior.
+     */
+    public static AccessibilityTreeResult fetchAccessibilityTreeWithUrl(
+            ChromeDevToolsClient client, String sessionId) {
         String url = null;
         double viewportWidth = 0;
         double viewportHeight = 0;
@@ -84,7 +97,7 @@ public final class CdpAccessibilityInspector {
 
         try {
             // Get page URL
-            JsonNode docResult = client.send("DOM.getDocument", Map.of())
+            JsonNode docResult = client.send("DOM.getDocument", Map.of(), sessionId)
                 .get(CDP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             JsonNode root = docResult.get("root");
             if (root != null) {
@@ -96,7 +109,7 @@ public final class CdpAccessibilityInspector {
 
         try {
             // Get viewport dimensions for coordinate transformation
-            JsonNode metrics = client.send("Page.getLayoutMetrics", Map.of())
+            JsonNode metrics = client.send("Page.getLayoutMetrics", Map.of(), sessionId)
                 .get(CDP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             JsonNode vv = metrics.get("cssVisualViewport");
             if (vv != null) {
@@ -112,7 +125,8 @@ public final class CdpAccessibilityInspector {
             JsonNode jsResult = client.send("Runtime.evaluate",
                     Map.of("expression",
                         "JSON.stringify({dpr: window.devicePixelRatio, innerH: window.innerHeight})",
-                        "returnByValue", true))
+                        "returnByValue", true),
+                    sessionId)
                 .get(CDP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             String json = jsResult.path("result").path("value").asText("{}");
             JsonNode parsed = OBJECT_MAPPER.readTree(json);
@@ -125,7 +139,8 @@ public final class CdpAccessibilityInspector {
             // excluding the system status bar and navigation bar.
             // So: pngHeight = chromeToolbar + viewport → chromeToolbar = pngHeight - viewport
             JsonNode ssResult = client.send("Page.captureScreenshot",
-                    Map.of("format", "png", "captureBeyondViewport", false))
+                    Map.of("format", "png", "captureBeyondViewport", false),
+                    sessionId)
                 .get(CDP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             String ssData = ssResult.path("data").asText("");
             if (!ssData.isEmpty()) {
@@ -150,7 +165,7 @@ public final class CdpAccessibilityInspector {
         }
 
         // Fetch AX tree and resolve bounds
-        List<Map<String, Object>> nodes = fetchAccessibilityTreeWithBounds(client);
+        List<Map<String, Object>> nodes = fetchAccessibilityTreeWithBounds(client, sessionId);
         return new AccessibilityTreeResult(nodes, url, viewportWidth, viewportHeight,
             devicePixelRatio, screenOffsetY);
     }
@@ -159,12 +174,12 @@ public final class CdpAccessibilityInspector {
      * Fetches the accessibility tree and resolves CSS bounding boxes for each node.
      */
     private static List<Map<String, Object>> fetchAccessibilityTreeWithBounds(
-            ChromeDevToolsClient client) {
+            ChromeDevToolsClient client, String sessionId) {
         try {
-            client.send("Accessibility.enable", Map.of())
+            client.send("Accessibility.enable", Map.of(), sessionId)
                 .get(CDP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
-            JsonNode result = client.send("Accessibility.getFullAXTree", Map.of())
+            JsonNode result = client.send("Accessibility.getFullAXTree", Map.of(), sessionId)
                 .get(CDP_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
             JsonNode nodesArray = result.get("nodes");
@@ -177,7 +192,7 @@ public final class CdpAccessibilityInspector {
             List<Map<String, Object>> tree = buildTreeWithBackendIds(nodesArray, backendIdToNode);
 
             // Resolve bounds for all nodes with backendDOMNodeIds
-            resolveBounds(client, backendIdToNode);
+            resolveBounds(client, sessionId, backendIdToNode);
 
             return tree;
 
@@ -486,7 +501,7 @@ public final class CdpAccessibilityInspector {
      * Resolves CSS bounding boxes for nodes using {@code DOM.getBoxModel}.
      * Adds {@code cssBounds} (left, top, right, bottom in CSS pixels) to each node.
      */
-    private static void resolveBounds(ChromeDevToolsClient client,
+    private static void resolveBounds(ChromeDevToolsClient client, String sessionId,
                                        Map<Integer, Map<String, Object>> backendIdToNode) {
         if (backendIdToNode.isEmpty()) return;
 
@@ -496,7 +511,7 @@ public final class CdpAccessibilityInspector {
 
             try {
                 JsonNode result = client.send("DOM.getBoxModel",
-                        Map.of("backendNodeId", backendId))
+                        Map.of("backendNodeId", backendId), sessionId)
                     .get(2000, TimeUnit.MILLISECONDS);
 
                 JsonNode model = result.get("model");

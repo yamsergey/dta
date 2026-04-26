@@ -151,12 +151,16 @@ public class DtaOrchestrator {
 
             // Fallback to uiautomator when sidekick returned an empty tree.
             // Triggers only on the unfiltered path; filter queries that match
-            // nothing are legitimate "no matches", not empty-tree cases.
+            // nothing are legitimate "no matches", not empty-tree cases. Common
+            // case: the host app is backgrounded because the user is looking at
+            // Chrome (Custom Tab or Intent.ACTION_VIEW) — uiautomator gives us
+            // the system surface, then enrichment grafts in the page content.
             if (isEmptyTree(adapted)) {
                 JsonNode fallback = UiAutomatorLayoutFallback.convert(
                     device, SidekickConnectionManager.getAdbPath(), packageName, mapper);
                 if (fallback != null) {
                     log.info("Layout tree empty for {} — using uiautomator fallback", packageName);
+                    enrichWebViewNodes(fallback, packageName, device);
                     return fallback;
                 }
             }
@@ -694,7 +698,7 @@ public class DtaOrchestrator {
                         log.info("SSE: Chrome will launch: {} (event={}, target={})",
                                 url, eventId, targetBrowserPackage);
                         ChromeBrowserCdpManager.getInstance().onChromeWillLaunch(
-                                device, conn.client(), eventId, url, timestamp);
+                                device, conn.client(), eventId, packageName, url, timestamp);
                     }
 
                     @Override
@@ -847,6 +851,88 @@ public class DtaOrchestrator {
             enrichCustomTabNode(adapted, packageName, device);
         } catch (Exception e) {
             log.debug("Custom Tab enrichment failed (non-fatal): {}", e.getMessage());
+        }
+
+        // Stage 7: Enrich with Chrome-via-Intent if a tab was captured for this app
+        try {
+            enrichChromeIntentNode(adapted, packageName, device);
+        } catch (Exception e) {
+            log.debug("Chrome-via-Intent enrichment failed (non-fatal): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * If the host app fired an {@code Intent.ACTION_VIEW} that landed in
+     * standalone Chrome and the daemon captured a CDP session for it,
+     * fetches the page's accessibility tree and injects a synthetic
+     * {@code ChromeBrowser} node into the layout tree. The session lives
+     * on the browser-level WebSocket addressed by sessionId (flat protocol),
+     * so we route every CDP command through the session-aware inspector
+     * variant.
+     */
+    private void enrichChromeIntentNode(JsonNode adapted, String packageName, String device) {
+        try {
+            ChromeBrowserCdpManager.CapturedSession session =
+                ChromeBrowserCdpManager.getInstance().getCapturedSessionForPackage(device, packageName);
+            if (session == null) return;
+
+            CdpAccessibilityInspector.AccessibilityTreeResult treeResult =
+                CdpAccessibilityInspector.fetchAccessibilityTreeWithUrl(
+                    session.browserClient(), session.sessionId());
+
+            if (treeResult.nodes().isEmpty()) return;
+
+            Map<String, Object> chromeNode = new LinkedHashMap<>();
+            chromeNode.put("nodeType", "web");
+            chromeNode.put("className", "ChromeBrowser");
+            String url = treeResult.url() != null ? treeResult.url() : session.url();
+            if (url != null) {
+                chromeNode.put("webViewUrl", url);
+            }
+
+            if (treeResult.viewportWidth() > 0) {
+                double scale = 0;
+                JsonNode screen = adapted.get("screen");
+                if (screen != null) {
+                    double screenWidth = screen.path("width").asDouble(0);
+                    if (screenWidth > 0) {
+                        scale = screenWidth / treeResult.viewportWidth();
+                    }
+                }
+                if (scale == 0 && treeResult.devicePixelRatio() > 0) {
+                    scale = treeResult.devicePixelRatio();
+                }
+                if (scale > 0) {
+                    double offsetY = treeResult.screenOffsetY() + getStatusBarHeight(device);
+                    transformCssBoundsToScreen(treeResult.nodes(), 0, offsetY, scale);
+                }
+            }
+
+            chromeNode.put("children", treeResult.nodes());
+
+            // The host app's compose hierarchy doesn't reflect Chrome's content,
+            // so we inject under (or replace) the root the same way Custom Tabs do.
+            JsonNode root = adapted.get("root");
+            if (root instanceof ObjectNode rootObj) {
+                ArrayNode children = (ArrayNode) root.get("children");
+                if (children == null) {
+                    children = mapper.createArrayNode();
+                    rootObj.set("children", children);
+                }
+                children.add(mapper.valueToTree(chromeNode));
+            } else if (adapted instanceof ObjectNode adaptedObj) {
+                ObjectNode syntheticRoot = mapper.createObjectNode();
+                syntheticRoot.put("nodeType", "view");
+                syntheticRoot.put("className", "ChromeBrowserWindow");
+                ArrayNode children = syntheticRoot.putArray("children");
+                children.add(mapper.valueToTree(chromeNode));
+                adaptedObj.set("root", syntheticRoot);
+            }
+
+            log.debug("Injected Chrome-via-Intent node (url={}, {} web nodes)",
+                url, treeResult.nodes().size());
+        } catch (Exception e) {
+            log.debug("Chrome-via-Intent enrichment failed (non-fatal): {}", e.getMessage());
         }
     }
 
