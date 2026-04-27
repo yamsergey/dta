@@ -32,7 +32,12 @@ public class SidekickConnectionManager {
 
     private static volatile String ADB = findAdb();
     private static final int DEFAULT_TIMEOUT_SECONDS = 30;
-    private static final long RECONNECT_COOLDOWN_MS = 10_000;
+    // 2s cooldown — fail-fast on a tight retry loop without blocking the
+    // plugin's 3s polling cadence on legitimate startup races (sidekick
+    // socket not yet listening when the user starts a debug session).
+    // Originally 10s; a 3s polling cycle would hit the cooldown twice
+    // before reaching the genuine recovery point.
+    private static final long RECONNECT_COOLDOWN_MS = 2_000;
 
     private final ConcurrentHashMap<String, ConnectionInfo> connections = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> connectionLocks = new ConcurrentHashMap<>();

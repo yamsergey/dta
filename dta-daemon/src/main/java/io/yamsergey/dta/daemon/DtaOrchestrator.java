@@ -137,11 +137,33 @@ public class DtaOrchestrator {
     public JsonNode getLayoutTree(String packageName, String device,
                                   String text, String type, String resourceId, String viewId) throws Exception {
         ConnectionInfo conn = getConnectionWithCdp(packageName, device);
+        boolean hasFilters = text != null || type != null || resourceId != null || viewId != null;
+
+        // Foreground-aware fallback: when the host app's process is alive but
+        // no Activity is RESUMED (user navigated to Chrome / Custom Tabs /
+        // another app), sidekick still returns its last known compose tree.
+        // That stale tree fools isEmptyTree() into thinking everything's
+        // fine, and the user sees the previous screen forever. Skip the
+        // sidekick call entirely in that case and go straight to uiautomator
+        // — it captures whatever's actually on screen. Only applies to
+        // unfiltered queries; filtered queries are intentionally probing the
+        // app's tree.
+        if (!hasFilters && !isHostAppForeground(conn)) {
+            JsonNode fallback = UiAutomatorLayoutFallback.convert(
+                device, SidekickConnectionManager.getAdbPath(), packageName, mapper);
+            if (fallback != null) {
+                log.info("Layout: host {} not foregrounded — using uiautomator fallback", packageName);
+                enrichWebViewNodes(fallback, packageName, device);
+                return fallback;
+            }
+            // uiautomator unavailable (rare — emulator booting?) → fall
+            // through to the sidekick path so callers get something.
+        }
+
         Result<String> result = conn.client().getLayoutTree(text, type, resourceId, viewId);
 
         if (result instanceof Success<String> success) {
             JsonNode tree = mapper.readTree(success.value());
-            boolean hasFilters = text != null || type != null || resourceId != null || viewId != null;
 
             if (hasFilters) {
                 return adaptFilteredResponse(tree);
@@ -149,12 +171,10 @@ public class DtaOrchestrator {
 
             JsonNode adapted = adaptUnfilteredResponse(tree);
 
-            // Fallback to uiautomator when sidekick returned an empty tree.
-            // Triggers only on the unfiltered path; filter queries that match
-            // nothing are legitimate "no matches", not empty-tree cases. Common
-            // case: the host app is backgrounded because the user is looking at
-            // Chrome (Custom Tab or Intent.ACTION_VIEW) — uiautomator gives us
-            // the system surface, then enrichment grafts in the page content.
+            // Empty-tree fallback: covers the case where sidekick is online
+            // and the host app IS foregrounded but the compose snapshot came
+            // up empty (still loading, no compose content, etc.). The
+            // foreground check above handles the "backgrounded" case.
             if (isEmptyTree(adapted)) {
                 JsonNode fallback = UiAutomatorLayoutFallback.convert(
                     device, SidekickConnectionManager.getAdbPath(), packageName, mapper);
@@ -1105,6 +1125,33 @@ public class DtaOrchestrator {
         } catch (Exception e) {
             log.debug("Custom Tab enrichment failed (non-fatal): {}", e.getMessage());
         }
+    }
+
+    /**
+     * Probe whether any Activity for the host app is currently {@code RESUMED}.
+     * Asks sidekick's lifecycle endpoint (cheap — just walks
+     * {@code ActivityThread.mActivities}). When the call fails, returns true
+     * to keep existing behavior on unexpected responses (fail-open).
+     */
+    private boolean isHostAppForeground(ConnectionInfo conn) {
+        try {
+            Result<String> lifecycleResult = conn.client().lifecycle();
+            if (lifecycleResult instanceof Success<String> s) {
+                JsonNode lifecycle = mapper.readTree(s.value());
+                JsonNode activities = lifecycle.get("activities");
+                if (activities != null && activities.isArray()) {
+                    for (JsonNode act : activities) {
+                        if ("RESUMED".equals(act.path("state").asText())) return true;
+                    }
+                    // Got a definite answer: the host has activities (or
+                    // none), but none are RESUMED → app is backgrounded.
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Foreground check failed (assuming foreground): {}", e.getMessage());
+        }
+        return true;
     }
 
     /**

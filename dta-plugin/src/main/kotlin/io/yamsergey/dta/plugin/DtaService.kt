@@ -466,14 +466,18 @@ class DtaService : Disposable {
         try {
             val tree = client.layoutTree(pkg, device, null, null, null, null)
 
-            // When Chrome (Custom Tab or standalone Intent.ACTION_VIEW) is in
-            // the foreground, sidekick's screenshot shows the host app behind
-            // Chrome (wrong). Detect the synthetic Chrome node and use the
-            // device-level screenshot instead — it captures whatever's
-            // actually on screen.
-            val chromeForeground = tree.contains("ChromeCustomTab") || tree.contains("ChromeBrowser")
+            // When the host app is backgrounded (Chrome / Custom Tabs / any
+            // other app on top), sidekick's screenshot endpoint either fails
+            // or returns a stale frame. The daemon signals "host backgrounded"
+            // by returning a uiautomator-sourced tree, and the Chrome
+            // enrichment path injects ChromeCustomTab / ChromeBrowser nodes
+            // when capture is active. Both cases mean "use the device-level
+            // screenshot" — it captures whatever's actually on screen.
+            val backgrounded = tree.contains("\"source\":\"uiautomator\"")
+                || tree.contains("ChromeCustomTab")
+                || tree.contains("ChromeBrowser")
             val screenshot = try {
-                if (chromeForeground) client.deviceScreenshot(device)
+                if (backgrounded) client.deviceScreenshot(device)
                 else client.screenshot(pkg, device)
             } catch (_: Exception) { null }
 
