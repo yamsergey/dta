@@ -56,7 +56,31 @@ android {
     }
 }
 
+// Resolvable configuration that pulls the shim's dex'd jar artifact (NOT its
+// .class jar) so we can bundle it as an Android asset. The shim publishes
+// this artifact via its `shimDexJar` outgoing configuration.
+val shimDexJar by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
+    // The shim provides HookDispatcher / HookRegistry / MethodHook to the
+    // bootstrap classpath at runtime (extracted from assets/dta-shim.jar
+    // and added via JVMTI AddToBootstrapClassLoaderSearch). compileOnly
+    // here so the published AAR's POM doesn't reference dta-sidekick-shim
+    // as a Maven dependency — the shim is an internal implementation
+    // detail bundled as a dex'd asset.
+    //
+    // The asset is installed onto the bootstrap classloader by
+    // BootstrapShimProvider (a ContentProvider with high initOrder) before
+    // AndroidX Startup runs, so SidekickInitializer's class link (which
+    // transitively references MethodHook via the hook classes it
+    // instantiates) finds the shim in bootstrap and resolves cleanly.
+    compileOnly(project(":dta-sidekick-shim"))
+    // Pull the dex'd shim jar so we can copy it into the AAR's assets.
+    shimDexJar(project(mapOf("path" to ":dta-sidekick-shim", "configuration" to "shimDexJar")))
+
     // Lombok for boilerplate reduction (builders, with methods, etc.)
     compileOnly(libs.sugar.lombok)
     annotationProcessor(libs.sugar.lombok)
@@ -105,14 +129,30 @@ tasks.register<GenerateVersionPropertiesTask>("generateVersionProperties") {
     outputDir.set(versionPropsDir)
 }
 
+/**
+ * Stage the shim's dex'd jar at a known path so AGP picks it up via the
+ * generated-assets srcDir below. Without this, the AAR doesn't ship the
+ * shim and runtime AddToBootstrapClassLoaderSearch has nothing to add.
+ */
+val shimAssetsDir = layout.buildDirectory.dir("generated/shim-assets")
+
+val copyShimDexJar = tasks.register<Copy>("copyShimDexJar") {
+    description = "Stage the dex'd shim jar as an Android asset"
+    group = "build"
+    from(shimDexJar)
+    into(shimAssetsDir)
+    rename { "dta-shim.jar" }
+}
+
 android.sourceSets {
     getByName("main") {
         resources.srcDirs(versionPropsDir)
+        assets.srcDirs(shimAssetsDir)
     }
 }
 
 tasks.named("preBuild") {
-    dependsOn("generateVersionProperties")
+    dependsOn("generateVersionProperties", copyShimDexJar)
 }
 
 val dtaVersion = project.property("dtaVersion") as String

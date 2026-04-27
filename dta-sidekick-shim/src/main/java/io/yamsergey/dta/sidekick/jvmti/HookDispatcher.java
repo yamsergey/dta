@@ -1,6 +1,6 @@
 package io.yamsergey.dta.sidekick.jvmti;
 
-import io.yamsergey.dta.sidekick.SidekickLog;
+import android.util.Log;
 
 /**
  * Dispatcher that routes method hook invocations to registered hooks.
@@ -8,8 +8,16 @@ import io.yamsergey.dta.sidekick.SidekickLog;
  * <p>This class is called by transformed bytecode injected by the JVMTI agent.
  * It looks up the appropriate hook and invokes its callbacks.</p>
  *
- * <p><b>IMPORTANT:</b> This class must remain stable as its methods are called
- * directly from injected bytecode. Changing method signatures will break hooks.</p>
+ * <p><b>IMPORTANT — boot-class hook target:</b> this class lives in
+ * {@code dta-sidekick-shim} which is added to the Android bootstrap classpath
+ * at runtime. Methods here must therefore stay self-contained: only stdlib
+ * and {@code android.util.Log} dependencies, no SLF4J / Jackson / Kotlin.
+ * Other parts of dta-sidekick (e.g. SidekickLog) are <i>not</i> reachable from
+ * here at runtime — they live in the app classloader.</p>
+ *
+ * <p>Method signatures here are also part of the ABI that injected bytecode
+ * targets. Renaming or re-typing breaks every transformed method on the next
+ * load — which is to say, all of them.</p>
  */
 public final class HookDispatcher {
 
@@ -39,7 +47,7 @@ public final class HookDispatcher {
             }
         } catch (Throwable t) {
             // Never let hook errors crash the app
-            SidekickLog.e(TAG, "Error in hook onEnter: " + hookId, t);
+            Log.e(TAG, "Error in hook onEnter: " + hookId, t);
         }
     }
 
@@ -64,8 +72,7 @@ public final class HookDispatcher {
                 return hook.onExit(thisObj, result);
             }
         } catch (Throwable t) {
-            // Never let hook errors crash the app
-            SidekickLog.e(TAG, "Error in hook onExit: " + hookId, t);
+            Log.e(TAG, "Error in hook onExit: " + hookId, t);
         }
         return result;
     }
@@ -92,8 +99,7 @@ public final class HookDispatcher {
                 return hook.onException(thisObj, throwable);
             }
         } catch (Throwable t) {
-            // Never let hook errors crash the app
-            SidekickLog.e(TAG, "Error in hook onException: " + hookId, t);
+            Log.e(TAG, "Error in hook onException: " + hookId, t);
         }
         return throwable;
     }
@@ -102,49 +108,31 @@ public final class HookDispatcher {
     // Primitive-specific overloads for better bytecode generation
     // ==========================================================================
 
-    /**
-     * Overload for methods returning int.
-     */
     public static int onExitInt(String hookId, Object thisObj, int result) {
         Object modified = onExit(hookId, thisObj, result);
         return (modified instanceof Number) ? ((Number) modified).intValue() : result;
     }
 
-    /**
-     * Overload for methods returning long.
-     */
     public static long onExitLong(String hookId, Object thisObj, long result) {
         Object modified = onExit(hookId, thisObj, result);
         return (modified instanceof Number) ? ((Number) modified).longValue() : result;
     }
 
-    /**
-     * Overload for methods returning boolean.
-     */
     public static boolean onExitBoolean(String hookId, Object thisObj, boolean result) {
         Object modified = onExit(hookId, thisObj, result);
         return (modified instanceof Boolean) ? (Boolean) modified : result;
     }
 
-    /**
-     * Overload for methods returning float.
-     */
     public static float onExitFloat(String hookId, Object thisObj, float result) {
         Object modified = onExit(hookId, thisObj, result);
         return (modified instanceof Number) ? ((Number) modified).floatValue() : result;
     }
 
-    /**
-     * Overload for methods returning double.
-     */
     public static double onExitDouble(String hookId, Object thisObj, double result) {
         Object modified = onExit(hookId, thisObj, result);
         return (modified instanceof Number) ? ((Number) modified).doubleValue() : result;
     }
 
-    /**
-     * Overload for void methods.
-     */
     public static void onExitVoid(String hookId, Object thisObj) {
         onExit(hookId, thisObj, null);
     }

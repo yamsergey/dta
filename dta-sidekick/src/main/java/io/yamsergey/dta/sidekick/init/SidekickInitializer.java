@@ -136,6 +136,10 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
 
         if (success) {
             SidekickLog.i(TAG, "JVMTI agent initialized successfully");
+            // Note: bootstrap-classpath shim installation moved to
+            // BootstrapShimProvider — it has to run before AndroidX Startup
+            // verifies SidekickInitializer's class, otherwise MethodHook
+            // resolution NCDFEs at app launch.
 
             // Register network hooks
             registerNetworkHooks();

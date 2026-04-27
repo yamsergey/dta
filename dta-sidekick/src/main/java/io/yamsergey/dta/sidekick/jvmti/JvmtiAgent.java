@@ -76,6 +76,32 @@ public final class JvmtiAgent {
             return false;
         }
 
+        // BootstrapShimProvider runs before AndroidX Startup and may have
+        // already attached the agent (so the bootstrap shim is in place by
+        // the time SidekickInitializer's class link resolves MethodHook).
+        // If so, just register the transformer hook and we're done — JVMTI
+        // rejects a second attach.
+        if (io.yamsergey.dta.sidekick.init.BootstrapShim.attached()) {
+            try {
+                nativeRegisterTransformerHook();
+                agentLoaded.set(true);
+                SidekickLog.i(TAG, "JVMTI agent ready (attached early by BootstrapShim)");
+                return true;
+            } catch (Throwable t) {
+                String error = "BootstrapShim attached but transformer hook registration failed: " + t.getMessage();
+                SidekickLog.e(TAG, error, t);
+                initError.set(error);
+                return false;
+            }
+        }
+
+        // Fallback: BootstrapShim didn't run (e.g. host app removed the
+        // ContentProvider via tools:node="remove" or a multi-process scenario
+        // where the provider attached in a different process). Do the full
+        // attach here. Boot-class hooks won't work in this path because the
+        // shim install requires running before SidekickInitializer's class
+        // link, but app-class hooks remain functional.
+
         // Find the agent library - first try the native lib directory
         String nativeLibDir = context.getApplicationInfo().nativeLibraryDir;
         File agentLib = new File(nativeLibDir, AGENT_LIB_NAME);
@@ -370,6 +396,44 @@ public final class JvmtiAgent {
      * @param enabled true to enable debug logging
      */
     private static native void nativeSetDebugEnabled(boolean enabled);
+
+    /**
+     * Asks JVMTI to add the given jar to the bootstrap classloader's search
+     * path. Used to make {@code dta-sidekick-shim}'s {@link HookDispatcher}
+     * resolvable from boot-class injected bytecode (e.g. when we hook
+     * {@code android.app.Activity.startActivityForResult}).
+     *
+     * @param jarAbsolutePath absolute filesystem path to a DEX-containing jar
+     * @return 0 on success, JVMTI error code otherwise (-1/-2/-3 for
+     *     local validation failures)
+     */
+    static native int nativeAddToBootstrapClassLoaderSearch(String jarAbsolutePath);
+
+    /**
+     * Public wrapper around {@link #nativeAddToBootstrapClassLoaderSearch}
+     * that handles the case where the agent isn't loaded (returns false
+     * instead of throwing UnsatisfiedLinkError) so callers can degrade
+     * gracefully.
+     *
+     * @return true on success, false on any failure (already logged)
+     */
+    public static boolean addToBootstrapClassLoaderSearch(String jarAbsolutePath) {
+        if (jarAbsolutePath == null || jarAbsolutePath.isEmpty()) {
+            SidekickLog.w(TAG, "addToBootstrapClassLoaderSearch: empty path");
+            return false;
+        }
+        try {
+            int rc = nativeAddToBootstrapClassLoaderSearch(jarAbsolutePath);
+            if (rc != 0) {
+                SidekickLog.w(TAG, "AddToBootstrapClassLoaderSearch returned " + rc);
+                return false;
+            }
+            return true;
+        } catch (UnsatisfiedLinkError e) {
+            SidekickLog.w(TAG, "Native agent not loaded — boot-class hooks will NCDFE");
+            return false;
+        }
+    }
 
     // ==========================================================================
     // Callbacks from native code

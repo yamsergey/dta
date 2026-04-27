@@ -61,32 +61,31 @@ static void JNICALL ClassFileLoadHook(
         return;
     }
 
-    // Quick check: skip system classes for performance
-    if (strncmp(name, "java/", 5) == 0 ||
-        strncmp(name, "sun/", 4) == 0 ||
-        strncmp(name, "com/android/", 12) == 0 ||
-        strncmp(name, "android/", 8) == 0 ||
-        strncmp(name, "dalvik/", 7) == 0 ||
-        strncmp(name, "libcore/", 8) == 0 ||
-        strncmp(name, "io/yamsergey/dta/sidekick/jvmti/", 32) == 0) {
+    // Always skip our own dispatcher infrastructure — transforming the
+    // dispatcher's own methods would cause infinite recursion at the first
+    // hook fire. Everything else, including system classes, gets the
+    // hook-registry lookup below.
+    if (strncmp(name, "io/yamsergey/dta/sidekick/jvmti/", 32) == 0) {
         return;
     }
 
-    // Check if we have hooks for this class
-    if (!HookManager::hasHooksForClass(name)) {
-        // Also check with Java side in case hooks were registered there
-        if (g_agentClass != nullptr && g_shouldTransformMethod != nullptr) {
-            jstring className = jni_env->NewStringUTF(name);
-            jboolean shouldTransform = jni_env->CallStaticBooleanMethod(
-                    g_agentClass, g_shouldTransformMethod, className);
-            jni_env->DeleteLocalRef(className);
-
-            if (!shouldTransform) {
-                return;
-            }
-        } else {
-            return;
-        }
+    // Hook-registry lookup is the real filter. Previously this lived after
+    // a system-class prefix skip (java/, com/android/, android/, dalvik/,
+    // libcore/) for "performance" — but the prefix skip ran before the
+    // registry check, so registered hooks on those prefixes (URLConnection,
+    // android.app.Activity, etc.) silently no-op'd. The registry lookup is
+    // an O(1) hashmap; using it as the primary filter is fast enough
+    // without sacrificing the boot-class hook capability.
+    bool nativeHasHook = HookManager::hasHooksForClass(name);
+    bool javaWantsTransform = false;
+    if (!nativeHasHook && g_agentClass != nullptr && g_shouldTransformMethod != nullptr) {
+        jstring className = jni_env->NewStringUTF(name);
+        javaWantsTransform = jni_env->CallStaticBooleanMethod(
+                g_agentClass, g_shouldTransformMethod, className);
+        jni_env->DeleteLocalRef(className);
+    }
+    if (!nativeHasHook && !javaWantsTransform) {
+        return;
     }
 
     LOGD("Transforming class: %s", name);
@@ -261,8 +260,14 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
 
     g_vm = vm;
 
-    // Initialize the class transformer
-    ClassTransformer::init(env);
+    // ClassTransformer::init is intentionally deferred — it does
+    // env->FindClass for HookDispatcher / DexTransformer, which lives in
+    // the dta-sidekick-shim bootstrap jar. At this moment that jar hasn't
+    // been added to the bootstrap classpath yet (BootstrapShim does that
+    // immediately after agent attach). Calling init() now would cache
+    // null pointers permanently and disable all transformations.
+    // Java side calls nativeInitClassTransformer() once the shim is in
+    // place.
 
     return JNI_VERSION_1_6;
 }
@@ -364,4 +369,73 @@ Java_io_yamsergey_dta_sidekick_jvmti_JvmtiAgent_nativeSetDebugEnabled(
         jclass clazz,
         jboolean enabled) {
     sidekick_set_debug_enabled(enabled);
+}
+
+/**
+ * Wraps {@code jvmtiEnv->AddToBootstrapClassLoaderSearch}. Must be called
+ * <i>before</i> any class load that needs to resolve symbols from the shim
+ * jar (i.e. before any boot-class hook fires). Idempotent on the same path:
+ * JVMTI just appends, duplicates are tolerated by ART.
+ *
+ * <p>Returns 0 on success, the raw jvmtiError code otherwise. We don't
+ * throw a Java exception because callers (sidekick init) want to log + keep
+ * going — failing here means boot-class hooks won't work but app-classloader
+ * hooks still will.</p>
+ */
+/**
+ * Shared body for both JNI symbols below. JvmtiAgent / BootstrapShimProvider
+ * both need to call AddToBootstrapClassLoaderSearch but they live in
+ * different Java packages — the JNI symbol naming mangles in the package
+ * path, so we have two entry points calling the same helper.
+ */
+static jint addToBootstrapClassLoaderSearchImpl(JNIEnv* env, jstring jarPath) {
+    if (g_jvmti == nullptr) {
+        LOGE("AddToBootstrapClassLoaderSearch: JVMTI env not yet attached");
+        return -1;
+    }
+    if (jarPath == nullptr) {
+        LOGE("AddToBootstrapClassLoaderSearch: jarPath is null");
+        return -2;
+    }
+    const char* path = env->GetStringUTFChars(jarPath, nullptr);
+    if (path == nullptr) {
+        return -3;
+    }
+    jvmtiError err = g_jvmti->AddToBootstrapClassLoaderSearch(path);
+    if (err != JVMTI_ERROR_NONE) {
+        LOGE("AddToBootstrapClassLoaderSearch(%s) failed: %d", path, err);
+    } else {
+        LOGI("AddToBootstrapClassLoaderSearch(%s) OK", path);
+    }
+    env->ReleaseStringUTFChars(jarPath, path);
+    return static_cast<jint>(err);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_io_yamsergey_dta_sidekick_jvmti_JvmtiAgent_nativeAddToBootstrapClassLoaderSearch(
+        JNIEnv* env,
+        jclass clazz,
+        jstring jarPath) {
+    return addToBootstrapClassLoaderSearchImpl(env, jarPath);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_io_yamsergey_dta_sidekick_init_BootstrapShim_nativeAddToBootstrapClassLoaderSearch(
+        JNIEnv* env,
+        jclass clazz,
+        jstring jarPath) {
+    return addToBootstrapClassLoaderSearchImpl(env, jarPath);
+}
+
+/**
+ * Late initialization of ClassTransformer — called after BootstrapShim has
+ * added the shim jar to the bootstrap classpath. Initializing earlier (in
+ * JNI_OnLoad) would FindClass(HookDispatcher) before the shim is reachable,
+ * cache null, and silently disable all transformations.
+ */
+extern "C" JNIEXPORT void JNICALL
+Java_io_yamsergey_dta_sidekick_init_BootstrapShim_nativeInitClassTransformer(
+        JNIEnv* env,
+        jclass clazz) {
+    ClassTransformer::init(env);
 }

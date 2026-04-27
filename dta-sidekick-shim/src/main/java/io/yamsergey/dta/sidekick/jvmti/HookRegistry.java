@@ -1,6 +1,6 @@
 package io.yamsergey.dta.sidekick.jvmti;
 
-import io.yamsergey.dta.sidekick.SidekickLog;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -71,14 +71,14 @@ public final class HookRegistry {
             }
         }
 
-        SidekickLog.d(TAG, "Registered hook: " + id + " -> " + className + "." + hook.getTargetMethod());
+        Log.d(TAG, "Registered hook: " + id + " -> " + className + "." + hook.getTargetMethod());
 
         // Notify listeners
         for (HookListener listener : listeners) {
             try {
                 listener.onHookRegistered(id, hook);
             } catch (Throwable t) {
-                SidekickLog.e(TAG, "Error in hook listener", t);
+                Log.e(TAG, "Error in hook listener", t);
             }
         }
 
@@ -99,14 +99,14 @@ public final class HookRegistry {
                 classHooks.remove(removed);
             }
 
-            SidekickLog.d(TAG, "Unregistered hook: " + hookId);
+            Log.d(TAG, "Unregistered hook: " + hookId);
 
             // Notify listeners
             for (HookListener listener : listeners) {
                 try {
                     listener.onHookUnregistered(hookId, removed);
                 } catch (Throwable t) {
-                    SidekickLog.e(TAG, "Error in hook listener", t);
+                    Log.e(TAG, "Error in hook listener", t);
                 }
             }
 
@@ -174,7 +174,7 @@ public final class HookRegistry {
     public static void clearAllHooks() {
         hooks.clear();
         hooksByClass.clear();
-        SidekickLog.d(TAG, "Cleared all hooks");
+        Log.d(TAG, "Cleared all hooks");
     }
 
     /**

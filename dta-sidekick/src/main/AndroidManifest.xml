@@ -6,6 +6,22 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application>
+        <!--
+            BootstrapShimProvider attaches the JVMTI agent and adds the
+            dta-sidekick-shim jar to the bootstrap classpath. android:initOrder
+            is set higher than InitializationProvider's default (0) so this
+            provider runs first — by the time AndroidX Startup verifies
+            SidekickInitializer, the shim's HookDispatcher / HookRegistry /
+            MethodHook are already resolvable from the bootstrap classloader.
+            Without this ordering, class-link of SidekickInitializer NCDFEs
+            and the host app crashes on launch.
+        -->
+        <provider
+            android:name="io.yamsergey.dta.sidekick.init.BootstrapShimProvider"
+            android:authorities="${applicationId}.dta-sidekick-bootstrap"
+            android:exported="false"
+            android:initOrder="1000" />
+
         <!-- AndroidX Startup Initializer -->
         <provider
             android:name="androidx.startup.InitializationProvider"

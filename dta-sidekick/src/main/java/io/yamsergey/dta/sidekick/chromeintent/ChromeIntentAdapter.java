@@ -12,14 +12,19 @@ import io.yamsergey.dta.sidekick.network.adapter.NetworkAdapter;
  * Network adapter for intercepting standalone Chrome launches via
  * {@code Intent.ACTION_VIEW} (i.e. not Custom Tabs).
  *
- * <p>Hooks {@code androidx.activity.ComponentActivity.startActivityForResult}
- * (both 2-arg and 3-arg overloads). Activity.startActivity delegates to
- * startActivityForResult via virtual dispatch, so hooking the override on
- * ComponentActivity catches every startActivity call from a
- * ComponentActivity-extending Activity.</p>
+ * <p>Hooks {@code android.app.Activity.startActivityForResult(Intent, int, Bundle)}
+ * — the funnel point that every {@code startActivity*} overload delegates to.
+ * That makes this a boot-class hook, which requires the bootstrap shim
+ * (installed by {@code BootstrapShimProvider} before AndroidX Startup runs).</p>
  *
- * <p>Available only when AndroidX Activity is on the classpath. Apps that
- * don't use AndroidX (rare today) are not covered by this adapter.</p>
+ * <p>Previous incarnation hooked {@code androidx.activity.ComponentActivity.startActivityForResult}
+ * to avoid the boot-class requirement. That left a coverage gap for
+ * Activity subclasses that don't extend ComponentActivity — Auth0's
+ * {@code AuthenticationActivity} is the canonical case. The new hook
+ * closes that gap.</p>
+ *
+ * <p>Always available — {@code android.app.Activity} is part of the
+ * Android framework, no classpath check needed.</p>
  */
 public class ChromeIntentAdapter implements NetworkAdapter {
 
@@ -40,23 +45,12 @@ public class ChromeIntentAdapter implements NetworkAdapter {
 
     @Override
     public boolean isAvailable() {
-        try {
-            Class.forName("androidx.activity.ComponentActivity");
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
+        return true;
     }
 
     @Override
     public List<MethodHook> getHooks() {
-        if (!isAvailable()) {
-            return Collections.emptyList();
-        }
-        return Arrays.asList(
-            new ChromeIntentLaunchHook(),                             // (Intent, int)
-            new ChromeIntentLaunchHook("(Landroid/content/Intent;ILandroid/os/Bundle;)V")
-        );
+        return Collections.singletonList(new ActivityStartActivityForResultHook());
     }
 
     @Override
