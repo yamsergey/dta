@@ -29,6 +29,33 @@ public class CustomTabsLaunchHook implements MethodHook {
 
     private static final String TAG = "CustomTabsHook";
 
+    /**
+     * Set to a non-zero count while {@code CustomTabsIntent.launchUrl} is on
+     * the current thread's stack. Read by {@code ActivityStartActivityForResultHook}
+     * to skip the boot-class hook for launches we're already broadcasting via
+     * the launchUrl path — without this dedup, a single Custom Tabs launch
+     * would emit both {@code customtab_will_launch} and {@code chrome_will_launch}.
+     *
+     * <p>Counter (not boolean) so the marker survives any hypothetical
+     * re-entry without false-clearing. Cleared in {@link #onExit} <b>and</b>
+     * {@link #onException} so a thrown launchUrl doesn't strand the marker
+     * and suppress unrelated future launches on this thread.</p>
+     *
+     * <p>Note: must NOT be substituted by an EXTRA_SESSION check on the
+     * Intent. Auth0's CustomTabsController builds a CustomTabsIntent (which
+     * sets EXTRA_SESSION on its inner Intent) and then bypasses launchUrl
+     * by calling context.startActivity(intent) on the bare Intent. An
+     * extras-based check would silently skip those launches — exactly the
+     * regression that motivated this ThreadLocal approach.</p>
+     */
+    public static final ThreadLocal<int[]> ACTIVE_LAUNCH_URL_DEPTH =
+            ThreadLocal.withInitial(() -> new int[1]);
+
+    /** True iff the current thread is inside a CustomTabsIntent.launchUrl call. */
+    public static boolean isInsideLaunchUrl() {
+        return ACTIVE_LAUNCH_URL_DEPTH.get()[0] > 0;
+    }
+
     @Override
     public String getTargetClass() {
         return "androidx.browser.customtabs.CustomTabsIntent";
@@ -52,6 +79,11 @@ public class CustomTabsLaunchHook implements MethodHook {
 
     @Override
     public void onEnter(Object thisObj, Object[] args) {
+        // Mark this thread as "inside launchUrl" before any other work — we
+        // need the marker visible even if we early-return below, otherwise
+        // the boot hook (which fires later in the same call stack via
+        // ContextCompat.startActivity) would broadcast a duplicate event.
+        ACTIVE_LAUNCH_URL_DEPTH.get()[0]++;
         try {
             if (args.length < 2) {
                 SidekickLog.w(TAG, "launchUrl called with insufficient arguments");
@@ -101,6 +133,32 @@ public class CustomTabsLaunchHook implements MethodHook {
 
         } catch (Throwable t) {
             SidekickLog.e(TAG, "Error in onEnter", t);
+        }
+    }
+
+    @Override
+    public Object onExit(Object thisObj, Object result) {
+        decrementDepth();
+        return result;
+    }
+
+    @Override
+    public Throwable onException(Object thisObj, Throwable throwable) {
+        decrementDepth();
+        return throwable;
+    }
+
+    /**
+     * Decrements the active-launchUrl counter on the current thread, with a
+     * floor at zero. Defensive against any hypothetical onExit/onException
+     * fire that wasn't matched by an onEnter — keeps the marker monotonic
+     * so the boot hook's check stays correct across the lifetime of the
+     * thread.
+     */
+    private static void decrementDepth() {
+        int[] depth = ACTIVE_LAUNCH_URL_DEPTH.get();
+        if (depth[0] > 0) {
+            depth[0]--;
         }
     }
 

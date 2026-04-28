@@ -1,6 +1,7 @@
 package io.yamsergey.dta.sidekick.chromeintent;
 
 import io.yamsergey.dta.sidekick.SidekickLog;
+import io.yamsergey.dta.sidekick.customtabs.CustomTabsLaunchHook;
 import io.yamsergey.dta.sidekick.jvmti.MethodHook;
 import io.yamsergey.dta.sidekick.server.InspectorServer;
 
@@ -62,13 +63,19 @@ public final class ActivityStartActivityForResultHook implements MethodHook {
                 return;
             }
 
-            // Skip Custom Tabs — those are handled by CustomTabsLaunchHook on
-            // the launchUrl entry point. CustomTabsIntent.launchUrl ultimately
-            // calls Activity.startActivity, so without this check the boot
-            // hook would double-broadcast every Custom Tab launch (one
-            // customtab_will_launch + one chrome_will_launch event). Detection
-            // is the session extra that CustomTabsIntent.Builder always sets.
-            if (hasCustomTabsExtra(intent)) {
+            // Skip ONLY when CustomTabsIntent.launchUrl is currently on this
+            // thread's call stack — the launchUrl hook is already going to
+            // broadcast for this same launch, and a second event from us
+            // here would double-fire.
+            //
+            // We deliberately DO NOT skip based on the EXTRA_SESSION extra
+            // being set on the Intent. Auth0's CustomTabsController builds
+            // a CustomTabsIntent (which sets EXTRA_SESSION), then bypasses
+            // launchUrl by extracting the underlying Intent and calling
+            // context.startActivity(intent) directly. An extras-based check
+            // silently dropped those launches — the regression that
+            // motivated this thread-local approach.
+            if (CustomTabsLaunchHook.isInsideLaunchUrl()) {
                 return;
             }
 
@@ -103,27 +110,6 @@ public final class ActivityStartActivityForResultHook implements MethodHook {
             // Hooks must never throw out of onEnter — the host app proceeds
             // unmodified on any reflection / SSE failure here.
             SidekickLog.e(TAG, "Error in onEnter", t);
-        }
-    }
-
-    /**
-     * Detects Custom Tabs intents by the presence of the session extra that
-     * {@code CustomTabsIntent.Builder} always sets. Two key variants exist:
-     * legacy {@code android.support.customtabs.extra.SESSION} and the
-     * AndroidX {@code androidx.browser.customtabs.extra.SESSION}. Either
-     * one is conclusive — if it's present, this Intent came from
-     * {@code CustomTabsIntent} and the {@code launchUrl} hook has already
-     * processed it.
-     */
-    private static boolean hasCustomTabsExtra(Object intent) {
-        try {
-            Method hasExtra = intent.getClass().getMethod("hasExtra", String.class);
-            Boolean a = (Boolean) hasExtra.invoke(intent, "android.support.customtabs.extra.SESSION");
-            if (Boolean.TRUE.equals(a)) return true;
-            Boolean b = (Boolean) hasExtra.invoke(intent, "androidx.browser.customtabs.extra.SESSION");
-            return Boolean.TRUE.equals(b);
-        } catch (Throwable t) {
-            return false;
         }
     }
 
