@@ -253,6 +253,80 @@ public class ChromeBrowserCdpManager {
 
             log.info("Chrome browser CDP attached on {}: setDiscoverTargets + setAutoAttach armed",
                     deviceKey(deviceSerial));
+
+            // setAutoAttach only fires Target.attachedToTarget for tabs that
+            // open AFTER it's armed. The hook-to-attach window can be 5-10s
+            // (ADB port-forward + WebSocket connect + setAutoAttach round
+            // trip), and the about:blank tab Chrome opens in response to
+            // sidekick's swapped Intent has already fired — and missed —
+            // its attachedToTarget event by the time we arm. Symptom: tab
+            // sits on about:blank forever, no Page.navigate, no capture.
+            //
+            // Catch up by enumerating all currently-known page targets and
+            // manually attaching to ones whose URL is about:blank. The
+            // about:blank URL is the synthetic marker sidekick sets on the
+            // Intent, so any page-type target with that URL is most likely
+            // ours. Real-URL tabs aren't manually attached because they
+            // could be unrelated user tabs.
+            catchUpStaleAboutBlankTargets();
+        }
+
+        /**
+         * Enumerates targets via {@code Target.getTargets} and explicitly
+         * attaches to any page-type target whose URL is {@code about:blank}.
+         * {@link #attachAndMaybeCapture} dedupes by targetId, so a race with
+         * a real {@code Target.attachedToTarget} event from autoAttach
+         * (unlikely once armed but possible if the about:blank tab loads
+         * very late) is harmless.
+         */
+        private void catchUpStaleAboutBlankTargets() {
+            try {
+                tools.jackson.databind.JsonNode response = browserClient
+                        .send("Target.getTargets", Map.of())
+                        .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .join();
+                tools.jackson.databind.JsonNode targetInfos = response.path("targetInfos");
+                if (!targetInfos.isArray()) return;
+
+                int caught = 0;
+                for (tools.jackson.databind.JsonNode targetInfo : targetInfos) {
+                    String type = targetInfo.path("type").asString("");
+                    if (!"page".equals(type)) continue;
+                    String url = targetInfo.path("url").asString("");
+                    if (!"about:blank".equals(url)) continue;
+                    String targetId = targetInfo.path("targetId").asString("");
+                    if (targetId.isEmpty()) continue;
+                    if (targetSessions.containsKey(targetId)) continue;
+
+                    try {
+                        tools.jackson.databind.JsonNode attachResp = browserClient
+                                .send("Target.attachToTarget", Map.of(
+                                        "targetId", targetId,
+                                        "flatten", true))
+                                .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                                .join();
+                        String sessionId = attachResp.path("sessionId").asString("");
+                        if (sessionId.isEmpty()) {
+                            log.warn("Target.attachToTarget for stale {} returned no sessionId", targetId);
+                            continue;
+                        }
+                        log.info("Catch-up attach to existing about:blank target {} (session {})",
+                                targetId, sessionId);
+                        // waitingForDebugger=false because this target was
+                        // created before autoAttach armed — the V8 isolate
+                        // is already running normally, no pause to release.
+                        attachAndMaybeCapture(targetId, url, sessionId, false);
+                        caught++;
+                    } catch (Exception e) {
+                        log.warn("Catch-up attach failed for target {}: {}", targetId, e.getMessage());
+                    }
+                }
+                if (caught > 0) {
+                    log.info("Catch-up attach completed: {} stale about:blank target(s) recovered", caught);
+                }
+            } catch (Exception e) {
+                log.warn("Catch-up Target.getTargets failed: {}", e.getMessage());
+            }
         }
 
         /**
