@@ -259,6 +259,21 @@ class DtaService : Disposable {
         return DaemonClient("http://localhost:$port")
     }
 
+    /**
+     * Builds a debug bundle (zip) on the daemon side and returns the bytes.
+     * Synchronous: callers should run this on a pooled thread because the
+     * call hits adb (logcat dump, run-as) and the sidekick HTTP socket.
+     *
+     * <p>Requires an active sidekick connection — uses the most recently
+     * known {@link SidekickInfo}. Returns null if no app is connected; the
+     * caller should warn the user that they need to pick an app first.</p>
+     */
+    fun exportDebugLogs(redact: Boolean = true): ByteArray? {
+        val daemonClient = daemon ?: ensureDaemon()
+        val sk = sidekickInfo ?: return null
+        return daemonClient.exportDebugLogs(sk.packageName, sk.deviceSerial, redact)
+    }
+
     // ========================================================================
     // Device and app discovery
     // ========================================================================

@@ -191,7 +191,13 @@ public final class SidekickConfig {
 
     public static final class Builder {
         private boolean debugLoggingEnabled = false;
-        private boolean fileLoggingEnabled = false;
+        // File logging defaults ON because the JVMTI / boot-class layer logs
+        // through android.util.Log directly (not SidekickLog), so the file is
+        // the only source where SidekickLog-tagged events can be retrieved
+        // post-hoc — `dta-cli inspect log-pull` and the plugin's "Export
+        // Debug Logs" button both depend on this. Cost is ~few MB cap;
+        // gated by SidekickInitializer at runtime to debuggable apps only.
+        private boolean fileLoggingEnabled = true;
         private boolean okHttpEnabled = true;
         private boolean urlConnectionEnabled = true;
         private boolean okHttpWebSocketEnabled = true;
@@ -229,16 +235,31 @@ public final class SidekickConfig {
         }
 
         /**
-         * Enables file logging to {@code <cacheDir>/sidekick.log}.
+         * Enables file logging to {@code <cacheDir>/sidekick.log} (this is the default).
          *
          * <p>Debug logging is automatically enabled when file logging is active.
          * Pull the log file with:</p>
          * <pre>{@code
          * dta-cli inspect log-pull --package com.example.app
          * }</pre>
+         *
+         * <p>Or use the plugin's "Export Debug Logs" button (Daemon tab),
+         * which bundles the file with a logcat slice and runtime state.</p>
          */
         public Builder enableFileLogging() {
             this.fileLoggingEnabled = true;
+            return this;
+        }
+
+        /**
+         * Disables file logging. Use this if the few-MB log file is
+         * undesirable in a long-running debug session — but note that without
+         * the file there's no way to recover SidekickLog-tagged events after
+         * they roll out of logcat. The plugin's "Export Debug Logs" feature
+         * will only have logcat to work with.
+         */
+        public Builder disableFileLogging() {
+            this.fileLoggingEnabled = false;
             return this;
         }
 

@@ -28,6 +28,7 @@ public final class SidekickLog {
 
     private static volatile boolean debugEnabled = false;
     private static volatile PrintWriter fileWriter = null;
+    private static volatile File currentLogFile = null;
     private static final SimpleDateFormat DATE_FORMAT =
         new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
 
@@ -42,6 +43,15 @@ public final class SidekickLog {
     }
 
     /**
+     * Returns the active log file, or null if file logging isn't running.
+     * Used by /debug/diagnostics so callers don't have to reconstruct the
+     * cacheDir convention.
+     */
+    public static File currentLogFile() {
+        return currentLogFile;
+    }
+
+    /**
      * Starts writing all log messages to a file.
      * Debug logging is automatically enabled when file logging is active.
      */
@@ -49,11 +59,13 @@ public final class SidekickLog {
         stopFileLogging();
         try {
             fileWriter = new PrintWriter(new BufferedWriter(new FileWriter(file, false)), true);
+            currentLogFile = file;
             debugEnabled = true;
             writeToFile("I", "SidekickLog", "File logging started: " + file.getAbsolutePath());
         } catch (Exception e) {
             Log.e("SidekickLog", "Failed to start file logging", e);
             fileWriter = null;
+            currentLogFile = null;
         }
     }
 
@@ -66,6 +78,7 @@ public final class SidekickLog {
             writeToFile("I", "SidekickLog", "File logging stopped");
             pw.close();
             fileWriter = null;
+            currentLogFile = null;
         }
     }
 

@@ -658,6 +658,9 @@ public class InspectorServer {
         if (path.equals("/runtime/viewmodels") && "GET".equals(method)) {
             handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().viewModels(), out); return;
         }
+        if (path.equals("/debug/diagnostics") && "GET".equals(method)) {
+            handleDebugDiagnostics(out); return;
+        }
         if (path.startsWith("/runtime/viewmodels/") && path.endsWith("/saved-state") && "GET".equals(method)) {
             // /runtime/viewmodels/{id}/saved-state — id is between the two segments
             // and arrives URL-encoded (the id contains ':' from
@@ -935,9 +938,102 @@ public class InspectorServer {
                 "/runtime/threads",
                 "/runtime/viewmodels",
                 "/runtime/viewmodels/{id}/saved-state",
+                "/debug/diagnostics",
                 "/layout/tree",
                 "/layout/properties/{viewId}"
         });
+
+        sendJson(out, 200, response);
+    }
+
+    /**
+     * GET /debug/diagnostics — single-shot snapshot the daemon bundles into
+     * the "Export Debug Logs" zip. Aggregates state that's otherwise spread
+     * across BootstrapShim, JvmtiAgent, HookRegistry, and the file-logger
+     * config so the daemon doesn't have to scrape four endpoints to build
+     * a debug bundle. Mirrors what AS's transport agent dumps when you
+     * "Capture for Bug Report" — the intent is "everything I'd ask for in
+     * a GitHub issue, in one payload".
+     */
+    private void handleDebugDiagnostics(OutputStream out) throws IOException {
+        Map<String, Object> response = new HashMap<>();
+        response.put("sidekickVersion", VERSION);
+        response.put("packageName", packageName);
+        response.put("apiLevel", android.os.Build.VERSION.SDK_INT);
+        response.put("androidVersion", android.os.Build.VERSION.RELEASE);
+        response.put("device", android.os.Build.MODEL);
+        response.put("manufacturer", android.os.Build.MANUFACTURER);
+
+        // Bootstrap shim — the answer to "did the boot-class plumbing
+        // actually install?". On real devices the most common silent
+        // failure mode is the provider ran but the agent .so couldn't
+        // load (missing for the device's primary ABI), so we report the
+        // path even when attached==false.
+        Map<String, Object> bootstrap = new HashMap<>();
+        try {
+            bootstrap.put("attached", io.yamsergey.dta.sidekick.init.BootstrapShim.attached());
+            bootstrap.put("agentPath", io.yamsergey.dta.sidekick.init.BootstrapShim.agentPath());
+        } catch (Throwable t) {
+            bootstrap.put("error", t.toString());
+        }
+        response.put("bootstrapShim", bootstrap);
+
+        // JVMTI agent — separate from BootstrapShim because the agent can
+        // be loaded via the legacy SidekickInitializer fallback path even
+        // if BootstrapShim itself didn't run.
+        Map<String, Object> agent = new HashMap<>();
+        try {
+            agent.put("available", io.yamsergey.dta.sidekick.jvmti.JvmtiAgent.isAvailable());
+            String initError = io.yamsergey.dta.sidekick.jvmti.JvmtiAgent.getInitError();
+            if (initError != null) agent.put("initError", initError);
+        } catch (Throwable t) {
+            agent.put("error", t.toString());
+        }
+        response.put("jvmtiAgent", agent);
+
+        // Registered hooks — what the dispatcher actually has on file. If
+        // a hook is missing here, the user's `registerHook(...)` call never
+        // landed; if it's here but never fires, the transformation either
+        // didn't reach the target class or reached it before the hook was
+        // registered.
+        java.util.List<Map<String, Object>> hooks = new java.util.ArrayList<>();
+        try {
+            for (io.yamsergey.dta.sidekick.jvmti.MethodHook hook :
+                    io.yamsergey.dta.sidekick.jvmti.HookRegistry.getAllHooks().values()) {
+                Map<String, Object> h = new HashMap<>();
+                h.put("id", hook.getId());
+                h.put("targetClass", hook.getTargetClass());
+                h.put("targetMethod", hook.getTargetMethod());
+                h.put("methodSignature", hook.getMethodSignature());
+                h.put("enabled", hook.isEnabled());
+                hooks.add(h);
+            }
+        } catch (Throwable t) {
+            Map<String, Object> err = new HashMap<>();
+            err.put("error", t.toString());
+            hooks.add(err);
+        }
+        response.put("hooks", hooks);
+
+        // File logging — surface the path so the daemon can `run-as cat` it
+        // without having to know the cacheDir convention. Size lets the
+        // user gauge whether anything was actually written.
+        Map<String, Object> fileLog = new HashMap<>();
+        try {
+            java.io.File logFile = SidekickLog.currentLogFile();
+            fileLog.put("enabled", logFile != null);
+            if (logFile != null) {
+                fileLog.put("path", logFile.getAbsolutePath());
+                fileLog.put("sizeBytes", logFile.exists() ? logFile.length() : 0L);
+            }
+        } catch (Throwable t) {
+            fileLog.put("error", t.toString());
+        }
+        response.put("fileLogging", fileLog);
+
+        // Server state
+        response.put("sseClients", sseClients.size());
+        response.put("cdpCaptureRequested", cdpCaptureRequested);
 
         sendJson(out, 200, response);
     }

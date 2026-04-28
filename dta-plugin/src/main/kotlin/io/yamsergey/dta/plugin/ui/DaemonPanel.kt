@@ -2,7 +2,11 @@ package io.yamsergey.dta.plugin.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -15,11 +19,16 @@ import java.awt.Component
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 /**
@@ -61,6 +70,19 @@ class DaemonPanel : JPanel(BorderLayout()), DtaServiceListener {
         addActionListener { service.restartDaemon() }
     }
 
+    private val redactCheckbox = JCheckBox("Redact sensitive data", true).apply {
+        toolTipText = "Mask host package name, Authorization/Cookie/X-Api-Key " +
+                "header values, JWT tokens and emails. Recommended unless " +
+                "you're inspecting your own bundle locally."
+    }
+
+    private val exportLogsButton = JButton("Export Debug Logs", AllIcons.Actions.Download).apply {
+        toolTipText = "Capture sidekick.log + filtered logcat + runtime state " +
+                "into a zip — the canonical bundle to attach to a bug report"
+        isEnabled = false
+        addActionListener { exportDebugLogs() }
+    }
+
     @Volatile private var info: DaemonInfo? = null
     @Volatile private var sidekick: SidekickInfo? = null
 
@@ -85,9 +107,20 @@ class DaemonPanel : JPanel(BorderLayout()), DtaServiceListener {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
             add(restartButton)
+            add(Box.createHorizontalStrut(8))
+            add(exportLogsButton)
             add(Box.createHorizontalGlue())
         }
         content.add(buttonRow)
+        content.add(Box.createVerticalStrut(4))
+
+        val redactRow = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
+            add(redactCheckbox)
+            add(Box.createHorizontalGlue())
+        }
+        content.add(redactRow)
         content.add(Box.createVerticalGlue())
 
         add(content, BorderLayout.NORTH)
@@ -156,6 +189,11 @@ class DaemonPanel : JPanel(BorderLayout()), DtaServiceListener {
             sidekickVersionLabel.text = info.sidekickVersion.ifEmpty { "(unknown)" }
             sidekickPackageLabel.text = "${info.packageName} on ${info.deviceSerial}"
         }
+        // Export needs both daemon (button always disabled when daemon is
+        // missing — see onDaemonInfoChanged) AND a connected sidekick app —
+        // the daemon endpoint resolves the connection by package name to do
+        // run-as / device queries.
+        exportLogsButton.isEnabled = info != null && this.info != null
         updateMismatchWarning()
     }
 
@@ -163,6 +201,88 @@ class DaemonPanel : JPanel(BorderLayout()), DtaServiceListener {
         val started = info?.startedAt ?: return
         val secs = ((System.currentTimeMillis() - started) / 1000).coerceAtLeast(0)
         uptimeLabel.text = formatUptime(secs)
+    }
+
+    /**
+     * Triggers the daemon's /api/debug/export-logs and writes the resulting
+     * zip to a user-chosen path. Two-thread dance:
+     *
+     * <p>1. EDT: open Save As dialog (must be on EDT — uses Swing native
+     *    dialogs underneath). Suggest a default filename with timestamp
+     *    in the project directory so the bundle is easy to find later.</p>
+     * <p>2. Pooled: actually call the daemon (synchronous HTTP, runs adb
+     *    + sidekick fetches under the hood — can take 5-10s). On
+     *    completion, hop back to EDT for the success/failure dialog.</p>
+     */
+    private fun exportDebugLogs() {
+        if (sidekick == null) {
+            Messages.showWarningDialog(
+                this,
+                "Connect to an app first — the export bundle pulls per-app state " +
+                        "(sidekick.log, runtime/* endpoints) that needs an active sidekick connection.",
+                "Export Debug Logs"
+            )
+            return
+        }
+
+        val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss").format(Date())
+        val descriptor = FileSaverDescriptor(
+            "Save DTA Debug Bundle",
+            "Pick where to write the zip",
+            "zip"
+        )
+        val defaultDir = System.getProperty("user.home")
+        val saver = FileChooserFactory.getInstance().createSaveFileDialog(descriptor, this)
+        val wrapper = saver.save(File(defaultDir).toPath(), "dta-debug-$timestamp.zip") ?: return
+        val target = wrapper.file
+
+        val redact = redactCheckbox.isSelected
+        // Disable the whole row while the export is running so the user
+        // doesn't fire it twice. Restored regardless of outcome — the
+        // finally-equivalent runs on EDT.
+        exportLogsButton.isEnabled = false
+        exportLogsButton.text = "Exporting…"
+        redactCheckbox.isEnabled = false
+        restartButton.isEnabled = false
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            var error: Throwable? = null
+            try {
+                val bytes = service.exportDebugLogs(redact)
+                if (bytes == null) {
+                    throw IllegalStateException("Sidekick disconnected while preparing the bundle")
+                }
+                target.writeBytes(bytes)
+            } catch (t: Throwable) {
+                error = t
+            }
+
+            SwingUtilities.invokeLater {
+                exportLogsButton.text = "Export Debug Logs"
+                redactCheckbox.isEnabled = true
+                restartButton.isEnabled = info != null
+                exportLogsButton.isEnabled = sidekick != null && info != null
+
+                if (error != null) {
+                    Messages.showErrorDialog(
+                        this,
+                        "Failed to export debug bundle: ${error.message}",
+                        "Export Debug Logs"
+                    )
+                } else {
+                    Messages.showInfoMessage(
+                        this,
+                        "Saved ${target.length()} bytes to:\n${target.absolutePath}\n\n" +
+                                if (redact) {
+                                    "Redaction is on — host package, auth headers, JWTs and emails are masked."
+                                } else {
+                                    "Redaction is off — review the bundle before sharing publicly."
+                                },
+                        "Export Debug Logs"
+                    )
+                }
+            }
+        }
     }
 
     /**

@@ -76,6 +76,19 @@ public class DaemonClient {
         return postLong("/api/run/app", body.toString());
     }
 
+    /**
+     * Triggers a debug log/state export bundle for triage. Returns the raw
+     * zip bytes — caller decides where to write them. Bundle redacts host
+     * package, auth headers, JWTs, and emails by default; pass {@code redact=false}
+     * to opt out (typically only useful when debugging your own bundle locally).
+     */
+    public byte[] exportDebugLogs(String pkg, String device, boolean redact) {
+        StringBuilder url = new StringBuilder("/api/debug/export-logs?package=").append(encode(pkg));
+        if (device != null && !device.isEmpty()) url.append("&device=").append(encode(device));
+        url.append("&redact=").append(redact);
+        return postBytes(url.toString());
+    }
+
     public byte[] screenshot(String pkg, String device) {
         return getBytes("/api/screenshot?package=" + encode(pkg) + deviceParam(device, false));
     }
@@ -376,6 +389,30 @@ public class DaemonClient {
 
     private String post(String path, String body) {
         return post(path, body, Duration.ofSeconds(30));
+    }
+
+    /**
+     * POST that returns the raw response bytes. Used by {@link #exportDebugLogs}
+     * since the daemon streams a zip file; routing it through {@link #post}
+     * would lose the binary fidelity through the String round-trip.
+     */
+    private byte[] postBytes(String path) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400) {
+                throw new DaemonException("HTTP POST failed (" + response.statusCode() + "): " + new String(response.body()));
+            }
+            return response.body();
+        } catch (DaemonException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DaemonException("HTTP POST failed: " + path, e);
+        }
     }
 
     /**

@@ -87,8 +87,13 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
         // Initialize JVMTI agent for method hooking (API 28+)
         initializeJvmtiAgent(context);
 
-        // Start file logging if configured (must happen before server start)
-        if (Sidekick.getConfig().isFileLoggingEnabled()) {
+        // Start file logging if configured (must happen before server start).
+        // Defaults to enabled — gated additionally by ApplicationInfo.FLAG_DEBUGGABLE
+        // because sidekick is intended only for debuggable builds, and a stray
+        // `implementation` (instead of `debugImplementation`) shouldn't write
+        // logs in production. Same gate JVMTI uses.
+        boolean debuggable = (context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (Sidekick.getConfig().isFileLoggingEnabled() && debuggable) {
             File logFile = new File(context.getCacheDir(), SidekickLog.LOG_FILE_NAME);
             SidekickLog.startFileLogging(logFile);
             SidekickLog.i(TAG, "File logging enabled: " + logFile.getAbsolutePath());

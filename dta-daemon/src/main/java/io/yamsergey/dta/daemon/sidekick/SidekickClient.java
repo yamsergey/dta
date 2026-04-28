@@ -293,6 +293,7 @@ public class SidekickClient {
     public Result<String> databaseSchema(String name) { return httpGet("/runtime/databases/" + name + "/schema"); }
     public Result<String> databaseQuery(String name, String body) { return httpPost("/runtime/databases/" + name + "/query", body); }
     public Result<String> listSharedPrefs() { return httpGet("/runtime/shared-prefs"); }
+    public Result<String> debugDiagnostics() { return httpGet("/debug/diagnostics"); }
     public Result<String> readSharedPrefs(String name) { return httpGet("/runtime/shared-prefs/" + name); }
     public Result<String> writeSharedPrefs(String name, String body) { return httpPut("/runtime/shared-prefs/" + name, body); }
 

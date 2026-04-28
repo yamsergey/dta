@@ -2,6 +2,7 @@ package io.yamsergey.dta.daemon;
 
 import io.javalin.Javalin;
 import io.javalin.http.Context;
+import io.yamsergey.dta.daemon.debug.DebugExportService;
 import io.yamsergey.dta.daemon.scroll.ScrollScreenshot;
 import io.yamsergey.dta.daemon.scroll.ScrollScreenshotCapture;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager;
@@ -44,6 +45,7 @@ public final class DtaRoutes {
         DtaOrchestrator orchestrator = DtaOrchestrator.getInstance();
         SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
         String daemonVersion = readDaemonVersion();
+        DebugExportService debugExportService = new DebugExportService(daemonVersion);
         // Captured at registration so /api/version reports a meaningful uptime.
         // Routes are registered immediately before app.start(port) so the
         // skew between this and the actual server start is at most a few ms.
@@ -70,6 +72,38 @@ public final class DtaRoutes {
                 // Server not yet started (shouldn't happen in practice).
             }
             ctx.json(info);
+        });
+
+        // ====================================================================
+        // Debug — log/state export bundle for triage
+        // ====================================================================
+
+        // POST so it can have side effects (file I/O on the daemon, adb
+        // calls, sidekick HTTP fetches) without sneaking into proxies that
+        // cache GETs aggressively. Returns a binary zip stream — Javalin
+        // sets Content-Type to application/zip when ctx.result(byte[]) is
+        // called with a downloadable name.
+        app.post("/api/debug/export-logs", ctx -> {
+            try {
+                String packageName = ctx.queryParam("package");
+                String device = ctx.queryParam("device");
+                // redact defaults to true — see the rationale in
+                // DebugExportService class doc. Caller passes redact=false
+                // explicitly when they need the raw view (their own
+                // device, debugging their own bundle).
+                boolean redact = !"false".equalsIgnoreCase(ctx.queryParam("redact"));
+                byte[] zip = debugExportService.export(packageName, device, redact);
+                String filename = "dta-debug-" + System.currentTimeMillis() + ".zip";
+                ctx.contentType("application/zip");
+                ctx.header("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+                ctx.header("Cache-Control", "no-store");
+                ctx.result(zip);
+            } catch (IllegalArgumentException e) {
+                error(ctx, e.getMessage());
+            } catch (Exception e) {
+                log.error("Debug export failed", e);
+                ctx.status(500).result(e.getMessage());
+            }
         });
 
         // ====================================================================
