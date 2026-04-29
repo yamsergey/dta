@@ -6,6 +6,7 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 import io.yamsergey.dta.daemon.cdp.CdpAccessibilityInspector;
 import io.yamsergey.dta.daemon.cdp.CdpWatcherManager;
+import io.yamsergey.dta.daemon.cdp.ChromeContentBoundsLocator;
 import io.yamsergey.dta.daemon.cdp.ChromeDevToolsClient;
 import io.yamsergey.dta.daemon.cdp.WebViewCdpManager;
 import io.yamsergey.dta.daemon.runner.AppRunner;
@@ -148,12 +149,12 @@ public class DtaOrchestrator {
         // unfiltered queries; filtered queries are intentionally probing the
         // app's tree.
         if (!hasFilters && !isHostAppForeground(conn)) {
-            JsonNode fallback = UiAutomatorLayoutFallback.convert(
+            UiAutomatorLayoutFallback.TreeWithXml fallback = UiAutomatorLayoutFallback.convertWithXml(
                 device, SidekickConnectionManager.getAdbPath(), packageName, mapper);
             if (fallback != null) {
                 log.info("Layout: host {} not foregrounded — using uiautomator fallback", packageName);
-                enrichWebViewNodes(fallback, packageName, device);
-                return fallback;
+                enrichWebViewNodes(fallback.tree(), packageName, device, fallback.xml());
+                return fallback.tree();
             }
             // uiautomator unavailable (rare — emulator booting?) → fall
             // through to the sidekick path so callers get something.
@@ -175,16 +176,21 @@ public class DtaOrchestrator {
             // up empty (still loading, no compose content, etc.). The
             // foreground check above handles the "backgrounded" case.
             if (isEmptyTree(adapted)) {
-                JsonNode fallback = UiAutomatorLayoutFallback.convert(
+                UiAutomatorLayoutFallback.TreeWithXml fallback = UiAutomatorLayoutFallback.convertWithXml(
                     device, SidekickConnectionManager.getAdbPath(), packageName, mapper);
                 if (fallback != null) {
                     log.info("Layout tree empty for {} — using uiautomator fallback", packageName);
-                    enrichWebViewNodes(fallback, packageName, device);
-                    return fallback;
+                    enrichWebViewNodes(fallback.tree(), packageName, device, fallback.xml());
+                    return fallback.tree();
                 }
             }
 
-            enrichWebViewNodes(adapted, packageName, device);
+            // No UI dump available on the sidekick path. Pass null XML —
+            // CCT enrichment (if any captured Chrome session is active)
+            // will fall back to the dumpsys+PNG approach. In practice this
+            // path implies host app is foreground, so CCT can't be visible
+            // on this screen anyway and the enrichment is a no-op.
+            enrichWebViewNodes(adapted, packageName, device, null);
             return adapted;
         }
         String desc = result instanceof Failure<?> f ? f.description() : "Unknown error";
@@ -867,7 +873,7 @@ public class DtaOrchestrator {
      * Enriches the layout tree with web accessibility content from WebViews
      * and Chrome Custom Tabs. Non-fatal — the tree is returned unchanged on errors.
      */
-    private void enrichWebViewNodes(JsonNode adapted, String packageName, String device) {
+    private void enrichWebViewNodes(JsonNode adapted, String packageName, String device, String dumpXml) {
         // Stage 5: Enrich in-app WebView nodes
         try {
             JsonNode root = adapted.get("root");
@@ -890,9 +896,14 @@ public class DtaOrchestrator {
 
         // Stage 6: Enrich with Chrome page (Custom Tab OR Intent.ACTION_VIEW)
         // — both routes capture into CdpWatcherManager now, so a single
-        // enrichment pass handles every kind of Chrome page target.
+        // enrichment pass handles every kind of Chrome page target. The
+        // dumpXml lets us read native screen bounds for the web content
+        // area directly from the uiautomator dump, avoiding the fragile
+        // dumpsys+PNG math we used before. When dumpXml is null (sidekick
+        // path was taken — host app foreground), Chrome can't be visible
+        // on screen, so the enrichment is a no-op anyway.
         try {
-            enrichCustomTabNode(adapted, packageName, device);
+            enrichCustomTabNode(adapted, packageName, device, dumpXml);
         } catch (Exception e) {
             log.debug("Chrome page enrichment failed (non-fatal): {}", e.getMessage());
         }
@@ -997,7 +1008,7 @@ public class DtaOrchestrator {
      * If a Chrome Custom Tab is active, fetches its accessibility tree and
      * injects a synthetic node into the layout tree.
      */
-    private void enrichCustomTabNode(JsonNode adapted, String packageName, String device) {
+    private void enrichCustomTabNode(JsonNode adapted, String packageName, String device, String dumpXml) {
         try {
             ChromeDevToolsClient cdpClient = CdpWatcherManager.getInstance()
                 .getCdpClient(packageName, device);
@@ -1019,20 +1030,51 @@ public class DtaOrchestrator {
             }
 
             if (treeResult.viewportWidth() > 0) {
-                double scale = 0;
-                JsonNode screen = adapted.get("screen");
-                if (screen != null) {
-                    double screenWidth = screen.path("width").asDouble(0);
-                    if (screenWidth > 0) {
-                        scale = screenWidth / treeResult.viewportWidth();
+                // Preferred path: read the Chrome content rect directly
+                // from the uiautomator dump. This gives screen-pixel
+                // bounds that already include status bar, cutouts, URL
+                // bar, multi-window offsets, gesture nav — every system
+                // inset Android may apply, by definition correct because
+                // we're reading what's actually on screen. See
+                // ChromeContentBoundsLocator for the parsing logic.
+                java.util.Optional<ChromeContentBoundsLocator.Bounds> contentBounds =
+                    ChromeContentBoundsLocator.locate(dumpXml);
+
+                if (contentBounds.isPresent()) {
+                    ChromeContentBoundsLocator.Bounds rect = contentBounds.get();
+                    // Width-derived scale: CSS viewport width × scale =
+                    // physical content rect width. DPR is implicit.
+                    double scale = rect.width() / treeResult.viewportWidth();
+                    if (scale > 0) {
+                        transformCssBoundsToScreen(treeResult.nodes(),
+                            rect.left(), rect.top(), scale);
+                        log.debug("CCT enrichment using UI-dump rect {} (scale={})", rect, scale);
                     }
-                }
-                if (scale == 0 && treeResult.devicePixelRatio() > 0) {
-                    scale = treeResult.devicePixelRatio();
-                }
-                if (scale > 0) {
-                    double offsetY = treeResult.screenOffsetY() + getStatusBarHeight(device);
-                    transformCssBoundsToScreen(treeResult.nodes(), 0, offsetY, scale);
+                } else {
+                    // Fallback: dumpsys-window status bar + Page.captureScreenshot
+                    // PNG height delta. Brittle across Android versions
+                    // and Chrome variants — produces silently-wrong bounds
+                    // when any single ingredient breaks. Kept only because
+                    // it's strictly better than no transform at all when
+                    // we have no UI dump to read from. In practice this
+                    // path is rarely hit: when CCT is foreground, the
+                    // layout request always took the uiautomator route.
+                    double scale = 0;
+                    JsonNode screen = adapted.get("screen");
+                    if (screen != null) {
+                        double screenWidth = screen.path("width").asDouble(0);
+                        if (screenWidth > 0) {
+                            scale = screenWidth / treeResult.viewportWidth();
+                        }
+                    }
+                    if (scale == 0 && treeResult.devicePixelRatio() > 0) {
+                        scale = treeResult.devicePixelRatio();
+                    }
+                    if (scale > 0) {
+                        double offsetY = treeResult.screenOffsetY() + getStatusBarHeight(device);
+                        transformCssBoundsToScreen(treeResult.nodes(), 0, offsetY, scale);
+                        log.debug("CCT enrichment using dumpsys+PNG fallback (offsetY={}, scale={})", offsetY, scale);
+                    }
                 }
             }
 

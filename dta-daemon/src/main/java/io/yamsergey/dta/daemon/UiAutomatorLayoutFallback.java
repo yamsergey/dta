@@ -87,6 +87,19 @@ public final class UiAutomatorLayoutFallback {
      * @return pruned layout tree as a {@link JsonNode}, or {@code null} on failure
      */
     public static JsonNode convert(String device, String adbPath, String requestedPackage, ObjectMapper mapper) {
+        TreeWithXml result = convertWithXml(device, adbPath, requestedPackage, mapper);
+        return result == null ? null : result.tree();
+    }
+
+    /**
+     * Same as {@link #convert} but also returns the raw uiautomator XML so
+     * downstream enrichment passes (notably {@code ChromeContentBoundsLocator})
+     * can read native view bounds without re-fetching a dump. The pruned
+     * JSON tree drops most of what the locator needs (URL bar buttons,
+     * the labeled "Web View" frame's content-desc), so callers that want
+     * accurate Chrome screen bounds need the raw XML — not the tree.
+     */
+    public static TreeWithXml convertWithXml(String device, String adbPath, String requestedPackage, ObjectMapper mapper) {
         Result<ViewHierarchy> dumpResult = ViewHierarchyDumper.builder()
             .deviceSerial(device)
             .adbPath(adbPath)
@@ -96,8 +109,18 @@ public final class UiAutomatorLayoutFallback {
             log.debug("uiautomator fallback: dump failed");
             return null;
         }
-        return convertFromXml(dumpSuccess.value().getXmlContent(), requestedPackage, mapper);
+        String xml = dumpSuccess.value().getXmlContent();
+        JsonNode tree = convertFromXml(xml, requestedPackage, mapper);
+        if (tree == null) return null;
+        return new TreeWithXml(tree, xml);
     }
+
+    /**
+     * Pair of pruned JSON tree (what the layout endpoint returns) and the
+     * raw uiautomator XML (what enrichment passes need to read native
+     * bounds). Callers receive both from a single dump operation.
+     */
+    public record TreeWithXml(JsonNode tree, String xml) {}
 
     /**
      * Pure-transform entry point: takes a uiautomator XML string, applies the
