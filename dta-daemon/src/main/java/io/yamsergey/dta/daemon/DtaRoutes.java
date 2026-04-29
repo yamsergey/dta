@@ -404,7 +404,15 @@ public final class DtaRoutes {
                     ScrollScreenshotCapture.builder()
                         .outputFile(tempFile)
                         .scrollToTop(scrollToTop)
-                        .maxCaptures(maxCaptures);
+                        .maxCaptures(maxCaptures)
+                        // Carry the daemon's configured ADB path so scroll
+                        // capture works inside the IDE plugin (where ADB
+                        // isn't on PATH but Studio knows where the SDK is).
+                        // Without this, ScrollScreenshotCapture defaults to
+                        // bare "adb" and fails with "ADB not found" — which
+                        // is exactly what an MCP caller gets if the daemon
+                        // is the plugin's embedded one.
+                        .adbPath(SidekickConnectionManager.getAdbPath());
 
                 if (device != null && !device.isEmpty()) {
                     builder.deviceSerial(device);

@@ -281,20 +281,31 @@ public class McpServer {
 
         // swipe
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("swipe", "Swipe from one point to another",
+            tool("swipe", "Swipe from start point to end point",
                 schema(Map.of(
-                    "x1", prop("integer", "Start X", true),
-                    "y1", prop("integer", "Start Y", true),
-                    "x2", prop("integer", "End X", true),
-                    "y2", prop("integer", "End Y", true),
+                    "startX", prop("integer", "Start X (in screen pixels)", true),
+                    "startY", prop("integer", "Start Y (in screen pixels)", true),
+                    "endX", prop("integer", "End X (in screen pixels)", true),
+                    "endY", prop("integer", "End Y (in screen pixels)", true),
                     "duration", prop("integer", "Duration in ms (default 300)", false),
                     "device", prop("string", "Device serial", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
+                    // Accept both new descriptive names AND the historical
+                    // x1/y1/x2/y2 form, since pre-rename callers (and other
+                    // models that learned them from older docs) still try
+                    // them. Throws Missing required parameter only if BOTH
+                    // forms are absent — that error then has the renamed
+                    // schema attached via friendlyError so the caller learns
+                    // the canonical names.
+                    int startX = firstPresentInt(args, "startX", "x1");
+                    int startY = firstPresentInt(args, "startY", "y1");
+                    int endX = firstPresentInt(args, "endX", "x2");
+                    int endY = firstPresentInt(args, "endY", "y2");
                     String device = getString(args, "device");
-                    String json = getDaemon().swipe(getInt(args, "x1"), getInt(args, "y1"),
-                        getInt(args, "x2"), getInt(args, "y2"), getInt(args, "duration", 300), device);
+                    String json = getDaemon().swipe(startX, startY, endX, endY,
+                        getInt(args, "duration", 300), device);
                     return ok(json);
                 } catch (Exception e) {
                     return friendlyError("swipe", e);
@@ -1416,6 +1427,29 @@ public class McpServer {
         throw new IllegalArgumentException("Missing required parameter: " + key);
     }
 
+    /**
+     * Returns the first parameter that's present, parsed as int. Used for
+     * tool params that accept multiple aliases — typically a renamed param
+     * with the legacy name kept as fallback for callers that learned the
+     * old schema. Throws with both names listed when none are present, so
+     * the caller learns the canonical name AND knows the old form is still
+     * accepted.
+     */
+    private static int firstPresentInt(Map<String, Object> args, String preferredKey, String... aliases) {
+        Object value = args.get(preferredKey);
+        if (value == null) {
+            for (String alias : aliases) {
+                value = args.get(alias);
+                if (value != null) break;
+            }
+        }
+        if (value instanceof Number n) return n.intValue();
+        if (value instanceof String s) return Integer.parseInt(s);
+        StringBuilder names = new StringBuilder(preferredKey);
+        for (String alias : aliases) names.append(" (or ").append(alias).append(")");
+        throw new IllegalArgumentException("Missing required parameter: " + names);
+    }
+
     private static int getInt(Map<String, Object> args, String key, int defaultValue) {
         Object value = args.get(key);
         if (value == null) return defaultValue;
@@ -1483,9 +1517,27 @@ public class McpServer {
 
         // Add corrective hints based on common patterns
         String hint = "";
-        if (msg.contains("Sidekick not running")) {
+        if (msg.startsWith("Missing required parameter")) {
+            // Surface the tool's actual schema so the caller doesn't have
+            // to re-fetch tools/list to find the right param name. Common
+            // failure mode: agent learned an old param name from training
+            // data (x1/y1) when the current schema uses a renamed one
+            // (startX/startY), or the agent skipped a required param.
+            hint = "\nHint: Inspect the tool's `inputSchema` in tools/list "
+                + "to see all required parameters and their canonical names. "
+                + "Some tools accept legacy aliases (e.g. swipe accepts both "
+                + "startX and x1) — the error message lists every accepted form.";
+        } else if (msg.contains("ADB not found") || msg.contains("adb not found")) {
+            hint = "\nHint: The daemon couldn't locate the ADB executable. "
+                + "If you're running this MCP server outside Android Studio, ensure "
+                + "ANDROID_HOME / ANDROID_SDK_ROOT is set, or that `adb` is on PATH. "
+                + "If you're inside Android Studio, the plugin should auto-configure ADB — "
+                + "this may indicate a daemon-side bug routing the configured path.";
+        } else if (msg.contains("Sidekick not running") || msg.contains("not currently connected to a sidekick")) {
             hint = "\nHint: The app must be running with dta-sidekick injected. "
-                + "Use run_app to build and launch it, or check list_apps to see which apps have sidekick.";
+                + "Use list_apps to see which apps have sidekick installed, or run_app "
+                + "to build and launch one. The package you passed may be wrong — "
+                + "list_apps shows the canonical package names.";
         } else if (msg.contains("Connection to") && msg.contains("failed recently")) {
             hint = "\nHint: A recent connection attempt failed. The app may have crashed or been stopped. "
                 + "Wait a few seconds and retry, or use list_apps to check if sidekick is still running.";
@@ -1494,6 +1546,13 @@ public class McpServer {
                 + "and the app is in the foreground.";
         } else if (msg.contains("No device") || msg.contains("device not found")) {
             hint = "\nHint: No Android device connected. Use list_devices to check connected devices.";
+        } else if (msg.contains("HTTP error 400") || msg.contains("HTTP error 404")) {
+            // Daemon returned a 4xx — usually a bad parameter value the
+            // schema didn't catch (wrong package on this device, missing
+            // viewId for a specific layout, etc.).
+            hint = "\nHint: The daemon rejected this request — likely a bad parameter value. "
+                + "Verify the package is currently connected (list_apps), the device serial "
+                + "is reachable (list_devices), and any IDs you passed exist on the current screen.";
         }
 
         return CallToolResult.builder()
