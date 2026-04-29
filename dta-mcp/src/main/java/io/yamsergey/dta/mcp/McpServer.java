@@ -30,6 +30,33 @@ public class McpServer {
         tools.jackson.databind.json.JsonMapper.builder().build());
     private static final String MCP_VERSION = getVersion();
 
+    /**
+     * Instructions surfaced to MCP clients during the {@code initialize}
+     * handshake. Per the MCP spec, these become persistent guidance the
+     * agent reads as part of its system context — much stickier than
+     * per-tool descriptions for behavioral rules ("when X happens, do Y").
+     *
+     * <p>Scoped narrowly: only the diagnostic-bundle workflow. Other
+     * behaviors (how to call list_apps before tap, etc.) belong in the
+     * relevant tool descriptions because they're invocation-time
+     * decisions, not session-level reflexes.</p>
+     */
+    private static final String SERVER_INSTRUCTIONS = String.join("\n",
+        "When a user reports a problem (bug, hang, \"doesn't work\", \"stuck on X\", unexpected behavior) with the host Android app, sidekick, daemon, plugin, or any DTA tool:",
+        "",
+        "1. BEFORE asking the user diagnostic questions, call `dta_collect_diagnostic_bundle`. The result includes a structured summary (versions, BootstrapShim status, hook count, error counts, version mismatches) you should read directly, plus a path to a saved zip the user can attach to a bug report.",
+        "",
+        "2. Read `bootstrapShimAttached`, `jvmtiAgentAvailable`, `versionMismatch`, and the error counts from the summary. These triage 80% of issues without further questions.",
+        "",
+        "3. Only ask the user for things the bundle doesn't include — e.g., \"what were you doing when this started?\", \"is this reproducible?\", \"real device or emulator?\". Don't ask the user to manually grep logcat, pull files from the device, or run adb commands. The diagnostic tool does it.",
+        "",
+        "4. If the summary indicates a `versionMismatch`, surface that first — most \"doesn't work\" reports have a stale plugin/sidekick combo as the root cause.",
+        "",
+        "5. The bundle is redacted by default (host package name hashed, auth headers stripped). Mention this when the user wants to share it externally.",
+        "",
+        "For non-bug-report tasks (debugging your own work, exploring layouts, checking network requests as part of normal flow) you don't need to call this tool unless the user explicitly asks for \"diagnostics\" or \"logs\"."
+    );
+
     private static DaemonClient daemonClient;
 
     public static void main(String[] args) throws Exception {
@@ -47,6 +74,7 @@ public class McpServer {
         var server = io.modelcontextprotocol.server.McpServer.sync(
                 new StdioServerTransportProvider(jsonMapper))
             .serverInfo("dta-mcp", getVersion())
+            .instructions(SERVER_INSTRUCTIONS)
             .capabilities(ServerCapabilities.builder()
                 .tools(true)
                 .build())
@@ -76,6 +104,7 @@ public class McpServer {
         collectRunTools(tools);
         collectDataTools(tools);
         collectRuntimeTools(tools);
+        collectDiagnosticTools(tools);
         return tools;
     }
 
@@ -1186,6 +1215,164 @@ public class McpServer {
                 }
             }
         ));
+    }
+
+    /**
+     * Triage tool wired to the daemon's existing {@code /api/debug/export-logs}
+     * endpoint. Surfaces the structured summary inline so the agent can
+     * reason about it directly, AND saves the full zip to disk so the user
+     * can attach it to a bug report. Server instructions push the agent to
+     * call this on any "something's broken" signal from the user before
+     * asking diagnostic questions.
+     */
+    private static void collectDiagnosticTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("dta_collect_diagnostic_bundle",
+                "Collects a triage bundle for the user's currently-connected app: versions " +
+                "(plugin, daemon, sidekick), BootstrapShim/JVMTI agent state, registered hooks, " +
+                "filtered logcat slice, sidekick file log, runtime state. Saves the zip to " +
+                "~/.dta/diagnostics/ AND returns a structured inline summary the agent should " +
+                "read directly. Call this FIRST whenever the user reports a bug, hang, " +
+                "\"doesn't work\", \"stuck on X\", or any unexpected behavior with DTA / " +
+                "sidekick / Android app capture. Don't ask the user to manually grep logcat " +
+                "or pull files — this tool does it. Bundle is redacted by default (host " +
+                "package hashed, auth headers stripped).",
+                schema(Map.of(
+                    "package", prop("string", "App package name. Auto-resolved when one app is connected; pass explicitly when multiple are.", false),
+                    "device", prop("string", "Device serial. Auto-resolved when one device is present.", false),
+                    "redact", prop("boolean", "Redact sensitive data (default: true). Pass false only when you control the bundle's destination and need raw URLs/headers/etc.", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String pkg = getString(args, "package");
+                    if (pkg == null) return errorResult("'package' could not be auto-resolved — pass explicitly or call list_apps first");
+                    String device = getString(args, "device");
+                    boolean redact = !Boolean.FALSE.equals(args.get("redact"));
+
+                    byte[] zip = getDaemon().exportDebugLogs(pkg, device, redact);
+
+                    // Save to ~/.dta/diagnostics/dta-debug-<timestamp>.zip
+                    String home = System.getProperty("user.home");
+                    java.nio.file.Path outDir = java.nio.file.Path.of(home, ".dta", "diagnostics");
+                    java.nio.file.Files.createDirectories(outDir);
+                    String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date());
+                    java.nio.file.Path zipPath = outDir.resolve("dta-debug-" + stamp + ".zip");
+                    java.nio.file.Files.write(zipPath, zip);
+
+                    // Extract state.json from the zip in-memory and surface
+                    // the triage fields the agent actually needs. Full state
+                    // is in the zip on disk for deeper inspection.
+                    ObjectNode summary = mapper.createObjectNode();
+                    summary.put("bundlePath", zipPath.toString());
+                    summary.put("bundleSizeBytes", (long) zip.length);
+                    summary.put("redacted", redact);
+
+                    try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
+                            new java.io.ByteArrayInputStream(zip))) {
+                        java.util.zip.ZipEntry entry;
+                        while ((entry = zis.getNextEntry()) != null) {
+                            if ("state.json".equals(entry.getName())) {
+                                byte[] stateBytes = zis.readAllBytes();
+                                tools.jackson.databind.JsonNode state = mapper.readTree(stateBytes);
+                                summary.put("capturedAt", state.path("capturedAt").asText(""));
+                                summary.put("device", state.path("device").asText(""));
+                                summary.put("daemonVersion", state.path("daemonVersion").asText(""));
+                                tools.jackson.databind.JsonNode diag = state.path("diagnostics");
+                                if (!diag.isMissingNode()) {
+                                    summary.put("sidekickVersion", diag.path("sidekickVersion").asText(""));
+                                    summary.put("apiLevel", diag.path("apiLevel").asInt(0));
+                                    summary.put("androidVersion", diag.path("androidVersion").asText(""));
+                                    tools.jackson.databind.JsonNode shim = diag.path("bootstrapShim");
+                                    summary.put("bootstrapShimAttached", shim.path("attached").asBoolean(false));
+                                    if (shim.has("error")) summary.put("bootstrapShimError", shim.path("error").asText(""));
+                                    tools.jackson.databind.JsonNode agent = diag.path("jvmtiAgent");
+                                    summary.put("jvmtiAgentAvailable", agent.path("available").asBoolean(false));
+                                    if (agent.has("initError")) summary.put("jvmtiAgentInitError", agent.path("initError").asText(""));
+                                    tools.jackson.databind.JsonNode hooks = diag.path("hooks");
+                                    summary.put("registeredHooksCount", hooks.isArray() ? hooks.size() : 0);
+                                    tools.jackson.databind.JsonNode fileLog = diag.path("fileLogging");
+                                    summary.put("fileLoggingEnabled", fileLog.path("enabled").asBoolean(false));
+                                    summary.put("fileLogSizeBytes", fileLog.path("sizeBytes").asLong(0));
+                                }
+                            }
+                            zis.closeEntry();
+                        }
+                    } catch (Exception e) {
+                        summary.put("stateParseError", e.getMessage());
+                    }
+
+                    // Version-mismatch detection — the most common "doesn't
+                    // work" root cause. Compare base versions (strip
+                    // -SNAPSHOT.N suffix), report mismatch if any pair
+                    // disagrees.
+                    String dv = summary.path("daemonVersion").asText("");
+                    String sv = summary.path("sidekickVersion").asText("");
+                    String dvBase = baseVersion(dv);
+                    String svBase = baseVersion(sv);
+                    if (!dvBase.isEmpty() && !svBase.isEmpty() && !dvBase.equals(svBase)) {
+                        summary.put("versionMismatch", "daemon " + dv + " vs sidekick " + sv);
+                    }
+
+                    // Quick error scan — counts only, full traces in the zip.
+                    summary.put("errorsInLogcat", countOccurrences(zip, "logcat-filtered.txt", "FATAL EXCEPTION", "AndroidRuntime: java"));
+                    summary.put("errorsInSidekickLog", countOccurrences(zip, "sidekick.log", " E/", "Error in onEnter"));
+
+                    summary.put("nextSteps",
+                        "Read the fields above first. If versionMismatch is non-null, that's likely the root cause. " +
+                        "If bootstrapShimAttached is false on a debuggable app, boot-class hooks won't fire. " +
+                        "Open " + zipPath + " for full state.json, sidekick.log, and logcat-filtered.txt. " +
+                        "Share the zip path with the user when they want to attach it to a bug report.");
+
+                    return ok(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(summary));
+                } catch (Exception e) {
+                    return friendlyError("dta_collect_diagnostic_bundle", e);
+                }
+            }
+        ));
+    }
+
+    /**
+     * Strips {@code -SNAPSHOT[.N]} suffix so we compare {@code 0.9.37} to
+     * {@code 0.9.37}, not {@code 0.9.37-SNAPSHOT.42} to {@code 0.9.37-SNAPSHOT.41}.
+     * Mirrors the comparison the plugin's Daemon panel does.
+     */
+    private static String baseVersion(String v) {
+        if (v == null) return "";
+        String s = v.replaceAll("-SNAPSHOT\\.\\d+$", "")
+                    .replace("-SNAPSHOT", "")
+                    .replaceAll("\\.+$", "");
+        return ("standalone".equals(s) || "(unknown)".equals(s)) ? "" : s;
+    }
+
+    /**
+     * Counts occurrences of any of {@code needles} in the named entry of
+     * the zip. Used for quick error tallies in the diagnostic summary —
+     * full traces stay in the zip on disk so we don't blow up the agent's
+     * context window with stack-trace dumps it didn't ask for.
+     */
+    private static int countOccurrences(byte[] zip, String entryName, String... needles) {
+        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(
+                new java.io.ByteArrayInputStream(zip))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (!entryName.equals(entry.getName())) {
+                    zis.closeEntry();
+                    continue;
+                }
+                String text = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                int count = 0;
+                for (String needle : needles) {
+                    int idx = 0;
+                    while ((idx = text.indexOf(needle, idx)) >= 0) {
+                        count++;
+                        idx += needle.length();
+                    }
+                }
+                return count;
+            }
+        } catch (Exception ignored) {
+        }
+        return 0;
     }
 
     private static CallToolResult ok(String json) {
