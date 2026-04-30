@@ -3,15 +3,10 @@ package io.yamsergey.dta.tools.android.inspect;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import java.io.ByteArrayInputStream;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,140 +16,134 @@ import java.util.regex.Pattern;
 /**
  * Parses UIAutomator XML hierarchy into structured ViewNode objects.
  *
- * <p>This parser converts the XML output from UIAutomator into a tree of ViewNode objects
- * that can be easily serialized to JSON or processed programmatically.</p>
- *
- * <p>Example usage:</p>
- * <pre>
- * String xml = "..."; // UIAutomator XML output
- * Result&lt;ViewNode&gt; result = ViewHierarchyParser.parse(xml);
- * if (result instanceof Success&lt;ViewNode&gt; success) {
- *     ViewNode root = success.value();
- *     // Process the hierarchy
- * }
- * </pre>
+ * <p>Hand-rolled tag tokenizer rather than {@link javax.xml.parsers.DocumentBuilderFactory}.
+ * Inside the IntelliJ plugin classloader the JDK's JAXP factory lookup
+ * fails: an older {@code xml-apis} jar shadows {@code javax.xml.parsers}
+ * (causing {@code NoSuchMethodError} on {@code newDefaultInstance}), and
+ * the standard {@code newInstance()} path hits a JPMS module-access error
+ * because the unnamed plugin module can't reach
+ * {@code com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderFactoryImpl}.
+ * UIAutomator XML is regular enough that a 60-line parser is the right
+ * trade — no dependency, no classloader magic.</p>
  */
 public class ViewHierarchyParser {
 
-    private static final Pattern BOUNDS_PATTERN = Pattern.compile("\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]");
+    private static final Pattern BOUNDS_PATTERN = Pattern.compile("\\[(-?\\d+),(-?\\d+)\\]\\[(-?\\d+),(-?\\d+)\\]");
+    // Matches one tag at a time: <tag ...>, <tag .../>, or </tag>. Tag
+    // bodies may contain double-quoted attribute values; the value can
+    // include any character except an unescaped double quote (uiautomator
+    // escapes embedded quotes as &quot;).
+    private static final Pattern TAG_PATTERN = Pattern.compile("<(/?)([A-Za-z][A-Za-z0-9_-]*)((?:\\s+[A-Za-z][A-Za-z0-9_-]*=\"[^\"]*\")*)\\s*(/?)>");
+    private static final Pattern ATTR_PATTERN = Pattern.compile("([A-Za-z][A-Za-z0-9_-]*)=\"([^\"]*)\"");
 
-    /**
-     * Parses UIAutomator XML hierarchy into a ViewNode tree.
-     *
-     * @param xmlContent The XML content from UIAutomator
-     * @return Result containing the root ViewNode on success, or Failure with error description
-     */
     public static Result<ViewNode> parse(String xmlContent) {
         try {
-            // DocumentBuilderFactory.newInstance() uses ServiceLoader which
-            // breaks inside IntelliJ plugins: the platform's PathClassLoader
-            // provides Xerces while the plugin's PluginClassLoader has the
-            // JDK's javax.xml.parsers — ClassCastException on cross-cast.
-            // Temporarily swap to the bootstrap classloader so the JDK's
-            // built-in factory is used.
-            Thread currentThread = Thread.currentThread();
-            ClassLoader original = currentThread.getContextClassLoader();
-            try {
-                currentThread.setContextClassLoader(ClassLoader.getSystemClassLoader());
-            } catch (SecurityException ignored) {}
-            DocumentBuilderFactory factory;
-            try {
-                factory = DocumentBuilderFactory.newInstance();
-            } finally {
-                currentThread.setContextClassLoader(original);
-            }
-            DocumentBuilder builder = factory.newDocumentBuilder();
-            Document doc = builder.parse(new ByteArrayInputStream(xmlContent.getBytes()));
+            Matcher m = TAG_PATTERN.matcher(xmlContent);
+            Deque<ViewNode.ViewNodeBuilder> stack = new ArrayDeque<>();
+            // Children are accumulated against the open builder via .child(); we
+            // don't need a parallel children stack.
+            ViewNode firstNode = null;
+            boolean sawHierarchy = false;
 
-            Element root = doc.getDocumentElement();
-            if (!"hierarchy".equals(root.getNodeName())) {
-                return new Failure<>(null, "Invalid hierarchy XML: root element is not 'hierarchy'");
+            while (m.find()) {
+                boolean isClosing = !m.group(1).isEmpty();
+                String name = m.group(2);
+                String attrs = m.group(3);
+                boolean selfClosing = !m.group(4).isEmpty();
+
+                if ("hierarchy".equals(name)) {
+                    sawHierarchy = !isClosing;
+                    continue;
+                }
+                if (!"node".equals(name)) continue;
+
+                if (isClosing) {
+                    if (stack.isEmpty()) {
+                        return new Failure<>(null, "Malformed hierarchy XML: unmatched </node>");
+                    }
+                    ViewNode finished = stack.pop().build();
+                    if (stack.isEmpty()) {
+                        if (firstNode == null) firstNode = finished;
+                    } else {
+                        stack.peek().child(finished);
+                    }
+                    continue;
+                }
+
+                ViewNode.ViewNodeBuilder b = ViewNode.builder();
+                applyAttributes(b, attrs);
+
+                if (selfClosing) {
+                    ViewNode finished = b.build();
+                    if (stack.isEmpty()) {
+                        if (firstNode == null) firstNode = finished;
+                    } else {
+                        stack.peek().child(finished);
+                    }
+                } else {
+                    stack.push(b);
+                }
             }
 
-            // Find the first node element
-            NodeList nodes = root.getElementsByTagName("node");
-            if (nodes.getLength() == 0) {
+            if (!sawHierarchy) {
+                return new Failure<>(null, "Invalid hierarchy XML: <hierarchy> root not found");
+            }
+            if (firstNode == null) {
                 return new Failure<>(null, "No nodes found in hierarchy");
             }
-
-            Element firstNode = (Element) nodes.item(0);
-            ViewNode viewNode = parseNode(firstNode);
-
-            return new Success<>(viewNode, "Hierarchy parsed successfully");
-
+            if (!stack.isEmpty()) {
+                return new Failure<>(null, "Malformed hierarchy XML: unclosed <node>");
+            }
+            return new Success<>(firstNode, "Hierarchy parsed successfully");
         } catch (Exception e) {
             return new Failure<>(null, "Failed to parse hierarchy XML: " + e.getMessage());
         }
     }
 
-    /**
-     * Recursively parses a node element into a ViewNode.
-     */
-    private static ViewNode parseNode(Element element) {
-        ViewNode.ViewNodeBuilder builder = ViewNode.builder();
-
-        // Parse basic attributes
-        String index = element.getAttribute("index");
-        if (!index.isEmpty()) {
-            builder.index(Integer.parseInt(index));
+    private static void applyAttributes(ViewNode.ViewNodeBuilder builder, String attrSegment) {
+        Map<String, String> attrs = new HashMap<>();
+        Matcher am = ATTR_PATTERN.matcher(attrSegment);
+        while (am.find()) {
+            attrs.put(am.group(1), unescapeXml(am.group(2)));
         }
 
-        builder.className(element.getAttribute("class"));
-        builder.packageName(element.getAttribute("package"));
-        builder.text(element.getAttribute("text"));
-        builder.resourceId(element.getAttribute("resource-id"));
-        builder.contentDesc(element.getAttribute("content-desc"));
-        builder.hint(element.getAttribute("hint"));
+        String index = attrs.get("index");
+        if (index != null && !index.isEmpty()) {
+            try { builder.index(Integer.parseInt(index)); } catch (NumberFormatException ignored) {}
+        }
 
-        // Parse bounds
-        String boundsStr = element.getAttribute("bounds");
-        if (!boundsStr.isEmpty()) {
+        builder.className(attrs.getOrDefault("class", ""));
+        builder.packageName(attrs.getOrDefault("package", ""));
+        builder.text(attrs.getOrDefault("text", ""));
+        builder.resourceId(attrs.getOrDefault("resource-id", ""));
+        builder.contentDesc(attrs.getOrDefault("content-desc", ""));
+        builder.hint(attrs.getOrDefault("hint", ""));
+
+        String boundsStr = attrs.get("bounds");
+        if (boundsStr != null && !boundsStr.isEmpty()) {
             ViewNode.Bounds bounds = parseBounds(boundsStr);
-            if (bounds != null) {
-                builder.bounds(bounds);
-            }
+            if (bounds != null) builder.bounds(bounds);
         }
 
-        // Parse boolean properties
         Map<String, Boolean> properties = new HashMap<>();
-        addBooleanProperty(properties, element, "checkable");
-        addBooleanProperty(properties, element, "checked");
-        addBooleanProperty(properties, element, "clickable");
-        addBooleanProperty(properties, element, "enabled");
-        addBooleanProperty(properties, element, "focusable");
-        addBooleanProperty(properties, element, "focused");
-        addBooleanProperty(properties, element, "scrollable");
-        addBooleanProperty(properties, element, "long-clickable");
-        addBooleanProperty(properties, element, "password");
-        addBooleanProperty(properties, element, "selected");
-
+        addBooleanProperty(properties, attrs, "checkable");
+        addBooleanProperty(properties, attrs, "checked");
+        addBooleanProperty(properties, attrs, "clickable");
+        addBooleanProperty(properties, attrs, "enabled");
+        addBooleanProperty(properties, attrs, "focusable");
+        addBooleanProperty(properties, attrs, "focused");
+        addBooleanProperty(properties, attrs, "scrollable");
+        addBooleanProperty(properties, attrs, "long-clickable");
+        addBooleanProperty(properties, attrs, "password");
+        addBooleanProperty(properties, attrs, "selected");
         properties.forEach(builder::property);
 
-        // Parse additional attributes
-        Map<String, String> attributes = new HashMap<>();
-        String drawingOrder = element.getAttribute("drawing-order");
-        if (!drawingOrder.isEmpty()) {
-            attributes.put("drawing-order", drawingOrder);
+        String drawingOrder = attrs.get("drawing-order");
+        if (drawingOrder != null && !drawingOrder.isEmpty()) {
+            builder.attribute("drawing-order", drawingOrder);
         }
-        attributes.forEach(builder::attribute);
-
-        // Parse child nodes
-        NodeList children = element.getChildNodes();
-        List<ViewNode> childNodes = new ArrayList<>();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child.getNodeType() == Node.ELEMENT_NODE && "node".equals(child.getNodeName())) {
-                childNodes.add(parseNode((Element) child));
-            }
-        }
-        childNodes.forEach(builder::child);
-
-        return builder.build();
     }
 
-    /**
-     * Parses bounds string like "[100,200][300,400]" into a Bounds object.
-     */
     private static ViewNode.Bounds parseBounds(String boundsStr) {
         Matcher matcher = BOUNDS_PATTERN.matcher(boundsStr);
         if (matcher.matches()) {
@@ -168,13 +157,19 @@ public class ViewHierarchyParser {
         return null;
     }
 
-    /**
-     * Adds a boolean property from the element attributes.
-     */
-    private static void addBooleanProperty(Map<String, Boolean> properties, Element element, String attrName) {
-        String value = element.getAttribute(attrName);
-        if (!value.isEmpty()) {
+    private static void addBooleanProperty(Map<String, Boolean> properties, Map<String, String> attrs, String attrName) {
+        String value = attrs.get(attrName);
+        if (value != null && !value.isEmpty()) {
             properties.put(attrName, Boolean.parseBoolean(value));
         }
+    }
+
+    private static String unescapeXml(String s) {
+        if (s.indexOf('&') < 0) return s;
+        return s.replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&");
     }
 }

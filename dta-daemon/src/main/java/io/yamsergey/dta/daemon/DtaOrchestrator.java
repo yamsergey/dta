@@ -15,6 +15,8 @@ import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.ConnectionInfo
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.Device;
 import io.yamsergey.dta.daemon.sidekick.SidekickConnectionManager.SidekickSocket;
 import io.yamsergey.dta.daemon.sidekick.SidekickSseListener;
+import io.yamsergey.dta.tools.android.inspect.ViewHierarchy;
+import io.yamsergey.dta.tools.android.inspect.ViewHierarchyDumper;
 import io.yamsergey.dta.tools.sugar.Failure;
 import io.yamsergey.dta.tools.sugar.Result;
 import io.yamsergey.dta.tools.sugar.Success;
@@ -1037,8 +1039,31 @@ public class DtaOrchestrator {
                 // inset Android may apply, by definition correct because
                 // we're reading what's actually on screen. See
                 // ChromeContentBoundsLocator for the parsing logic.
+                //
+                // The orchestrator passes dumpXml only when the layout
+                // request itself took the uiautomator route (host app
+                // not foregrounded or sidekick returned an empty tree).
+                // CCT enrichment also runs when the host *is* foregrounded
+                // — if a CCT was launched and the host activity is still
+                // RESUMED (typical for translucent / trampoline activities).
+                // In that case we don't have an XML yet, so fetch one
+                // here. Costs one extra ADB call per layout request when
+                // CCT is the active surface.
+                String xmlForLocator = dumpXml;
+                if (xmlForLocator == null) {
+                    Result<ViewHierarchy> dumpResult = ViewHierarchyDumper.builder()
+                        .deviceSerial(device)
+                        .adbPath(SidekickConnectionManager.getAdbPath())
+                        .build()
+                        .dump();
+                    if (dumpResult instanceof Success<ViewHierarchy> ok) {
+                        xmlForLocator = ok.value().getXmlContent();
+                    } else if (dumpResult instanceof Failure<ViewHierarchy> fail) {
+                        log.debug("CCT lazy-dump failed: {}", fail.description());
+                    }
+                }
                 java.util.Optional<ChromeContentBoundsLocator.Bounds> contentBounds =
-                    ChromeContentBoundsLocator.locate(dumpXml);
+                    ChromeContentBoundsLocator.locate(xmlForLocator);
 
                 if (contentBounds.isPresent()) {
                     ChromeContentBoundsLocator.Bounds rect = contentBounds.get();

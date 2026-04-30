@@ -239,7 +239,7 @@ public class DebugExportService {
 
     private byte[] pullSidekickLog(String packageName, String device) throws Exception {
         List<String> cmd = new ArrayList<>();
-        cmd.add("adb");
+        cmd.add(adbExecutable());
         if (device != null && !device.isEmpty()) {
             cmd.add("-s");
             cmd.add(device);
@@ -266,7 +266,7 @@ public class DebugExportService {
         // client-side because the device-side filter would need per-tag
         // priority specs and silently drops anything not in the list.
         List<String> cmd = new ArrayList<>();
-        cmd.add("adb");
+        cmd.add(adbExecutable());
         if (device != null && !device.isEmpty()) {
             cmd.add("-s");
             cmd.add(device);
@@ -337,6 +337,19 @@ public class DebugExportService {
     // ========================================================================
     // Helpers
     // ========================================================================
+
+    /**
+     * Returns the ADB executable to invoke. Prefers the path the daemon
+     * has been told about (via {@code SidekickConnectionManager.setAdbPath}
+     * — typically by the AS plugin pointing at the IDE's bundled SDK),
+     * falls back to bare "adb" if no override is set. Without this, the
+     * bundle collection silently fails inside Android Studio because
+     * adb isn't on the IDE process's PATH.
+     */
+    private static String adbExecutable() {
+        String configured = SidekickConnectionManager.getAdbPath();
+        return (configured != null && !configured.isEmpty()) ? configured : "adb";
+    }
 
     private byte[] runAndCollect(List<String> cmd, long timeoutMillis) throws Exception {
         ProcessBuilder pb = new ProcessBuilder(cmd);
