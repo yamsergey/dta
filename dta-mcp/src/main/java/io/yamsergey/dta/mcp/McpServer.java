@@ -180,12 +180,13 @@ public class McpServer {
 
         // screenshot — when package is provided, also returns essential UI elements with screen coordinates
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("screenshot", "Capture a screenshot from the device. When package is provided, " +
-                "also returns essential UI elements (buttons, text, inputs) with their screen coordinates " +
-                "for tap targeting.",
+            tool("screenshot", "Capture a screenshot from the device along with essential UI elements " +
+                "(buttons, text, inputs) and their screen coordinates for tap targeting. " +
+                "If you omit `package` the daemon auto-detects the foreground app and returns its layout — " +
+                "you don't need to know the package up-front.",
                 schema(Map.of(
                     "device", prop("string", "Device serial (optional)", false),
-                    "package", prop("string", "App package name (optional — if provided, includes UI element positions)", false)
+                    "package", prop("string", "App package name (optional — auto-detected from the foreground app when omitted)", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -194,19 +195,20 @@ public class McpServer {
                     String base64 = Base64.getEncoder().encodeToString(data);
                     var imageContent = new McpSchema.ImageContent(null, base64, "image/png");
 
-                    // If package provided, also fetch essential UI elements
+                    // Always attempt to attach essential UI elements. The
+                    // daemon auto-detects the foreground package when none
+                    // is provided, falling back to a uiautomator dump for
+                    // apps without sidekick. A failure here is non-fatal
+                    // (the screenshot is still useful).
                     String pkg = getString(args, "package");
-                    if (pkg != null && !pkg.isEmpty()) {
-                        try {
-                            String treeJson = getDaemon().layoutTree(pkg, device, null, null, null, null);
-                            log.info("Layout tree for screenshot: {} chars", treeJson != null ? treeJson.length() : "null");
-                            String elements = extractEssentialElements(treeJson);
-                            var textContent = new McpSchema.TextContent(elements);
-                            return CallToolResult.builder().content(List.of(imageContent, textContent)).build();
-                        } catch (Exception e) {
-                            // Layout tree failed — return screenshot without elements
-                            log.warn("Failed to fetch UI elements: {}", e.getMessage());
-                        }
+                    try {
+                        String treeJson = getDaemon().layoutTree(pkg, device, null, null, null, null);
+                        log.info("Layout tree for screenshot: {} chars", treeJson != null ? treeJson.length() : "null");
+                        String elements = extractEssentialElements(treeJson);
+                        var textContent = new McpSchema.TextContent(elements);
+                        return CallToolResult.builder().content(List.of(imageContent, textContent)).build();
+                    } catch (Exception e) {
+                        log.warn("Failed to fetch UI elements: {}", e.getMessage());
                     }
 
                     return CallToolResult.builder().content(List.of(imageContent)).build();
@@ -739,9 +741,12 @@ public class McpServer {
                 "with rich properties. Returns a unified tree showing the full view hierarchy with class names, " +
                 "resource IDs, bounds, layout parameters, drawing properties, and Compose-specific data " +
                 "(composable names, parameters, semantics, source locations). " +
-                "Use text/type/resource_id filters to reduce output. Use view_id to get a specific subtree.",
+                "Use text/type/resource_id filters to reduce output. Use view_id to get a specific subtree. " +
+                "If you omit `package`, the daemon auto-detects the foreground app from `dumpsys window` and " +
+                "returns its layout (the resolved name appears in the response as `resolvedPackage`); filters " +
+                "still require an explicit package because they are interpreted by the app's sidekick.",
                 schema(Map.of(
-                    "package", prop("string", "App package name", true),
+                    "package", prop("string", "App package name (optional — auto-detected from foreground app when omitted; required when using filters)", false),
                     "device", prop("string", "Device serial", false),
                     "text", prop("string", "Filter: find elements containing this text (case-insensitive)", false),
                     "type", prop("string", "Filter: find elements of this type (e.g., Button, TextView, LinearLayout)", false),

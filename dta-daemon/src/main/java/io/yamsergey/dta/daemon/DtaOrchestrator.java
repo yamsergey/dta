@@ -138,8 +138,45 @@ public class DtaOrchestrator {
      */
     public JsonNode getLayoutTree(String packageName, String device,
                                   String text, String type, String resourceId, String viewId) throws Exception {
-        ConnectionInfo conn = getConnectionWithCdp(packageName, device);
         boolean hasFilters = text != null || type != null || resourceId != null || viewId != null;
+
+        // Auto-resolve package when omitted by detecting the foreground
+        // activity from `dumpsys window`. Filters are sidekick-side
+        // semantics, so they still require a known package. Without
+        // filters the uiautomator fallback can serve a layout for any
+        // app on screen, even one without DTA's sidekick installed.
+        boolean autoResolved = false;
+        if (packageName == null || packageName.isEmpty()) {
+            if (hasFilters) {
+                throw new IllegalArgumentException(
+                    "package is required when text/type/resource_id/view_id filters are set");
+            }
+            String detected = detectForegroundPackage(device).orElse(null);
+            if (detected == null) {
+                // Couldn't read dumpsys — uiautomator dump still works,
+                // we just can't tag the response with a package.
+                return uiautomatorOnlyLayout(device, null);
+            }
+            packageName = detected;
+            autoResolved = true;
+            log.info("Layout: auto-resolved foreground package = {}", packageName);
+        }
+
+        ConnectionInfo conn;
+        try {
+            conn = getConnectionWithCdp(packageName, device);
+        } catch (Exception e) {
+            // Auto-resolved package may not have sidekick installed
+            // (e.g. user is in another app entirely). Fall back to
+            // uiautomator-only so the caller still gets a layout.
+            // Explicitly-requested packages keep the strict behaviour
+            // (a missing sidekick is a real error the caller should see).
+            if (autoResolved && !hasFilters) {
+                log.info("Layout: no sidekick for foreground package {} — uiautomator fallback", packageName);
+                return uiautomatorOnlyLayout(device, packageName);
+            }
+            throw e;
+        }
 
         // Foreground-aware fallback: when the host app's process is alive but
         // no Activity is RESUMED (user navigated to Chrome / Custom Tabs /
@@ -156,7 +193,7 @@ public class DtaOrchestrator {
             if (fallback != null) {
                 log.info("Layout: host {} not foregrounded — using uiautomator fallback", packageName);
                 enrichWebViewNodes(fallback.tree(), packageName, device, fallback.xml());
-                return fallback.tree();
+                return tagPackage(fallback.tree(), packageName, autoResolved);
             }
             // uiautomator unavailable (rare — emulator booting?) → fall
             // through to the sidekick path so callers get something.
@@ -183,7 +220,7 @@ public class DtaOrchestrator {
                 if (fallback != null) {
                     log.info("Layout tree empty for {} — using uiautomator fallback", packageName);
                     enrichWebViewNodes(fallback.tree(), packageName, device, fallback.xml());
-                    return fallback.tree();
+                    return tagPackage(fallback.tree(), packageName, autoResolved);
                 }
             }
 
@@ -193,10 +230,93 @@ public class DtaOrchestrator {
             // path implies host app is foreground, so CCT can't be visible
             // on this screen anyway and the enrichment is a no-op.
             enrichWebViewNodes(adapted, packageName, device, null);
-            return adapted;
+            return tagPackage(adapted, packageName, autoResolved);
         }
         String desc = result instanceof Failure<?> f ? f.description() : "Unknown error";
         throw new RuntimeException("Failed to get layout tree: " + desc);
+    }
+
+    /**
+     * Tags an adapted layout tree with the resolved package and a flag
+     * indicating whether it came from the caller or was auto-detected
+     * from {@code dumpsys window}. Both fields are top-level so callers
+     * (CLI, MCP, plugin) can surface the resolution to the user without
+     * having to track it themselves.
+     */
+    private JsonNode tagPackage(JsonNode tree, String packageName, boolean autoResolved) {
+        if (tree instanceof ObjectNode obj && packageName != null) {
+            obj.put("resolvedPackage", packageName);
+            obj.put("packageAutoResolved", autoResolved);
+        }
+        return tree;
+    }
+
+    /**
+     * Builds a layout tree purely from {@code uiautomator dump}, without
+     * any sidekick interaction. Used when the caller didn't specify a
+     * package and either we couldn't detect the foreground or the
+     * detected package has no sidekick installed. Web/CCT enrichment
+     * still runs (those are sidekick-independent).
+     *
+     * @param resolvedPackage best-known package label (may be null when
+     *                        detection failed); attached to the response
+     *                        for caller visibility
+     */
+    private JsonNode uiautomatorOnlyLayout(String device, String resolvedPackage) {
+        UiAutomatorLayoutFallback.TreeWithXml fallback = UiAutomatorLayoutFallback.convertWithXml(
+            device, SidekickConnectionManager.getAdbPath(), resolvedPackage, mapper);
+        if (fallback == null) {
+            throw new RuntimeException("Failed to capture uiautomator layout dump");
+        }
+        enrichWebViewNodes(fallback.tree(), resolvedPackage, device, fallback.xml());
+        return tagPackage(fallback.tree(), resolvedPackage, true);
+    }
+
+    /**
+     * Reads the foreground app's package name from {@code dumpsys window}.
+     * Looks at {@code mCurrentFocus} (long-stable across versions) and
+     * {@code mFocusedApp} (newer) and returns the first match. Empty
+     * Optional means dumpsys couldn't be parsed — callers fall back to a
+     * pure uiautomator dump (which works without knowing the package).
+     */
+    private static final Pattern FOREGROUND_PKG_PATTERN = Pattern.compile(
+        "(?:mCurrentFocus|mFocusedApp)=[^\\n}]*?\\b([a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z0-9_]+)+)/[A-Za-z0-9_.$]+");
+
+    private java.util.Optional<String> detectForegroundPackage(String device) {
+        try {
+            List<String> cmd = new ArrayList<>();
+            String adb = SidekickConnectionManager.getAdbPath();
+            cmd.add(adb != null ? adb : "adb");
+            if (device != null && !device.isEmpty()) {
+                cmd.add("-s");
+                cmd.add(device);
+            }
+            cmd.add("shell");
+            cmd.add("dumpsys");
+            cmd.add("window");
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            StringBuilder out = new StringBuilder();
+            try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains("mCurrentFocus") || line.contains("mFocusedApp")) {
+                        out.append(line).append('\n');
+                    }
+                }
+            }
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return java.util.Optional.empty();
+            }
+            Matcher m = FOREGROUND_PKG_PATTERN.matcher(out);
+            return m.find() ? java.util.Optional.of(m.group(1)) : java.util.Optional.empty();
+        } catch (Exception e) {
+            log.debug("foreground-package detection failed: {}", e.getMessage());
+            return java.util.Optional.empty();
+        }
     }
 
     /**
@@ -1012,11 +1132,21 @@ public class DtaOrchestrator {
      */
     private void enrichCustomTabNode(JsonNode adapted, String packageName, String device, String dumpXml) {
         try {
-            ChromeDevToolsClient cdpClient = CdpWatcherManager.getInstance()
-                .getCdpClient(packageName, device);
+            CdpWatcherManager wm = CdpWatcherManager.getInstance();
+            ChromeDevToolsClient cdpClient = wm.getCdpClient(packageName, device);
+            String tabUrl = wm.getCurrentTabUrl(packageName, device);
+            // When the layout query was auto-resolved to com.android.chrome
+            // (foreground == Chrome with a CCT on top), the watcher is
+            // registered under the *launching* host app's package, not
+            // under chrome's. Fall back to any active watcher on this
+            // device so we still pick up the CCT page contents.
+            if (cdpClient == null) {
+                cdpClient = wm.getAnyActiveCdpClient(device);
+                if (cdpClient != null) {
+                    tabUrl = wm.getAnyActiveTabUrl(device);
+                }
+            }
             if (cdpClient == null || !cdpClient.isConnected()) return;
-
-            String tabUrl = CdpWatcherManager.getInstance().getCurrentTabUrl(packageName, device);
 
             CdpAccessibilityInspector.AccessibilityTreeResult treeResult =
                 CdpAccessibilityInspector.fetchAccessibilityTreeWithUrl(cdpClient);

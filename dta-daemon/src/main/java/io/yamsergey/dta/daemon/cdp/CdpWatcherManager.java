@@ -138,6 +138,45 @@ public class CdpWatcherManager {
     }
 
     /**
+     * Returns any connected CDP client on the given device, regardless of
+     * which package's watcher owns it. Used by the layout enrichment when
+     * the foreground app is Chrome itself (a CCT launched from a different
+     * host app — the watcher is registered under the launcher's package,
+     * not {@code com.android.chrome}). Picks the first watcher with a
+     * live client; in practice there is at most one CCT on screen at a
+     * time so the choice is unambiguous.
+     */
+    public ChromeDevToolsClient getAnyActiveCdpClient(String deviceSerial) {
+        for (Map.Entry<String, WatcherContext> e : activeWatchers.entrySet()) {
+            // Keys are "<device>:<package>"
+            String key = e.getKey();
+            int colon = key.indexOf(':');
+            String entryDevice = colon > 0 ? key.substring(0, colon) : "default";
+            if (!entryDevice.equals(deviceSerial != null ? deviceSerial : "default")) continue;
+            WatcherContext ctx = e.getValue();
+            if (ctx.currentClient != null && ctx.currentClient.isConnected()) {
+                return ctx.currentClient;
+            }
+        }
+        return null;
+    }
+
+    /** @see #getAnyActiveCdpClient — same lookup, returns the tab URL. */
+    public String getAnyActiveTabUrl(String deviceSerial) {
+        for (Map.Entry<String, WatcherContext> e : activeWatchers.entrySet()) {
+            String key = e.getKey();
+            int colon = key.indexOf(':');
+            String entryDevice = colon > 0 ? key.substring(0, colon) : "default";
+            if (!entryDevice.equals(deviceSerial != null ? deviceSerial : "default")) continue;
+            WatcherContext ctx = e.getValue();
+            if (ctx.currentTabUrl != null && ctx.currentClient != null && ctx.currentClient.isConnected()) {
+                return ctx.currentTabUrl;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Returns the current Custom Tab URL for the given package, if tracked.
      *
      * @param packageName the Android package name
