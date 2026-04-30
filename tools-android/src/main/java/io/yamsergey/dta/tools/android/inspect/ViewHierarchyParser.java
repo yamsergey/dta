@@ -52,7 +52,10 @@ public class ViewHierarchyParser {
                 boolean selfClosing = !m.group(4).isEmpty();
 
                 if ("hierarchy".equals(name)) {
-                    sawHierarchy = !isClosing;
+                    // Latch — the trailing </hierarchy> close tag must not
+                    // un-set this. Without the latch the final-state check
+                    // fails on every well-formed dump.
+                    if (!isClosing) sawHierarchy = true;
                     continue;
                 }
                 if (!"node".equals(name)) continue;
