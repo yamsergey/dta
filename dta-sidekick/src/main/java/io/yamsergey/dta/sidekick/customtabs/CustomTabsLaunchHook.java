@@ -117,6 +117,14 @@ public class CustomTabsLaunchHook implements MethodHook {
             // Replace URI with about:blank so CDP can connect before the real page loads.
             // The server will navigate to the original URL via Page.navigate after
             // attaching CDP and enabling Network capture.
+            //
+            // Note (2026-04-30): we tried swapping to a data:text/html URI to
+            // serve a diagnostic "loading" page but Android refuses
+            // Intent.ACTION_VIEW with data: schemes — even for CCT, since
+            // CustomTabsIntent.launchUrl ultimately dispatches via ACTION_VIEW.
+            // For a proper escape-hatch UI we need the sidekick HTTP server
+            // to expose a TCP listener and use http://127.0.0.1:PORT/loading
+            // instead. about:blank stays in the meantime.
             if (cdpArmed) {
                 try {
                     Class<?> uriClass = Class.forName("android.net.Uri");

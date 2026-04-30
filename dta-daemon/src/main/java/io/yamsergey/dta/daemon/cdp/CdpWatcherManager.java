@@ -311,7 +311,7 @@ public class CdpWatcherManager {
                                 tab = targets.stream()
                                     .filter(CdpTarget::isPage)
                                     .filter(t -> !knownIds.contains(t.id()))
-                                    .filter(t -> "about:blank".equals(t.url())
+                                    .filter(t -> isLoadingTab(t.url())
                                             || matchesUrl(t.url(), targetUrl, urlBase))
                                     .findFirst()
                                     .orElse(null);
@@ -349,9 +349,10 @@ public class CdpWatcherManager {
                     client.enableNetwork().join();
 
                     // Navigate to the real URL now that Network capture is active.
-                    // The sidekick opened about:blank to give us time to attach CDP.
-                    if ("about:blank".equals(tab.url())) {
-                        log.info("CDP attached to blank tab, navigating to: {}", targetUrl);
+                    // The sidekick opened a loading tab (about:blank or our
+                    // data:text/html escape page) to give us time to attach CDP.
+                    if (isLoadingTab(tab.url())) {
+                        log.info("CDP attached to loading tab, navigating to: {}", targetUrl);
                         client.navigate(targetUrl).join();
                     }
 
@@ -380,6 +381,18 @@ public class CdpWatcherManager {
             return tabUrl.equals(targetUrl)
                 || tabUrl.startsWith(urlBase)
                 || targetUrl.startsWith(extractUrlBase(tabUrl));
+        }
+
+        /**
+         * Recognises the placeholder tab the sidekick opens so the daemon
+         * can attach before navigating to the real URL. Currently always
+         * {@code about:blank}; will broaden to a sidekick-served loading
+         * page (http://127.0.0.1:PORT/loading) once that landing surface
+         * is wired up, so callers should use this helper rather than
+         * comparing to {@code about:blank} directly.
+         */
+        private static boolean isLoadingTab(String url) {
+            return "about:blank".equals(url);
         }
 
         private void ackSidekick(String eventId) {
