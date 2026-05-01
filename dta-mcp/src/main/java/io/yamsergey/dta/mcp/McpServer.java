@@ -283,13 +283,15 @@ public class McpServer {
 
         // swipe
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("swipe", "Swipe from start point to end point",
+            tool("swipe", "Swipe from start point to end point. " +
+                "Default 500ms is reliably classified as a swipe; durations under 200ms " +
+                "or distances under 24px may be interpreted as taps by Android.",
                 schema(Map.of(
                     "startX", prop("integer", "Start X (in screen pixels)", true),
                     "startY", prop("integer", "Start Y (in screen pixels)", true),
                     "endX", prop("integer", "End X (in screen pixels)", true),
                     "endY", prop("integer", "End Y (in screen pixels)", true),
-                    "duration", prop("integer", "Duration in ms (default 300)", false),
+                    "duration", prop("integer", "Duration in ms (default 500; floored at 200 to avoid tap classification)", false),
                     "device", prop("string", "Device serial", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
@@ -307,7 +309,7 @@ public class McpServer {
                     int endY = firstPresentInt(args, "endY", "y2");
                     String device = getString(args, "device");
                     String json = getDaemon().swipe(startX, startY, endX, endY,
-                        getInt(args, "duration", 300), device);
+                        getInt(args, "duration", 500), device);
                     return ok(json);
                 } catch (Exception e) {
                     return friendlyError("swipe", e);

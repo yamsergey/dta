@@ -411,10 +411,32 @@ public class SidekickConnectionManager {
 
     /**
      * Swipes from one point to another.
+     *
+     * <p>Floors the duration at {@value #MIN_SWIPE_DURATION_MS}ms — anything
+     * shorter has historically been classified as a tap by Android's
+     * ViewConfiguration on certain emulators (the dispatcher sends DOWN
+     * and UP within the tap timeout window with too few intermediate MOVE
+     * events). Logs a warning when the start/end Euclidean distance is
+     * below {@value #MIN_SWIPE_DISTANCE_PX}px (typical touch-slop)
+     * because such "swipes" also collapse to taps on most devices.</p>
      */
+    private static final int MIN_SWIPE_DURATION_MS = 200;
+    private static final int MIN_SWIPE_DISTANCE_PX = 24;
+
     public boolean swipe(String device, int x1, int y1, int x2, int y2, int durationMs) throws IOException, InterruptedException {
+        int effectiveDuration = Math.max(durationMs, MIN_SWIPE_DURATION_MS);
+        if (effectiveDuration != durationMs) {
+            log.info("swipe: duration {}ms below floor — using {}ms to avoid tap classification",
+                durationMs, effectiveDuration);
+        }
+        int dx = x2 - x1, dy = y2 - y1;
+        if (dx * dx + dy * dy < MIN_SWIPE_DISTANCE_PX * MIN_SWIPE_DISTANCE_PX) {
+            log.warn("swipe: distance {}px is within touch-slop — Android may register this as a tap",
+                (int) Math.round(Math.sqrt(dx * dx + dy * dy)));
+        }
         runAdb(device, "shell", "input", "swipe",
-            String.valueOf(x1), String.valueOf(y1), String.valueOf(x2), String.valueOf(y2), String.valueOf(durationMs));
+            String.valueOf(x1), String.valueOf(y1), String.valueOf(x2), String.valueOf(y2),
+            String.valueOf(effectiveDuration));
         return true;
     }
 
