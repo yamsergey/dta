@@ -86,8 +86,12 @@ public final class InterceptorRuntime {
             compiled.exec(cx, scope);
 
             this.installed = new InstalledScript(source, scopeBuilder, scope);
-            log.log("interceptor installed (" + source.length() + " chars)");
-            SidekickLog.i(TAG, "interceptor script installed: " + source.length() + " chars");
+            // Tag the install entry with the sidekick AAR version. Agents
+            // can spot version-mismatch failures (old AAR, new MCP) at a
+            // glance — they show up here rather than as opaque crashes.
+            String version = io.yamsergey.dta.sidekick.SidekickVersion.get();
+            log.log("interceptor installed (" + source.length() + " chars) [sidekick=" + version + "]");
+            SidekickLog.i(TAG, "interceptor script installed: " + source.length() + " chars (sidekick " + version + ")");
         } catch (RhinoException e) {
             String msg = "compile error: " + e.details() + " @ " + e.lineNumber() + ":" + e.columnNumber();
             log.error(msg);

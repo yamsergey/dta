@@ -822,6 +822,9 @@ public class InspectorServer {
             Map<String, Object> resp = new java.util.LinkedHashMap<>();
             resp.put("installed", true);
             resp.put("size", body.length());
+            // Expose the sidekick AAR version so callers (MCP / CLI / plugin)
+            // can correlate installed-but-misbehaving against a stale AAR.
+            resp.put("sidekickVersion", io.yamsergey.dta.sidekick.SidekickVersion.get());
             sendJson(out, 200, resp);
         } catch (IllegalArgumentException e) {
             // Compile error or similar — the daemon/MCP forwards this

@@ -997,20 +997,80 @@ public class McpServer {
         final String intercDoc =
             "On-device JavaScript interceptor for HTTP and WebSocket traffic. " +
             "Install a script with `interceptor_set`; sidekick evaluates it synchronously inside the " +
-            "OkHttp / URLConnection / WebSocket adapters before each request leaves and each response " +
-            "is delivered to the app, and again for every WebSocket frame.\n\n" +
-            "Scripts may export any subset of: `onRequest(req)`, `onResponse(resp)`, `onWsSend(frame)`, " +
-            "`onWsReceive(frame)`. Each handler returns the (possibly modified) payload, or `null` to " +
-            "drop the call entirely. Missing handlers pass through unchanged.\n\n" +
-            "Available in scope: `log(...)` (visible via `interceptor_logs`), `state.get/set/delete/clear` " +
-            "(persistent within an install), `sleep(ms)` (synchronous block — yes, the calling app " +
-            "thread waits; that's the contract).\n\n" +
-            "Wired adapters: OkHttp (request + response, full mutation), OkHttp WebSocket / Java-WebSocket / " +
-            "nv-websocket-client (send + receive, text and binary). HttpURLConnection requests pass through " +
-            "unmutated for now — agents should target OkHttp clients if they need rewrites.\n\n" +
-            "Drop semantics: returning `null` from `onRequest`/`onResponse` produces a synthetic 499 " +
-            "response (the underlying request still goes on the wire — JVMTI hooks can't short-circuit). " +
-            "Returning `null` from `onWs*` swallows the frame (replaces with empty payload).";
+            "OkHttp / WebSocket adapters before each request goes out, each response is delivered to the " +
+            "app, and every WebSocket frame in either direction.\n\n" +
+
+            "## Handlers\n\n" +
+            "Export any subset of these top-level functions. Missing handlers pass through unchanged. " +
+            "Each handler receives a **wrapper object** (described below), mutates fields on it, and " +
+            "returns the same object. Returning `null` drops the call.\n\n" +
+            "    function onRequest(req)     { return req; }\n" +
+            "    function onResponse(resp)   { return resp; }\n" +
+            "    function onWsSend(frame)    { return frame; }\n" +
+            "    function onWsReceive(frame) { return frame; }\n\n" +
+
+            "## Wrapper shapes (NOT the raw payloads)\n\n" +
+            "`req` (HTTP request):\n" +
+            "  - req.url        — string (e.g. \"https://api.example.com/path\")\n" +
+            "  - req.method     — string (e.g. \"GET\", \"POST\")\n" +
+            "  - req.headers    — object: { \"Content-Type\": \"application/json\", … }\n" +
+            "  - req.body       — string (UTF-8 decoded) or null\n" +
+            "  - req.tag        — \"okhttp\" | \"urlconn\"\n\n" +
+            "`resp` (HTTP response): same as req plus\n" +
+            "  - resp.status         — number (e.g. 200, 404)\n" +
+            "  - resp.statusMessage  — string\n" +
+            "  (no `request` back-pointer in v1)\n\n" +
+            "`frame` (WebSocket — text or binary):\n" +
+            "  - frame.dir          — \"send\" | \"recv\"\n" +
+            "  - frame.text         — string for text frames, null for binary\n" +
+            "  - frame.binary       — array of byte ints (0–255) for binary frames, null for text\n" +
+            "  - frame.connectionId — string (sidekick-side WS id)\n\n" +
+            "Frames are NEVER raw payloads. To read a JSON message: `JSON.parse(frame.text)`. " +
+            "To rewrite: `frame.text = JSON.stringify(modified); return frame;`. " +
+            "To drop: `return null;`.\n\n" +
+
+            "## Minimal working example\n\n" +
+            "    function onWsReceive(f) {\n" +
+            "      if (!f.text) return f;             // binary frame — leave it alone\n" +
+            "      var msg = JSON.parse(f.text);\n" +
+            "      if (msg.type === 'ping') return null;   // drop ping frames\n" +
+            "      if (msg.from === 'Server') {\n" +
+            "        msg.text = '[patched] ' + msg.text;\n" +
+            "        f.text = JSON.stringify(msg);    // mutate in place\n" +
+            "      }\n" +
+            "      return f;                          // ALWAYS return the wrapper, never a string\n" +
+            "    }\n\n" +
+
+            "## Available in scope\n\n" +
+            "  log(arg1, arg2, …)            — variadic; appends a line to the ring buffer that\n" +
+            "                                    `interceptor_logs` returns. Args are stringified\n" +
+            "                                    (objects via JSON.stringify when possible).\n" +
+            "  state.get(key)                — persistent within an install (cleared on `interceptor_clear`)\n" +
+            "  state.set(key, value)\n" +
+            "  state.delete(key)\n" +
+            "  state.clear()\n" +
+            "  sleep(ms)                     — synchronously blocks the calling app thread.\n" +
+            "                                    No upper bound — DTA is a dev tool, the agent decides.\n\n" +
+
+            "## Wired adapters\n\n" +
+            "  OkHttp                       — request + response, full mutation.\n" +
+            "  OkHttp WebSocket             — send + receive, text and binary.\n" +
+            "  Java-WebSocket               — send + receive, text and binary.\n" +
+            "  nv-websocket-client          — send + receive, text and binary.\n" +
+            "  HttpURLConnection            — NOT WIRED (target OkHttp clients for HTTP rewrites).\n" +
+            "  Chrome / CCT / WebView       — NOT REACHABLE BY DESIGN (separate process / native net stack).\n\n" +
+
+            "## Drop semantics\n\n" +
+            "  HTTP   `onRequest`/`onResponse` returning `null` → synthetic 499 to the app.\n" +
+            "         (The real request still goes on the wire — JVMTI hooks can't short-circuit.)\n" +
+            "  WS     `onWsSend`/`onWsReceive` returning `null` → empty frame (server / listener\n" +
+            "         sees no payload).\n\n" +
+
+            "## Diagnostics\n\n" +
+            "The `interceptor_set` response includes `sidekickVersion`. The first entry in " +
+            "`interceptor_logs` after install is `\"interceptor installed (N chars) [sidekick=X.Y.Z]\"`. " +
+            "If the version isn't the one you expect, the host app was built against an older sidekick " +
+            "AAR and features wired in newer versions will fail silently.";
 
         // interceptor_set
         tools.add(new McpServerFeatures.SyncToolSpecification(
