@@ -46,6 +46,16 @@ public class NvWebSocketSendBinaryHook implements MethodHook {
             byte[] data = (byte[]) args[0];
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
 
+            // Interceptor: onWsSend (binary)
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled()) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsSend(null, data, conn != null ? conn.getId() : null);
+                if (mut.dropped) { args[0] = new byte[0]; return; }
+                if (mut.mutated && mut.binary != null) { args[0] = mut.binary; data = mut.binary; }
+            }
+
             if (conn != null) {
                 int maxSize = WebSocketInspector.getMaxMessagePayloadSize();
                 byte[] capturedData = data.length <= maxSize ? data : null;

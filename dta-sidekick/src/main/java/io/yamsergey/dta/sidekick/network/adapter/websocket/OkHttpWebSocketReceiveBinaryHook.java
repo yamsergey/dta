@@ -51,6 +51,30 @@ public class OkHttpWebSocketReceiveBinaryHook implements MethodHook {
 
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
 
+            // Interceptor: onWsReceive (binary). Drop replaces with empty
+            // ByteString. Mutation rebuilds args[0] via okio.ByteString.of.
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled() && data != null) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsReceive(null, data,
+                                conn != null ? conn.getId() : null);
+                if (mut.dropped) {
+                    try { args[0] = byteString.getClass().getField("EMPTY").get(null); } catch (Throwable ignored) {}
+                    return;
+                }
+                if (mut.mutated && mut.binary != null) {
+                    try {
+                        java.lang.reflect.Method of = byteString.getClass().getMethod("of", byte[].class);
+                        Object replaced = of.invoke(null, (Object) mut.binary);
+                        if (replaced != null) {
+                            args[0] = replaced;
+                            data = mut.binary;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+
             if (conn != null && data != null) {
                 int maxSize = WebSocketInspector.getMaxMessagePayloadSize();
                 byte[] capturedData = data.length <= maxSize ? data : null;

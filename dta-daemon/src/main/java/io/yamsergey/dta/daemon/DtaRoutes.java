@@ -205,6 +205,31 @@ public final class DtaRoutes {
         // Runtime Data Inspection (proxy to sidekick)
         // ====================================================================
 
+        // ----- Network interceptor (Phase 1: lifecycle + logs) -----
+        app.post("/api/interceptor", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.setInterceptor(
+                        ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.delete("/api/interceptor", ctx -> {
+            try { jsonString(ctx, orchestrator.clearInterceptor(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/interceptor", ctx -> {
+            try { jsonString(ctx, orchestrator.getInterceptor(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/interceptor/logs", ctx -> {
+            try {
+                long since = 0;
+                String s = ctx.queryParam("since");
+                if (s != null) try { since = Long.parseLong(s); } catch (NumberFormatException ignored) {}
+                jsonString(ctx, orchestrator.getInterceptorLogs(
+                        ctx.queryParam("package"), ctx.queryParam("device"), since));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+
         app.get("/api/runtime/navigation/backstack", ctx -> {
             try { jsonString(ctx, orchestrator.navigationBackstack(ctx.queryParam("package"), ctx.queryParam("device")));
             } catch (Exception e) { error(ctx, e.getMessage()); }

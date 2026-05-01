@@ -70,6 +70,19 @@ public class NvWebSocketReceiveBinaryHook implements MethodHook {
                 conn = WebSocketInspector.getConnectionForObject(webSocketObj);
             }
 
+            // Interceptor: onWsReceive (binary). Mutate the slot the
+            // bytes came from — handles both (WebSocket, byte[]) and
+            // bare-(byte[]) call signatures.
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled()) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsReceive(null, data, conn != null ? conn.getId() : null);
+                int binIdx = (args.length >= 2 && args[1] instanceof byte[]) ? 1 : 0;
+                if (mut.dropped) { args[binIdx] = new byte[0]; return; }
+                if (mut.mutated && mut.binary != null) { args[binIdx] = mut.binary; data = mut.binary; }
+            }
+
             if (conn != null) {
                 int maxSize = WebSocketInspector.getMaxMessagePayloadSize();
                 byte[] capturedData = data.length <= maxSize ? data : null;

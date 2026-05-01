@@ -2,6 +2,9 @@ package io.yamsergey.dta.sidekick.network.adapter.http;
 
 import io.yamsergey.dta.sidekick.Sidekick;
 import io.yamsergey.dta.sidekick.SidekickLog;
+import io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads;
+import io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime;
+import io.yamsergey.dta.sidekick.interceptor.OkHttpRewrite;
 
 import java.lang.reflect.Method;
 import java.nio.charset.Charset;
@@ -101,7 +104,55 @@ public class OkHttpExecuteHook implements MethodHook {
 
             HttpRequest request = requestBuilder.build();
 
-            // Start transaction
+            // ----- Interceptor: onRequest -----
+            // Run the JS hook before the call enters the OkHttp interceptor
+            // chain so any URL/headers/body mutations actually take effect.
+            // Drop semantics implemented in onException once we throw.
+            InterceptorRuntime rt = InterceptorRuntime.getInstance();
+            if (rt.isInstalled()) {
+                java.util.Map<String, String> hdrs = new java.util.LinkedHashMap<>();
+                if (request.getHeaders() != null) {
+                    for (var h : request.getHeaders()) hdrs.put(h.getName(), h.getValue());
+                }
+                byte[] reqBody = request.getBody() != null
+                        ? request.getBody().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                        : null;
+                InterceptorPayloads.HttpRequestMutation mut = rt.interceptHttpRequest(
+                        request.getUrl(), request.getMethod(), hdrs, reqBody,
+                        InterceptorPayloads.TAG_OKHTTP);
+                if (mut.dropped) {
+                    // We can't short-circuit onEnter (JVMTI hook semantics
+                    // run the original method afterwards regardless), so
+                    // drop manifests as a synthetic 499 response replacing
+                    // the real one in onExit. We still let the request go
+                    // on the wire — if true short-circuit ever becomes
+                    // possible we can revisit. Document the limitation.
+                    SidekickLog.i(TAG, ">>> DROP-ONEXIT scheduled: " + request.getMethod() + " " + request.getUrl());
+                    dropFlag.set(Boolean.TRUE);
+                }
+                if (mut.mutated) {
+                    Object newReq = OkHttpRewrite.rewriteRequest(okRequest, mut);
+                    if (newReq != null) {
+                        if (OkHttpRewrite.setRealCallRequest(thisObj, newReq)) {
+                            okRequest = newReq;
+                            // Re-capture for the transaction record so the
+                            // captured request matches what actually goes
+                            // out on the wire.
+                            HttpRequest.Builder rebuilt = HttpRequest.builder()
+                                    .url(getUrl(okRequest))
+                                    .method(getMethod(okRequest));
+                            captureRequestHeaders(okRequest, rebuilt);
+                            if (NetworkInspector.isCaptureRequestBody()) {
+                                captureRequestBody(okRequest, rebuilt);
+                            }
+                            request = rebuilt.build();
+                        }
+                    }
+                }
+            }
+
+            // Start transaction (after any mutation so the recorded
+            // transaction reflects the on-the-wire request).
             HttpTransaction tx = NetworkInspector.startTransaction(request, "OkHttp");
             SidekickLog.i(TAG, ">>> " + request.getMethod() + " " + request.getUrl());
 
@@ -112,6 +163,13 @@ public class OkHttpExecuteHook implements MethodHook {
             SidekickLog.e(TAG, "Error in onEnter", t);
         }
     }
+
+    /**
+     * Per-call thread-local drop flag set by the interceptor onRequest
+     * path. Cleared in onExit (or onException) so it never leaks across
+     * unrelated calls.
+     */
+    private static final ThreadLocal<Boolean> dropFlag = new ThreadLocal<>();
 
     @Override
     public Object onExit(Object thisObj, Object result) {
@@ -124,6 +182,31 @@ public class OkHttpExecuteHook implements MethodHook {
             HttpTransaction tx = NetworkInspector.getTransaction(txId);
             if (tx == null) {
                 return result;
+            }
+
+            // Drop scheduled in onEnter — replace the real response with a synthetic 499.
+            Boolean dropped = dropFlag.get();
+            dropFlag.remove();
+            if (Boolean.TRUE.equals(dropped)) {
+                MockHttpResponse drop = MockHttpResponse.builder()
+                        .statusCode(499)
+                        .statusMessage("Dropped by DTA interceptor")
+                        .contentType("text/plain")
+                        .body("dropped")
+                        .build();
+                Object synthetic = OkHttpResponseBuilder.build(thisObj, result, drop);
+                if (synthetic != null) {
+                    HttpResponse.Builder rb = HttpResponse.builder()
+                            .statusCode(499).statusMessage("Dropped by DTA interceptor")
+                            .contentType("text/plain").body("dropped");
+                    tx.setResponse(rb.build());
+                    tx.markCompleted();
+                    NetworkInspector.onTransactionCompleted(tx);
+                    return synthetic;
+                }
+                // Fall through if we couldn't build a synthetic — better to
+                // deliver the real response than to crash the call.
+                SidekickLog.w(TAG, "drop fell back to real response (synthetic build failed)");
             }
 
             // Check for mock rules BEFORE processing the real response
@@ -207,6 +290,58 @@ public class OkHttpExecuteHook implements MethodHook {
 
                 tx.setResponse(responseBuilder.build());
                 SidekickLog.i(TAG, "<<< " + tx.getResponseCode() + " " + tx.getResponse().getStatusMessage());
+
+                // ----- Interceptor: onResponse -----
+                InterceptorRuntime rt = InterceptorRuntime.getInstance();
+                if (rt.isInstalled()) {
+                    java.util.Map<String, String> hdrs = new java.util.LinkedHashMap<>();
+                    if (tx.getResponse().getHeaders() != null) {
+                        for (var h : tx.getResponse().getHeaders()) hdrs.put(h.getName(), h.getValue());
+                    }
+                    byte[] respBody = tx.getResponse().getBody() != null
+                            ? tx.getResponse().getBody().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                            : null;
+                    InterceptorPayloads.HttpResponseMutation rmut = rt.interceptHttpResponse(
+                            tx.getResponseCode(), tx.getResponse().getStatusMessage(), hdrs, respBody);
+                    if (rmut.dropped) {
+                        // Same simulation as request-drop: synthetic 499.
+                        MockHttpResponse drop = MockHttpResponse.builder()
+                                .statusCode(499).statusMessage("Dropped by DTA interceptor")
+                                .contentType("text/plain").body("dropped").build();
+                        Object synthetic = OkHttpResponseBuilder.build(thisObj, result, drop);
+                        if (synthetic != null) {
+                            tx.setResponse(HttpResponse.builder()
+                                    .statusCode(499).statusMessage("Dropped by DTA interceptor")
+                                    .contentType("text/plain").body("dropped").build());
+                            tx.markCompleted();
+                            NetworkInspector.onTransactionCompleted(tx);
+                            return synthetic;
+                        }
+                    } else if (rmut.mutated) {
+                        Object newResp = OkHttpRewrite.rewriteResponse(thisObj, result, rmut);
+                        if (newResp != null) {
+                            HttpResponse.Builder mb = HttpResponse.builder()
+                                    .statusCode(rmut.status >= 0 ? rmut.status : tx.getResponseCode())
+                                    .statusMessage(rmut.statusMessage != null ? rmut.statusMessage
+                                            : tx.getResponse().getStatusMessage())
+                                    .protocol(tx.getResponse().getProtocol());
+                            if (rmut.headers != null) {
+                                for (var e : rmut.headers.entrySet()) mb.addHeader(e.getKey(), e.getValue());
+                            } else if (tx.getResponse().getHeaders() != null) {
+                                for (var h : tx.getResponse().getHeaders()) mb.addHeader(h.getName(), h.getValue());
+                            }
+                            if (rmut.body != null) {
+                                mb.body(new String(rmut.body, java.nio.charset.StandardCharsets.UTF_8));
+                            } else {
+                                mb.body(tx.getResponse().getBody());
+                            }
+                            tx.setResponse(mb.build());
+                            tx.markCompleted();
+                            NetworkInspector.onTransactionCompleted(tx);
+                            return newResp;
+                        }
+                    }
+                }
             }
 
             tx.markCompleted();

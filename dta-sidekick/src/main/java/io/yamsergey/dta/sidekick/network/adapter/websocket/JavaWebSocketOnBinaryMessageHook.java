@@ -53,6 +53,19 @@ public class JavaWebSocketOnBinaryMessageHook implements MethodHook {
 
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
 
+            // Interceptor: onWsReceive (binary)
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled() && data != null) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsReceive(null, data, conn != null ? conn.getId() : null);
+                if (mut.dropped) { args[1] = ByteBuffer.allocate(0); return; }
+                if (mut.mutated && mut.binary != null) {
+                    args[1] = ByteBuffer.wrap(mut.binary);
+                    data = mut.binary;
+                }
+            }
+
             if (conn != null && data != null) {
                 int maxSize = WebSocketInspector.getMaxMessagePayloadSize();
                 byte[] capturedData = data.length <= maxSize ? data : null;

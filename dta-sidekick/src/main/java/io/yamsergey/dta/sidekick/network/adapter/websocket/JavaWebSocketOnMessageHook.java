@@ -54,6 +54,16 @@ public class JavaWebSocketOnMessageHook implements MethodHook {
             String text = (String) args[1];
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
 
+            // Interceptor: onWsReceive (text)
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled()) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsReceive(text, null, conn != null ? conn.getId() : null);
+                if (mut.dropped) { args[1] = ""; return; }
+                if (mut.mutated && mut.text != null) { args[1] = mut.text; text = mut.text; }
+            }
+
             if (conn != null) {
                 // Mark as connected if still in connecting state
                 if (conn.getStatus() == WebSocketConnection.Status.CONNECTING) {

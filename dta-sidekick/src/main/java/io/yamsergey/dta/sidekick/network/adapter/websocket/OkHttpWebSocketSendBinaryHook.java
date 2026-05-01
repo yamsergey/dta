@@ -50,6 +50,32 @@ public class OkHttpWebSocketSendBinaryHook implements MethodHook {
 
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
 
+            // Interceptor: onWsSend (binary). Replacing args[0] requires
+            // building a new okio.ByteString — for v1 we only support
+            // text-side mutations on binary frames; agents that want to
+            // mutate binary can override the bytes via the JS `binary`
+            // field, and we'll wrap them. Drop is supported regardless.
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled() && data != null) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsSend(null, data,
+                                conn != null ? conn.getId() : null);
+                if (mut.dropped) {
+                    // Replace with empty ByteString so OkHttp still
+                    // proceeds happily but nothing goes on the wire.
+                    args[0] = okHttpEmptyByteString(byteString);
+                    return;
+                }
+                if (mut.mutated && mut.binary != null) {
+                    Object replacement = okHttpByteStringOf(byteString, mut.binary);
+                    if (replacement != null) {
+                        args[0] = replacement;
+                        data = mut.binary;
+                    }
+                }
+            }
+
             if (conn != null && data != null) {
                 int maxSize = WebSocketInspector.getMaxMessagePayloadSize();
                 byte[] capturedData = data.length <= maxSize ? data : null;
@@ -74,6 +100,33 @@ public class OkHttpWebSocketSendBinaryHook implements MethodHook {
         } catch (Exception e) {
             SidekickLog.w(TAG, "Failed to extract byte array from ByteString", e);
             return null;
+        }
+    }
+
+    /** Returns {@code okio.ByteString.EMPTY}, found via the same classloader as the original. */
+    private static Object okHttpEmptyByteString(Object original) {
+        try {
+            return original.getClass().getField("EMPTY").get(null);
+        } catch (Throwable t) {
+            return original;
+        }
+    }
+
+    /** Builds an {@code okio.ByteString} of the given bytes. */
+    private static Object okHttpByteStringOf(Object original, byte[] bytes) {
+        try {
+            Class<?> bs = original.getClass();
+            // okio 2.x/3.x: static ByteString.of(byte[]) — varargs friendly via reflection.
+            Method of = bs.getMethod("of", byte[].class);
+            return of.invoke(null, (Object) bytes);
+        } catch (Throwable t) {
+            try {
+                // Older variant: ByteString.of(byte[], int, int)
+                Method of = original.getClass().getMethod("of", byte[].class, int.class, int.class);
+                return of.invoke(null, bytes, 0, bytes.length);
+            } catch (Throwable t2) {
+                return null;
+            }
         }
     }
 }

@@ -370,6 +370,26 @@ public class DtaOrchestrator {
         return unwrap(conn.client().authenticate(), "Authentication failed");
     }
 
+    public String setInterceptor(String packageName, String device, String script) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().setInterceptor(script), "Failed to install interceptor");
+    }
+
+    public String clearInterceptor(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().clearInterceptor(), "Failed to clear interceptor");
+    }
+
+    public String getInterceptor(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().getInterceptor(), "Failed to get interceptor");
+    }
+
+    public String getInterceptorLogs(String packageName, String device, long since) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().getInterceptorLogs(since), "Failed to get interceptor logs");
+    }
+
     public String listDatabases(String packageName, String device) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);
         return unwrap(conn.client().listDatabases(), "Failed to list databases");

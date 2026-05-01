@@ -661,6 +661,25 @@ public class InspectorServer {
         if (path.equals("/debug/diagnostics") && "GET".equals(method)) {
             handleDebugDiagnostics(out); return;
         }
+
+        // ---- Network interceptor (Phase 1: lifecycle + logs; the
+        // adapters wire onRequest/onResponse/onWs* in Phase 2/3) ----
+        if (cleanPath.equals("/interceptor")) {
+            if ("POST".equals(method)) {
+                handleInterceptorSet(body, out); return;
+            }
+            if ("DELETE".equals(method)) {
+                handleInterceptorClear(out); return;
+            }
+            if ("GET".equals(method)) {
+                handleInterceptorGet(out); return;
+            }
+            sendError(out, 405, "Method Not Allowed"); return;
+        }
+        if (cleanPath.equals("/interceptor/logs") && "GET".equals(method)) {
+            Map<String, String> p = parseQueryParams(path);
+            handleInterceptorLogs(p, out); return;
+        }
         if (path.startsWith("/runtime/viewmodels/") && path.endsWith("/saved-state") && "GET".equals(method)) {
             // /runtime/viewmodels/{id}/saved-state — id is between the two segments
             // and arrives URL-encoded (the id contains ':' from
@@ -783,6 +802,96 @@ public class InspectorServer {
     private void handleRuntimeJson(Map<String, Object> data, OutputStream out) throws IOException {
         try {
             sendJson(out, 200, data);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Network interceptor lifecycle endpoints
+    // ----------------------------------------------------------------
+
+    /** {@code POST /interceptor} — body is the raw JS source. */
+    private void handleInterceptorSet(String body, OutputStream out) throws IOException {
+        if (body == null || body.isEmpty()) {
+            sendError(out, 400, "missing script body");
+            return;
+        }
+        try {
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance().install(body);
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("installed", true);
+            resp.put("size", body.length());
+            sendJson(out, 200, resp);
+        } catch (IllegalArgumentException e) {
+            // Compile error or similar — the daemon/MCP forwards this
+            // back to the agent so it can fix the script.
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("installed", false);
+            resp.put("error", e.getMessage());
+            sendJson(out, 400, resp);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /** {@code DELETE /interceptor} — uninstalls if any. */
+    private void handleInterceptorClear(OutputStream out) throws IOException {
+        try {
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance().clear();
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("cleared", true);
+            sendJson(out, 200, resp);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code GET /interceptor} — returns whether one's installed and
+     * the source string for round-tripping. Useful as a smoke probe.
+     */
+    private void handleInterceptorGet(OutputStream out) throws IOException {
+        try {
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime rt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("installed", rt.isInstalled());
+            String src = rt.getSource();
+            if (src != null) resp.put("script", src);
+            sendJson(out, 200, resp);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code GET /interceptor/logs?since=&lt;seq&gt;} — returns ring
+     * buffer entries strictly newer than {@code since} (default 0).
+     * Each entry has {@code seq} (use as the next {@code since}),
+     * {@code ts} (epoch ms), {@code level} ("LOG"/"ERROR"), {@code text}.
+     */
+    private void handleInterceptorLogs(Map<String, String> params, OutputStream out) throws IOException {
+        try {
+            long since = 0;
+            String sinceStr = params == null ? null : params.get("since");
+            if (sinceStr != null) {
+                try { since = Long.parseLong(sinceStr); } catch (NumberFormatException ignored) {}
+            }
+            java.util.List<io.yamsergey.dta.sidekick.interceptor.ScriptLog.Entry> entries =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance().logs().since(since);
+            java.util.List<Map<String, Object>> out2 = new java.util.ArrayList<>(entries.size());
+            for (io.yamsergey.dta.sidekick.interceptor.ScriptLog.Entry e : entries) {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("seq", e.seq());
+                m.put("ts", e.timestampMs());
+                m.put("level", e.level().name());
+                m.put("text", e.text());
+                out2.add(m);
+            }
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("entries", out2);
+            sendJson(out, 200, resp);
         } catch (Exception e) {
             sendError(out, 500, e.getMessage());
         }

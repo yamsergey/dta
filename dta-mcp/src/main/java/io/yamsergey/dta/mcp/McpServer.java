@@ -100,6 +100,7 @@ public class McpServer {
         collectAppTools(tools);
         collectLayoutTools(tools);
         collectMockTools(tools);
+        collectInterceptorTools(tools);
         collectCdpTools(tools);
         collectRunTools(tools);
         collectDataTools(tools);
@@ -992,6 +993,88 @@ public class McpServer {
         ));
     }
 
+    private static void collectInterceptorTools(List<McpServerFeatures.SyncToolSpecification> tools) {
+        final String intercDoc =
+            "On-device JavaScript interceptor for HTTP and WebSocket traffic. " +
+            "Install a script with `interceptor_set`; sidekick evaluates it synchronously inside the " +
+            "OkHttp / URLConnection / WebSocket adapters before each request leaves and each response " +
+            "is delivered to the app, and again for every WebSocket frame.\n\n" +
+            "Scripts may export any subset of: `onRequest(req)`, `onResponse(resp)`, `onWsSend(frame)`, " +
+            "`onWsReceive(frame)`. Each handler returns the (possibly modified) payload, or `null` to " +
+            "drop the call entirely. Missing handlers pass through unchanged.\n\n" +
+            "Available in scope: `log(...)` (visible via `interceptor_logs`), `state.get/set/delete/clear` " +
+            "(persistent within an install), `sleep(ms)` (synchronous block — yes, the calling app " +
+            "thread waits; that's the contract).\n\n" +
+            "Wired adapters: OkHttp (request + response, full mutation), OkHttp WebSocket / Java-WebSocket / " +
+            "nv-websocket-client (send + receive, text and binary). HttpURLConnection requests pass through " +
+            "unmutated for now — agents should target OkHttp clients if they need rewrites.\n\n" +
+            "Drop semantics: returning `null` from `onRequest`/`onResponse` produces a synthetic 499 " +
+            "response (the underlying request still goes on the wire — JVMTI hooks can't short-circuit). " +
+            "Returning `null` from `onWs*` swallows the frame (replaces with empty payload).";
+
+        // interceptor_set
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("interceptor_set",
+                "Install or replace the interceptor script for an app. " + intercDoc,
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial (optional)", false),
+                    "script", prop("string", "JavaScript source. May export onRequest, onResponse, onWsSend, onWsReceive.", true)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String json = getDaemon().setInterceptor(
+                        getString(args, "package"), getString(args, "device"),
+                        getString(args, "script"));
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("interceptor_set", e);
+                }
+            }
+        ));
+
+        // interceptor_clear
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("interceptor_clear",
+                "Uninstall the active interceptor script for an app. State and logs are reset.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial (optional)", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String json = getDaemon().clearInterceptor(
+                        getString(args, "package"), getString(args, "device"));
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("interceptor_clear", e);
+                }
+            }
+        ));
+
+        // interceptor_logs
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("interceptor_logs",
+                "Read entries from the interceptor's ring buffer (script `log()` output and caught errors). " +
+                "Pass the highest `seq` returned previously as `since` to page forward; pass 0 to read all.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial (optional)", false),
+                    "since", prop("integer", "Return entries with seq strictly greater than this (default 0)", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    long since = getLong(args, "since", 0L);
+                    String json = getDaemon().getInterceptorLogs(
+                        getString(args, "package"), getString(args, "device"), since);
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("interceptor_logs", e);
+                }
+            }
+        ));
+    }
+
     private static void collectCdpTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // cdp_watch_start
         tools.add(new McpServerFeatures.SyncToolSpecification(
@@ -1462,6 +1545,14 @@ public class McpServer {
         if (value == null) return defaultValue;
         if (value instanceof Number n) return n.intValue();
         if (value instanceof String s) return Integer.parseInt(s);
+        return defaultValue;
+    }
+
+    private static long getLong(Map<String, Object> args, String key, long defaultValue) {
+        Object value = args.get(key);
+        if (value == null) return defaultValue;
+        if (value instanceof Number n) return n.longValue();
+        if (value instanceof String s) return Long.parseLong(s);
         return defaultValue;
     }
 

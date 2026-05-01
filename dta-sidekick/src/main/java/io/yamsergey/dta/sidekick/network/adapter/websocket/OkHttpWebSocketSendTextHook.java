@@ -2,6 +2,8 @@ package io.yamsergey.dta.sidekick.network.adapter.websocket;
 
 import io.yamsergey.dta.sidekick.Sidekick;
 import io.yamsergey.dta.sidekick.SidekickLog;
+import io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads;
+import io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime;
 
 import io.yamsergey.dta.sidekick.jvmti.MethodHook;
 import io.yamsergey.dta.sidekick.mock.MockManager;
@@ -50,6 +52,24 @@ public class OkHttpWebSocketSendTextHook implements MethodHook {
 
             String text = (String) args[0];
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
+
+            // ----- Interceptor: onWsSend -----
+            // Run before mock matching so the mock layer sees what the
+            // app would send post-script-mutation. Drop swallows the
+            // frame entirely (replaces text with "" and skips capture).
+            InterceptorRuntime irt = InterceptorRuntime.getInstance();
+            if (irt.isInstalled()) {
+                InterceptorPayloads.WsFrameMutation mut = irt.interceptWsSend(
+                        text, null, conn != null ? conn.getId() : null);
+                if (mut.dropped) {
+                    args[0] = "";
+                    return;
+                }
+                if (mut.mutated && mut.text != null) {
+                    args[0] = mut.text;
+                    text = mut.text;
+                }
+            }
 
             if (conn != null) {
                 // Build the original message for inspection and adapter

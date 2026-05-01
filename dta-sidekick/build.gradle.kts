@@ -97,6 +97,12 @@ dependencies {
     // DEX bytecode manipulation for runtime hooks
     implementation("com.android.tools.smali:smali-dexlib2:3.0.7")
 
+    // Mozilla Rhino for the on-device JS interceptor engine. Pure JVM,
+    // no native code, runs on Android. The agent installs a script via
+    // MCP; sidekick evaluates request/response/WS-frame hooks against
+    // it synchronously inside the existing network adapters.
+    implementation("org.mozilla:rhino:1.7.15")
+
     // Compose UI (compileOnly - provided by host app)
     compileOnly("androidx.compose.ui:ui:1.5.0")
     compileOnly("androidx.compose.runtime:runtime:1.5.0")

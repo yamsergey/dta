@@ -171,6 +171,22 @@ public class DaemonClient {
         return post("/api/runtime/authenticate?package=" + encode(pkg) + deviceParam(device, false), "");
     }
 
+    public String setInterceptor(String pkg, String device, String script) {
+        return post("/api/interceptor?package=" + encode(pkg) + deviceParam(device, false), script);
+    }
+
+    public String clearInterceptor(String pkg, String device) {
+        return delete("/api/interceptor?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    public String getInterceptor(String pkg, String device) {
+        return get("/api/interceptor?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    public String getInterceptorLogs(String pkg, String device, long since) {
+        return get("/api/interceptor/logs?package=" + encode(pkg) + deviceParam(device, false) + "&since=" + since);
+    }
+
     public String listDatabases(String pkg, String device) {
         return get("/api/runtime/databases?package=" + encode(pkg) + deviceParam(device, false));
     }

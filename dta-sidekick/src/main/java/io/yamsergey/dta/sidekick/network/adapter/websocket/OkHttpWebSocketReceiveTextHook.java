@@ -52,6 +52,24 @@ public class OkHttpWebSocketReceiveTextHook implements MethodHook {
             String text = (String) args[0];
             WebSocketConnection conn = WebSocketInspector.getConnectionForObject(thisObj);
 
+            // Interceptor: onWsReceive (text). Drop replaces with "" so
+            // the listener still fires but with no payload.
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled()) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsReceive(text, null,
+                                conn != null ? conn.getId() : null);
+                if (mut.dropped) {
+                    args[0] = "";
+                    return;
+                }
+                if (mut.mutated && mut.text != null) {
+                    args[0] = mut.text;
+                    text = mut.text;
+                }
+            }
+
             if (conn != null) {
                 // Build the original message for inspection and adapter
                 WebSocketMessage originalMsg = WebSocketMessage.textMessage(

@@ -279,6 +279,13 @@ public class SidekickClient {
     // ========================================================================
 
     public Result<String> authenticate() { return httpPost("/runtime/authenticate", ""); }
+
+    public Result<String> setInterceptor(String script) { return httpPost("/interceptor", script); }
+    public Result<String> clearInterceptor() { return httpDelete("/interceptor"); }
+    public Result<String> getInterceptor() { return httpGet("/interceptor"); }
+    public Result<String> getInterceptorLogs(long since) {
+        return httpGet("/interceptor/logs?since=" + since);
+    }
     public Result<String> navigationBackstack() { return httpGet("/runtime/navigation/backstack"); }
     public Result<String> navigationGraph() { return httpGet("/runtime/navigation/graph"); }
     public Result<String> lifecycle() { return httpGet("/runtime/lifecycle"); }

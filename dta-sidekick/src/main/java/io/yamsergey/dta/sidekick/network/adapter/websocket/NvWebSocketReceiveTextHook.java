@@ -75,6 +75,18 @@ public class NvWebSocketReceiveTextHook implements MethodHook {
                 conn = WebSocketInspector.getConnectionForObject(webSocketObj);
             }
 
+            // Interceptor: onWsReceive (text). Two arg layouts handled here:
+            // (WebSocket, String) → mutate args[1]; (String) → mutate args[0].
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime irt =
+                    io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            if (irt.isInstalled()) {
+                io.yamsergey.dta.sidekick.interceptor.InterceptorPayloads.WsFrameMutation mut =
+                        irt.interceptWsReceive(text, null, conn != null ? conn.getId() : null);
+                int textIdx = (args.length >= 2 && args[1] instanceof String) ? 1 : 0;
+                if (mut.dropped) { args[textIdx] = ""; return; }
+                if (mut.mutated && mut.text != null) { args[textIdx] = mut.text; text = mut.text; }
+            }
+
             if (conn != null) {
                 // Build the original message for inspection and adapter
                 WebSocketMessage originalMsg = WebSocketMessage.textMessage(
