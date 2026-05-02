@@ -322,7 +322,14 @@ public class ChromeDevToolsClient implements AutoCloseable {
     public CompletableFuture<JsonNode> enableAutoAttachFlatten() {
         Map<String, Object> params = new java.util.LinkedHashMap<>();
         params.put("autoAttach", true);
-        params.put("waitForDebuggerOnStart", false);
+        // Pause every new sub-target until we've enabled Network on its
+        // session. Without this, Chrome runs the new target's first
+        // requests before our async Network.enable lands — that's why
+        // intermediate cross-origin navigations (POST /u/login,
+        // /authorize/resume, /login/callback) on Auth0/Okta flows leak
+        // through invisible. After enabling Network on the sub-session
+        // we issue Runtime.runIfWaitingForDebugger to release it.
+        params.put("waitForDebuggerOnStart", true);
         params.put("flatten", true);
         return send("Target.setAutoAttach", params);
     }
@@ -344,6 +351,8 @@ public class ChromeDevToolsClient implements AutoCloseable {
             webSocket = null;
         }
         pendingRequests.clear();
+        attachedSessions.clear();
+        attachWorker.shutdownNow();
     }
 
     private CdpTarget parseTarget(JsonNode node) {
@@ -420,18 +429,52 @@ public class ChromeDevToolsClient implements AutoCloseable {
 
         String targetType = params.path("targetInfo").path("type").asText("?");
         String targetUrl  = params.path("targetInfo").path("url").asText("?");
-        log.debug("CDP sub-session attached: type={} url={} sessionId={}", targetType, targetUrl, sessionId);
+        boolean waitingForDebugger = params.path("waitingForDebugger").asBoolean(false);
+        log.debug("CDP sub-session attached: type={} url={} sessionId={} waiting={}",
+            targetType, targetUrl, sessionId, waitingForDebugger);
 
-        // Enable Network on the new session so its requests/responses
-        // join the same event stream the root session already feeds.
-        // We don't await — events start flowing as soon as Chrome
-        // processes the call.
-        send("Network.enable", java.util.Map.of(), sessionId)
-            .exceptionally(t -> {
+        // Enable Network on the new session synchronously, THEN resume.
+        // The waitForDebuggerOnStart pause Chrome applied is the only
+        // way to guarantee we don't miss the new target's first
+        // requests — the alternative (fire-and-forget enable) loses
+        // intermediate cross-origin navigations on flows like Auth0
+        // login (POST /u/login, /authorize/resume, /login/callback all
+        // happen on freshly-spawned sub-sessions before Network.enable
+        // would otherwise land).
+        //
+        // Run in a dedicated worker thread so we don't block the
+        // WebSocket reader. The reader needs to keep parsing further
+        // events (including this session's first network events as
+        // soon as we resume).
+        attachWorker.submit(() -> {
+            try {
+                send("Network.enable", java.util.Map.of(), sessionId).join();
+            } catch (Throwable t) {
                 log.debug("Network.enable on sub-session {} failed: {}", sessionId, t.getMessage());
-                return null;
-            });
+            }
+            if (waitingForDebugger) {
+                try {
+                    send("Runtime.runIfWaitingForDebugger", java.util.Map.of(), sessionId).join();
+                } catch (Throwable t) {
+                    log.debug("Runtime.runIfWaitingForDebugger on sub-session {} failed: {}",
+                        sessionId, t.getMessage());
+                }
+            }
+        });
     }
+
+    /**
+     * Worker pool for sub-session attach handshakes. We can't block the
+     * WebSocket reader thread on send().join() because the very response
+     * we're waiting for is delivered by that same reader. Single-threaded
+     * is fine — child-target attaches are sequential in practice.
+     */
+    private final java.util.concurrent.ExecutorService attachWorker =
+        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "cdp-attach-handshake");
+            t.setDaemon(true);
+            return t;
+        });
 
     private void handleTargetDetached(JsonNode params) {
         String sessionId = params.path("sessionId").asText(null);

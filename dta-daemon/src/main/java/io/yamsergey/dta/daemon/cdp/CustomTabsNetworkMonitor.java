@@ -78,6 +78,17 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
 
     // Transaction correlation - tracks in-flight requests by CDP requestId
     private final Map<String, InFlightTransaction> inFlightTransactions = new ConcurrentHashMap<>();
+
+    /**
+     * Per-requestId counter of completed redirect hops. CDP reuses the same
+     * {@code requestId} across an entire redirect chain (initial request,
+     * every 30x intermediate, and the final response), so when we post each
+     * hop to sidekick we tag it with {@code <id>-redirect-<N>} to keep each
+     * intermediate visible — sidekick dedupes by id and would otherwise
+     * collapse the chain to its last hop. Cleared when the chain terminates
+     * via {@code Network.loadingFinished} / {@code Network.loadingFailed}.
+     */
+    private final Map<String, Integer> redirectHopCount = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Optional: SidekickClient for posting transactions to sidekick
@@ -351,19 +362,36 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
                 // Check if this is a redirect - if so, complete the previous request first
                 if (req.redirectResponse() != null) {
                     var redirect = req.redirectResponse();
-                    // Complete the redirected request as a separate transaction
+                    // Complete the redirected request as a separate transaction.
+                    //
+                    // CDP reuses the same `requestId` across every hop of a redirect
+                    // chain: the original request, all 30x intermediates, and the
+                    // final response all share one id. Sidekick's transaction store
+                    // dedupes by id (so pending → in-progress → completed updates
+                    // collapse into one record). If we post each hop with the bare
+                    // original requestId, every intermediate hop is overwritten by
+                    // the next. We tag each completed hop with a per-chain redirect
+                    // counter so each survives as its own record. The next hop's
+                    // pending entry continues to use the bare requestId, which is
+                    // what we want — once that hop's status is known, it'll either
+                    // be the final response (kept) or trigger another redirect
+                    // (rotated into "-redirect-N" too).
                     InFlightTransaction redirectTx = inFlightTransactions.remove(req.requestId());
+                    int hopIndex;
                     if (redirectTx == null) {
                         // No existing transaction - this happens when CDP attaches after initial request
                         // Create a synthetic transaction from the redirect response
                         redirectTx = new InFlightTransaction();
-                        redirectTx.requestId = req.requestId() + "-redirect";
                         redirectTx.url = redirect.url();
                         redirectTx.method = req.method(); // Original method
                         redirectTx.resourceType = req.type(); // Resource type from new request
                         redirectTx.startTime = req.timestamp(); // Approximate
                         redirectTx.customTabUrl = customTabUrl;
+                        hopIndex = redirectHopCount.merge(req.requestId(), 1, Integer::sum);
+                    } else {
+                        hopIndex = redirectHopCount.merge(req.requestId(), 1, Integer::sum);
                     }
+                    redirectTx.requestId = req.requestId() + "-redirect-" + hopIndex;
                     redirectTx.statusCode = redirect.status();
                     redirectTx.statusText = redirect.statusText();
                     redirectTx.responseHeaders = redirect.headers();
@@ -477,6 +505,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
 
             case FINISHED -> {
                 InFlightTransaction tx = inFlightTransactions.remove(requestId);
+                redirectHopCount.remove(requestId);
                 if (tx != null) {
                     tx.endTime = event.timestamp();
                     // Skip body fetch for Document requests — Chrome discards the body
@@ -493,6 +522,7 @@ public class CustomTabsNetworkMonitor implements AutoCloseable {
             case FAILED -> {
                 // Complete with error
                 InFlightTransaction tx = inFlightTransactions.remove(requestId);
+                redirectHopCount.remove(requestId);
                 if (tx != null) {
                     tx.endTime = event.timestamp();
                     postTransactionToSidekick(tx, event.statusText());
