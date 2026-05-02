@@ -387,6 +387,21 @@ public class CdpWatcherManager {
 
                     client.enableNetwork().join();
 
+                    // Flatten auto-attach so child targets — out-of-process
+                    // iframes (Auth0/Okta/Cognito login pages, embedded
+                    // captchas, federation login windows), service workers,
+                    // and any other sub-targets created after navigation —
+                    // emit Network.* events into our same listener. Without
+                    // this, XHR/Fetch from those sub-targets is invisible.
+                    // Best-effort: a setAutoAttach failure shouldn't kill
+                    // the main capture session.
+                    try {
+                        client.enableAutoAttachFlatten().join();
+                    } catch (Exception e) {
+                        log.warn("Target.setAutoAttach failed — sub-frame XHR/Fetch may be missed: {}",
+                            e.getMessage());
+                    }
+
                     // Navigate to the real URL now that Network capture is active.
                     // The sidekick opened a loading tab (about:blank or our
                     // data:text/html escape page) to give us time to attach CDP.

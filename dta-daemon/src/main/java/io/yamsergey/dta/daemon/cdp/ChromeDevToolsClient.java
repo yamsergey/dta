@@ -262,6 +262,19 @@ public class ChromeDevToolsClient implements AutoCloseable {
      * @return future that completes with the result
      */
     public CompletableFuture<JsonNode> send(String method, Map<String, Object> params) {
+        return send(method, params, null);
+    }
+
+    /**
+     * Sends a CDP method request, optionally targeting a flatten sub-session.
+     *
+     * <p>When {@code sessionId} is non-null, the message carries a top-level
+     * {@code sessionId} field so Chrome routes it to the correct child target
+     * (iframe, worker, etc.) attached via {@link #enableAutoAttachFlatten}.
+     * Responses arrive via the same id-based correlation as the root session;
+     * we don't need to track the sessionId on the future side.</p>
+     */
+    public CompletableFuture<JsonNode> send(String method, Map<String, Object> params, String sessionId) {
         if (webSocket == null || !connected) {
             return CompletableFuture.failedFuture(
                 new IOException("Not connected to WebSocket"));
@@ -276,6 +289,9 @@ public class ChromeDevToolsClient implements AutoCloseable {
             message.put("id", id);
             message.put("method", method);
             message.set("params", objectMapper.valueToTree(params));
+            if (sessionId != null && !sessionId.isEmpty()) {
+                message.put("sessionId", sessionId);
+            }
 
             String json = objectMapper.writeValueAsString(message);
             webSocket.sendText(json, true);
@@ -286,6 +302,29 @@ public class ChromeDevToolsClient implements AutoCloseable {
         }
 
         return future;
+    }
+
+    /**
+     * Enables Chrome's flatten auto-attach mode on the current target.
+     *
+     * <p>After this call, every existing and future child target — out-of-process
+     * iframes, dedicated workers, service workers, shared workers — flattens
+     * onto the same WebSocket as a sub-session. Chrome emits
+     * {@code Target.attachedToTarget} with a {@code sessionId} for each;
+     * this client picks them up internally and issues {@code Network.enable}
+     * against each so XHR/Fetch traffic from those sub-targets surfaces in
+     * the same {@link CdpNetworkEvent} stream as the main frame's traffic.</p>
+     *
+     * <p>Call this <em>after</em> {@link #attachToWebSocket} and
+     * {@link #enableNetwork} on the root target. Idempotent — duplicate
+     * calls are no-ops at the Chrome side.</p>
+     */
+    public CompletableFuture<JsonNode> enableAutoAttachFlatten() {
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("autoAttach", true);
+        params.put("waitForDebuggerOnStart", false);
+        params.put("flatten", true);
+        return send("Target.setAutoAttach", params);
     }
 
     /**
@@ -349,6 +388,18 @@ public class ChromeDevToolsClient implements AutoCloseable {
     }
 
     private void handleEvent(String method, JsonNode params) {
+        // Target events are handled internally so child frames / workers
+        // get Network.enable on their own session as soon as Chrome
+        // attaches them. Doesn't go to the network listener.
+        if ("Target.attachedToTarget".equals(method)) {
+            handleTargetAttached(params);
+            return;
+        }
+        if ("Target.detachedFromTarget".equals(method)) {
+            handleTargetDetached(params);
+            return;
+        }
+
         if (networkEventListener == null) {
             return;
         }
@@ -357,6 +408,34 @@ public class ChromeDevToolsClient implements AutoCloseable {
         if (event != null) {
             networkEventListener.accept(event);
         }
+    }
+
+    /** Tracks flatten sub-sessions so we can fan Network.enable to each. */
+    private final java.util.Set<String> attachedSessions = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private void handleTargetAttached(JsonNode params) {
+        String sessionId = params.path("sessionId").asText(null);
+        if (sessionId == null || sessionId.isEmpty()) return;
+        if (!attachedSessions.add(sessionId)) return; // already enabled
+
+        String targetType = params.path("targetInfo").path("type").asText("?");
+        String targetUrl  = params.path("targetInfo").path("url").asText("?");
+        log.debug("CDP sub-session attached: type={} url={} sessionId={}", targetType, targetUrl, sessionId);
+
+        // Enable Network on the new session so its requests/responses
+        // join the same event stream the root session already feeds.
+        // We don't await — events start flowing as soon as Chrome
+        // processes the call.
+        send("Network.enable", java.util.Map.of(), sessionId)
+            .exceptionally(t -> {
+                log.debug("Network.enable on sub-session {} failed: {}", sessionId, t.getMessage());
+                return null;
+            });
+    }
+
+    private void handleTargetDetached(JsonNode params) {
+        String sessionId = params.path("sessionId").asText(null);
+        if (sessionId != null) attachedSessions.remove(sessionId);
     }
 
     private CdpNetworkEvent parseNetworkEvent(String method, JsonNode params) {
