@@ -49,6 +49,16 @@ public final class InterceptorRuntime {
     /** Holds the currently-installed script and its scope. {@code null} when nothing is installed. */
     private volatile InstalledScript installed;
 
+    /**
+     * Where the persisted script lives on disk (one file per app, since
+     * sidekick runs inside the host app's process and {@code filesDir} is
+     * already per-app). Set by {@link #setPersistenceFile(java.io.File)}
+     * during sidekick init. Null when persistence is disabled or hasn't
+     * been wired yet — the runtime stays fully functional, just doesn't
+     * survive process restart.
+     */
+    private volatile java.io.File persistenceFile;
+
     private InterceptorRuntime() {}
 
     public static InterceptorRuntime getInstance() {
@@ -64,11 +74,62 @@ public final class InterceptorRuntime {
     }
 
     /**
+     * Configures the persistence file. Called once from sidekick init.
+     * After this returns, every {@link #install} writes the source to
+     * disk and {@link #clear} deletes it; on the next process launch,
+     * call {@link #autoReinstallFromDisk} to pick up the persisted
+     * script automatically.
+     */
+    public void setPersistenceFile(java.io.File file) {
+        this.persistenceFile = file;
+    }
+
+    /**
+     * Reads the persisted script (if any) and installs it. Compile
+     * errors are caught and recorded to the ring buffer — sidekick
+     * stays running normally. The persisted file is left on disk so
+     * the developer can fix and re-install via MCP.
+     *
+     * <p>Logs an explicit "auto-reinstalled from disk" entry so users
+     * see at a glance that a persisted script ran on this launch
+     * (versus an MCP-driven install that would normally produce the
+     * "interceptor installed (N chars)" entry).</p>
+     */
+    public synchronized void autoReinstallFromDisk() {
+        java.io.File file = persistenceFile;
+        if (file == null || !file.exists()) return;
+        String source;
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+            source = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            SidekickLog.w(TAG, "Failed to read persisted interceptor: " + e.getMessage());
+            return;
+        }
+        if (source.isEmpty()) return;
+        try {
+            installInternal(source, /* persist */ false);
+            String version = io.yamsergey.dta.sidekick.SidekickVersion.get();
+            log.log("interceptor auto-reinstalled from disk (" + source.length() + " chars) [sidekick=" + version + "]");
+            SidekickLog.i(TAG, "interceptor auto-reinstalled from disk: " + source.length() + " chars");
+        } catch (IllegalArgumentException e) {
+            log.error("interceptor auto-reinstall failed: " + e.getMessage());
+            SidekickLog.w(TAG, "interceptor auto-reinstall failed: " + e.getMessage());
+        }
+    }
+
+    /**
      * Installs (or replaces) the script. Compile errors are thrown so
      * the caller (the sidekick HTTP endpoint, then MCP) can surface
-     * them directly to the agent.
+     * them directly to the agent. The script is also persisted to
+     * {@link #persistenceFile} so it survives app process restart;
+     * a compile failure does not write to disk.
      */
     public synchronized void install(String source) {
+        installInternal(source, /* persist */ true);
+    }
+
+    private void installInternal(String source, boolean persist) {
         if (source == null || source.trim().isEmpty()) {
             throw new IllegalArgumentException("script source is empty");
         }
@@ -86,12 +147,21 @@ public final class InterceptorRuntime {
             compiled.exec(cx, scope);
 
             this.installed = new InstalledScript(source, scopeBuilder, scope);
-            // Tag the install entry with the sidekick AAR version. Agents
-            // can spot version-mismatch failures (old AAR, new MCP) at a
-            // glance — they show up here rather than as opaque crashes.
-            String version = io.yamsergey.dta.sidekick.SidekickVersion.get();
-            log.log("interceptor installed (" + source.length() + " chars) [sidekick=" + version + "]");
-            SidekickLog.i(TAG, "interceptor script installed: " + source.length() + " chars (sidekick " + version + ")");
+            if (persist) {
+                // Only the explicit-install path writes to disk. The
+                // auto-reinstall path skips this — the script is already
+                // on disk and re-writing would be redundant — and emits
+                // its own log line so users see "auto-reinstalled"
+                // distinct from "installed".
+                writePersisted(source);
+                // Tag the install entry with the sidekick AAR version.
+                // Agents can spot version-mismatch failures (old AAR, new
+                // MCP) at a glance — they show up here rather than as
+                // opaque crashes.
+                String version = io.yamsergey.dta.sidekick.SidekickVersion.get();
+                log.log("interceptor installed (" + source.length() + " chars) [sidekick=" + version + "]");
+                SidekickLog.i(TAG, "interceptor script installed: " + source.length() + " chars (sidekick " + version + ")");
+            }
         } catch (RhinoException e) {
             String msg = "compile error: " + e.details() + " @ " + e.lineNumber() + ":" + e.columnNumber();
             log.error(msg);
@@ -101,12 +171,40 @@ public final class InterceptorRuntime {
         }
     }
 
+    private void writePersisted(String source) {
+        java.io.File file = persistenceFile;
+        if (file == null) return;
+        try {
+            java.io.File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
+            java.nio.file.Files.write(file.toPath(),
+                source.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            // Persist failure isn't fatal — the runtime still has the
+            // script in memory for this process. Log so the developer
+            // notices it won't survive a restart.
+            log.error("interceptor persist failed: " + e.getMessage());
+            SidekickLog.w(TAG, "interceptor persist failed: " + e.getMessage());
+        }
+    }
+
+    private void deletePersisted() {
+        java.io.File file = persistenceFile;
+        if (file == null) return;
+        try { file.delete(); } catch (Exception ignored) {}
+    }
+
     public synchronized void clear() {
         if (installed != null) {
             installed = null;
             log.log("interceptor cleared");
             SidekickLog.i(TAG, "interceptor cleared");
         }
+        // Always delete the persisted file even if nothing was loaded
+        // in memory — covers the case where an auto-reinstall is
+        // pending (process restart between install and clear) or the
+        // file is leftover from a prior bad state.
+        deletePersisted();
     }
 
     public String getSource() {

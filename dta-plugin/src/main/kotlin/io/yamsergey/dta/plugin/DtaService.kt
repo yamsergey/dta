@@ -629,6 +629,33 @@ class DtaService : Disposable {
     }
 
     // ========================================================================
+    // Network interceptor (JS-script-driven request/response/frame mutation)
+    //
+    // Pass-throughs to DaemonClient.{set,clear,get}Interceptor +
+    // getInterceptorLogs. The daemon proxies to sidekick's HTTP server, which
+    // owns the Rhino runtime + ring buffer. All four return the raw JSON
+    // string the server emits so the UI can render compile errors,
+    // sidekickVersion, log entries, etc., without smuggling concrete types
+    // across module boundaries.
+    // ========================================================================
+
+    fun setInterceptor(pkg: String, device: String?, script: String): String {
+        return ensureDaemon().setInterceptor(pkg, device, script)
+    }
+
+    fun clearInterceptor(pkg: String, device: String?): String {
+        return ensureDaemon().clearInterceptor(pkg, device)
+    }
+
+    fun getInterceptor(pkg: String, device: String?): String {
+        return ensureDaemon().getInterceptor(pkg, device)
+    }
+
+    fun getInterceptorLogs(pkg: String, device: String?, since: Long): String {
+        return ensureDaemon().getInterceptorLogs(pkg, device, since)
+    }
+
+    // ========================================================================
     // Selection sync (bidirectional with daemon)
     // ========================================================================
 

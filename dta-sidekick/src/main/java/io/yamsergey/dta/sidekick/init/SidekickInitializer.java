@@ -110,6 +110,22 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
             SidekickLog.e(TAG, "Failed to start ADT Sidekick server", e);
         }
 
+        // Wire interceptor persistence: filesDir is per-app, durable
+        // across app restart (cacheDir would be too aggressive — OS or
+        // user can wipe it). install/clear write/delete the file;
+        // autoReinstallFromDisk picks it up on this and every future
+        // app launch. Compile errors during auto-reinstall don't crash
+        // sidekick — they're recorded to the ring buffer.
+        try {
+            File interceptorFile = new File(context.getFilesDir(), "dta-interceptor.js");
+            io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime runtime =
+                io.yamsergey.dta.sidekick.interceptor.InterceptorRuntime.getInstance();
+            runtime.setPersistenceFile(interceptorFile);
+            runtime.autoReinstallFromDisk();
+        } catch (Exception e) {
+            SidekickLog.w(TAG, "Interceptor persistence init failed (non-fatal): " + e.getMessage());
+        }
+
         return server;
     }
 
