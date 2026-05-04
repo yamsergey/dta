@@ -1733,6 +1733,17 @@ public class McpServer {
                 + "and the app is in the foreground.";
         } else if (msg.contains("No device") || msg.contains("device not found")) {
             hint = "\nHint: No Android device connected. Use list_devices to check connected devices.";
+        } else if (msg.contains("Could not find scrollable view") || msg.contains("No scrollable views found")) {
+            // Specific case BEFORE the generic 400 hint: the parameters were
+            // fine, the current screen just has nothing to scroll. The
+            // generic hint sends the agent on a wild goose chase checking
+            // package/device/IDs, which won't help.
+            hint = "\nHint: The current screen has no scrollable content (no ScrollView, RecyclerView, "
+                + "ListView, or similar found in the layout). This is a screen-state issue, not a "
+                + "parameter problem. Use the regular `screenshot` tool for a single capture, or "
+                + "navigate to a screen with scrollable content (list, feed, settings) first. "
+                + "If a scrollable view does exist but wasn't detected, pass its resource-id via "
+                + "the `viewId` parameter — `layout_tree` shows resource IDs for visible elements.";
         } else if (msg.contains("HTTP error 400") || msg.contains("HTTP error 404")) {
             // Daemon returned a 4xx — usually a bad parameter value the
             // schema didn't catch (wrong package on this device, missing
