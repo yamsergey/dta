@@ -283,7 +283,16 @@ public class SidekickClient {
 
     public Result<String> authenticate() { return httpPost("/runtime/authenticate", ""); }
 
-    public Result<String> setInterceptor(String script) { return httpPost("/interceptor", script); }
+    /**
+     * Installs a JavaScript interceptor script. Uses a longer timeout
+     * (60s) than the default 30s because Rhino's first compile on a
+     * cold app process exceeds 30s on slow emulators — long enough that
+     * the MCP caller saw "HTTP error" while sidekick logged
+     * "interceptor script installed" ~30s later. Subsequent installs
+     * are fast; the timeout only matters for the first one per
+     * process.
+     */
+    public Result<String> setInterceptor(String script) { return httpPost("/interceptor", script, 60_000); }
     public Result<String> clearInterceptor() { return httpDelete("/interceptor"); }
     public Result<String> getInterceptor() { return httpGet("/interceptor"); }
     public Result<String> getInterceptorLogs(long since) {
@@ -798,13 +807,23 @@ public class SidekickClient {
      * @return Result containing response body on success
      */
     private Result<String> httpPost(String path, String body) {
+        return httpPost(path, body, timeoutMs);
+    }
+
+    /**
+     * Same as {@link #httpPost(String, String)} but with an explicit
+     * timeout — used by endpoints that can take longer than the default
+     * (e.g. interceptor install, which compiles the script through Rhino
+     * and may take 30s+ on first run).
+     */
+    private Result<String> httpPost(String path, String body, int timeoutMsOverride) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL("http://localhost:" + port + path);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(timeoutMs);
-            connection.setReadTimeout(timeoutMs);
+            connection.setConnectTimeout(timeoutMsOverride);
+            connection.setReadTimeout(timeoutMsOverride);
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json");
 

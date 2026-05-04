@@ -172,7 +172,13 @@ public class DaemonClient {
     }
 
     public String setInterceptor(String pkg, String device, String script) {
-        return post("/api/interceptor?package=" + encode(pkg) + deviceParam(device, false), script);
+        // 75s — sidekick's setInterceptor uses 60s (Rhino first-compile
+        // can exceed 30s on cold emulator); we add ~15s headroom for the
+        // proxy hop. Without the longer timeout, the MCP caller saw a
+        // false "HTTP error" while sidekick logged successful install
+        // a few seconds later.
+        return post("/api/interceptor?package=" + encode(pkg) + deviceParam(device, false), script,
+                java.time.Duration.ofSeconds(75));
     }
 
     public String clearInterceptor(String pkg, String device) {
