@@ -107,7 +107,15 @@ class DataPanel : JPanel(BorderLayout()), DtaServiceListener {
         // === Database detail view (schema + query) ===
         val dbDetailPanel = JPanel(BorderLayout())
         val backFromDb = JButton("← Back").apply {
-            addActionListener { cardLayout.show(cardPanel, "list") }
+            addActionListener {
+                cardLayout.show(cardPanel, "list")
+                // Clear the row selection so the next click on the same row
+                // registers as a change and re-opens the detail view.
+                // ListSelectionListener only fires on selection *change*, so
+                // without this a single-row table is dead-ended after the
+                // first detail visit.
+                dbTable.clearSelection()
+            }
         }
         val dbDetailToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2))
         dbDetailToolbar.add(backFromDb)
@@ -142,7 +150,10 @@ class DataPanel : JPanel(BorderLayout()), DtaServiceListener {
         // === Prefs detail view ===
         val prefsDetailPanel = JPanel(BorderLayout())
         val backFromPrefs = JButton("← Back").apply {
-            addActionListener { cardLayout.show(cardPanel, "list") }
+            addActionListener {
+                cardLayout.show(cardPanel, "list")
+                prefsTable.clearSelection()
+            }
         }
         val prefsToolbar = JPanel(FlowLayout(FlowLayout.LEFT, 4, 2))
         prefsToolbar.add(backFromPrefs)
