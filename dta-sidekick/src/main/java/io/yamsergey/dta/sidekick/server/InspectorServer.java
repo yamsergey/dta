@@ -1543,8 +1543,16 @@ public class InspectorServer {
     }
 
     /**
-     * GET /network/requests/{id}/body - Get the response body for a request.
-     * Returns base64-encoded body for binary content, or raw text for text content.
+     * GET /network/requests/{id}/body - Get the request AND response bodies
+     * for a captured HTTP transaction. Originally only surfaced the
+     * response body, which contradicted the route name and made it
+     * impossible to inspect what the client actually sent (form POSTs,
+     * OAuth grant payloads, etc.). Now returns both under {@code request}
+     * and {@code response} sub-objects, each with its own contentType,
+     * size, encoding (text/base64), and body fields. Either side can be
+     * absent (e.g. {@code response} missing for an in-flight or failed
+     * request); the corresponding sub-object's body field is omitted in
+     * that case.
      */
     private void handleNetworkRequestBody(String requestId, OutputStream out) throws IOException {
         try {
@@ -1558,57 +1566,18 @@ public class InspectorServer {
                 return;
             }
 
-            HttpResponse response = tx.getResponse();
-            if (response == null) {
-                Map<String, Object> error = new HashMap<>();
-                error.put("error", "No response available");
-                sendJson(out, 404, error);
-                return;
-            }
-
             Map<String, Object> result = new HashMap<>();
             result.put("id", requestId);
-            result.put("contentType", response.getContentType());
-            result.put("size", response.getBodySize());
-
-            // Check if body is stored externally
-            if (response.hasExternalBody()) {
-                BodyReference bodyRef = response.getBodyRef();
-                BodyStorage storage = BodyStorage.getInstance();
-
-                if (storage != null) {
-                    byte[] bytes = storage.readBytes(bodyRef);
-                    if (bytes != null) {
-                        String contentType = response.getContentType();
-                        boolean isImage = contentType != null && contentType.startsWith("image/");
-                        boolean isBinary = isImage || (contentType != null && (
-                            contentType.contains("octet-stream") ||
-                            contentType.contains("application/pdf") ||
-                            contentType.contains("audio/") ||
-                            contentType.contains("video/")
-                        ));
-
-                        if (isBinary) {
-                            // Return base64-encoded binary content
-                            result.put("encoding", "base64");
-                            result.put("body", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP));
-                        } else {
-                            // Return as text
-                            result.put("encoding", "text");
-                            result.put("body", new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
-                        }
-                    } else {
-                        result.put("error", "Body file not found");
-                    }
-                } else {
-                    result.put("error", "Body storage not initialized");
-                }
-            } else if (response.getBody() != null) {
-                // Inline body
-                result.put("encoding", "text");
-                result.put("body", response.getBody());
-            } else {
-                result.put("error", "No body available");
+            HttpRequest request = tx.getRequest();
+            if (request != null) {
+                result.put("request", buildRequestBodyEntry(request));
+            }
+            HttpResponse response = tx.getResponse();
+            if (response != null) {
+                result.put("response", buildResponseBodyEntry(response));
+            }
+            if (request == null && response == null) {
+                result.put("error", "No request or response captured");
             }
 
             sendJson(out, 200, result);
@@ -1618,6 +1587,82 @@ public class InspectorServer {
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * Builds the {@code request} sub-object for /network/requests/{id}/body.
+     * Mirrors {@link #buildResponseBodyEntry} so callers see consistent
+     * field names on either side. Inline + external-storage paths handled
+     * the same way; binary content (image/, octet-stream, pdf, audio,
+     * video) returned base64-encoded with {@code encoding: "base64"},
+     * everything else as UTF-8 text.
+     */
+    private Map<String, Object> buildRequestBodyEntry(HttpRequest request) {
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("contentType", request.getContentType());
+        entry.put("size", request.getBodySize());
+        if (request.hasExternalBody()) {
+            BodyStorage storage = BodyStorage.getInstance();
+            if (storage == null) {
+                entry.put("error", "Body storage not initialized");
+                return entry;
+            }
+            byte[] bytes = storage.readBytes(request.getBodyRef());
+            if (bytes == null) {
+                entry.put("error", "Body file not found");
+                return entry;
+            }
+            putEncodedBody(entry, request.getContentType(), bytes);
+        } else if (request.getBody() != null) {
+            entry.put("encoding", "text");
+            entry.put("body", request.getBody());
+        } else {
+            entry.put("error", "No body available");
+        }
+        return entry;
+    }
+
+    /** Same shape as {@link #buildRequestBodyEntry} but for the response side. */
+    private Map<String, Object> buildResponseBodyEntry(HttpResponse response) {
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("contentType", response.getContentType());
+        entry.put("size", response.getBodySize());
+        if (response.hasExternalBody()) {
+            BodyStorage storage = BodyStorage.getInstance();
+            if (storage == null) {
+                entry.put("error", "Body storage not initialized");
+                return entry;
+            }
+            byte[] bytes = storage.readBytes(response.getBodyRef());
+            if (bytes == null) {
+                entry.put("error", "Body file not found");
+                return entry;
+            }
+            putEncodedBody(entry, response.getContentType(), bytes);
+        } else if (response.getBody() != null) {
+            entry.put("encoding", "text");
+            entry.put("body", response.getBody());
+        } else {
+            entry.put("error", "No body available");
+        }
+        return entry;
+    }
+
+    private static void putEncodedBody(Map<String, Object> entry, String contentType, byte[] bytes) {
+        boolean isImage = contentType != null && contentType.startsWith("image/");
+        boolean isBinary = isImage || (contentType != null && (
+            contentType.contains("octet-stream") ||
+            contentType.contains("application/pdf") ||
+            contentType.contains("audio/") ||
+            contentType.contains("video/")
+        ));
+        if (isBinary) {
+            entry.put("encoding", "base64");
+            entry.put("body", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP));
+        } else {
+            entry.put("encoding", "text");
+            entry.put("body", new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
         }
     }
 

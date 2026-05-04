@@ -624,7 +624,14 @@ public class McpServer {
 
         // network_request_body
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_request_body", "Get the response body for a specific HTTP request",
+            tool("network_request_body",
+                "Get both the request and response bodies for a captured HTTP transaction. " +
+                "Returns {id, request:{contentType,size,encoding,body}, response:{...}}. " +
+                "encoding is 'text' for UTF-8 content or 'base64' for image/octet-stream/pdf/audio/video. " +
+                "Use this when network_requests' inline truncation isn't enough — for example to inspect " +
+                "the exact form-encoded payload an OAuth token POST sent, or the JSON a failing API call " +
+                "returned. Either side can be absent (request still in flight, response failed) — the " +
+                "corresponding sub-object's body field is omitted in that case.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID from network_requests", true),
