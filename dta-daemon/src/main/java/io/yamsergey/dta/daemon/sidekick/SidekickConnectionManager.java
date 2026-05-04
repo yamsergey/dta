@@ -115,23 +115,29 @@ public class SidekickConnectionManager {
      * @throws Exception if connection fails
      */
     public ConnectionInfo getConnection(String packageName, String device) throws Exception {
-        String key = (device != null ? device : "default") + ":" + packageName;
-
-        // When device is null (MCP agents often omit it), check if there's
-        // already a cached connection for this package on ANY device. Reuse
-        // it to avoid creating a conflicting second ADB forward.
+        // When device is null (MCP agents often omit it), resolve to a
+        // concrete device we already have a connection for — BEFORE
+        // acquiring the per-key lock. The previous code did an unlocked
+        // checkHealth() against every cached entry here, which produced a
+        // thundering herd of /health calls under concurrent load (plugin
+        // polling + MCP requests + SSE self-heal all hitting the same
+        // sidekick): broken pipe storms in the sidekick log, cached
+        // connections thrashed before the lock could serialize them.
+        // Now we just resolve to the cached key and let the locked path
+        // below do exactly one health check.
         if (device == null) {
             for (var entry : connections.entrySet()) {
                 if (entry.getKey().endsWith(":" + packageName)) {
-                    ConnectionInfo cached = entry.getValue();
-                    Result<String> health = cached.client().checkHealth();
-                    if (health instanceof Success) {
-                        log.debug("Reusing connection for {} (matched from {})", packageName, entry.getKey());
-                        return cached;
+                    int colon = entry.getKey().indexOf(':');
+                    String resolvedDevice = entry.getKey().substring(0, colon);
+                    if (!"default".equals(resolvedDevice)) {
+                        device = resolvedDevice;
                     }
+                    break;
                 }
             }
         }
+        String key = (device != null ? device : "default") + ":" + packageName;
 
         // Check cooldown before acquiring lock to fail fast
         Long failedAt = failedConnectionTimestamps.get(key);

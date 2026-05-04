@@ -150,13 +150,16 @@ public class SidekickClient {
      * @return Result containing health status JSON on success
      */
     public Result<String> checkHealth() {
-        // Use a short timeout here. The default timeoutMs (30s) is right for
-        // real endpoints like /layout/tree, but a dead sidekick makes every
-        // health check eat 30s before the caller learns the connection is
-        // gone. Under plugin reconnect retries that multiplied into minutes
-        // of stalled HTTP threads + leaked adb forwards. 2s is plenty for a
-        // living sidekick to respond to /health.
-        return httpGet("/health", 2000);
+        // Short timeout (vs. the default 30s) so a dead sidekick doesn't
+        // make every connection-cache check eat half a minute. But not so
+        // short that a sidekick warming up out of Doze gets prematurely
+        // declared dead — 5s leaves headroom for the ART JIT, the JVMTI
+        // hooks, and the LocalSocket accept loop to all wake up before
+        // the daemon tears down the cached connection. 2s was the
+        // previous value and was tight enough that long-idle scenarios
+        // produced false-dead diagnoses + broken-pipe storms during the
+        // immediate retry barrage.
+        return httpGet("/health", 5000);
     }
 
     /**
