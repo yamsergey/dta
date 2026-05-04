@@ -251,7 +251,7 @@ public final class InterceptorRuntime {
             Function f = (Function) fn;
             Object result = f.call(cx, s.scope, s.scope, new Object[]{ payload });
             if (result == Undefined.instance) return InterceptorPayloads.HttpRequestMutation.UNCHANGED;
-            return InterceptorPayloads.readHttpRequest(result, payload);
+            return InterceptorPayloads.readHttpRequest(result, url, method, headers, body);
         } catch (Throwable t) {
             captureError("onRequest", t);
             return InterceptorPayloads.HttpRequestMutation.UNCHANGED;
@@ -280,7 +280,7 @@ public final class InterceptorRuntime {
             Function f = (Function) fn;
             Object result = f.call(cx, s.scope, s.scope, new Object[]{ payload });
             if (result == Undefined.instance) return InterceptorPayloads.HttpResponseMutation.UNCHANGED;
-            return InterceptorPayloads.readHttpResponse(result, payload);
+            return InterceptorPayloads.readHttpResponse(result, status, statusMessage, headers, body);
         } catch (Throwable t) {
             captureError("onResponse", t);
             return InterceptorPayloads.HttpResponseMutation.UNCHANGED;
@@ -314,7 +314,7 @@ public final class InterceptorRuntime {
             Function f = (Function) fn;
             Object result = f.call(cx, s.scope, s.scope, new Object[]{ payload });
             if (result == Undefined.instance) return InterceptorPayloads.WsFrameMutation.UNCHANGED;
-            return InterceptorPayloads.readWsFrame(result, payload);
+            return InterceptorPayloads.readWsFrame(result, text, binary);
         } catch (Throwable t) {
             captureError(fnName, t);
             return InterceptorPayloads.WsFrameMutation.UNCHANGED;

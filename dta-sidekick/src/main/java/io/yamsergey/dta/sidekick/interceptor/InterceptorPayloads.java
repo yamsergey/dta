@@ -64,22 +64,50 @@ public final class InterceptorPayloads {
     }
 
     /**
-     * Reads back the request mutation. We do <b>not</b> short-circuit on
-     * {@code jsObj === original} — JS scripts almost universally mutate
-     * the passed-in object in place ({@code req.headers["X"] = "..."; return req;})
-     * and that mutation is invisible at the reference level. Always read
-     * the fields and let the adapter compare to decide what to rebuild.
+     * Reads back the request mutation. Fields are compared to the
+     * Java-side originals; if everything matches, returns
+     * {@link HttpRequestMutation#UNCHANGED} so the adapter skips the
+     * OkHttp round-trip entirely.
+     *
+     * <p>Why field comparison and not {@code jsObj === original}: scripts
+     * almost universally mutate the wrapper in place
+     * ({@code req.headers["X"] = "..."; return req;}) — reference
+     * equality wouldn't detect that. We check actual values instead.</p>
+     *
+     * <p>Why bother detecting unchanged at all: even when the script is
+     * a pass-through, rebuilding the OkHttp Request via reflection
+     * subtly changes things — Content-Type/Length canonicalization,
+     * Authenticator interactions, BridgeInterceptor re-encoding. The
+     * user's bug report: a script that only rewrote URLs matching one
+     * pattern silently broke {@code POST /oauth/token} with 401
+     * access_denied. Returning the original wrapper untouched should
+     * be a true zero-touch path.</p>
      */
-    public static HttpRequestMutation readHttpRequest(Object jsObj, Object original) {
+    public static HttpRequestMutation readHttpRequest(Object jsObj,
+            String origUrl, String origMethod,
+            Map<String, String> origHeaders, byte[] origBody) {
         if (jsObj == null) return HttpRequestMutation.DROP;
         if (!(jsObj instanceof NativeObject)) return HttpRequestMutation.UNCHANGED;
         NativeObject obj = (NativeObject) jsObj;
+
+        String newUrl = stringField(obj, "url");
+        String newMethod = stringField(obj, "method");
+        Map<String, String> newHeaders = readHeaders(obj.get("headers"));
+        byte[] newBody = readBody(obj.get("body"));
+
+        if (java.util.Objects.equals(newUrl, origUrl)
+                && java.util.Objects.equals(newMethod, origMethod)
+                && headersEqual(newHeaders, origHeaders)
+                && java.util.Arrays.equals(newBody, origBody)) {
+            return HttpRequestMutation.UNCHANGED;
+        }
+
         HttpRequestMutation m = new HttpRequestMutation();
         m.mutated = true;
-        m.url = stringField(obj, "url");
-        m.method = stringField(obj, "method");
-        m.headers = readHeaders(obj.get("headers"));
-        m.body = readBody(obj.get("body"));
+        m.url = newUrl;
+        m.method = newMethod;
+        m.headers = newHeaders;
+        m.body = newBody;
         return m;
     }
 
@@ -116,17 +144,35 @@ public final class InterceptorPayloads {
         return obj;
     }
 
-    public static HttpResponseMutation readHttpResponse(Object jsObj, Object original) {
+    public static HttpResponseMutation readHttpResponse(Object jsObj,
+            int origStatus, String origStatusMessage,
+            Map<String, String> origHeaders, byte[] origBody) {
         if (jsObj == null) return HttpResponseMutation.DROP;
         if (!(jsObj instanceof NativeObject)) return HttpResponseMutation.UNCHANGED;
         NativeObject obj = (NativeObject) jsObj;
+
+        int newStatus = -1;
+        Object s = obj.get("status");
+        if (s instanceof Number) newStatus = ((Number) s).intValue();
+        String newStatusMessage = stringField(obj, "statusMessage");
+        Map<String, String> newHeaders = readHeaders(obj.get("headers"));
+        byte[] newBody = readBody(obj.get("body"));
+
+        // Same no-op short-circuit as readHttpRequest — see that method's
+        // doc for rationale.
+        if (newStatus == origStatus
+                && java.util.Objects.equals(newStatusMessage, origStatusMessage)
+                && headersEqual(newHeaders, origHeaders)
+                && java.util.Arrays.equals(newBody, origBody)) {
+            return HttpResponseMutation.UNCHANGED;
+        }
+
         HttpResponseMutation m = new HttpResponseMutation();
         m.mutated = true;
-        Object s = obj.get("status");
-        if (s instanceof Number) m.status = ((Number) s).intValue();
-        m.statusMessage = stringField(obj, "statusMessage");
-        m.headers = readHeaders(obj.get("headers"));
-        m.body = readBody(obj.get("body"));
+        m.status = newStatus;
+        m.statusMessage = newStatusMessage;
+        m.headers = newHeaders;
+        m.body = newBody;
         return m;
     }
 
@@ -160,15 +206,25 @@ public final class InterceptorPayloads {
         return obj;
     }
 
-    public static WsFrameMutation readWsFrame(Object jsObj, Object original) {
+    public static WsFrameMutation readWsFrame(Object jsObj, String origText, byte[] origBinary) {
         if (jsObj == null) return WsFrameMutation.DROP;
         if (!(jsObj instanceof NativeObject)) return WsFrameMutation.UNCHANGED;
         NativeObject obj = (NativeObject) jsObj;
+
+        String newText = null;
+        Object t = obj.get("text");
+        if (t != null && t != Undefined.instance && t != Scriptable.NOT_FOUND) newText = String.valueOf(t);
+        byte[] newBinary = readBody(obj.get("binary"));
+
+        if (java.util.Objects.equals(newText, origText)
+                && java.util.Arrays.equals(newBinary, origBinary)) {
+            return WsFrameMutation.UNCHANGED;
+        }
+
         WsFrameMutation m = new WsFrameMutation();
         m.mutated = true;
-        Object t = obj.get("text");
-        if (t != null && t != Undefined.instance && t != Scriptable.NOT_FOUND) m.text = String.valueOf(t);
-        m.binary = readBody(obj.get("binary"));
+        m.text = newText;
+        m.binary = newBinary;
         return m;
     }
 
@@ -247,6 +303,22 @@ public final class InterceptorPayloads {
             }
         }
         return out;
+    }
+
+    /**
+     * Compares two header maps for equality, treating null and empty as
+     * the same. Order-insensitive (we use LinkedHashMap on the read-back
+     * side but Java/OkHttp callers may pass any Map).
+     */
+    private static boolean headersEqual(Map<String, String> a, Map<String, String> b) {
+        int aSize = a == null ? 0 : a.size();
+        int bSize = b == null ? 0 : b.size();
+        if (aSize != bSize) return false;
+        if (aSize == 0) return true;
+        for (Map.Entry<String, String> e : a.entrySet()) {
+            if (!java.util.Objects.equals(b.get(e.getKey()), e.getValue())) return false;
+        }
+        return true;
     }
 
     private static byte[] readBody(Object raw) {
