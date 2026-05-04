@@ -821,24 +821,61 @@ public class DtaOrchestrator {
      * getConnectionWithCdp -> ensureCdpWatcher. Without synchronization, losing threads
      * call stopWatcher() which kills the shared watcher the winning thread created.</p>
      */
+    /**
+     * Called from the SSE event handlers as a safety net for the case
+     * where the watcher was torn down (typically by
+     * {@code SidekickConnectionManager} on a transient health-check
+     * failure) but no caller has gone through {@link #getConnectionWithCdp}
+     * since to recreate it. Without this, the next launch lands as
+     * {@code failed_no_watcher} in the trace and the user is stuck on
+     * about:blank because the daemon never issued {@code Page.navigate}.
+     *
+     * <p>Best-effort: any failure (sidekick gone, port forward broken)
+     * is logged and the call proceeds — the watcher dispatch will fail
+     * loudly in the trace, which is still better than silently swallowing
+     * the SSE event.</p>
+     */
+    private void selfHealWatcher(String packageName, String device) {
+        if (CdpWatcherManager.getInstance().isWatching(packageName, device)) {
+            return;
+        }
+        try {
+            log.info("CDP watcher missing for {}, self-healing from SSE event handler", packageName);
+            ConnectionInfo conn = connectionManager.getConnection(packageName, device);
+            ensureCdpWatcher(packageName, device, conn);
+        } catch (Exception e) {
+            log.warn("Watcher self-heal failed for {}: {} (next launch may land on about:blank)",
+                packageName, e.getMessage());
+        }
+    }
+
     private synchronized void ensureCdpWatcher(String packageName, String device, ConnectionInfo conn) {
         String listenerKey = makeListenerKey(packageName, device);
 
         // Check if an SSE listener already exists for this key
         SidekickSseListener existing = sseListeners.get(listenerKey);
         if (existing != null) {
-            if (existing.getPort() == conn.port() && existing.isRunning()) {
-                // Same port and listener thread is alive — keep it.
+            boolean watcherPresent = CdpWatcherManager.getInstance().isWatching(packageName, device);
+            if (existing.getPort() == conn.port() && existing.isRunning() && watcherPresent) {
+                // Same port, SSE thread alive, and the watcher is still
+                // registered — keep everything as-is.
                 return;
             }
-            // Either port changed (app restarted), or the SSE listener thread
-            // died silently (connection dropped, sidekick restarted, etc.).
-            // Tear down the stale listener + watcher and re-create below.
+            // One of three things happened:
+            //   - port changed (app restarted, port forward rebuilt)
+            //   - SSE listener thread died silently (sidekick restarted)
+            //   - SidekickConnectionManager tore down the watcher on a
+            //     transient health-check failure but the SSE listener
+            //     reconnected on its own (chrome_will_launch then arrives
+            //     to a missing watcher and lands as `failed_no_watcher`,
+            //     leaving the user stuck on about:blank)
             if (existing.getPort() != conn.port()) {
                 log.info("Sidekick port changed for {} ({} → {}), re-arming CDP capture",
                     listenerKey, existing.getPort(), conn.port());
-            } else {
+            } else if (!existing.isRunning()) {
                 log.info("SSE listener for {} is no longer running, re-arming CDP capture", listenerKey);
+            } else {
+                log.info("CDP watcher missing for {} (SSE still alive), re-arming", listenerKey);
             }
             existing.stop();
             sseListeners.remove(listenerKey);
@@ -862,6 +899,7 @@ public class DtaOrchestrator {
                     @Override
                     public void onCustomTabWillLaunch(String eventId, String url, long timestamp) {
                         log.info("SSE: Custom Tab will launch: {} (event={})", url, eventId);
+                        selfHealWatcher(packageName, device);
                         CdpWatcherManager.getInstance().onCustomTabWillLaunch(packageName, device, eventId, url);
                     }
 
@@ -870,6 +908,7 @@ public class DtaOrchestrator {
                                                    String pkg, String targetBrowserPackage) {
                         log.info("SSE: Chrome will launch: {} (event={}, target={})",
                                 url, eventId, targetBrowserPackage);
+                        selfHealWatcher(packageName, device);
                         // Route through the polling-based CdpWatcherManager — same
                         // pipeline as CustomTabsLaunchHook. The previous
                         // ChromeBrowserCdpManager approach (browser-level CDP +
