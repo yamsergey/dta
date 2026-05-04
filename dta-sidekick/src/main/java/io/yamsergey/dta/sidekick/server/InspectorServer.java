@@ -359,7 +359,13 @@ public class InspectorServer {
                 return;
             }
 
-            SidekickLog.d(TAG, "Request: " + requestLine);
+            // Skip /health from the per-request log: the daemon polls it
+            // every 1-2s while connected, and it dwarfs every other line in
+            // a developer's Logcat once debug is on. The file log still
+            // records it for diagnostic-bundle triage.
+            if (!requestLine.contains(" /health ")) {
+                SidekickLog.d(TAG, "Request: " + requestLine);
+            }
 
             // Parse request
             String[] parts = requestLine.split(" ");

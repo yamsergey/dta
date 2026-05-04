@@ -52,15 +52,20 @@ public final class SidekickLog {
     }
 
     /**
-     * Starts writing all log messages to a file.
-     * Debug logging is automatically enabled when file logging is active.
+     * Starts writing all log messages to a file. The file always captures
+     * every level (D/I/W/E) regardless of {@code debugEnabled} — that flag
+     * only controls whether D/I/W also reach Logcat. Decoupled because
+     * file logging is on by default for debuggable builds and we don't
+     * want every `/health` poll to flood the developer's Logcat just
+     * because the diagnostic bundle wants the full record. To get debug
+     * output in Logcat too, pass
+     * {@code SidekickConfig.Builder.enableDebugLogging()}.
      */
     public static synchronized void startFileLogging(File file) {
         stopFileLogging();
         try {
             fileWriter = new PrintWriter(new BufferedWriter(new FileWriter(file, false)), true);
             currentLogFile = file;
-            debugEnabled = true;
             writeToFile("I", "SidekickLog", "File logging started: " + file.getAbsolutePath());
         } catch (Exception e) {
             Log.e("SidekickLog", "Failed to start file logging", e);
