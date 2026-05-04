@@ -110,9 +110,14 @@ public class CustomTabsLaunchHook implements MethodHook {
             // Create and record the event
             CustomTabEvent event = new CustomTabEvent(url, headers, packageName);
             CustomTabsInspector.recordEvent(event);
+            String eventId = event.getId();
+
+            SidekickLog.i(TAG, "[cct=" + eventId + "] launchUrl pkg=" + packageName + " url=" + url +
+                    (headers.isEmpty() ? "" : " headers=" + headers.size()));
 
             // Block until CDP is attached (if capture is armed)
             boolean cdpArmed = InspectorServer.getInstance().waitForCdpAckIfNeeded(event);
+            SidekickLog.i(TAG, "[cct=" + eventId + "] cdpArmed=" + cdpArmed);
 
             // Replace URI with about:blank so CDP can connect before the real page loads.
             // The server will navigate to the original URL via Page.navigate after
@@ -130,14 +135,11 @@ public class CustomTabsLaunchHook implements MethodHook {
                     Class<?> uriClass = Class.forName("android.net.Uri");
                     Method parse = uriClass.getMethod("parse", String.class);
                     args[1] = parse.invoke(null, "about:blank");
-                    SidekickLog.d(TAG, "Replaced URI with about:blank for CDP capture");
+                    SidekickLog.d(TAG, "[cct=" + eventId + "] Replaced URI with about:blank for CDP capture");
                 } catch (Exception e) {
-                    SidekickLog.w(TAG, "Failed to replace URI with about:blank", e);
+                    SidekickLog.w(TAG, "[cct=" + eventId + "] Failed to replace URI with about:blank", e);
                 }
             }
-
-            SidekickLog.i(TAG, ">>> Custom Tab: " + url +
-                    (headers.isEmpty() ? "" : " (headers: " + headers.size() + ")"));
 
         } catch (Throwable t) {
             SidekickLog.e(TAG, "Error in onEnter", t);

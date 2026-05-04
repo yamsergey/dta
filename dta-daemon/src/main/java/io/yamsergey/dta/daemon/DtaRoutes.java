@@ -205,6 +205,28 @@ public final class DtaRoutes {
         // Runtime Data Inspection (proxy to sidekick)
         // ====================================================================
 
+        // ----- CCT launch traces (diagnostics for stuck/blank tabs) -----
+        // Returns the daemon-side ring buffer of recent Custom Tab launches
+        // with per-step timing. Triage path: when an MCP/CLI caller reports
+        // a CCT stuck on the loading page, fetch /api/cct-trace and look at
+        // the latest entry's finalState + steps to see where the chain
+        // broke. The query parameter `since=<seq>` lets long-running
+        // pollers fetch incrementally.
+        app.get("/api/cct-trace", ctx -> {
+            try {
+                long since = 0;
+                String s = ctx.queryParam("since");
+                if (s != null) try { since = Long.parseLong(s); } catch (NumberFormatException ignored) {}
+                List<io.yamsergey.dta.daemon.cdp.CctLaunchTrace.Entry> entries =
+                    io.yamsergey.dta.daemon.cdp.CctLaunchTrace.getInstance().snapshot(since);
+                List<Map<String, Object>> out = new java.util.ArrayList<>(entries.size());
+                for (var entry : entries) out.add(entry.toMap());
+                ctx.json(Map.of("traces", out));
+            } catch (Exception e) {
+                error(ctx, e.getMessage());
+            }
+        });
+
         // ----- Network interceptor (Phase 1: lifecycle + logs) -----
         app.post("/api/interceptor", ctx -> {
             try {

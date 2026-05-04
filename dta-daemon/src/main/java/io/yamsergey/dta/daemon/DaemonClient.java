@@ -187,6 +187,10 @@ public class DaemonClient {
         return get("/api/interceptor/logs?package=" + encode(pkg) + deviceParam(device, false) + "&since=" + since);
     }
 
+    public String getCctTraces(long since) {
+        return get("/api/cct-trace?since=" + since);
+    }
+
     public String listDatabases(String pkg, String device) {
         return get("/api/runtime/databases?package=" + encode(pkg) + deviceParam(device, false));
     }

@@ -1186,6 +1186,35 @@ public class McpServer {
                 }
             }
         ));
+
+        // cct_traces — full ring buffer of recent Custom Tab launches with
+        // per-step timing. Use this when a CCT lands on a blank/loading
+        // page and stays there: the trace's `finalState` plus the absent
+        // step (e.g. no `frame_navigated`) tells you where the chain
+        // broke. Pass `since=<seq>` to page forward.
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("cct_traces",
+                "Diagnostic traces for recent Custom Tab launches. Each entry records the per-step " +
+                "timeline (sse_received, ack_sent, polling_started, tab_matched, cdp_attached, " +
+                "network_enabled, autoattach_enabled, page_enabled, page_navigate_sent, frame_navigated) " +
+                "with timestamps and a finalState (ok / stuck / failed_*). When `finalState=stuck`, the " +
+                "trace also includes a `chromeTargetsAtFailure` snapshot of /json/list. Use this to " +
+                "diagnose why a CCT got stuck on the loading page (about:blank), or why network " +
+                "capture didn't engage. Pass `since` (highest seq seen previously) to page forward; " +
+                "pass 0 to read all (last 50 launches retained).",
+                schema(Map.of(
+                    "since", prop("integer", "Return entries with seq strictly greater than this (default 0)", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    long since = getLong(args, "since", 0L);
+                    String json = getDaemon().getCctTraces(since);
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("cct_traces", e);
+                }
+            }
+        ));
     }
 
     // ========================================================================

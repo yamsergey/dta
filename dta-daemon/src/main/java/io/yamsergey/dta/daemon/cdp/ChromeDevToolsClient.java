@@ -73,8 +73,19 @@ public class ChromeDevToolsClient implements AutoCloseable {
 
     private WebSocket webSocket;
     private Consumer<CdpNetworkEvent> networkEventListener;
+    /**
+     * Listener for Page-domain CDP events (e.g. {@code Page.frameNavigated},
+     * {@code Page.frameStartedLoading}). Invoked from the WebSocket reader
+     * thread with the raw {@code params} JSON node — keep work short or
+     * dispatch to a worker. Used by the CCT trace plumbing to record when
+     * a tab actually leaves the loading URL.
+     */
+    private Consumer<PageEvent> pageEventListener;
     private StringBuilder messageBuffer;
     private volatile boolean connected;
+
+    /** Pair of CDP Page-domain method name and its params node. */
+    public record PageEvent(String method, JsonNode params) {}
 
     /**
      * Creates a new CDP client.
@@ -255,6 +266,17 @@ public class ChromeDevToolsClient implements AutoCloseable {
     }
 
     /**
+     * Sets the listener for Page-domain events (e.g. {@code Page.frameNavigated}).
+     *
+     * <p>Call {@link #enablePage()} first to receive events. The listener
+     * fires from the WebSocket reader thread; keep work short or hand off
+     * to a worker.</p>
+     */
+    public void setPageEventListener(Consumer<PageEvent> listener) {
+        this.pageEventListener = listener;
+    }
+
+    /**
      * Sends a CDP command and returns a future with the result.
      *
      * @param method the CDP method name
@@ -407,6 +429,16 @@ public class ChromeDevToolsClient implements AutoCloseable {
         if ("Target.detachedFromTarget".equals(method)) {
             handleTargetDetached(params);
             return;
+        }
+
+        // Page-domain events fan out to the page listener if registered.
+        // Used by the CCT trace plumbing to detect frame_navigated.
+        if (method.startsWith("Page.") && pageEventListener != null) {
+            try {
+                pageEventListener.accept(new PageEvent(method, params));
+            } catch (Throwable t) {
+                log.debug("pageEventListener threw on {}: {}", method, t.getMessage());
+            }
         }
 
         if (networkEventListener == null) {

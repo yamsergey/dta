@@ -4,11 +4,14 @@ import io.yamsergey.dta.daemon.sidekick.SidekickClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -214,12 +217,22 @@ public class CdpWatcherManager {
      * @param url the URL being opened in the Custom Tab
      */
     public void onCustomTabWillLaunch(String packageName, String deviceSerial, String eventId, String url) {
+        // Open the trace as early as possible — even a no-watcher rejection
+        // is information worth keeping. The first step records when the SSE
+        // event landed in the daemon (vs. when the executor picks it up).
+        CctLaunchTrace.Entry trace = CctLaunchTrace.getInstance()
+            .begin(eventId, packageName, deviceSerial, url);
+        trace.step("sse_received");
+        log.info("[cct={}] SSE customtab_will_launch pkg={} url={}", eventId, packageName, url);
+
         String key = makeKey(packageName, deviceSerial);
         WatcherContext context = activeWatchers.get(key);
         if (context != null) {
-            context.onCustomTabWillLaunch(eventId, url);
+            context.onCustomTabWillLaunch(eventId, url, trace);
         } else {
-            log.warn("No active watcher for {} to handle Custom Tab event", key);
+            trace.stepFailed("no_watcher", "No active watcher for " + key);
+            trace.finish("failed_no_watcher");
+            log.warn("[cct={}] No active watcher for {} to handle Custom Tab event", eventId, key);
         }
     }
 
@@ -248,6 +261,16 @@ public class CdpWatcherManager {
         private CustomTabsNetworkMonitor monitor;
         private volatile ChromeDevToolsClient currentClient;
         private volatile String currentTabUrl;
+
+        /**
+         * Scheduler for stuck-detection timers. One thread is enough — the
+         * timer task is short (one /json/list call, mark trace, return).
+         */
+        private final ScheduledExecutorService stuckChecker = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "cct-stuck-checker");
+            t.setDaemon(true);
+            return t;
+        });
 
         WatcherContext(
                 String packageName,
@@ -281,6 +304,7 @@ public class CdpWatcherManager {
                 monitor.close();
             }
             executor.shutdownNow();
+            stuckChecker.shutdownNow();
             log.info("CDP watcher stopped for {}", packageName);
         }
 
@@ -309,16 +333,19 @@ public class CdpWatcherManager {
          *
          * @param eventId the SSE event ID for ack
          * @param targetUrl the URL being opened (used to match the correct Chrome tab)
+         * @param trace the diagnostic trace already opened by the manager
          */
-        void onCustomTabWillLaunch(String eventId, String targetUrl) {
+        void onCustomTabWillLaunch(String eventId, String targetUrl, CctLaunchTrace.Entry trace) {
             executor.submit(() -> {
                 try {
+                    trace.step("polling_started");
                     String urlBase = extractUrlBase(targetUrl);
 
                     // ACK immediately — must not delay Chrome launch.
                     // The sidekick has a 2s timeout; if the snapshot below blocks
                     // (e.g. Chrome not running), we'd miss the ACK window.
                     ackSidekick(eventId);
+                    trace.step("ack_sent");
 
                     // Pre-create the client for polling
                     ChromeDevToolsClient pollClient = new ChromeDevToolsClient("localhost", cdpPort);
@@ -371,21 +398,56 @@ public class CdpWatcherManager {
                     }
 
                     if (tab == null || client == null) {
-                        log.warn("Could not find Custom Tab for URL {} within 5s", targetUrl);
+                        trace.recordChromeTargets(snapshotChromeTargets());
+                        trace.stepFailed("tab_matched", "no matching new tab within 5s");
+                        trace.finish("failed_no_tab");
+                        log.warn("[cct={}] Could not find Custom Tab for URL {} within 5s",
+                            eventId, targetUrl);
                         return;
                     }
+                    Map<String, Object> tabDetails = new LinkedHashMap<>();
+                    tabDetails.put("tabId", tab.id());
+                    tabDetails.put("tabUrl", tab.url());
+                    tabDetails.put("isLoadingTab", isLoadingTab(tab.url()));
+                    trace.step("tab_matched", tabDetails);
 
                     closeCurrentClient();
                     client.attachToTarget(tab);
                     currentClient = client;
                     monitor.setCdpClient(client);
+                    trace.step("cdp_attached");
 
                     currentTabUrl = targetUrl;
                     client.setNetworkEventListener(cdpEvent -> {
                         monitor.onCdpEvent(cdpEvent, currentTabUrl);
                     });
 
+                    // Subscribe to Page events so we can mark frame_navigated
+                    // accurately (instead of polling tab URL on a timer).
+                    final ChromeDevToolsClient finalClient = client;
+                    final String tabId = tab.id();
+                    final String loadingUrl = tab.url();
+                    client.setPageEventListener(pe -> {
+                        if ("Page.frameNavigated".equals(pe.method())) {
+                            // Only the top-level frame matters here — sub-frames
+                            // can navigate independently while the page is still
+                            // on about:blank.
+                            String frameUrl = pe.params().path("frame").path("url").asText("");
+                            String parentId = pe.params().path("frame").path("parentId").asText("");
+                            boolean isTopFrame = parentId.isEmpty();
+                            if (isTopFrame && !isLoadingTab(frameUrl)
+                                    && !trace.hasStep("frame_navigated")) {
+                                Map<String, Object> d = new LinkedHashMap<>();
+                                d.put("frameUrl", frameUrl);
+                                trace.step("frame_navigated", d);
+                                trace.finish("ok");
+                                log.info("[cct={}] frame_navigated -> {}", eventId, frameUrl);
+                            }
+                        }
+                    });
+
                     client.enableNetwork().join();
+                    trace.step("network_enabled");
 
                     // Flatten auto-attach so child targets — out-of-process
                     // iframes (Auth0/Okta/Cognito login pages, embedded
@@ -397,25 +459,99 @@ public class CdpWatcherManager {
                     // the main capture session.
                     try {
                         client.enableAutoAttachFlatten().join();
+                        trace.step("autoattach_enabled");
                     } catch (Exception e) {
-                        log.warn("Target.setAutoAttach failed — sub-frame XHR/Fetch may be missed: {}",
-                            e.getMessage());
+                        trace.stepFailed("autoattach_enabled", e.getMessage());
+                        log.warn("[cct={}] Target.setAutoAttach failed — sub-frame XHR/Fetch may be missed: {}",
+                            eventId, e.getMessage());
+                    }
+
+                    // Page.enable is required for frameNavigated events.
+                    try {
+                        client.enablePage().join();
+                        trace.step("page_enabled");
+                    } catch (Exception e) {
+                        trace.stepFailed("page_enabled", e.getMessage());
                     }
 
                     // Navigate to the real URL now that Network capture is active.
                     // The sidekick opened a loading tab (about:blank or our
                     // data:text/html escape page) to give us time to attach CDP.
                     if (isLoadingTab(tab.url())) {
-                        log.info("CDP attached to loading tab, navigating to: {}", targetUrl);
+                        log.info("[cct={}] CDP attached to loading tab, navigating to: {}",
+                            eventId, targetUrl);
                         client.navigate(targetUrl).join();
+                        trace.step("page_navigate_sent");
+
+                        // If frameNavigated doesn't arrive within 5s, the page
+                        // is stuck on the loading URL — snapshot Chrome state
+                        // for triage. The trace listener marks frame_navigated
+                        // independently if it does fire.
+                        scheduleStuckCheck(eventId, trace, finalClient, tabId, loadingUrl);
+                    } else {
+                        // No navigation needed — tab already has the real URL.
+                        // Don't schedule a stuck check because frame_navigated
+                        // may have already fired before we attached.
+                        trace.finish("ok");
                     }
 
-                    log.info("CDP attached to Custom Tab: {} ({})", tab.title(), targetUrl);
+                    log.info("[cct={}] CDP attached to Custom Tab: {} ({})",
+                        eventId, tab.title(), targetUrl);
 
                 } catch (Exception e) {
-                    log.error("Failed to attach CDP for event {}: {}", eventId, e.getMessage(), e);
+                    trace.stepFailed("attach_error", e.getMessage());
+                    trace.finish("failed_exception");
+                    log.error("[cct={}] Failed to attach CDP: {}", eventId, e.getMessage(), e);
                 }
             });
+        }
+
+        /**
+         * Snapshots {@code /json/list} for the trace's chromeTargetsAtFailure
+         * field. Best-effort — Chrome may have died, port forward may be
+         * gone; in that case we record an empty list rather than throw.
+         */
+        private List<Map<String, Object>> snapshotChromeTargets() {
+            List<Map<String, Object>> out = new java.util.ArrayList<>();
+            try (ChromeDevToolsClient c = new ChromeDevToolsClient("localhost", cdpPort)) {
+                for (CdpTarget t : c.listTargets()) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", t.id());
+                    m.put("type", t.type());
+                    m.put("url", t.url());
+                    m.put("title", t.title());
+                    out.add(m);
+                }
+            } catch (Exception e) {
+                Map<String, Object> err = new LinkedHashMap<>();
+                err.put("error", e.getMessage());
+                out.add(err);
+            }
+            return out;
+        }
+
+        /**
+         * Schedules a stuck check 5s after Page.navigate is sent. If by then
+         * no frame_navigated step has fired, the trace is marked stuck and
+         * a Chrome target snapshot is recorded for triage.
+         */
+        private void scheduleStuckCheck(String eventId, CctLaunchTrace.Entry trace,
+                                         ChromeDevToolsClient client, String tabId, String loadingUrl) {
+            stuckChecker.schedule(() -> {
+                if (trace.hasStep("frame_navigated")) {
+                    return; // already navigated
+                }
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("tabId", tabId);
+                details.put("loadingUrl", loadingUrl);
+                details.put("wsConnected", client.isConnected());
+                trace.recordWsState(client.isConnected() ? "connected" : "closed");
+                trace.recordChromeTargets(snapshotChromeTargets());
+                trace.stepFailed("stuck", "no frame_navigated within 5s after Page.navigate", details);
+                trace.finish("stuck");
+                log.warn("[cct={}] STUCK on loading tab — no frame_navigated within 5s. tabId={}",
+                    eventId, tabId);
+            }, 5, TimeUnit.SECONDS);
         }
 
         private static String extractUrlBase(String url) {
