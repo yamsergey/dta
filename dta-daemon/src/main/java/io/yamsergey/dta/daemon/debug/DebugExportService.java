@@ -163,6 +163,18 @@ public class DebugExportService {
                     placeholder("logcat collection failed", e), false, e.getMessage()));
         }
 
+        // 4. CCT launch traces — daemon-side ring buffer of recent Custom
+        //    Tab / chrome_will_launch handling, with per-step timing and
+        //    a /json/list snapshot when stuck. Doesn't depend on a sidekick
+        //    connection; in-memory on the daemon.
+        try {
+            byte[] cctTraces = collectCctTraces();
+            entries.put("cct-traces.json", new BundleEntry(cctTraces, true, null));
+        } catch (Exception e) {
+            entries.put("cct-traces.json", new BundleEntry(
+                    placeholder("cct-traces collection failed", e), false, e.getMessage()));
+        }
+
         // 4. Manifest documenting what's in the bundle. Built last so it
         //    can list per-source success/failure for each entry above.
         byte[] manifest = buildManifest(packageName, resolvedDevice, capturedAt, redact, entries);
@@ -254,6 +266,23 @@ public class DebugExportService {
         cmd.add("cache/sidekick.log");
 
         return runAndCollect(cmd, 30_000);
+    }
+
+    // ========================================================================
+    // Source: CCT launch traces
+    // ========================================================================
+
+    private byte[] collectCctTraces() throws Exception {
+        var trace = io.yamsergey.dta.daemon.cdp.CctLaunchTrace.getInstance();
+        var entries = trace.snapshot(0);
+        Map<String, Object> root = new LinkedHashMap<>();
+        List<Map<String, Object>> arr = new ArrayList<>(entries.size());
+        for (var e : entries) arr.add(e.toMap());
+        root.put("traces", arr);
+        // Pretty-printed for grep / human inspection in the bundle.
+        return new tools.jackson.databind.ObjectMapper()
+                .writerWithDefaultPrettyPrinter()
+                .writeValueAsBytes(root);
     }
 
     // ========================================================================

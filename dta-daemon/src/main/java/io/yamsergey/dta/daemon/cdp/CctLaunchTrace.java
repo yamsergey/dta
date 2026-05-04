@@ -47,9 +47,17 @@ public final class CctLaunchTrace {
     /**
      * Begins a new trace entry. Drops the oldest entry once {@link #CAPACITY}
      * is reached.
+     *
+     * @param eventType which SSE event triggered this — typically
+     *                  {@code "customtab_will_launch"} or
+     *                  {@code "chrome_will_launch"}. Both flows share the
+     *                  same daemon-side handler but the originating event
+     *                  matters for triage.
      */
-    public Entry begin(String eventId, String packageName, String deviceSerial, String targetUrl) {
-        Entry entry = new Entry(sequence.incrementAndGet(), eventId, packageName, deviceSerial, targetUrl);
+    public Entry begin(String eventType, String eventId, String packageName,
+                       String deviceSerial, String targetUrl) {
+        Entry entry = new Entry(sequence.incrementAndGet(), eventType, eventId,
+                packageName, deviceSerial, targetUrl);
         byEventId.put(eventId, entry);
         entries.addLast(entry);
         while (entries.size() > CAPACITY) {
@@ -128,6 +136,7 @@ public final class CctLaunchTrace {
      */
     public static final class Entry {
         public final long seq;
+        public final String eventType;
         public final String eventId;
         public final String packageName;
         public final String deviceSerial;
@@ -141,8 +150,10 @@ public final class CctLaunchTrace {
         private volatile String wsState;
         private volatile long lastStepStart;
 
-        Entry(long seq, String eventId, String packageName, String deviceSerial, String targetUrl) {
+        Entry(long seq, String eventType, String eventId, String packageName,
+              String deviceSerial, String targetUrl) {
             this.seq = seq;
+            this.eventType = eventType;
             this.eventId = eventId;
             this.packageName = packageName;
             this.deviceSerial = deviceSerial;
@@ -207,6 +218,7 @@ public final class CctLaunchTrace {
         public synchronized Map<String, Object> toMap() {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("seq", seq);
+            m.put("eventType", eventType);
             m.put("eventId", eventId);
             m.put("packageName", packageName);
             m.put("deviceSerial", deviceSerial);

@@ -217,13 +217,30 @@ public class CdpWatcherManager {
      * @param url the URL being opened in the Custom Tab
      */
     public void onCustomTabWillLaunch(String packageName, String deviceSerial, String eventId, String url) {
+        dispatchLaunch("customtab_will_launch", packageName, deviceSerial, eventId, url);
+    }
+
+    /**
+     * Same daemon-side handler as {@link #onCustomTabWillLaunch} but tagged
+     * as the chrome_will_launch path in the trace. {@code DtaOrchestrator}
+     * routes both SSE events here; the trace records which originated the
+     * launch so triage can tell them apart (the customtabs path uses a
+     * latch + ack on sidekick; the chrome path is fire-and-forget — same
+     * symptom of stuck-on-blank, very different recovery).
+     */
+    public void onChromeWillLaunch(String packageName, String deviceSerial, String eventId, String url) {
+        dispatchLaunch("chrome_will_launch", packageName, deviceSerial, eventId, url);
+    }
+
+    private void dispatchLaunch(String eventType, String packageName, String deviceSerial,
+                                String eventId, String url) {
         // Open the trace as early as possible — even a no-watcher rejection
         // is information worth keeping. The first step records when the SSE
         // event landed in the daemon (vs. when the executor picks it up).
         CctLaunchTrace.Entry trace = CctLaunchTrace.getInstance()
-            .begin(eventId, packageName, deviceSerial, url);
+            .begin(eventType, eventId, packageName, deviceSerial, url);
         trace.step("sse_received");
-        log.info("[cct={}] SSE customtab_will_launch pkg={} url={}", eventId, packageName, url);
+        log.info("[cct={}] SSE {} pkg={} url={}", eventId, eventType, packageName, url);
 
         String key = makeKey(packageName, deviceSerial);
         WatcherContext context = activeWatchers.get(key);
@@ -232,7 +249,8 @@ public class CdpWatcherManager {
         } else {
             trace.stepFailed("no_watcher", "No active watcher for " + key);
             trace.finish("failed_no_watcher");
-            log.warn("[cct={}] No active watcher for {} to handle Custom Tab event", eventId, key);
+            log.warn("[cct={}] No active watcher for {} to handle {} event",
+                eventId, key, eventType);
         }
     }
 

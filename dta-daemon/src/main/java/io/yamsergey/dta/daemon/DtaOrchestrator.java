@@ -886,8 +886,11 @@ public class DtaOrchestrator {
                         // From the daemon's view both Custom Tab and regular
                         // Chrome tab launches end up at the same /json/list, so
                         // there's no semantic mismatch in routing chrome_will_launch
-                        // through the same handler.
-                        CdpWatcherManager.getInstance().onCustomTabWillLaunch(
+                        // through the same handler. Use the chrome-tagged
+                        // entrypoint so the diagnostic trace knows which SSE
+                        // event triggered it (the two flows have different
+                        // latch/ack semantics on the sidekick side).
+                        CdpWatcherManager.getInstance().onChromeWillLaunch(
                                 packageName, device, eventId, url);
                     }
 

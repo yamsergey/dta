@@ -105,7 +105,8 @@ public final class ActivityStartActivityForResultHook implements MethodHook {
             }
 
             InspectorServer.getInstance().broadcastChromeLaunchEvent(event);
-            SidekickLog.d(TAG, "chrome intent: " + url + (swapped ? " (swapped to about:blank)" : ""));
+            SidekickLog.d(TAG, "[cct=" + event.getId() + "] chrome intent: " + url
+                    + (swapped ? " (swapped to about:blank)" : ""));
         } catch (Throwable t) {
             // Hooks must never throw out of onEnter — the host app proceeds
             // unmodified on any reflection / SSE failure here.
