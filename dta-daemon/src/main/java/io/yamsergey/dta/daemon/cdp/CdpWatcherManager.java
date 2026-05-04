@@ -552,6 +552,14 @@ public class CdpWatcherManager {
          * Schedules a stuck check 5s after Page.navigate is sent. If by then
          * no frame_navigated step has fired, the trace is marked stuck and
          * a Chrome target snapshot is recorded for triage.
+         *
+         * <p>Suppresses the stuck verdict when the tab is gone from
+         * {@code /json/list} at check time: the user likely deeplinked
+         * away (Auth0's {@code /v2/logout?federated=1&returnTo=...}
+         * redirects right back into the app, so Chrome closes its tab
+         * before frame_navigated can fire on our session). Mark those as
+         * {@code tab_closed} instead — same data captured, but a clear
+         * signal that the launch wasn't actually broken.</p>
          */
         private void scheduleStuckCheck(String eventId, CctLaunchTrace.Entry trace,
                                          ChromeDevToolsClient client, String tabId, String loadingUrl) {
@@ -559,16 +567,29 @@ public class CdpWatcherManager {
                 if (trace.hasStep("frame_navigated")) {
                     return; // already navigated
                 }
+                List<Map<String, Object>> targets = snapshotChromeTargets();
+                boolean tabGone = targets.stream()
+                    .filter(t -> !t.containsKey("error"))
+                    .noneMatch(t -> tabId.equals(t.get("id")));
+
                 Map<String, Object> details = new LinkedHashMap<>();
                 details.put("tabId", tabId);
                 details.put("loadingUrl", loadingUrl);
                 details.put("wsConnected", client.isConnected());
                 trace.recordWsState(client.isConnected() ? "connected" : "closed");
-                trace.recordChromeTargets(snapshotChromeTargets());
-                trace.stepFailed("stuck", "no frame_navigated within 5s after Page.navigate", details);
-                trace.finish("stuck");
-                log.warn("[cct={}] STUCK on loading tab — no frame_navigated within 5s. tabId={}",
-                    eventId, tabId);
+                trace.recordChromeTargets(targets);
+
+                if (tabGone) {
+                    trace.step("tab_closed", details);
+                    trace.finish("tab_closed");
+                    log.info("[cct={}] tab closed before frame_navigated (likely deeplinked back to app). tabId={}",
+                        eventId, tabId);
+                } else {
+                    trace.stepFailed("stuck", "no frame_navigated within 5s after Page.navigate", details);
+                    trace.finish("stuck");
+                    log.warn("[cct={}] STUCK on loading tab — no frame_navigated within 5s. tabId={}",
+                        eventId, tabId);
+                }
             }, 5, TimeUnit.SECONDS);
         }
 
