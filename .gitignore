@@ -62,8 +62,11 @@ nvim.socket
 # - Unclear what is it, but pop ups time by time
 Task
 
-# Plan files
+# Plan / design / triage docs — kept locally under
+# ~/work/projects/dta/, never committed to the source repo.
 PLAN*.md
+ISSUE*.md
+docs/plans/
 
 # - For simplicity pattern "output-.*\.json" used for any generated json files.
 output-*\.json
