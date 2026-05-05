@@ -25,7 +25,14 @@ allprojects {
 
 subprojects {
     // Skip Android library modules - they have their own configuration
-    if (project.name == 'dta-sidekick' || project.name == 'dta-plugin') {
+    // dta-sidekick-shim is also skipped: it's a Java-11-pinned jar with
+    // no test sources, but JUnit Jupiter 6.0.3 (the bundle below)
+    // requires Java 17+. Without this skip Gradle's classpath resolution
+    // fails on the shim's compileTestJava during `./gradlew build` —
+    // discovered when the 0.9.37 release run hit it on CI.
+    if (project.name == 'dta-sidekick'
+            || project.name == 'dta-plugin'
+            || project.name == 'dta-sidekick-shim') {
         return
     }
 

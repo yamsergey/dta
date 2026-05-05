@@ -693,7 +693,13 @@ public class InspectorServer {
             String rawId = path.substring("/runtime/viewmodels/".length(), path.length() - "/saved-state".length());
             String id;
             try {
-                id = java.net.URLDecoder.decode(rawId, java.nio.charset.StandardCharsets.UTF_8);
+                // URLDecoder.decode(String, Charset) is API 33+; the
+                // String-charset-name overload is API 1+ and behaves
+                // identically here. Sidekick's minSdk is 24, so we use
+                // the older signature to keep lint happy without
+                // pulling in core-library desugaring just for one
+                // call site.
+                id = java.net.URLDecoder.decode(rawId, "UTF-8");
             } catch (Exception e) {
                 id = rawId;
             }

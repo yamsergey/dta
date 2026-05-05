@@ -100,8 +100,16 @@ public final class InterceptorRuntime {
         if (file == null || !file.exists()) return;
         String source;
         try {
-            byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
-            source = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            // java.nio.file.Files is API 26+; minSdk is 24. Use a small
+            // FileInputStream loop instead of pulling in core-library
+            // desugaring just for one call site.
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+                byte[] chunk = new byte[4096];
+                int n;
+                while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+            }
+            source = new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
             SidekickLog.w(TAG, "Failed to read persisted interceptor: " + e.getMessage());
             return;
@@ -177,8 +185,11 @@ public final class InterceptorRuntime {
         try {
             java.io.File parent = file.getParentFile();
             if (parent != null && !parent.exists()) parent.mkdirs();
-            java.nio.file.Files.write(file.toPath(),
-                source.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            // java.nio.file.Files.write is API 26+. Sidekick's minSdk is
+            // 24 — go through FileOutputStream directly.
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+                out.write(source.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
         } catch (Exception e) {
             // Persist failure isn't fatal — the runtime still has the
             // script in memory for this process. Log so the developer
