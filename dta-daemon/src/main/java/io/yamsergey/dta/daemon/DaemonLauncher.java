@@ -171,7 +171,9 @@ public class DaemonLauncher {
                 log.warn("Daemon version mismatch: running {} vs launcher {} — triggering takeover",
                     daemonVersion, myVersion);
                 requestShutdown(client);
-                waitForShutdown();
+                // Pass PID so a hung daemon gets force-killed instead of
+                // accumulating as an orphan that still owns ADB forwards.
+                waitForShutdown(pid);
                 return null; // caller will spawn fresh daemon
             }
             return client;
@@ -182,12 +184,36 @@ public class DaemonLauncher {
     }
 
     /**
-     * Compares major.minor of two version strings. Returns true if both are
-     * null/unknown, or if their major and minor components match.
+     * Decides whether the launcher can reuse a daemon at {@code daemon}'s
+     * version. Two regimes:
+     *
+     * <ul>
+     *   <li><b>Either side is a SNAPSHOT</b> — require full-string match.
+     *       Otherwise a freshly rebuilt CLI / plugin happily reuses an
+     *       11-day-old daemon JVM still running the old SNAPSHOT.1 jars,
+     *       and bug fixes silently don't ship until the user manually
+     *       restarts. Real-world failure mode: register-overflow fix
+     *       landed at SNAPSHOT.6 but a SNAPSHOT.1 daemon kept being reused
+     *       and OkHttp 4.12 hooks silently never installed.</li>
+     *   <li><b>Both sides are releases</b> — keep major.minor match (so
+     *       0.9.36 and 0.9.37 don't churn the daemon for no reason
+     *       across normal patch updates).</li>
+     * </ul>
+     *
+     * <p>Null/unknown on either side is treated as compatible (we can't
+     * make a decision).</p>
      */
     static boolean isCompatible(String launcher, String daemon) {
         if (launcher == null || daemon == null) return true;
         if ("unknown".equals(launcher) || "unknown".equals(daemon)) return true;
+
+        boolean eitherIsSnapshot = launcher.contains("-SNAPSHOT") || daemon.contains("-SNAPSHOT");
+        if (eitherIsSnapshot) {
+            // Strict equality — every snapshot publish potentially has new
+            // bytes; reuse defeats the purpose.
+            return launcher.equals(daemon);
+        }
+
         String[] l = launcher.split("\\.");
         String[] d = daemon.split("\\.");
         if (l.length < 2 || d.length < 2) return true;
@@ -238,11 +264,18 @@ public class DaemonLauncher {
 
     /**
      * Polls until the state file disappears, indicating the old daemon's
-     * shutdown hook ran and cleaned up. Bounded by SHUTDOWN_WAIT_MS so a
-     * stuck-shutdown daemon doesn't block us forever — we'll start a new
-     * one anyway and the new one's startup sweep will catch any leaks.
+     * shutdown hook ran and cleaned up. Bounded by SHUTDOWN_WAIT_MS — once
+     * the deadline passes, force-kill the daemon by PID (SIGTERM, then
+     * SIGKILL) so it doesn't linger as an orphan.
+     *
+     * <p>The previous behavior of just deleting the state file and
+     * proceeding produced multi-day-old daemon JVMs sitting on
+     * unreferenced ADB forwards: the launcher had no record of them, and
+     * the next launch would happily reuse one of them via the
+     * compatibility check. Killing on timeout ensures the orphan goes
+     * away.</p>
      */
-    private static void waitForShutdown() {
+    private static void waitForShutdown(long pid) {
         long deadline = System.currentTimeMillis() + SHUTDOWN_WAIT_MS;
         while (System.currentTimeMillis() < deadline) {
             if (!Files.exists(DAEMON_STATE_FILE)) {
@@ -256,10 +289,37 @@ public class DaemonLauncher {
                 return;
             }
         }
-        log.warn("Old daemon did not exit within {}ms — proceeding anyway (startup sweep will clean leaks)",
-            SHUTDOWN_WAIT_MS);
-        // Force-delete the state file so the new daemon doesn't see it.
+        log.warn("Old daemon did not exit within {}ms — force-killing PID {}",
+            SHUTDOWN_WAIT_MS, pid);
+        forceKill(pid);
         try { Files.deleteIfExists(DAEMON_STATE_FILE); } catch (Exception ignored) {}
+    }
+
+    /**
+     * SIGTERM the daemon, then escalate to SIGKILL if it's still alive
+     * after a short grace period. {@link ProcessHandle#destroy()} on the
+     * JVM maps to SIGTERM on POSIX; {@link ProcessHandle#destroyForcibly()}
+     * maps to SIGKILL. We don't wait long for graceful — by the time we
+     * get here, /api/shutdown has already failed.
+     */
+    private static void forceKill(long pid) {
+        ProcessHandle.of(pid).ifPresent(handle -> {
+            if (!handle.isAlive()) return;
+            try {
+                handle.destroy();
+                handle.onExit().get(2, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.debug("SIGTERM didn't take effect on PID {}: {}", pid, e.getMessage());
+            }
+            if (handle.isAlive()) {
+                log.warn("Escalating to SIGKILL on PID {}", pid);
+                try {
+                    handle.destroyForcibly();
+                } catch (Exception e) {
+                    log.warn("destroyForcibly failed on PID {}: {}", pid, e.getMessage());
+                }
+            }
+        });
     }
 
     /**

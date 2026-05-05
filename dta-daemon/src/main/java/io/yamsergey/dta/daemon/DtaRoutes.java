@@ -45,11 +45,11 @@ public final class DtaRoutes {
         DtaOrchestrator orchestrator = DtaOrchestrator.getInstance();
         SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
         String daemonVersion = readDaemonVersion();
-        DebugExportService debugExportService = new DebugExportService(daemonVersion);
         // Captured at registration so /api/version reports a meaningful uptime.
         // Routes are registered immediately before app.start(port) so the
         // skew between this and the actual server start is at most a few ms.
         long startedAt = System.currentTimeMillis();
+        DebugExportService debugExportService = new DebugExportService(daemonVersion, startedAt);
 
         // ====================================================================
         // Version

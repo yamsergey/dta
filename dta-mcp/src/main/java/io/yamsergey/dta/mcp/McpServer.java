@@ -52,7 +52,9 @@ public class McpServer {
         "",
         "4. If the summary indicates a `versionMismatch`, surface that first — most \"doesn't work\" reports have a stale plugin/sidekick combo as the root cause.",
         "",
-        "5. The bundle is redacted by default (host package name hashed, auth headers stripped). Mention this when the user wants to share it externally.",
+        "5. Check `daemonUptimeHours` in the state snapshot. A daemon that's been running for days (especially > 24h) is a strong staleness signal: the user likely rebuilt the CLI/plugin since but the JVM kept its old jars, so recent fixes (hook installs, capture, etc.) silently aren't in effect. Suggest reconnecting MCP / restarting the plugin to force a fresh daemon takeover.",
+        "",
+        "6. The bundle is redacted by default (host package name hashed, auth headers stripped). Mention this when the user wants to share it externally.",
         "",
         "For non-bug-report tasks (debugging your own work, exploring layouts, checking network requests as part of normal flow) you don't need to call this tool unless the user explicitly asks for \"diagnostics\" or \"logs\"."
     );

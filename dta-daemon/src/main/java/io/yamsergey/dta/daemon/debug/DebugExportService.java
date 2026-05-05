@@ -101,9 +101,11 @@ public class DebugExportService {
 
     private final SidekickConnectionManager connectionManager = SidekickConnectionManager.getInstance();
     private final String daemonVersion;
+    private final long daemonStartedAt;
 
-    public DebugExportService(String daemonVersion) {
+    public DebugExportService(String daemonVersion, long daemonStartedAt) {
         this.daemonVersion = daemonVersion;
+        this.daemonStartedAt = daemonStartedAt;
     }
 
     /**
@@ -210,6 +212,13 @@ public class DebugExportService {
         state.put("packageName", packageName);
         state.put("device", device != null ? device : "(unset)");
         state.put("daemonVersion", daemonVersion);
+        state.put("daemonStartedAt", daemonStartedAt);
+        // Convenience for triage: a daemon that's been up for days
+        // typically means the user rebuilt the CLI but the JVM kept its
+        // old jars, so recent fixes silently aren't in effect. The MCP
+        // server instructions tell agents to flag this.
+        state.put("daemonUptimeHours",
+            (System.currentTimeMillis() - daemonStartedAt) / (1000.0 * 60 * 60));
 
         if (conn == null) {
             state.put("error", "no sidekick connection");
