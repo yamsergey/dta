@@ -9,9 +9,7 @@ import io.yamsergey.dta.sidekick.SidekickLog;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -349,7 +347,12 @@ public class InspectorServer {
     private void handleClient(LocalSocket client) {
         boolean isStreamingRequest = false;
         try {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
+            // Read at the byte level — Content-Length is in bytes, and
+            // a char-based BufferedReader would block forever on
+            // multi-byte UTF-8 bodies (emoji, accented chars). See
+            // HttpRequestReaderTest for the regression that motivated
+            // this rewrite.
+            HttpRequestReader reader = new HttpRequestReader(client.getInputStream());
             OutputStream out = client.getOutputStream();
 
             // Read HTTP request line
@@ -387,7 +390,7 @@ public class InspectorServer {
                 }
             }
 
-            // Read body if present - must loop since read() may return fewer chars than requested
+            // Read body if present.
             String body = null;
             if (contentLength > MAX_BODY_SIZE) {
                 sendError(out, 413, "Payload Too Large");
@@ -395,15 +398,12 @@ public class InspectorServer {
                 return;
             }
             if (contentLength > 0) {
-                char[] bodyChars = new char[contentLength];
-                int totalRead = 0;
-                while (totalRead < contentLength) {
-                    int read = reader.read(bodyChars, totalRead, contentLength - totalRead);
-                    if (read == -1) break;
-                    totalRead += read;
-                }
-                if (totalRead > 0) {
-                    body = new String(bodyChars, 0, totalRead);
+                byte[] bodyBytes = reader.readBody(contentLength);
+                if (bodyBytes.length > 0) {
+                    // All of our endpoints expect UTF-8 text bodies
+                    // (JSON / JS source). Binary upload would need a
+                    // separate code path — none today.
+                    body = new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
                 }
             }
 

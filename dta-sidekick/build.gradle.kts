@@ -109,6 +109,11 @@ dependencies {
 
     // OkHttp (compileOnly - provided by host app for network inspection)
     compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // JVM unit tests run on host, not the device — used for parser /
+    // reader logic that doesn't touch Android APIs (HttpRequestReader
+    // etc.). Tests live in src/test/java and run via `./gradlew :dta-sidekick:testDebugUnitTest`.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Generate version.properties from centralized version
