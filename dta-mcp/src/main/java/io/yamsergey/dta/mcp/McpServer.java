@@ -1380,7 +1380,15 @@ public class McpServer {
             tool("run_app",
                 "Build and launch an Android app with dta-sidekick auto-injected for inspection. " +
                 "Injects the sidekick dependency via Gradle init script, builds the APK, installs it on the device, " +
-                "and launches the main activity. After launch, use layout/network/websocket tools to inspect the app.",
+                "and launches the main activity. After launch, use layout/network/websocket tools to inspect the app.\n\n" +
+                "On success, the response includes a `shimStatus` object: " +
+                "`{shimAttached, reachable, reason, detail, sidekickVersion}`. " +
+                "If `shimAttached=false` (or `reachable=false` after the post-launch wait window), " +
+                "inspection capabilities are NOT working even though the app launched — typically because the " +
+                "build reused stale outputs with an old sidekick AAR. Surface this clearly to the user; " +
+                "common reasons: `not_debuggable` (sidekick must be added via debugImplementation), " +
+                "`agent_so_missing` / `system_load_failed` / `attach_jvmti_failed` (native-agent issues, often " +
+                "stale build), `socket_unreachable` (sidekick didn't come up — try a clean build).",
                 schema(Map.of(
                     "project", prop("string", "Absolute path to the Android project root directory", true),
                     "variant", prop("string", "Build variant in camelCase (default: debug). " +

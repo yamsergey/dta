@@ -15,12 +15,16 @@ import java.util.List;
 import io.yamsergey.dta.sidekick.Sidekick;
 import io.yamsergey.dta.sidekick.compose.ComposeInspector;
 import io.yamsergey.dta.sidekick.events.EventStore;
-import io.yamsergey.dta.sidekick.jvmti.JvmtiAgent;
 import io.yamsergey.dta.sidekick.network.BodyStorage;
-import io.yamsergey.dta.sidekick.network.adapter.NetworkInterceptorManager;
-import io.yamsergey.dta.sidekick.compose.RecompositionHooks;
-import io.yamsergey.dta.sidekick.webview.WebViewDebugHook;
 import io.yamsergey.dta.sidekick.server.InspectorServer;
+// NOTE: do NOT add imports for any class that references MethodHook
+// directly or transitively (JvmtiAgent, NetworkInterceptorManager,
+// concrete hook classes, etc.). Those would force this initializer's
+// class verifier to resolve MethodHook from the bootstrap classpath at
+// load time — and if BootstrapShim hasn't installed the shim jar yet
+// (stale APK, release build, etc.), the host app NCDFEs and crashes on
+// launch. All hook-touching code lives in SidekickJvmtiBoot, loaded
+// reflectively only when BootstrapShim.attached() returns true.
 
 /**
  * AndroidX Startup initializer that automatically starts the ADT Sidekick server.
@@ -84,8 +88,28 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
         // Initialize BodyStorage for large HTTP body storage
         initializeBodyStorage(context);
 
-        // Initialize JVMTI agent for method hooking (API 28+)
-        initializeJvmtiAgent(context);
+        // Initialize JVMTI agent + hooks ONLY when the bootstrap shim is
+        // attached. If shim install failed (stale AAR, release build,
+        // etc.), the MethodHook class isn't on the bootstrap classpath
+        // and any direct reference would NCDFE the verifier — so the
+        // call goes through Class.forName so SidekickJvmtiBoot's class
+        // load is deferred until we know it's safe.
+        if (BootstrapShim.attached()) {
+            try {
+                Class.forName("io.yamsergey.dta.sidekick.init.SidekickJvmtiBoot")
+                    .getMethod("start", Context.class)
+                    .invoke(null, context);
+            } catch (Throwable t) {
+                SidekickLog.e(TAG, "JVMTI boot threw — running in degraded mode "
+                        + "(server up, hooks disabled). " + t, t);
+            }
+        } else {
+            SidekickLog.w(TAG, "BootstrapShim not attached (reason="
+                    + BootstrapShim.lastReason()
+                    + ") — running in degraded mode: server up, hooks disabled. "
+                    + "Inspection capabilities (network capture, layout tree, "
+                    + "etc.) will not work. Check /health → shim for the reason.");
+        }
 
         // Start file logging if configured (must happen before server start).
         // Defaults to enabled — gated additionally by ApplicationInfo.FLAG_DEBUGGABLE
@@ -127,118 +151,6 @@ public class SidekickInitializer implements Initializer<InspectorServer> {
         }
 
         return server;
-    }
-
-    /**
-     * Initializes the JVMTI agent for runtime method hooking.
-     *
-     * <p>Requirements:</p>
-     * <ul>
-     *   <li>Android API 28+ (Android 9 Pie)</li>
-     *   <li>App must be debuggable</li>
-     * </ul>
-     */
-    private void initializeJvmtiAgent(@NonNull Context context) {
-        // Check API level
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            SidekickLog.i(TAG, "JVMTI agent requires API 28+ (current: " + Build.VERSION.SDK_INT + ")");
-            return;
-        }
-
-        // Check if app is debuggable
-        boolean isDebuggable = (context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-        if (!isDebuggable) {
-            SidekickLog.i(TAG, "JVMTI agent requires debuggable app");
-            return;
-        }
-
-        // Initialize the agent
-        boolean success = JvmtiAgent.initialize(context);
-
-        if (success) {
-            SidekickLog.i(TAG, "JVMTI agent initialized successfully");
-            // Note: bootstrap-classpath shim installation moved to
-            // BootstrapShimProvider — it has to run before AndroidX Startup
-            // verifies SidekickInitializer's class, otherwise MethodHook
-            // resolution NCDFEs at app launch.
-
-            // Register network hooks
-            registerNetworkHooks();
-
-            // Register WebView debug hook
-            registerWebViewHooks();
-
-            // Register navigation hook (captures NavController on setGraph)
-            registerNavigationHooks();
-
-            // Register Compose recomposition tracking hooks
-            registerRecompositionHooks();
-        } else {
-            String error = JvmtiAgent.getInitError();
-            SidekickLog.w(TAG, "JVMTI agent initialization failed: " + (error != null ? error : "unknown"));
-        }
-    }
-
-    /**
-     * Registers JVMTI hooks for network interception.
-     *
-     * <p>Uses the NetworkInterceptorManager to register all enabled adapters
-     * (OkHttp, URLConnection, WebSocket libraries) based on SidekickConfig.</p>
-     */
-    private void registerNetworkHooks() {
-        try {
-            // Apply user configuration before initializing adapters
-            Sidekick.applyConfiguration();
-
-            // Initialize the network interceptor manager (registers all enabled adapters)
-            NetworkInterceptorManager.initialize();
-
-            SidekickLog.i(TAG, "Network hooks registered via NetworkInterceptorManager");
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Failed to register network hooks", e);
-        }
-    }
-
-    /**
-     * Registers JVMTI hook to auto-enable WebView debugging.
-     *
-     * <p>This hook intercepts WebView constructors and calls
-     * {@code WebView.setWebContentsDebuggingEnabled(true)}, which is required
-     * for host-side CDP access to WebView content.</p>
-     */
-    private void registerWebViewHooks() {
-        try {
-            JvmtiAgent.registerHook(new WebViewDebugHook());
-            SidekickLog.i(TAG, "WebView debug hook registered");
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Failed to register WebView debug hook", e);
-        }
-    }
-
-    private void registerNavigationHooks() {
-        try {
-            JvmtiAgent.registerHook(new io.yamsergey.dta.sidekick.data.NavControllerHook());
-            SidekickLog.i(TAG, "Navigation hook registered");
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Failed to register navigation hook", e);
-        }
-    }
-
-    /**
-     * Registers JVMTI hooks for tracking Compose recomposition counts.
-     *
-     * <p>Hooks {@code ComposerImpl.startRestartGroup(int)} and
-     * {@code ComposerImpl.skipToGroupEnd()} to count recompositions and skips
-     * per composable, matching Android Studio's Layout Inspector behavior.</p>
-     */
-    private void registerRecompositionHooks() {
-        try {
-            JvmtiAgent.registerHook(new RecompositionHooks.StartRestartGroupHook());
-            JvmtiAgent.registerHook(new RecompositionHooks.SkipToGroupEndHook());
-            SidekickLog.i(TAG, "Compose recomposition hooks registered");
-        } catch (Exception e) {
-            SidekickLog.e(TAG, "Failed to register recomposition hooks", e);
-        }
     }
 
     /**

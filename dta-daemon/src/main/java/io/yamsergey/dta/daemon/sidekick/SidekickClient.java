@@ -179,9 +179,22 @@ public class SidekickClient {
                 String socketName = extractJsonString(json, "socketName");
                 String pkgName = extractJsonString(json, "packageName");
                 int sseClients = extractJsonInt(json, "sseClients", 0);
+                // shim sub-object — added in a recent sidekick. Older
+                // versions don't include it; defaults below treat
+                // missing fields as "we don't know but probably ok"
+                // (shimAttached=true, reason="unknown") so the plugin
+                // doesn't show a false-degraded banner against an old
+                // but otherwise-working sidekick.
+                String shimAttachedStr = extractNestedString(json, "shim", "attached");
+                String shimReason = extractNestedString(json, "shim", "reason");
+                String shimDetail = extractNestedString(json, "shim", "detail");
+                boolean shimAttached = shimAttachedStr == null
+                        || "true".equalsIgnoreCase(shimAttachedStr);
+                if (shimReason == null) shimReason = "unknown";
 
                 return new Success<>(
-                    new HealthResponse(status, name, version, socketName, pkgName, sseClients),
+                    new HealthResponse(status, name, version, socketName, pkgName, sseClients,
+                            shimAttached, shimReason, shimDetail),
                     "OK"
                 );
             } catch (Exception e) {
@@ -189,6 +202,30 @@ public class SidekickClient {
             }
         }
         return new Failure<>(null, result instanceof Failure<String> f ? f.description() : "Unknown error");
+    }
+
+    /**
+     * Pulls a string field from a nested object like
+     * {@code {"shim": {"attached": "true"}}}. Tries both bare-token and
+     * quoted-string matches so it works for booleans (rendered without
+     * quotes by the sidekick's HashMap serializer) and strings.
+     * Returns null when not found.
+     */
+    private String extractNestedString(String json, String parent, String key) {
+        java.util.regex.Pattern parentP = java.util.regex.Pattern.compile(
+                "\"" + parent + "\"\\s*:\\s*\\{([^}]*)\\}");
+        java.util.regex.Matcher pm = parentP.matcher(json);
+        if (!pm.find()) return null;
+        String inner = pm.group(1);
+        // Try quoted-string value first
+        java.util.regex.Matcher qm = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"").matcher(inner);
+        if (qm.find()) return qm.group(1);
+        // Fall back to a bare token (true/false/number)
+        java.util.regex.Matcher tm = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*([^,\\s}]+)").matcher(inner);
+        if (tm.find()) return tm.group(1);
+        return null;
     }
 
     /**

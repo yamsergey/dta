@@ -764,6 +764,13 @@ public class DtaOrchestrator {
                 result.put("sidekickVersion", health.version());
                 result.put("sidekickName", health.name());
 
+                // Surface shim status — false means inspection is
+                // disabled even though sidekick answered /health. The
+                // plugin uses this to render a degraded-mode banner.
+                result.put("shimAttached", health.shimAttached());
+                if (health.shimReason() != null) result.put("shimReason", health.shimReason());
+                if (health.shimDetail() != null) result.put("shimDetail", health.shimDetail());
+
                 if (!SidekickConnectionManager.isVersionCompatible(version, health.version())) {
                     result.put("warning", "Version mismatch: Inspector v" + version + ", Sidekick v" + health.version());
                 }

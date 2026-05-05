@@ -393,6 +393,13 @@ class DtaService : Disposable {
                     val node = tools.jackson.databind.ObjectMapper().readTree(connJson)
                     val skVersion = node.get("sidekickVersion")?.stringValue() ?: ""
                     val toolVersion = node.get("toolVersion")?.stringValue() ?: ""
+                    // shimAttached defaults to true for backward compat
+                    // (older sidekicks don't return it; "we don't know,
+                    // probably ok" is the safe assumption — plugin won't
+                    // show a false-degraded banner against an older but
+                    // working sidekick).
+                    val shimAttached = node.get("shimAttached")?.booleanValue() ?: true
+                    val shimReason = node.get("shimReason")?.stringValue()
                     val info = SidekickInfo(
                         packageName = app.packageName(),
                         deviceSerial = device.serial(),
@@ -414,6 +421,13 @@ class DtaService : Disposable {
                             && skBase.isNotEmpty() && skBase != toolBase) {
                             statusText += " ⚠ version mismatch (tools $toolVersion) — rebuild the app"
                         }
+                    }
+                    // Shim-not-attached takes priority in the banner: a
+                    // version-mismatched sidekick that's still hooking
+                    // beats a matching-version sidekick whose hooks are
+                    // dead. Both warnings can stack.
+                    if (!shimAttached) {
+                        statusText += " ⚠ inspection disabled (shim=$shimReason) — rebuild required"
                     }
                 } catch (_: Exception) {}
                 updateConnectionStatus(statusText)

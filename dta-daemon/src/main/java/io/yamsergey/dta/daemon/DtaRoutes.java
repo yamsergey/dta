@@ -393,6 +393,20 @@ public final class DtaRoutes {
                     hint.put("snippet", result.resolutionHint().snippet());
                     hint.put("target", result.resolutionHint().target());
                 }
+                // Post-launch sidekick health check. shimAttached=false on
+                // a successful build means the user got a stale APK
+                // (sidekick didn't install) — agents should warn instead
+                // of treating success as fully working.
+                if (result.shimStatus() != null) {
+                    var shim = json.putObject("shimStatus");
+                    shim.put("shimAttached", result.shimStatus().shimAttached());
+                    shim.put("reachable", result.shimStatus().reachable());
+                    if (result.shimStatus().reason() != null) shim.put("reason", result.shimStatus().reason());
+                    if (result.shimStatus().detail() != null) shim.put("detail", result.shimStatus().detail());
+                    if (result.shimStatus().sidekickVersion() != null) {
+                        shim.put("sidekickVersion", result.shimStatus().sidekickVersion());
+                    }
+                }
                 jsonNode(ctx, json);
             } catch (Exception e) {
                 log.error("run_app failed", e);

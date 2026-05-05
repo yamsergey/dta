@@ -1011,6 +1011,23 @@ public class InspectorServer {
         response.put("packageName", packageName);
         response.put("sseClients", sseClients.size());
         response.put("cdpCaptureRequested", cdpCaptureRequested);
+        // Inline shim status so callers (run_app, AS plugin) don't have
+        // to pull the heavier /debug/diagnostics object just to know
+        // whether inspection actually works. shimAttached=false means
+        // hooks won't fire — the user should see a degraded-mode warning
+        // rather than silently empty network/layout views.
+        Map<String, Object> shim = new HashMap<>();
+        try {
+            shim.put("attached", io.yamsergey.dta.sidekick.init.BootstrapShim.attached());
+            shim.put("reason", io.yamsergey.dta.sidekick.init.BootstrapShim.lastReason());
+            String detail = io.yamsergey.dta.sidekick.init.BootstrapShim.lastDetail();
+            if (detail != null) shim.put("detail", detail);
+        } catch (Throwable t) {
+            shim.put("attached", false);
+            shim.put("reason", "shim_class_unavailable");
+            shim.put("detail", t.toString());
+        }
+        response.put("shim", shim);
         response.put("endpoints", new String[]{
                 "/health",
                 "/events/stream",
@@ -1091,6 +1108,13 @@ public class InspectorServer {
         try {
             bootstrap.put("attached", io.yamsergey.dta.sidekick.init.BootstrapShim.attached());
             bootstrap.put("agentPath", io.yamsergey.dta.sidekick.init.BootstrapShim.agentPath());
+            // lastReason is a stable machine-readable string ("ok",
+            // "not_debuggable", "agent_so_missing", etc.) — agents and
+            // the AS plugin branch on it. lastDetail is free-form (e.g.
+            // exception toString) for human triage.
+            bootstrap.put("lastReason", io.yamsergey.dta.sidekick.init.BootstrapShim.lastReason());
+            String detail = io.yamsergey.dta.sidekick.init.BootstrapShim.lastDetail();
+            if (detail != null) bootstrap.put("lastDetail", detail);
         } catch (Throwable t) {
             bootstrap.put("error", t.toString());
         }

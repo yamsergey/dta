@@ -54,12 +54,37 @@ public class AppRunner {
         /** Optional diagnostic for known failure patterns (e.g. snapshot
          *  resolution failing because the project overrides settings-level
          *  repos). Null when the build succeeded or no pattern matched. */
-        ResolutionHint resolutionHint
+        ResolutionHint resolutionHint,
+        /** Sidekick post-launch health snapshot — null when the run failed
+         *  before launch, or when the sidekick socket didn't come up
+         *  within the wait window. Non-null with {@code shimAttached=false}
+         *  means the host app launched but inspection capabilities are
+         *  disabled (typically a stale APK reusing an old sidekick AAR);
+         *  agents should warn the user instead of treating success=true
+         *  as fully-working. */
+        ShimStatus shimStatus
     ) {
         public static RunResult failure(String error, String buildLog, ManualSteps steps, ResolutionHint hint) {
-            return new RunResult(false, null, null, buildLog, null, error, steps, hint);
+            return new RunResult(false, null, null, buildLog, null, error, steps, hint, null);
         }
     }
+
+    /** Post-launch sidekick health snapshot, mirroring /health's "shim" field. */
+    public record ShimStatus(
+        boolean shimAttached,
+        String reason,
+        String detail,
+        /** Sidekick AAR version (from /health "version") so the user can
+         *  cross-check it against the dta-cli / plugin version when
+         *  shim-not-attached is suspected to be a stale-build issue. */
+        String sidekickVersion,
+        /** True when we got a /health response at all; false means the
+         *  sidekick socket didn't appear within the post-launch wait
+         *  window — usually because the app is still cold-starting or
+         *  sidekick wasn't injected (release build / missing
+         *  dependency). */
+        boolean reachable
+    ) {}
 
     /** Actionable hint for a recognized failure mode. */
     public record ResolutionHint(
@@ -174,9 +199,17 @@ public class AppRunner {
             connectionManager.launchActivity(request.device(), component);
             log.info("Launched: {}", component);
 
+            // Poll the just-launched sidekick socket for shim status. Any
+            // failure here is non-fatal — we still report success on the
+            // run (the app is launched and visible), just with shimStatus
+            // null so the agent can decide what to surface. ~8s gives a
+            // cold app launch enough time on a slow emulator without
+            // pinning the run_app call open indefinitely.
+            ShimStatus shimStatus = pollShimStatus(packageName, request.device(), 8_000);
+
             return new RunResult(true, packageName, apkPath, buildLog.toString(), component, null,
                 new ManualSteps(initScriptContent, gradleCommand, resolvedInstall, resolvedLaunch, notes),
-                null);
+                null, shimStatus);
 
         } catch (Exception e) {
             log.error("Run failed: {}", e.getMessage(), e);
@@ -184,6 +217,57 @@ public class AppRunner {
                 new ManualSteps(initScriptContent, gradleCommand, installCommand, launchCommand, notes),
                 detectResolutionHint(buildLog.toString()));
         }
+    }
+
+    /**
+     * Polls the freshly-launched sidekick's {@code /health} for shim
+     * status. Returns {@code null} on any failure — the run itself
+     * succeeded; this is just a best-effort post-launch check so the
+     * caller can surface "you launched a stale APK, hooks aren't
+     * attached" rather than letting empty network/layout views confuse
+     * the user later.
+     */
+    private ShimStatus pollShimStatus(String packageName, String device, long deadlineMs) {
+        long deadline = System.currentTimeMillis() + deadlineMs;
+        Exception lastError = null;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                var conn = connectionManager.getConnection(packageName, device);
+                tools.jackson.databind.JsonNode health =
+                    new tools.jackson.databind.ObjectMapper().readTree(
+                        unwrap(conn.client().checkHealth(), "checkHealth"));
+                tools.jackson.databind.JsonNode shim = health.path("shim");
+                String version = health.path("version").asText(null);
+                // Older sidekicks (pre this change) won't have a "shim"
+                // field — treat its absence as "we don't know" rather
+                // than surface a confusing false-attached signal.
+                if (shim.isMissingNode() || shim.isNull()) {
+                    return new ShimStatus(true, "unknown", null, version, true);
+                }
+                boolean attached = shim.path("attached").asBoolean(false);
+                String reason = shim.path("reason").asText(null);
+                String detail = shim.path("detail").asText(null);
+                return new ShimStatus(attached, reason, detail, version, true);
+            } catch (Exception e) {
+                lastError = e;
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+        }
+        log.info("Sidekick socket didn't respond within {}ms after launch ({}). " +
+                "Skipping shim-status check; agent should retry via list_apps + /health.",
+            deadlineMs, lastError != null ? lastError.getMessage() : "no error");
+        return new ShimStatus(false, "socket_unreachable",
+            lastError != null ? lastError.getMessage() : null, null, false);
+    }
+
+    private static String unwrap(io.yamsergey.dta.tools.sugar.Result<String> r, String op) {
+        if (r instanceof io.yamsergey.dta.tools.sugar.Success<String> ok) return ok.value();
+        throw new RuntimeException(op + " failed: " + r);
     }
 
     /**
