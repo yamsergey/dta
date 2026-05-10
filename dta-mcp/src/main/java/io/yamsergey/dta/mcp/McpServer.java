@@ -1025,10 +1025,18 @@ public class McpServer {
             "  - req.headers    — object: { \"Content-Type\": \"application/json\", … }\n" +
             "  - req.body       — string (UTF-8 decoded) or null\n" +
             "  - req.tag        — \"okhttp\" | \"urlconn\"\n\n" +
-            "`resp` (HTTP response): same as req plus\n" +
+            "`resp` (HTTP response):\n" +
+            "  - resp.url            — string (URL of the request this response is for)\n" +
+            "  - resp.method         — string (\"GET\", \"POST\", …)\n" +
             "  - resp.status         — number (e.g. 200, 404)\n" +
             "  - resp.statusMessage  — string\n" +
-            "  (no `request` back-pointer in v1)\n\n" +
+            "  - resp.headers        — object\n" +
+            "  - resp.body           — string (UTF-8 decoded) or null\n" +
+            "  - resp.request        — full request peek: { url, method, headers, body, tag }.\n" +
+            "                          Use this when matching on the request body or a header\n" +
+            "                          the URL alone doesn't carry. resp.url / resp.method\n" +
+            "                          mirror resp.request.url / .method for ergonomics.\n" +
+            "  Mutating resp.url / resp.method has no effect — they're informational.\n\n" +
             "`frame` (WebSocket — text or binary):\n" +
             "  - frame.dir          — \"send\" | \"recv\"\n" +
             "  - frame.text         — string for text frames, null for binary\n" +

@@ -130,12 +130,32 @@ public final class InterceptorPayloads {
     // HTTP response
     // ----------------------------------------------------------------
 
+    /**
+     * Builds the JS view of an HTTP response.
+     *
+     * <p>Top-level {@code url} and {@code method} expose what request the
+     * response is for, so scripts can match by URL the same way they do
+     * in {@code onRequest}: {@code if (resp.url.includes("/profile")) ...}.
+     * Both are informational — {@link #readHttpResponse} ignores them on
+     * the way back; the script can't redirect a response by mutating
+     * {@code resp.url}.</p>
+     *
+     * <p>{@code requestPeek} is the corresponding request wrapper at
+     * the moment the request went on the wire (URL, method, headers,
+     * body). Available as {@code resp.request} when present. Useful for
+     * scripts that want richer cross-correlation than URL alone (e.g.
+     * inspect the request body to decide whether to mutate the
+     * response).</p>
+     */
     public static NativeObject httpResponseToJs(Context cx, Scriptable scope,
+                                                String url, String method,
                                                 int status, String statusMessage,
                                                 Map<String, String> headers,
                                                 byte[] body,
                                                 NativeObject requestPeek) {
         NativeObject obj = new NativeObject();
+        if (url != null) ScriptableObject.putProperty(obj, "url", url);
+        if (method != null) ScriptableObject.putProperty(obj, "method", method);
         ScriptableObject.putProperty(obj, "status", status);
         if (statusMessage != null) ScriptableObject.putProperty(obj, "statusMessage", statusMessage);
         ScriptableObject.putProperty(obj, "headers", headersToJs(scope, headers));

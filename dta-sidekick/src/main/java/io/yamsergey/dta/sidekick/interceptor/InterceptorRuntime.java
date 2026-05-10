@@ -272,11 +272,21 @@ public final class InterceptorRuntime {
     }
 
     /**
-     * Runs the script's {@code onResponse} hook. {@code requestPeek}
-     * may be null — supplied when the adapter has the corresponding
-     * outbound request still on hand for the script's reference.
+     * Runs the script's {@code onResponse} hook with the corresponding
+     * outbound request bundled in.
+     *
+     * <p>The wrapper exposes {@code resp.url} and {@code resp.method}
+     * at the top level (informational — {@link InterceptorPayloads#readHttpResponse}
+     * ignores them on the way back), and {@code resp.request} as a
+     * full request peek (url/method/headers/body) for scripts that
+     * need richer cross-correlation. {@code requestUrl}/{@code requestMethod}
+     * may be null on adapters that don't have them on hand; in that case
+     * the top-level fields are simply omitted.</p>
      */
     public InterceptorPayloads.HttpResponseMutation interceptHttpResponse(
+            String requestUrl, String requestMethod,
+            java.util.Map<String, String> requestHeaders, byte[] requestBody,
+            String requestTag,
             int status, String statusMessage,
             java.util.Map<String, String> headers,
             byte[] body) {
@@ -287,7 +297,21 @@ public final class InterceptorRuntime {
             cx.setOptimizationLevel(-1);
             Object fn = ScriptableObject.getProperty(s.scope, "onResponse");
             if (!(fn instanceof Function)) return InterceptorPayloads.HttpResponseMutation.UNCHANGED;
-            Object payload = InterceptorPayloads.httpResponseToJs(cx, s.scope, status, statusMessage, headers, body, null);
+            // Build a request peek from whatever we have. Adapters that
+            // can't supply the request (rare, but possible — e.g. a
+            // hook fires only on the response side) pass nulls and the
+            // peek is simply absent; resp.url / resp.method also drop.
+            org.mozilla.javascript.NativeObject requestPeek = null;
+            if (requestUrl != null) {
+                requestPeek = InterceptorPayloads.httpRequestToJs(cx, s.scope,
+                        requestUrl, requestMethod,
+                        requestHeaders != null ? requestHeaders : java.util.Collections.emptyMap(),
+                        requestBody,
+                        requestTag != null ? requestTag : InterceptorPayloads.TAG_OKHTTP);
+            }
+            Object payload = InterceptorPayloads.httpResponseToJs(cx, s.scope,
+                    requestUrl, requestMethod,
+                    status, statusMessage, headers, body, requestPeek);
             Function f = (Function) fn;
             Object result = f.call(cx, s.scope, s.scope, new Object[]{ payload });
             if (result == Undefined.instance) return InterceptorPayloads.HttpResponseMutation.UNCHANGED;

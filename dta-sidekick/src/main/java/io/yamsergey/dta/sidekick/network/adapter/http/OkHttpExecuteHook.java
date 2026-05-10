@@ -301,7 +301,27 @@ public class OkHttpExecuteHook implements MethodHook {
                     byte[] respBody = tx.getResponse().getBody() != null
                             ? tx.getResponse().getBody().getBytes(java.nio.charset.StandardCharsets.UTF_8)
                             : null;
+                    // Bundle the request so resp.url / resp.method / resp.request
+                    // are available to the script. Reading from tx.getRequest()
+                    // — what actually went on the wire (post-mutation if the
+                    // onRequest hook rewrote it). Headers/body collected into
+                    // the same plain-Java types onRequest got.
+                    HttpRequest reqRecord = tx.getRequest();
+                    String reqUrl = reqRecord != null ? reqRecord.getUrl() : null;
+                    String reqMethod = reqRecord != null ? reqRecord.getMethod() : null;
+                    java.util.Map<String, String> reqHdrs = null;
+                    byte[] reqBody = null;
+                    if (reqRecord != null) {
+                        reqHdrs = new java.util.LinkedHashMap<>();
+                        if (reqRecord.getHeaders() != null) {
+                            for (var h : reqRecord.getHeaders()) reqHdrs.put(h.getName(), h.getValue());
+                        }
+                        if (reqRecord.getBody() != null) {
+                            reqBody = reqRecord.getBody().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                        }
+                    }
                     InterceptorPayloads.HttpResponseMutation rmut = rt.interceptHttpResponse(
+                            reqUrl, reqMethod, reqHdrs, reqBody, InterceptorPayloads.TAG_OKHTTP,
                             tx.getResponseCode(), tx.getResponse().getStatusMessage(), hdrs, respBody);
                     if (rmut.dropped) {
                         // Same simulation as request-drop: synthetic 499.
