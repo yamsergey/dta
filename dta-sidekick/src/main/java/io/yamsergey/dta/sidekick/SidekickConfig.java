@@ -41,6 +41,24 @@ public final class SidekickConfig {
     private final boolean debugLoggingEnabled;
     private final boolean fileLoggingEnabled;
 
+    /**
+     * Compose recomposition-count hooks. <b>Disabled by default.</b>
+     *
+     * <p>These hooks bytecode-rewrite {@code ComposerImpl.startRestartGroup}
+     * and {@code skipToGroupEnd} to count recompositions per scope. The
+     * rewrite must pass ART's verifier on load; certain Compose runtime
+     * versions (observed: 1.8.0-alpha07) produce method shapes our
+     * slicer-style transform doesn't handle, and the resulting class
+     * fails verification with {@code VerifyError} — crashing the host
+     * app on first Compose render. Since we can't tell at hook-install
+     * time which Compose bytecode shape we're up against, the safe
+     * default is off: missing data is preferable to a crashed host.</p>
+     *
+     * <p>Hosts that have verified the hooks work for their Compose
+     * version can opt in via {@link Builder#enableRecompositionHooks()}.</p>
+     */
+    private final boolean recompositionHooksEnabled;
+
     // Adapter enable/disable flags
     private final boolean okHttpEnabled;
     private final boolean urlConnectionEnabled;
@@ -61,6 +79,7 @@ public final class SidekickConfig {
     private SidekickConfig(Builder builder) {
         this.debugLoggingEnabled = builder.debugLoggingEnabled;
         this.fileLoggingEnabled = builder.fileLoggingEnabled;
+        this.recompositionHooksEnabled = builder.recompositionHooksEnabled;
         this.okHttpEnabled = builder.okHttpEnabled;
         this.urlConnectionEnabled = builder.urlConnectionEnabled;
         this.okHttpWebSocketEnabled = builder.okHttpWebSocketEnabled;
@@ -102,6 +121,14 @@ public final class SidekickConfig {
      */
     public boolean isFileLoggingEnabled() {
         return fileLoggingEnabled;
+    }
+
+    /**
+     * Returns whether Compose recomposition-count hooks are enabled.
+     * Off by default — see the field doc for why.
+     */
+    public boolean isRecompositionHooksEnabled() {
+        return recompositionHooksEnabled;
     }
 
     public boolean isOkHttpEnabled() {
@@ -198,6 +225,9 @@ public final class SidekickConfig {
         // Debug Logs" button both depend on this. Cost is ~few MB cap;
         // gated by SidekickInitializer at runtime to debuggable apps only.
         private boolean fileLoggingEnabled = true;
+        // Recomposition hooks default OFF — see SidekickConfig.recompositionHooksEnabled
+        // for the verifier-crash rationale.
+        private boolean recompositionHooksEnabled = false;
         private boolean okHttpEnabled = true;
         private boolean urlConnectionEnabled = true;
         private boolean okHttpWebSocketEnabled = true;
@@ -260,6 +290,30 @@ public final class SidekickConfig {
          */
         public Builder disableFileLogging() {
             this.fileLoggingEnabled = false;
+            return this;
+        }
+
+        /**
+         * Opts the host app into Compose recomposition-count hooks.
+         *
+         * <p>Off by default. These hooks bytecode-rewrite {@code ComposerImpl}
+         * methods and have been observed to fail the ART verifier on newer
+         * Compose runtime versions (e.g. 1.8.0-alpha07), crashing the host
+         * with {@code VerifyError} on first composition. Enable only after
+         * verifying it works for your Compose version, or accept the small
+         * risk of process startup failure in exchange for per-composable
+         * recomposition counts in the layout tree.</p>
+         */
+        public Builder enableRecompositionHooks() {
+            this.recompositionHooksEnabled = true;
+            return this;
+        }
+
+        /**
+         * Disables Compose recomposition-count hooks. This is the default.
+         */
+        public Builder disableRecompositionHooks() {
+            this.recompositionHooksEnabled = false;
             return this;
         }
 

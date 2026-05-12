@@ -98,6 +98,20 @@ public final class SidekickJvmtiBoot {
     }
 
     private static void registerRecompositionHooks() {
+        if (!Sidekick.getConfig().isRecompositionHooksEnabled()) {
+            // Off by default — our DexTransformer's slicer-style register
+            // shuffle has been observed to produce verifier-rejected bytecode
+            // on Compose runtime 1.8.0-alpha07's startRestartGroup shape,
+            // which crashes the host on first composition (VerifyError).
+            // Hosts that have verified the hooks work for their Compose
+            // version can opt in via
+            // Sidekick.configure(SidekickConfig.builder().enableRecompositionHooks()...).
+            SidekickLog.i(TAG, "Compose recomposition hooks not registered "
+                    + "(disabled by default — see SidekickConfig.recompositionHooksEnabled "
+                    + "for the verifier-crash rationale; opt in via "
+                    + "SidekickConfig.Builder.enableRecompositionHooks()).");
+            return;
+        }
         try {
             JvmtiAgent.registerHook(new RecompositionHooks.StartRestartGroupHook());
             JvmtiAgent.registerHook(new RecompositionHooks.SkipToGroupEndHook());
