@@ -499,6 +499,18 @@ public class DexTransformer {
 
         // ═══ Second pass: copy body with onExit hooks and adjusted branches ═══
         // For onExit, reuse v0..v2 as scratch — safe to clobber before return.
+        //
+        // Read 'this' from `L` (the relocated position), NOT from `newParamStart`.
+        // When needsShift is true, the prologue does `move-object/16 v_L, v_newParamStart`
+        // to put 'this' at v_L, then `move/16 v_(L+1), v_(newParamStart+1)` to put the
+        // next param at v_(L+1). The second move CLOBBERS v_newParamStart with an int
+        // (when the next param is primitive), re-typing v_newParamStart from reference
+        // to int. Reading thisObj from newParamStart at onExit then triggers:
+        //   VerifyError: copy1 v_thisObjReg <- v_newParamStart type=Integer cat=3
+        // (seen on androidx.compose.runtime.ComposerImpl.startRestartGroup under
+        // Compose 1.8.0-alpha07: body has 4 locals + this + int key, so needsShift=true).
+        // When !needsShift, L == newParamStart, so reading from L is identical.
+        int thisReadReg = needsShift ? L : newParamStart;
         currentOrigOffset = 0;
         for (Instruction insn : impl.getInstructions()) {
             Opcode opcode = insn.getOpcode();
@@ -507,7 +519,7 @@ public class DexTransformer {
             if (opcode == Opcode.RETURN_VOID) {
                 if (!isStatic) {
                     newInstructions.add(new ImmutableInstruction32x(
-                            Opcode.MOVE_OBJECT_16, thisObjReg, newParamStart));
+                            Opcode.MOVE_OBJECT_16, thisObjReg, thisReadReg));
                 }
                 newInstructions.add(new ImmutableInstruction21c(
                         Opcode.CONST_STRING, hookIdReg,
@@ -534,7 +546,7 @@ public class DexTransformer {
                 // onExit hook
                 if (!isStatic) {
                     newInstructions.add(new ImmutableInstruction32x(
-                            Opcode.MOVE_OBJECT_16, thisObjReg, newParamStart));
+                            Opcode.MOVE_OBJECT_16, thisObjReg, thisReadReg));
                 }
                 newInstructions.add(new ImmutableInstruction21c(
                         Opcode.CONST_STRING, hookIdReg,
@@ -561,7 +573,7 @@ public class DexTransformer {
                         Opcode.MOVE_OBJECT_16, argsReg, returnReg));
                 if (!isStatic) {
                     newInstructions.add(new ImmutableInstruction32x(
-                            Opcode.MOVE_OBJECT_16, thisObjReg, newParamStart));
+                            Opcode.MOVE_OBJECT_16, thisObjReg, thisReadReg));
                 } else {
                     newInstructions.add(new ImmutableInstruction21s(
                             Opcode.CONST_16, thisObjReg, 0));
