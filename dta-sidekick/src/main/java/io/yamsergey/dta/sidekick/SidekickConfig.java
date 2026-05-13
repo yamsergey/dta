@@ -42,20 +42,23 @@ public final class SidekickConfig {
     private final boolean fileLoggingEnabled;
 
     /**
-     * Compose recomposition-count hooks. <b>Disabled by default.</b>
+     * Compose recomposition-count hooks. <b>Enabled by default.</b>
      *
      * <p>These hooks bytecode-rewrite {@code ComposerImpl.startRestartGroup}
      * and {@code skipToGroupEnd} to count recompositions per scope. The
-     * rewrite must pass ART's verifier on load; certain Compose runtime
-     * versions (observed: 1.8.0-alpha07) produce method shapes our
-     * slicer-style transform doesn't handle, and the resulting class
-     * fails verification with {@code VerifyError} — crashing the host
-     * app on first Compose render. Since we can't tell at hook-install
-     * time which Compose bytecode shape we're up against, the safe
-     * default is off: missing data is preferable to a crashed host.</p>
+     * rewrite must pass ART's verifier on load.
      *
-     * <p>Hosts that have verified the hooks work for their Compose
-     * version can opt in via {@link Builder#enableRecompositionHooks()}.</p>
+     * <p>Earlier sidekick releases ({@code 0.9.37} and below) crashed on
+     * Compose 1.8.0-alpha07-style bytecode with
+     * {@code VerifyError: copy1 v1<-v5 type=Integer cat=3} on first
+     * composition, because DexTransformer's onExit read 'this' from the
+     * pre-relocation param register, which the prologue had clobbered with
+     * a primitive. Fixed in {@code 0.9.38} by reading 'this' from the
+     * relocated position. Verified on Compose 1.7 (BOM 2024.09 / 2024.12)
+     * and Compose 1.8.0-alpha07 (NiA).
+     *
+     * <p>Hosts that hit verifier rejections on a Compose version we haven't
+     * tested can opt out via {@link Builder#disableRecompositionHooks()}.</p>
      */
     private final boolean recompositionHooksEnabled;
 
@@ -125,7 +128,7 @@ public final class SidekickConfig {
 
     /**
      * Returns whether Compose recomposition-count hooks are enabled.
-     * Off by default — see the field doc for why.
+     * On by default — see the field doc for the rationale and opt-out.
      */
     public boolean isRecompositionHooksEnabled() {
         return recompositionHooksEnabled;
@@ -225,9 +228,10 @@ public final class SidekickConfig {
         // Debug Logs" button both depend on this. Cost is ~few MB cap;
         // gated by SidekickInitializer at runtime to debuggable apps only.
         private boolean fileLoggingEnabled = true;
-        // Recomposition hooks default OFF — see SidekickConfig.recompositionHooksEnabled
-        // for the verifier-crash rationale.
-        private boolean recompositionHooksEnabled = false;
+        // Recomposition hooks default ON — see SidekickConfig.recompositionHooksEnabled
+        // for the history (the verifier crash that motivated the original OFF default
+        // was fixed in 0.9.38).
+        private boolean recompositionHooksEnabled = true;
         private boolean okHttpEnabled = true;
         private boolean urlConnectionEnabled = true;
         private boolean okHttpWebSocketEnabled = true;
