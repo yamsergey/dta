@@ -68,6 +68,7 @@ private class NavigationSubPanel : JPanel(BorderLayout()) {
 
     private val log = Logger.getInstance(NavigationSubPanel::class.java)
     private val mapper = ObjectMapper()
+    private val service = DtaService.getInstance()
     private val backstackArea = JBTextArea().apply {
         isEditable = false
         font = Font("Monospaced", Font.PLAIN, 12)
@@ -75,6 +76,16 @@ private class NavigationSubPanel : JPanel(BorderLayout()) {
     private val graphArea = JBTextArea().apply {
         isEditable = false
         font = Font("Monospaced", Font.PLAIN, 12)
+    }
+
+    // Action controls (populated from latest navigation_graph payload).
+    private val destinationCombo = JComboBox<String>().apply { isEditable = true }
+    private val deepLinkCombo = JComboBox<String>().apply { isEditable = true }
+    private val paramsField = JTextField()
+    private val navigateBtn = JButton("Navigate")
+    private val openDeepLinkBtn = JButton("Open")
+    private val statusLabel = JBLabel("Drive navigation from here.").apply {
+        foreground = java.awt.Color.GRAY
     }
 
     init {
@@ -95,6 +106,170 @@ private class NavigationSubPanel : JPanel(BorderLayout()) {
         split.topComponent = backstackPanel
         split.bottomComponent = graphPanel
         add(split, BorderLayout.CENTER)
+        add(buildActionsPanel(), BorderLayout.SOUTH)
+
+        navigateBtn.addActionListener { onNavigateClicked() }
+        openDeepLinkBtn.addActionListener { onOpenDeepLinkClicked() }
+    }
+
+    /**
+     * Builds the bottom "Actions" pane: a destination row (combo + params
+     * text + Navigate button) and a deep-link row (combo + Open button),
+     * with a single shared status label below. Both combos are
+     * {@code isEditable = true} so users can type a route the graph
+     * scraper didn't pick up.
+     */
+    private fun buildActionsPanel(): JComponent {
+        val outer = JPanel(BorderLayout()).apply {
+            border = BorderFactory.createTitledBorder("Actions")
+        }
+        val rows = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
+
+        val navigateRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
+        navigateRow.add(JBLabel("Destination:"))
+        destinationCombo.preferredSize = java.awt.Dimension(220, destinationCombo.preferredSize.height)
+        navigateRow.add(destinationCombo)
+        navigateRow.add(JBLabel("Params (k=v, comma-sep):"))
+        paramsField.preferredSize = java.awt.Dimension(180, paramsField.preferredSize.height)
+        navigateRow.add(paramsField)
+        navigateRow.add(navigateBtn)
+
+        val deepLinkRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
+        deepLinkRow.add(JBLabel("Deep link URI:"))
+        deepLinkCombo.preferredSize = java.awt.Dimension(360, deepLinkCombo.preferredSize.height)
+        deepLinkRow.add(deepLinkCombo)
+        deepLinkRow.add(openDeepLinkBtn)
+
+        rows.add(navigateRow)
+        rows.add(deepLinkRow)
+        outer.add(rows, BorderLayout.CENTER)
+
+        val statusRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0))
+        statusRow.add(statusLabel)
+        outer.add(statusRow, BorderLayout.SOUTH)
+        return outer
+    }
+
+    /**
+     * Refreshes the destination + deep-link combos from the latest graph
+     * JSON. Iterates declared destinations + any deepLinks lists carried on
+     * each destination. Preserves the user's current edit so a typed
+     * (not-yet-committed) entry isn't wiped on the next poll tick.
+     */
+    private fun rebuildActionChoices(graph: tools.jackson.databind.JsonNode?) {
+        if (graph == null) return
+        val destinations = mutableListOf<String>()
+        val deepLinks = mutableListOf<String>()
+        graph.get("destinations")?.takeIf { it.isArray }?.forEach { dest ->
+            dest.get("route")?.asText()?.takeIf { it.isNotBlank() }?.let { destinations.add(it) }
+            dest.get("deepLinks")?.takeIf { it.isArray }?.forEach { dl ->
+                dl.asText()?.takeIf { it.isNotBlank() }?.let { deepLinks.add(it) }
+            }
+        }
+        replaceComboItems(destinationCombo, destinations)
+        replaceComboItems(deepLinkCombo, deepLinks)
+    }
+
+    private fun replaceComboItems(combo: JComboBox<String>, items: List<String>) {
+        val current = combo.editor.item?.toString() ?: ""
+        combo.removeAllItems()
+        items.forEach { combo.addItem(it) }
+        // Preserve in-flight edit; otherwise default to the first listed item.
+        if (current.isNotEmpty()) combo.selectedItem = current
+        else if (items.isNotEmpty()) combo.selectedItem = items[0]
+    }
+
+    private fun onNavigateClicked() {
+        val pkg = service.selectedApp?.packageName
+        val device = service.selectedDevice?.serial()
+        if (pkg == null || device == null) {
+            setStatus("No app/device selected.", error = true)
+            return
+        }
+        val destination = (destinationCombo.editor.item ?: "").toString().trim()
+        if (destination.isEmpty()) {
+            setStatus("Destination is empty.", error = true)
+            return
+        }
+        val params = parseParams(paramsField.text)
+        runOnBackground("navigate", error = "Navigate failed") {
+            service.navigate(pkg, device, destination, params)
+        }
+    }
+
+    private fun onOpenDeepLinkClicked() {
+        val pkg = service.selectedApp?.packageName
+        val device = service.selectedDevice?.serial()
+        if (pkg == null || device == null) {
+            setStatus("No app/device selected.", error = true)
+            return
+        }
+        val uri = (deepLinkCombo.editor.item ?: "").toString().trim()
+        if (uri.isEmpty()) {
+            setStatus("Deep link URI is empty.", error = true)
+            return
+        }
+        runOnBackground("open_deeplink", error = "Open deep link failed") {
+            service.openDeepLink(pkg, device, uri)
+        }
+    }
+
+    /** `a=1, b=hello world` → {a: "1", b: "hello world"}. Empty values OK. */
+    private fun parseParams(raw: String): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        for (segment in raw.split(',')) {
+            val trimmed = segment.trim()
+            if (trimmed.isEmpty()) continue
+            val eq = trimmed.indexOf('=')
+            if (eq < 0) {
+                // tolerated — bare key with empty value
+                out[trimmed] = ""
+            } else {
+                out[trimmed.substring(0, eq).trim()] = trimmed.substring(eq + 1).trim()
+            }
+        }
+        return out
+    }
+
+    private fun runOnBackground(action: String, error: String, block: () -> String) {
+        setStatus("$action…", error = false)
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val text = try {
+                val json = block()
+                interpretResult(json)
+            } catch (e: Exception) {
+                log.warn("$action failed", e)
+                "$error: ${e.message}"
+            }
+            SwingUtilities.invokeLater { setStatus(text, error = text.startsWith("Error:")) }
+        }
+    }
+
+    /**
+     * Pulls the actionable message out of the sidekick response — either
+     * "Navigated to <route>" / "Opened <uri>", or the error field if the
+     * payload reported one.
+     */
+    private fun interpretResult(json: String): String {
+        return try {
+            val node = mapper.readTree(json)
+            val err = node.get("error")?.asText()
+            if (err != null) "Error: $err"
+            else {
+                val route = node.get("route")?.asText()
+                val uri = node.get("uri")?.asText()
+                when {
+                    route != null -> "Navigated to $route"
+                    uri != null -> "Opened $uri"
+                    else -> "OK"
+                }
+            }
+        } catch (e: Exception) { "Result: $json" }
+    }
+
+    private fun setStatus(text: String, error: Boolean) {
+        statusLabel.text = text
+        statusLabel.foreground = if (error) java.awt.Color(0xC0, 0x39, 0x2B) else java.awt.Color.GRAY
     }
 
     fun update(backstackJson: String?, graphJson: String?) {
@@ -178,6 +353,7 @@ private class NavigationSubPanel : JPanel(BorderLayout()) {
                             }
                         }
                         graphArea.text = sb.toString()
+                        rebuildActionChoices(graph)
                     }
                 } catch (e: Exception) {
                     graphArea.text = "Error: ${e.message}"

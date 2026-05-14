@@ -591,6 +591,29 @@ class DtaService : Disposable {
         return client.viewModelSavedState(pkg, viewModelId, device)
     }
 
+    /**
+     * Drives the host app's NavController to a destination. Body is the JSON
+     * payload {@code {"destination": "...", "params": {...}}}; we serialize
+     * it here so callers don't have to depend on Jackson directly.
+     */
+    fun navigate(pkg: String, device: String, destination: String, params: Map<String, String>): String {
+        val client = ensureDaemon()
+        val body = mapper.createObjectNode().apply {
+            put("destination", destination)
+            if (params.isNotEmpty()) {
+                set("params", mapper.valueToTree<tools.jackson.databind.JsonNode>(params))
+            }
+        }
+        return client.navigate(pkg, device, mapper.writeValueAsString(body))
+    }
+
+    /** Fires Intent.ACTION_VIEW on the host with the given URI. */
+    fun openDeepLink(pkg: String, device: String, uri: String): String {
+        val client = ensureDaemon()
+        val body = mapper.createObjectNode().put("uri", uri)
+        return client.openDeepLink(pkg, device, mapper.writeValueAsString(body))
+    }
+
     private fun clearDataCaches() {
         layoutTreeJson = null
         screenshotBytes = null
