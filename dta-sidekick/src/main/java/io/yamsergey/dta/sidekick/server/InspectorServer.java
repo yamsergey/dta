@@ -664,6 +664,12 @@ public class InspectorServer {
         if (path.equals("/runtime/viewmodels") && "GET".equals(method)) {
             handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().viewModels(), out); return;
         }
+        if (path.equals("/runtime/app_functions") && "GET".equals(method)) {
+            handleRuntimeJson(
+                new io.yamsergey.dta.sidekick.data.AppFunctionsInspector(getAppContext()).appFunctions(),
+                out);
+            return;
+        }
         if (path.equals("/debug/diagnostics") && "GET".equals(method)) {
             handleDebugDiagnostics(out); return;
         }
@@ -796,18 +802,27 @@ public class InspectorServer {
     // ========================================================================
 
     private io.yamsergey.dta.sidekick.data.DataInspector getDataInspector() {
+        return new io.yamsergey.dta.sidekick.data.DataInspector(getAppContext());
+    }
+
+    /**
+     * Resolves an app-level {@link android.content.Context} for inspectors
+     * that need to touch resources/assets/system services. Prefers the
+     * foreground activity (so it picks up per-activity theming etc.); falls
+     * back to the application context via ActivityThread when no activity
+     * is current.
+     */
+    private android.content.Context getAppContext() {
         android.app.Activity activity = io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getCurrentActivity();
         if (activity != null) {
-            return new io.yamsergey.dta.sidekick.data.DataInspector(activity);
+            return activity;
         }
-        // Fallback: reflectively get the Application context
         try {
             Class<?> atClass = Class.forName("android.app.ActivityThread");
             Object at = atClass.getMethod("currentActivityThread").invoke(null);
-            android.app.Application app = (android.app.Application) atClass.getMethod("getApplication").invoke(at);
-            return new io.yamsergey.dta.sidekick.data.DataInspector(app);
+            return (android.app.Application) atClass.getMethod("getApplication").invoke(at);
         } catch (Exception e) {
-            throw new RuntimeException("Cannot get app context for data inspection", e);
+            throw new RuntimeException("Cannot get app context for runtime inspection", e);
         }
     }
 
@@ -1079,6 +1094,7 @@ public class InspectorServer {
                 "/runtime/threads",
                 "/runtime/viewmodels",
                 "/runtime/viewmodels/{id}/saved-state",
+                "/runtime/app_functions",
                 "/debug/diagnostics",
                 "/layout/tree",
                 "/layout/properties/{viewId}"

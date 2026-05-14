@@ -282,6 +282,10 @@ public final class DtaRoutes {
                     ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("id")));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
+        app.get("/api/runtime/app_functions", ctx -> {
+            try { jsonString(ctx, orchestrator.appFunctions(ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
 
         app.get("/api/runtime/files", ctx -> {
             try {

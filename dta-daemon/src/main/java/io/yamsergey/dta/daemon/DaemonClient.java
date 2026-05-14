@@ -166,6 +166,9 @@ public class DaemonClient {
         return get("/api/runtime/viewmodels/" + encode(viewModelId) + "/saved-state?package="
                 + encode(pkg) + deviceParam(device, false));
     }
+    public String appFunctions(String pkg, String device) {
+        return get("/api/runtime/app_functions?package=" + encode(pkg) + deviceParam(device, false));
+    }
 
     public String authenticate(String pkg, String device) {
         return post("/api/runtime/authenticate?package=" + encode(pkg) + deviceParam(device, false), "");

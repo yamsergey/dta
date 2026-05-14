@@ -359,6 +359,9 @@ public class DtaOrchestrator {
     public String viewModelSavedState(String packageName, String device, String viewModelId) throws Exception {
         return unwrap(getConnection(packageName, device).client().viewModelSavedState(viewModelId), "Failed");
     }
+    public String appFunctions(String packageName, String device) throws Exception {
+        return unwrap(getConnection(packageName, device).client().appFunctions(), "Failed");
+    }
 
     public String listFiles(String packageName, String device, String path) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);

@@ -1249,9 +1249,10 @@ public class McpServer {
                 "- memory: Heap and native memory usage (heapUsed, heapMax, nativeHeap)\n" +
                 "- threads: List all threads with state. Set stack_traces=true for full traces.\n" +
                 "- viewmodels: Live ViewModels with reflected LiveData/StateFlow/Compose state. Includes Activity-scoped (owner.type=\"Activity\") and Navigation 3 NavEntry-scoped (owner.type=\"NavEntry\", owner.key=NavKey toString). NavEntry-scoped ids are prefixed with `navEntry::` — paste the id back into saved_state for SavedStateHandle inspection.\n" +
-                "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).",
+                "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).\n" +
+                "- app_functions: Enumerates androidx.appfunctions methods the host exposes to Gemini / system AI (Android 16+ framework). Reads the KSP-generated assets/app_functions_v2.xml — no extra deps required on the host. Each entry has {id, description, parameters[{name, isRequired, description, dataType{type, typeName, isNullable, dataTypeReference}}], response, enabledByDefault, schemaCategory/Name/Version}. Returns {functions: []} with a `note` when the host doesn't use AppFunctions.",
                 schema(Map.of(
-                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state", true),
+                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions", true),
                     "package", prop("string", "App package name (auto-detected if only one app)", false),
                     "device", prop("string", "Device serial (auto-detected if only one device)", false),
                     "stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false),
@@ -1278,6 +1279,7 @@ public class McpServer {
                                 yield errorResult("'view_model_id' is required for saved_state");
                             yield ok(getDaemon().viewModelSavedState(pkg, vmId, device));
                         }
+                        case "app_functions" -> ok(getDaemon().appFunctions(pkg, device));
                         default -> errorResult("Unknown command: " + command);
                     };
                 } catch (Exception e) {
