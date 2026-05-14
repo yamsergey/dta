@@ -31,7 +31,8 @@ import picocli.CommandLine.Command;
              WebSocketCommand.class,
              CustomTabsCommand.class,
              PackagesCommand.class,
-             LogPullCommand.class
+             LogPullCommand.class,
+             io.yamsergey.dta.cli.inspect.runtime.RuntimeCommand.class
          })
 public class InspectCommand implements Runnable {
 
