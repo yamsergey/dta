@@ -1250,13 +1250,18 @@ public class McpServer {
                 "- threads: List all threads with state. Set stack_traces=true for full traces.\n" +
                 "- viewmodels: Live ViewModels with reflected LiveData/StateFlow/Compose state. Includes Activity-scoped (owner.type=\"Activity\") and Navigation 3 NavEntry-scoped (owner.type=\"NavEntry\", owner.key=NavKey toString). NavEntry-scoped ids are prefixed with `navEntry::` — paste the id back into saved_state for SavedStateHandle inspection.\n" +
                 "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).\n" +
-                "- app_functions: Enumerates androidx.appfunctions methods the host exposes to Gemini / system AI (Android 16+ framework). Reads the KSP-generated assets/app_functions_v2.xml — no extra deps required on the host. Each entry has {id, description, parameters[{name, isRequired, description, dataType{type, typeName, isNullable, dataTypeReference}}], response, enabledByDefault, schemaCategory/Name/Version}. Returns {functions: []} with a `note` when the host doesn't use AppFunctions.",
+                "- app_functions: Enumerates androidx.appfunctions methods the host exposes to Gemini / system AI (Android 16+ framework). Reads the KSP-generated assets/app_functions_v2.xml — no extra deps required on the host. Each entry has {id, description, parameters[{name, isRequired, description, dataType{type, typeName, isNullable, dataTypeReference}}], response, enabledByDefault, schemaCategory/Name/Version}. Returns {functions: []} with a `note` when the host doesn't use AppFunctions.\n" +
+                "- navigate: Push a destination onto the host's NavController (Navigation 2 / Compose Navigation). Requires `destination` (the route template or a literal route from navigation_graph) and optional `params` (object whose keys fill `{placeholder}` segments; extras become query params). Returns {status:\"ok\", route:\"...\"} or {error:\"...\"}. Navigation 3 (NavBackStack/NavKey) is NOT supported — use open_deeplink instead, or wait for the Nav 3 research thread to land.\n" +
+                "- open_deeplink: Fire Intent.ACTION_VIEW with a URI. Works for any destination the app exposes via <intent-filter><data>. Requires `uri` (string). Inherits the host's task affinity (no external browser detour).",
                 schema(Map.of(
-                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions", true),
+                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions, navigate, open_deeplink", true),
                     "package", prop("string", "App package name (auto-detected if only one app)", false),
                     "device", prop("string", "Device serial (auto-detected if only one device)", false),
                     "stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false),
-                    "view_model_id", prop("string", "Required for saved_state — the id field from a viewmodels response", false)
+                    "view_model_id", prop("string", "Required for saved_state — the id field from a viewmodels response", false),
+                    "destination", prop("string", "Required for navigate — the route template or literal route to navigate to.", false),
+                    "params", prop("object", "Optional for navigate — map of route-placeholder → value. Extras become query params.", false),
+                    "uri", prop("string", "Required for open_deeplink — the URI to launch via Intent.ACTION_VIEW.", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -1280,6 +1285,28 @@ public class McpServer {
                             yield ok(getDaemon().viewModelSavedState(pkg, vmId, device));
                         }
                         case "app_functions" -> ok(getDaemon().appFunctions(pkg, device));
+                        case "navigate" -> {
+                            String destination = getString(args, "destination");
+                            if (destination == null || destination.isEmpty())
+                                yield errorResult("'destination' is required for navigate");
+                            // Forward {destination, params} verbatim as JSON body. We re-build the
+                            // body here (rather than passing args directly) so unrelated MCP keys
+                            // like `package`/`device` don't leak into the sidekick payload.
+                            Map<String, Object> bodyMap = new java.util.HashMap<>();
+                            bodyMap.put("destination", destination);
+                            Object params = args.get("params");
+                            if (params instanceof Map) bodyMap.put("params", params);
+                            String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
+                            yield ok(getDaemon().navigate(pkg, device, body));
+                        }
+                        case "open_deeplink" -> {
+                            String uri = getString(args, "uri");
+                            if (uri == null || uri.isEmpty())
+                                yield errorResult("'uri' is required for open_deeplink");
+                            String body = new tools.jackson.databind.ObjectMapper()
+                                .writeValueAsString(Map.of("uri", uri));
+                            yield ok(getDaemon().openDeepLink(pkg, device, body));
+                        }
                         default -> errorResult("Unknown command: " + command);
                     };
                 } catch (Exception e) {

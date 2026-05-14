@@ -169,6 +169,12 @@ public class DaemonClient {
     public String appFunctions(String pkg, String device) {
         return get("/api/runtime/app_functions?package=" + encode(pkg) + deviceParam(device, false));
     }
+    public String navigate(String pkg, String device, String body) {
+        return post("/api/runtime/navigate?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+    public String openDeepLink(String pkg, String device, String body) {
+        return post("/api/runtime/open_deeplink?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
 
     public String authenticate(String pkg, String device) {
         return post("/api/runtime/authenticate?package=" + encode(pkg) + deviceParam(device, false), "");

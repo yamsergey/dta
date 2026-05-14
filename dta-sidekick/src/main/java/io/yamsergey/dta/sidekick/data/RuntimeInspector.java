@@ -9,6 +9,7 @@ import io.yamsergey.dta.sidekick.view.WindowRootDiscovery;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -133,6 +134,186 @@ public class RuntimeInspector {
         } catch (Exception e) {
             result.put("error", "Failed to read navigation graph: " + e.getMessage());
         }
+        return result;
+    }
+
+    /**
+     * Pushes a destination onto the host app's NavController. Supports the
+     * Navigation 2 / Compose Navigation string-route API: caller passes a
+     * {@code destination} that matches a {@code <destination>} route in the
+     * graph (e.g. {@code "topic/{topicId}"} or just {@code "login"}) plus a
+     * {@code params} map; placeholders in the route template are substituted
+     * verbatim, then {@code NavController.navigate(String)} is invoked on
+     * the main thread.
+     *
+     * <p>Navigation 3 (NavBackStack/NavKey) is not supported — there is no
+     * canonical owner to reach via reflection. See sibling issue for the
+     * research thread.</p>
+     *
+     * @param destination route template (with optional {@code {placeholder}} segments)
+     *                    or a literal route already filled by the caller.
+     * @param params      map of placeholder name → value (any type with a sane
+     *                    {@code toString()}). Missing required placeholders fail
+     *                    fast; extras are appended as query parameters when the
+     *                    route doesn't already declare them.
+     */
+    public Map<String, Object> navigate(String destination, Map<String, Object> params) {
+        Map<String, Object> result = new HashMap<>();
+        if (destination == null || destination.isEmpty()) {
+            result.put("error", "Missing required 'destination' parameter");
+            return result;
+        }
+        Activity activity = WindowRootDiscovery.getCurrentActivity();
+        if (activity == null) {
+            result.put("error", "No visible activity — host app must be foreground");
+            return result;
+        }
+
+        Object navController;
+        try {
+            navController = runOnMainThread(() -> findNavController(activity));
+        } catch (Exception e) {
+            result.put("error", "NavController lookup failed: " + e.getMessage());
+            return result;
+        }
+        if (navController == null) {
+            result.put("error", "No NavController found. Navigation 2 / Compose Navigation NavController "
+                + "required. Navigation 3 (NavBackStack<NavKey>) is not yet supported — use open_deeplink "
+                + "if the destination declares an intent-filter.");
+            return result;
+        }
+
+        String filledRoute;
+        try {
+            filledRoute = fillRouteTemplate(destination, params != null ? params : Collections.emptyMap());
+        } catch (IllegalArgumentException e) {
+            result.put("error", e.getMessage());
+            return result;
+        }
+
+        // Run on main thread because NavController mutates Compose state +
+        // requires the same thread the host's NavHost is running on.
+        Throwable[] err = new Throwable[1];
+        runOnMainThread(() -> {
+            try {
+                Method navigate = navController.getClass().getMethod("navigate", String.class);
+                navigate.invoke(navController, filledRoute);
+            } catch (Throwable t) {
+                // Some Compose Navigation versions also accept (String, NavOptions);
+                // the String-only overload is the most portable. Surface the
+                // underlying cause to the caller — typical: "Navigation destination
+                // X cannot be found from the current destination".
+                err[0] = (t.getCause() != null) ? t.getCause() : t;
+            }
+            return null;
+        });
+        if (err[0] != null) {
+            result.put("error", err[0].getClass().getSimpleName() + ": " + err[0].getMessage());
+            result.put("attemptedRoute", filledRoute);
+            return result;
+        }
+        result.put("status", "ok");
+        result.put("route", filledRoute);
+        return result;
+    }
+
+    /**
+     * Substitutes {@code {name}} placeholders in a route template with values
+     * from {@code params}. Any unused params are appended as query parameters,
+     * mirroring how Compose Navigation lets callers pass optional args.
+     * Throws if a placeholder has no matching value.
+     */
+    private String fillRouteTemplate(String template, Map<String, Object> params) {
+        StringBuilder out = new StringBuilder(template.length() + 32);
+        java.util.Set<String> consumed = new java.util.LinkedHashSet<>();
+        int i = 0;
+        while (i < template.length()) {
+            int open = template.indexOf('{', i);
+            if (open < 0) {
+                out.append(template, i, template.length());
+                break;
+            }
+            int close = template.indexOf('}', open);
+            if (close < 0) {
+                // Stray '{' — copy literally.
+                out.append(template, i, template.length());
+                break;
+            }
+            out.append(template, i, open);
+            String name = template.substring(open + 1, close);
+            Object value = params.get(name);
+            if (value == null) {
+                throw new IllegalArgumentException(
+                    "Missing required param '" + name + "' for route template '" + template + "'");
+            }
+            // URL-encode minimally so spaces / special chars round-trip
+            // through the NavController route parser. NavController itself
+            // expects the standard encoding for path segments.
+            out.append(java.net.URLEncoder.encode(value.toString(), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20"));
+            consumed.add(name);
+            i = close + 1;
+        }
+        // Append unused params as query string — only if the template doesn't
+        // already carry a '?' (then it's up to the caller to format).
+        boolean hasQuery = out.indexOf("?") >= 0;
+        boolean first = !hasQuery;
+        for (Map.Entry<String, Object> e : params.entrySet()) {
+            if (consumed.contains(e.getKey()) || e.getValue() == null) continue;
+            out.append(first ? '?' : '&');
+            first = false;
+            out.append(java.net.URLEncoder.encode(e.getKey(), java.nio.charset.StandardCharsets.UTF_8));
+            out.append('=');
+            out.append(java.net.URLEncoder.encode(e.getValue().toString(), java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return out.toString();
+    }
+
+    /**
+     * Fires {@code Intent.ACTION_VIEW} with the given URI. Works for any
+     * destination the app exposes via an {@code <intent-filter>} — independent
+     * of which navigation library the app uses. The intent is launched from
+     * the foreground activity so it inherits the host's task affinity (no
+     * external "open in browser" detour).
+     */
+    public Map<String, Object> openDeepLink(String uri) {
+        Map<String, Object> result = new HashMap<>();
+        if (uri == null || uri.isEmpty()) {
+            result.put("error", "Missing required 'uri' parameter");
+            return result;
+        }
+        Activity activity = WindowRootDiscovery.getCurrentActivity();
+        if (activity == null) {
+            result.put("error", "No visible activity — host app must be foreground to launch a deep link in-task");
+            return result;
+        }
+        android.net.Uri parsed;
+        try {
+            parsed = android.net.Uri.parse(uri);
+        } catch (Exception e) {
+            result.put("error", "Invalid URI: " + e.getMessage());
+            return result;
+        }
+        Throwable[] err = new Throwable[1];
+        runOnMainThread(() -> {
+            try {
+                android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, parsed);
+                // Launch from the activity to keep the same task; if no handler
+                // claims it, Android throws ActivityNotFoundException — surface
+                // it to the caller so they know the URI didn't match anything.
+                activity.startActivity(intent);
+            } catch (Throwable t) {
+                err[0] = t;
+            }
+            return null;
+        });
+        if (err[0] != null) {
+            result.put("error", err[0].getClass().getSimpleName() + ": " + err[0].getMessage());
+            result.put("attemptedUri", uri);
+            return result;
+        }
+        result.put("status", "ok");
+        result.put("uri", uri);
         return result;
     }
 

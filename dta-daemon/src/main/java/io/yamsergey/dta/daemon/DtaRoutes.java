@@ -286,6 +286,16 @@ public final class DtaRoutes {
             try { jsonString(ctx, orchestrator.appFunctions(ctx.queryParam("package"), ctx.queryParam("device")));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
+        app.post("/api/runtime/navigate", ctx -> {
+            try { jsonString(ctx, orchestrator.navigate(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/open_deeplink", ctx -> {
+            try { jsonString(ctx, orchestrator.openDeepLink(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
 
         app.get("/api/runtime/files", ctx -> {
             try {

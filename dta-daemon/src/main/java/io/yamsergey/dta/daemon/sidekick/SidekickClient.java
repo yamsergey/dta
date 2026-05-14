@@ -345,6 +345,8 @@ public class SidekickClient {
         return httpGet("/runtime/viewmodels/" + java.net.URLEncoder.encode(viewModelId, StandardCharsets.UTF_8) + "/saved-state");
     }
     public Result<String> appFunctions() { return httpGet("/runtime/app_functions"); }
+    public Result<String> navigate(String body) { return httpPost("/runtime/navigate", body); }
+    public Result<String> openDeepLink(String body) { return httpPost("/runtime/open_deeplink", body); }
     public Result<String> listFiles(String path) { return httpGet("/runtime/files/" + (path != null ? path : "")); }
     public Result<String> listDatabases() { return httpGet("/runtime/databases"); }
     public Result<String> databaseSchema(String name) { return httpGet("/runtime/databases/" + name + "/schema"); }

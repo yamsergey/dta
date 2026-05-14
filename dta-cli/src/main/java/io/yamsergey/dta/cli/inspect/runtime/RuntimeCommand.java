@@ -17,6 +17,8 @@ import picocli.CommandLine.Command;
              SavedStateCommand.class,
              NavigationBackstackCommand.class,
              NavigationGraphCommand.class,
+             NavigateCommand.class,
+             OpenDeepLinkCommand.class,
              LifecycleCommand.class,
              MemoryCommand.class,
              ThreadsCommand.class

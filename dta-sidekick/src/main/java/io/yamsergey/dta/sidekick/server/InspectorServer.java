@@ -670,6 +670,14 @@ public class InspectorServer {
                 out);
             return;
         }
+        if (path.equals("/runtime/navigate") && "POST".equals(method)) {
+            handleRuntimeNavigate(body, out);
+            return;
+        }
+        if (path.equals("/runtime/open_deeplink") && "POST".equals(method)) {
+            handleRuntimeOpenDeepLink(body, out);
+            return;
+        }
         if (path.equals("/debug/diagnostics") && "GET".equals(method)) {
             handleDebugDiagnostics(out); return;
         }
@@ -829,6 +837,51 @@ public class InspectorServer {
     private void handleRuntimeJson(Map<String, Object> data, OutputStream out) throws IOException {
         try {
             sendJson(out, 200, data);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code POST /runtime/navigate} — body is {@code {"destination": "...",
+     * "params": {…}}}. Drives the foreground NavController (Navigation 2 /
+     * Compose Navigation). Status 200 with {@code {"status":"ok","route":"…"}}
+     * on success, 400 with {@code {"error":"…"}} on lookup / argument failure.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeNavigate(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String destination = req != null ? (String) req.get("destination") : null;
+            Map<String, Object> params = req != null && req.get("params") instanceof Map
+                ? (Map<String, Object>) req.get("params")
+                : null;
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector().navigate(destination, params);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code POST /runtime/open_deeplink} — body is {@code {"uri": "..."}}.
+     * Fires {@code Intent.ACTION_VIEW} from the foreground activity.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeOpenDeepLink(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String uri = req != null ? (String) req.get("uri") : null;
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector().openDeepLink(uri);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
         } catch (Exception e) {
             sendError(out, 500, e.getMessage());
         }
@@ -1095,6 +1148,8 @@ public class InspectorServer {
                 "/runtime/viewmodels",
                 "/runtime/viewmodels/{id}/saved-state",
                 "/runtime/app_functions",
+                "/runtime/navigate",
+                "/runtime/open_deeplink",
                 "/debug/diagnostics",
                 "/layout/tree",
                 "/layout/properties/{viewId}"

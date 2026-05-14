@@ -362,6 +362,12 @@ public class DtaOrchestrator {
     public String appFunctions(String packageName, String device) throws Exception {
         return unwrap(getConnection(packageName, device).client().appFunctions(), "Failed");
     }
+    public String navigate(String packageName, String device, String body) throws Exception {
+        return unwrap(getConnection(packageName, device).client().navigate(body), "Failed");
+    }
+    public String openDeepLink(String packageName, String device, String body) throws Exception {
+        return unwrap(getConnection(packageName, device).client().openDeepLink(body), "Failed");
+    }
 
     public String listFiles(String packageName, String device, String path) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);
