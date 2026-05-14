@@ -553,17 +553,44 @@ public class RuntimeInspector {
                 Map<String, ViewModelEntry> store = readViewModelStore(activity);
                 if (store == null || store.isEmpty()) continue;
 
+                String activityScope = activity.getClass().getName() + "@" + activity.getTaskId();
+
                 for (Map.Entry<String, ViewModelEntry> e : store.entrySet()) {
+                    Object vmInstance = e.getValue().vm;
                     Map<String, Object> vm = new HashMap<>();
                     vm.put("id", e.getKey());
-                    vm.put("vmClass", e.getValue().vm.getClass().getName());
+                    vm.put("vmClass", vmInstance.getClass().getName());
                     Map<String, Object> owner = new HashMap<>();
                     owner.put("type", "Activity");
                     owner.put("name", activity.getClass().getName());
-                    owner.put("scope", activity.getClass().getName() + "@" + activity.getTaskId());
+                    owner.put("scope", activityScope);
                     vm.put("owner", owner);
-                    vm.put("properties", reflectViewModelProperties(e.getValue().vm));
+                    vm.put("properties", reflectViewModelProperties(vmInstance));
                     all.add(vm);
+
+                    // Navigation 3: this Activity-scoped VM is the EntryViewModel
+                    // holding per-NavKey ViewModelStores. Walk them so callers see
+                    // ForYouViewModel, TopicViewModel, etc. that live in a NavEntry.
+                    for (Map.Entry<Object, Map<String, ViewModelEntry>> navEntry :
+                            readNavEntryStores(vmInstance).entrySet()) {
+                        Object navKey = navEntry.getKey();
+                        String navKeyStr = String.valueOf(navKey);
+                        String navKeyClass = navKey != null ? navKey.getClass().getName() : "null";
+                        for (Map.Entry<String, ViewModelEntry> nve : navEntry.getValue().entrySet()) {
+                            Object navVm = nve.getValue().vm;
+                            Map<String, Object> nvVm = new HashMap<>();
+                            nvVm.put("id", navEntryVmId(navKey, nve.getKey()));
+                            nvVm.put("vmClass", navVm.getClass().getName());
+                            Map<String, Object> nvOwner = new HashMap<>();
+                            nvOwner.put("type", "NavEntry");
+                            nvOwner.put("key", navKeyStr);
+                            nvOwner.put("navKeyClass", navKeyClass);
+                            nvOwner.put("activity", activityScope);
+                            nvVm.put("owner", nvOwner);
+                            nvVm.put("properties", reflectViewModelProperties(navVm));
+                            all.add(nvVm);
+                        }
+                    }
                 }
             }
         } catch (Exception e) {
@@ -627,25 +654,40 @@ public class RuntimeInspector {
 
     /**
      * Reads the underlying map from {@code activity.getViewModelStore()}.
-     * AndroidX historically stored this as a Java {@code mMap} field, but the
-     * lifecycle library was migrated to Kotlin and the field is now called
-     * {@code map}. We try both, plus any field whose runtime type is a
-     * {@code Map} as a final fallback for future renames. Null if the VM
-     * library isn't present.
      */
     private Map<String, ViewModelEntry> readViewModelStore(Activity activity) {
         try {
             Method getStore = activity.getClass().getMethod("getViewModelStore");
-            Object store = getStore.invoke(activity);
-            if (store == null) return null;
+            return readStoreMap(getStore.invoke(activity));
+        } catch (NoSuchMethodException ignored) {
+            // Pre-AndroidX or non-ComponentActivity — no ViewModelStore.
+            return null;
+        } catch (Exception e) {
+            SidekickLog.d(TAG, "readViewModelStore failed: " + e.getMessage());
+            return null;
+        }
+    }
 
-            Field mapField = findField(store.getClass(), "map");
-            if (mapField == null) mapField = findField(store.getClass(), "mMap");
-            if (mapField == null) mapField = findFirstMapField(store.getClass());
-            if (mapField == null) {
-                SidekickLog.d(TAG, "ViewModelStore has no recognizable map field on " + store.getClass());
-                return null;
-            }
+    /**
+     * Reads the underlying {@code Map<String, ViewModel>} out of any
+     * {@code ViewModelStore}-like object (Activity-, Fragment-, or
+     * Navigation 3 NavEntry-scoped).
+     *
+     * <p>AndroidX historically stored this as a Java {@code mMap} field, but the
+     * lifecycle library was migrated to Kotlin and the field is now called
+     * {@code map}. We try both, plus any field whose runtime type is a
+     * {@code Map} as a final fallback for future renames.</p>
+     */
+    private Map<String, ViewModelEntry> readStoreMap(Object store) {
+        if (store == null) return null;
+        Field mapField = findField(store.getClass(), "map");
+        if (mapField == null) mapField = findField(store.getClass(), "mMap");
+        if (mapField == null) mapField = findFirstMapField(store.getClass());
+        if (mapField == null) {
+            SidekickLog.d(TAG, "ViewModelStore has no recognizable map field on " + store.getClass());
+            return null;
+        }
+        try {
             mapField.setAccessible(true);
             Object raw = mapField.get(store);
             if (!(raw instanceof Map)) return null;
@@ -656,13 +698,58 @@ public class RuntimeInspector {
                 }
             }
             return out;
-        } catch (NoSuchMethodException ignored) {
-            // Pre-AndroidX or non-ComponentActivity — no ViewModelStore.
-            return null;
         } catch (Exception e) {
-            SidekickLog.d(TAG, "readViewModelStore failed: " + e.getMessage());
+            SidekickLog.d(TAG, "readStoreMap failed: " + e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Class name of Navigation 3's per-Activity holder for NavEntry-scoped
+     * stores. Lives in {@code androidx.lifecycle:lifecycle-viewmodel-navigation3}
+     * (alpha API in 2.10.x); has a private {@code Map<Object, ViewModelStore>
+     * owners} field keyed by the host app's NavKey type.
+     */
+    private static final String NAV3_ENTRY_VIEWMODEL_CLASS =
+            "androidx.lifecycle.viewmodel.navigation3.EntryViewModel";
+
+    /**
+     * If {@code vm} is the Navigation 3 EntryViewModel, returns its
+     * {@code owners} map (NavKey → ViewModelStore-contents-as-map). Empty
+     * map for non-matches and for entries the reflection couldn't read.
+     */
+    private Map<Object, Map<String, ViewModelEntry>> readNavEntryStores(Object vm) {
+        Map<Object, Map<String, ViewModelEntry>> out = new java.util.LinkedHashMap<>();
+        if (vm == null || !NAV3_ENTRY_VIEWMODEL_CLASS.equals(vm.getClass().getName())) {
+            return out;
+        }
+        try {
+            Field owners = findField(vm.getClass(), "owners");
+            if (owners == null) return out;
+            owners.setAccessible(true);
+            Object raw = owners.get(vm);
+            if (!(raw instanceof Map)) return out;
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) raw).entrySet()) {
+                Map<String, ViewModelEntry> storeMap = readStoreMap(e.getValue());
+                if (storeMap != null && !storeMap.isEmpty()) {
+                    out.put(e.getKey(), storeMap);
+                }
+            }
+        } catch (Exception e) {
+            SidekickLog.d(TAG, "readNavEntryStores failed: " + e.getMessage());
+        }
+        return out;
+    }
+
+    /**
+     * ID prefix marking NavEntry-scoped VM identifiers. Format:
+     * {@code navEntry::<navKeyStr>::<vmKey>}. Double-colon separator keeps
+     * the format unambiguous when NavKey toString contains a single colon.
+     */
+    private static final String NAV_ENTRY_ID_PREFIX = "navEntry::";
+
+    private static String navEntryVmId(Object navKey, String vmKey) {
+        return NAV_ENTRY_ID_PREFIX + String.valueOf(navKey) + "::" + vmKey;
     }
 
     /** Walks the class hierarchy returning the first non-static {@code Map}-typed field. */
@@ -679,6 +766,19 @@ public class RuntimeInspector {
 
     /** Walks the activity → vm-store map to find a vm matching {@code id}. */
     private Object findViewModelById(String id) {
+        // NavEntry-scoped: id = "navEntry::<navKeyStr>::<vmKey>" — match by
+        // the string form of the NavKey (the same form viewModels() emits)
+        // so callers can paste the listed id back into the lookup.
+        boolean isNavEntry = id != null && id.startsWith(NAV_ENTRY_ID_PREFIX);
+        String navKeyStr = null;
+        String navVmKey = null;
+        if (isNavEntry) {
+            String tail = id.substring(NAV_ENTRY_ID_PREFIX.length());
+            int sep = tail.lastIndexOf("::");
+            if (sep < 0) return null;
+            navKeyStr = tail.substring(0, sep);
+            navVmKey = tail.substring(sep + 2);
+        }
         try {
             Class<?> atClass = Class.forName("android.app.ActivityThread");
             Object at = atClass.getMethod("currentActivityThread").invoke(null);
@@ -692,8 +792,24 @@ public class RuntimeInspector {
                 Activity activity = (Activity) actField.get(record);
                 if (activity == null) continue;
                 Map<String, ViewModelEntry> store = readViewModelStore(activity);
-                if (store != null && store.containsKey(id)) {
-                    return store.get(id).vm;
+                if (store == null) continue;
+
+                if (!isNavEntry) {
+                    if (store.containsKey(id)) return store.get(id).vm;
+                    continue;
+                }
+
+                // NavEntry path: locate the EntryViewModel in this store, then
+                // match navKeyStr against its owners map.
+                for (ViewModelEntry vmEntry : store.values()) {
+                    Object vmInstance = vmEntry.vm;
+                    if (!NAV3_ENTRY_VIEWMODEL_CLASS.equals(vmInstance.getClass().getName())) continue;
+                    Map<Object, Map<String, ViewModelEntry>> navStores = readNavEntryStores(vmInstance);
+                    for (Map.Entry<Object, Map<String, ViewModelEntry>> e : navStores.entrySet()) {
+                        if (!navKeyStr.equals(String.valueOf(e.getKey()))) continue;
+                        ViewModelEntry hit = e.getValue().get(navVmKey);
+                        if (hit != null) return hit.vm;
+                    }
                 }
             }
         } catch (Exception ignored) {}

@@ -1248,7 +1248,7 @@ public class McpServer {
                 "- lifecycle: All activities with their lifecycle state (RESUMED/PAUSED/STOPPED)\n" +
                 "- memory: Heap and native memory usage (heapUsed, heapMax, nativeHeap)\n" +
                 "- threads: List all threads with state. Set stack_traces=true for full traces.\n" +
-                "- viewmodels: Live Activity-scoped ViewModels with reflected LiveData/StateFlow/Compose state values.\n" +
+                "- viewmodels: Live ViewModels with reflected LiveData/StateFlow/Compose state. Includes Activity-scoped (owner.type=\"Activity\") and Navigation 3 NavEntry-scoped (owner.type=\"NavEntry\", owner.key=NavKey toString). NavEntry-scoped ids are prefixed with `navEntry::` — paste the id back into saved_state for SavedStateHandle inspection.\n" +
                 "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).",
                 schema(Map.of(
                     "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state", true),
