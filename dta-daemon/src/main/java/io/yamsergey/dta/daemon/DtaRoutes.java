@@ -301,6 +301,18 @@ public final class DtaRoutes {
                     ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
+        app.get("/api/runtime/logcat", ctx -> {
+            try {
+                Long since = ctx.queryParam("since") != null
+                    ? Long.parseLong(ctx.queryParam("since")) : null;
+                Integer maxLines = ctx.queryParam("maxLines") != null
+                    ? Integer.parseInt(ctx.queryParam("maxLines")) : null;
+                ctx.json(orchestrator.logcat(
+                    ctx.queryParam("package"), ctx.queryParam("device"),
+                    since, maxLines,
+                    ctx.queryParam("filter"), ctx.queryParam("minLevel")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
         app.post("/api/runtime/tap_and_wait_for", ctx -> {
             try {
                 int x = Integer.parseInt(ctx.queryParam("x"));

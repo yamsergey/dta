@@ -373,6 +373,125 @@ public class DtaOrchestrator {
     }
 
     /**
+     * Dumps the host app's logcat (filtered to its PID) and returns
+     * parsed records. {@code sinceMs} is a wall-clock epoch in ms; lines
+     * older than that are dropped. Use {@code System.currentTimeMillis()}
+     * before triggering an action and pass it here to get action-bounded
+     * logs — the canonical pattern for stub-helper analysis
+     * (StubAnalyticsHelper logs events that don't reach the wire).
+     */
+    public Map<String, Object> logcat(String packageName, String device,
+            Long sinceMs, Integer maxLines, String filterSubstring,
+            String minLevel) throws Exception {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (packageName == null || packageName.isEmpty()) {
+            String resolved = detectForegroundPackage(device).orElse(null);
+            if (resolved == null) {
+                result.put("error", "package not provided and no foreground app detected");
+                return result;
+            }
+            packageName = resolved;
+            result.put("resolvedPackage", packageName);
+        }
+        int pid = connectionManager.pidOf(device, packageName);
+        if (pid <= 0) {
+            result.put("error", "Could not find PID for " + packageName + " — app not running?");
+            return result;
+        }
+        result.put("pid", pid);
+
+        String raw = connectionManager.logcatDumpForPid(device, pid);
+        List<Map<String, Object>> parsed = parseLogcatThreadtime(raw, sinceMs, filterSubstring, minLevel);
+        if (maxLines != null && maxLines > 0 && parsed.size() > maxLines) {
+            // Keep the most recent N lines — the caller's bookmark is at
+            // the front of the bounded window, so tail-bias gives the
+            // "what happened during my action" view.
+            parsed = parsed.subList(parsed.size() - maxLines, parsed.size());
+        }
+        result.put("lines", parsed);
+        result.put("count", parsed.size());
+        return result;
+    }
+
+    /**
+     * Parses {@code logcat -v threadtime} output into structured records.
+     * Sample line:
+     * <pre>05-18 10:32:14.123  1234  5678 I MyTag: hello world</pre>
+     *
+     * <p>Logcat timestamps are MM-dd HH:mm:ss.SSS with no year (the year
+     * is implicit / "now"), and the device's local timezone — we
+     * reconstruct the epoch using the daemon's TZ as a best-effort,
+     * surfacing the original string as {@code timestamp} for cases where
+     * the wall-clock conversion matters less than the relative ordering.</p>
+     */
+    private List<Map<String, Object>> parseLogcatThreadtime(String raw, Long sinceMs,
+            String filterSubstring, String minLevel) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (raw == null || raw.isEmpty()) return out;
+        String filterLower = filterSubstring != null ? filterSubstring.toLowerCase() : null;
+        // Levels in increasing severity. Filter rejects below minLevel.
+        int minLevelOrdinal = levelOrdinal(minLevel);
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS");
+        int currentYear = java.time.LocalDate.now().getYear();
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+
+        for (String line : raw.split("\\R")) {
+            if (line.length() < 20) continue;
+            // Format: "MM-dd HH:mm:ss.SSS  PID  TID L TAG: MSG"
+            // Use a single regex to extract — handles variable whitespace.
+            java.util.regex.Matcher m = LOGCAT_LINE.matcher(line);
+            if (!m.matches()) continue;
+            String ts = m.group(1);
+            int pid = Integer.parseInt(m.group(2));
+            int tid = Integer.parseInt(m.group(3));
+            String level = m.group(4);
+            String tag = m.group(5).trim();
+            String msg = m.group(6);
+
+            if (levelOrdinal(level) < minLevelOrdinal) continue;
+            if (filterLower != null && !line.toLowerCase().contains(filterLower)) continue;
+
+            long epochMs;
+            try {
+                java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(
+                    currentYear + "-" + ts, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+                epochMs = ldt.atZone(zone).toInstant().toEpochMilli();
+            } catch (Exception e) { epochMs = -1; }
+
+            if (sinceMs != null && epochMs > 0 && epochMs < sinceMs) continue;
+
+            Map<String, Object> rec = new LinkedHashMap<>();
+            rec.put("timestamp", ts);
+            if (epochMs > 0) rec.put("epochMs", epochMs);
+            rec.put("level", level);
+            rec.put("tag", tag);
+            rec.put("pid", pid);
+            rec.put("tid", tid);
+            rec.put("message", msg);
+            out.add(rec);
+        }
+        return out;
+    }
+
+    private static final java.util.regex.Pattern LOGCAT_LINE = java.util.regex.Pattern.compile(
+        "^(\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3})\\s+" +
+        "(\\d+)\\s+(\\d+)\\s+([VDIWEFAS])\\s+([^:]+):\\s*(.*)$");
+
+    private static int levelOrdinal(String level) {
+        if (level == null || level.isEmpty()) return 0;
+        return switch (level.charAt(0)) {
+            case 'V' -> 0;
+            case 'D' -> 1;
+            case 'I' -> 2;
+            case 'W' -> 3;
+            case 'E' -> 4;
+            case 'F', 'A' -> 5;     // fatal / assert
+            case 'S' -> 6;          // silent
+            default -> 0;
+        };
+    }
+
+    /**
      * Daemon-side {@code tap_and_wait_for}: performs an adb tap, then
      * immediately POSTs the wait_for predicate to sidekick. Saves the
      * client one round-trip, which is the exact latency that lets

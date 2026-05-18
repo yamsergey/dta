@@ -1355,16 +1355,21 @@ public class McpServer {
                 "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).\n" +
                 "- app_functions: Enumerates androidx.appfunctions methods the host exposes to Gemini / system AI (Android 16+ framework). Reads the KSP-generated assets/app_functions_v2.xml — no extra deps required on the host. Each entry has {id, description, parameters[{name, isRequired, description, dataType{type, typeName, isNullable, dataTypeReference}}], response, enabledByDefault, schemaCategory/Name/Version}. Returns {functions: []} with a `note` when the host doesn't use AppFunctions.\n" +
                 "- navigate: Push a destination onto the host's NavController (Navigation 2 / Compose Navigation). Requires `destination` (the route template or a literal route from navigation_graph) and optional `params` (object whose keys fill `{placeholder}` segments; extras become query params). Returns {status:\"ok\", route:\"...\"} or {error:\"...\"}. Navigation 3 (NavBackStack/NavKey) is NOT supported — use open_deeplink instead, or wait for the Nav 3 research thread to land.\n" +
-                "- open_deeplink: Fire Intent.ACTION_VIEW with a URI. Works for any destination the app exposes via <intent-filter><data>. Requires `uri` (string). Inherits the host's task affinity (no external browser detour).",
-                schema(Map.of(
-                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions, navigate, open_deeplink", true),
-                    "package", prop("string", "App package name (auto-detected if only one app)", false),
-                    "device", prop("string", "Device serial (auto-detected if only one device)", false),
-                    "stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false),
-                    "view_model_id", prop("string", "Required for saved_state — the id field from a viewmodels response", false),
-                    "destination", prop("string", "Required for navigate — the route template or literal route to navigate to.", false),
-                    "params", prop("object", "Optional for navigate — map of route-placeholder → value. Extras become query params.", false),
-                    "uri", prop("string", "Required for open_deeplink — the URI to launch via Intent.ACTION_VIEW.", false)
+                "- open_deeplink: Fire Intent.ACTION_VIEW with a URI. Works for any destination the app exposes via <intent-filter><data>. Requires `uri` (string). Inherits the host's task affinity (no external browser detour).\n" +
+                "- logcat: Dump the host app's logcat (filtered to its PID via `adb shell logcat --pid`). Parsed into `{lines:[{timestamp, epochMs, level, tag, pid, tid, message}], count}`. Optional filters: `since_ms` (epoch ms — pass `Date.now()` before triggering an action to get **action-bounded logcat**, the canonical pattern for stub-helper analysis where the side effect doesn't reach the wire), `max_lines` (tail-bias keeps the most recent N), `filter` (substring, case-insensitive, against the raw line), `min_level` (V/D/I/W/E/F).",
+                schema(Map.ofEntries(
+                    Map.entry("command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions, navigate, open_deeplink, logcat", true)),
+                    Map.entry("package", prop("string", "App package name (auto-detected if only one app)", false)),
+                    Map.entry("device", prop("string", "Device serial (auto-detected if only one device)", false)),
+                    Map.entry("stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false)),
+                    Map.entry("view_model_id", prop("string", "Required for saved_state — the id field from a viewmodels response", false)),
+                    Map.entry("destination", prop("string", "Required for navigate — the route template or literal route to navigate to.", false)),
+                    Map.entry("params", prop("object", "Optional for navigate — map of route-placeholder → value. Extras become query params.", false)),
+                    Map.entry("uri", prop("string", "Required for open_deeplink — the URI to launch via Intent.ACTION_VIEW.", false)),
+                    Map.entry("since_ms", prop("integer", "logcat: epoch ms lower bound (drops older lines).", false)),
+                    Map.entry("max_lines", prop("integer", "logcat: cap on returned lines (tail-bias, keeps the most recent).", false)),
+                    Map.entry("filter", prop("string", "logcat: substring filter, case-insensitive.", false)),
+                    Map.entry("min_level", prop("string", "logcat: minimum severity letter (V/D/I/W/E/F).", false))
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -1388,6 +1393,15 @@ public class McpServer {
                             yield ok(getDaemon().viewModelSavedState(pkg, vmId, device));
                         }
                         case "app_functions" -> ok(getDaemon().appFunctions(pkg, device));
+                        case "logcat" -> {
+                            Object sinceObj = args.get("since_ms");
+                            Long since = (sinceObj instanceof Number) ? ((Number) sinceObj).longValue() : null;
+                            Object maxObj = args.get("max_lines");
+                            Integer max = (maxObj instanceof Number) ? ((Number) maxObj).intValue() : null;
+                            String filter = getString(args, "filter");
+                            String minLevel = getString(args, "min_level");
+                            yield ok(getDaemon().logcat(pkg, device, since, max, filter, minLevel));
+                        }
                         case "navigate" -> {
                             String destination = getString(args, "destination");
                             if (destination == null || destination.isEmpty())

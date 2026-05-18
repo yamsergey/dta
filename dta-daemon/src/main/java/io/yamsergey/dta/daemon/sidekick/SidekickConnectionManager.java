@@ -470,6 +470,30 @@ public class SidekickConnectionManager {
     }
 
     /**
+     * Returns the PID of the named process, or {@code -1} if the
+     * process isn't running. Uses {@code pidof} which is universally
+     * available on modern Android (toybox).
+     */
+    public int pidOf(String device, String packageName) throws IOException, InterruptedException {
+        String raw = runAdb(device, "shell", "pidof", packageName).trim();
+        if (raw.isEmpty()) return -1;
+        // Multiple PIDs possible for multi-process apps — take the first
+        // (the main process); finer-grained selection is a v2.
+        String first = raw.split("\\s+")[0];
+        try { return Integer.parseInt(first); } catch (NumberFormatException e) { return -1; }
+    }
+
+    /**
+     * Dumps logcat lines for a specific PID, returning the raw threadtime
+     * output. {@code -d} makes logcat dump-and-exit (no streaming); {@code
+     * --pid} filters to a single process so a noisy device's system-wide
+     * log doesn't drown the host's lines. Caller filters/parses upstream.
+     */
+    public String logcatDumpForPid(String device, int pid) throws IOException, InterruptedException {
+        return runAdb(device, "shell", "logcat", "-d", "-v", "threadtime", "--pid=" + pid);
+    }
+
+    /**
      * Inputs text on the device.
      */
     public boolean inputText(String device, String text) throws IOException, InterruptedException {

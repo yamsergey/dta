@@ -183,6 +183,15 @@ public class DaemonClient {
     public String waitFor(String pkg, String device, String body) {
         return post("/api/runtime/wait_for?package=" + encode(pkg) + deviceParam(device, false), body);
     }
+    public String logcat(String pkg, String device, Long sinceMs, Integer maxLines, String filter, String minLevel) {
+        StringBuilder url = new StringBuilder("/api/runtime/logcat?package=");
+        url.append(encode(pkg)).append(deviceParam(device, false));
+        if (sinceMs != null) url.append("&since=").append(sinceMs);
+        if (maxLines != null) url.append("&maxLines=").append(maxLines);
+        if (filter != null && !filter.isEmpty()) url.append("&filter=").append(encode(filter));
+        if (minLevel != null && !minLevel.isEmpty()) url.append("&minLevel=").append(encode(minLevel));
+        return get(url.toString());
+    }
     public String tapAndWaitFor(String pkg, String device, int x, int y, String body) {
         return post("/api/runtime/tap_and_wait_for?package=" + encode(pkg)
             + deviceParam(device, false) + "&x=" + x + "&y=" + y, body);
