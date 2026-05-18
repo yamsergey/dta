@@ -682,6 +682,14 @@ public class InspectorServer {
             handleRuntimeWaitFor(body, out);
             return;
         }
+        if (cleanPath.equals("/runtime/hilt_bindings") && "GET".equals(method)) {
+            Map<String, String> qp = parseQueryParams(path);
+            handleRuntimeJson(
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector()
+                    .hiltBindings(qp.get("interface")),
+                out);
+            return;
+        }
         if (path.equals("/debug/diagnostics") && "GET".equals(method)) {
             handleDebugDiagnostics(out); return;
         }
@@ -1185,6 +1193,7 @@ public class InspectorServer {
                 "/runtime/navigate",
                 "/runtime/open_deeplink",
                 "/runtime/wait_for",
+                "/runtime/hilt_bindings",
                 "/debug/diagnostics",
                 "/layout/tree",
                 "/layout/properties/{viewId}"

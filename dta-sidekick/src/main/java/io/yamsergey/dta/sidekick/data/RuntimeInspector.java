@@ -473,6 +473,318 @@ public class RuntimeInspector {
     }
 
     /**
+     * Lists the Hilt-generated bindings reachable from the foreground
+     * activity's component graph: Activity + ActivityRetained +
+     * Singleton scopes. Surfaces each binding's field name (the Hilt
+     * generator's name, which mirrors the source interface in most
+     * cases), the field's declared type, and the runtime implementation
+     * class.
+     *
+     * <p>Answers the methodology question "which concrete impl is wired
+     * for interface X in this build?" without restarting the app under
+     * test instrumentation. The canonical case is
+     * StubAnalyticsHelper-vs-Firebase: the demo build wires
+     * StubAnalyticsHelper, the prod build wires FirebaseAnalyticsHelper;
+     * researchers need to know which without rebuilding.</p>
+     *
+     * <p>The walk uses ActivityRetainedComponentViewModel.component as
+     * the anchor (we already enumerate this VM in {@link #viewModels}).
+     * From there we traverse to the SingletonCImpl parent via the
+     * Hilt-generated reference field {@code singletonCImpl} (alternate
+     * names tried as fallbacks). Fields whose names start with {@code $}
+     * (Jacoco) or that hold framework plumbing (Provider wrappers with
+     * no useful information at this layer) are skipped.</p>
+     *
+     * @param interfaceFilter substring match against field's declared
+     *                        type FQ name. When non-empty, only bindings
+     *                        whose declared type contains this substring
+     *                        are surfaced. Used to answer the targeted
+     *                        question "what's wired for AnalyticsHelper?"
+     *                        without paging through the whole graph.
+     */
+    public Map<String, Object> hiltBindings(String interfaceFilter) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> bindings = new ArrayList<>();
+        try {
+            List<Object> components = new ArrayList<>();
+
+            // SingletonCImpl is reachable through the Application's
+            // generated componentManager — doesn't require any activity
+            // to be resumed. This is the anchor for graph walks.
+            Object app = getApplicationInstance();
+            Object singleton = app != null ? findActivityComponent(app) : null;
+            if (singleton != null) {
+                components.add(singleton);
+            }
+
+            // ActivityRetained scope (when an activity exists at all,
+            // even paused) — found via the activity's ViewModelStore.
+            // We try the resumed activity first, then fall back to any
+            // activity in the process. If none, we silently skip — the
+            // singleton scope alone is still useful.
+            Activity activity = WindowRootDiscovery.getCurrentActivity();
+            if (activity == null) activity = findAnyActivity();
+            if (activity != null) {
+                Object retainedComponent = findRetainedComponent(activity);
+                if (retainedComponent != null) components.add(retainedComponent);
+                // Activity-scoped — the activity itself holds an
+                // ActivityCImpl via its GeneratedComponentManager.
+                Object activityComponent = findActivityComponent(activity);
+                if (activityComponent != null) components.add(activityComponent);
+            }
+
+            if (components.isEmpty()) {
+                result.put("error", "No Hilt components discoverable — host app may not use Hilt, "
+                    + "or the Application class hasn't initialized yet");
+                return result;
+            }
+
+            String filterLower = interfaceFilter != null && !interfaceFilter.isEmpty()
+                ? interfaceFilter.toLowerCase() : null;
+            for (Object component : components) {
+                bindings.addAll(componentBindings(component, filterLower));
+            }
+            result.put("bindings", bindings);
+            result.put("count", bindings.size());
+        } catch (Exception e) {
+            SidekickLog.d(TAG, "hiltBindings failed", e);
+            result.put("error", "Reflection failed: " + e.getMessage());
+        }
+        return result;
+    }
+
+    /** Returns the host app's {@link android.app.Application} singleton, or null. */
+    private Object getApplicationInstance() {
+        try {
+            Class<?> at = Class.forName("android.app.ActivityThread");
+            Object thread = at.getMethod("currentActivityThread").invoke(null);
+            return at.getMethod("getApplication").invoke(thread);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Returns the first activity tracked in {@code ActivityThread.mActivities}
+     * regardless of paused state — used as a fallback when no activity is
+     * resumed but we still want the ActivityRetained/Activity scopes.
+     */
+    private Activity findAnyActivity() {
+        try {
+            Class<?> at = Class.forName("android.app.ActivityThread");
+            Object thread = at.getMethod("currentActivityThread").invoke(null);
+            Field activitiesField = at.getDeclaredField("mActivities");
+            activitiesField.setAccessible(true);
+            Object map = activitiesField.get(thread);
+            if (!(map instanceof Map)) return null;
+            for (Object record : ((Map<?, ?>) map).values()) {
+                Field actField = record.getClass().getDeclaredField("activity");
+                actField.setAccessible(true);
+                Activity a = (Activity) actField.get(record);
+                if (a != null) return a;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    /**
+     * Extracts the {@code ActivityRetainedCImpl} for the given activity
+     * via the {@code ActivityRetainedComponentManager$ActivityRetainedComponentViewModel.component}
+     * field that Hilt keeps in the activity's retained ViewModelStore.
+     */
+    private Object findRetainedComponent(Activity activity) {
+        try {
+            Map<String, ViewModelEntry> store = readViewModelStore(activity);
+            if (store == null) return null;
+            for (ViewModelEntry e : store.values()) {
+                String cls = e.vm.getClass().getName();
+                if (cls.contains("ActivityRetainedComponentViewModel")) {
+                    Field componentField = findField(e.vm.getClass(), "component");
+                    if (componentField == null) continue;
+                    componentField.setAccessible(true);
+                    return componentField.get(e.vm);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private Object findParentComponent(Object component, String... candidateNames) {
+        for (String name : candidateNames) {
+            Field f = findField(component.getClass(), name);
+            if (f == null) continue;
+            try {
+                f.setAccessible(true);
+                Object parent = f.get(component);
+                if (parent != null) return parent;
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    /**
+     * Finds the Hilt-generated component for any
+     * {@code GeneratedComponentManagerHolder} (Application →
+     * SingletonCImpl, Activity → ActivityCImpl, Fragment →
+     * FragmentCImpl, etc.). Pattern: holder has a no-arg
+     * {@code componentManager()} that returns a manager whose
+     * {@code generatedComponent()} returns the component.
+     */
+    private Object findActivityComponent(Object holder) {
+        try {
+            Method cm = findMethod(holder.getClass(), "componentManager");
+            if (cm == null) return null;
+            cm.setAccessible(true);
+            Object manager = cm.invoke(holder);
+            if (manager == null) return null;
+            Method gen = findMethod(manager.getClass(), "generatedComponent");
+            if (gen == null) return null;
+            gen.setAccessible(true);
+            return gen.invoke(manager);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private Method findMethod(Class<?> cls, String name) {
+        while (cls != null) {
+            for (Method m : cls.getDeclaredMethods()) {
+                if (m.getName().equals(name) && m.getParameterCount() == 0) return m;
+            }
+            cls = cls.getSuperclass();
+        }
+        return null;
+    }
+
+    private List<Map<String, Object>> componentBindings(Object component, String filterLower) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (component == null) return out;
+        String componentClass = component.getClass().getName();
+        String scope = simpleScopeLabel(componentClass);
+        Class<?> cls = component.getClass();
+        while (cls != null
+                // Walk only the Hilt-generated impl + its synthetic super
+                // (Object). Walking into framework parents adds noise.
+                && !cls.getName().equals("java.lang.Object")) {
+            for (Field f : cls.getDeclaredFields()) {
+                String name = f.getName();
+                // Skip jacoco / synthetic / our own walker tracks.
+                if (name.startsWith("$") || f.isSynthetic()) continue;
+                // Skip back-references we already followed.
+                if (name.equals("singletonCImpl") || name.equals("singletonC")
+                        || name.equals("activityRetainedCImpl") || name.equals("appComponent")) continue;
+
+                // Hilt generates the field as Provider<X> / Lazy<X>; the
+                // interesting binding is X, not the wrapper. Read the
+                // parameterized type from the generic signature so the
+                // `interface=X` filter matches what users actually mean.
+                String declaredType = f.getType().getName();
+                String boundType = declaredType;
+                if (isWrapperType(declaredType)) {
+                    String inner = parameterizedTypeArg(f.getGenericType());
+                    if (inner != null) boundType = inner;
+                }
+                if (filterLower != null
+                        && !boundType.toLowerCase().contains(filterLower)
+                        && !declaredType.toLowerCase().contains(filterLower)) continue;
+
+                Map<String, Object> binding = new LinkedHashMap<>();
+                binding.put("scope", scope);
+                binding.put("name", name);
+                binding.put("boundType", boundType);
+                if (!boundType.equals(declaredType)) binding.put("declaredType", declaredType);
+                try {
+                    f.setAccessible(true);
+                    Object value = f.get(component);
+                    if (value != null) {
+                        binding.put("runtimeImpl", value.getClass().getName());
+                        // If the field is a Provider/Lazy and the caller
+                        // asked about THIS binding specifically (filter
+                        // matched the parameterized type), materialize the
+                        // wrapped instance so they can see the concrete
+                        // impl class — that's the canonical question the
+                        // research methodology wants answered. Skipped
+                        // for unfiltered walks to avoid eagerly
+                        // instantiating every binding.
+                        if (filterLower != null && isWrapperType(declaredType)) {
+                            Object unwrapped = unwrapProvider(value);
+                            if (unwrapped != null && unwrapped != value) {
+                                binding.put("providedImpl", unwrapped.getClass().getName());
+                            }
+                        }
+                    } else {
+                        binding.put("runtimeImpl", null);
+                    }
+                } catch (Throwable t) {
+                    binding.put("runtimeImpl", "<inaccessible: " + t.getClass().getSimpleName() + ">");
+                }
+                out.add(binding);
+            }
+            cls = cls.getSuperclass();
+        }
+        return out;
+    }
+
+    private static boolean isWrapperType(String fqName) {
+        return "javax.inject.Provider".equals(fqName)
+            || "dagger.Lazy".equals(fqName)
+            || "dagger.internal.DoubleCheck".equals(fqName)
+            || "dagger.internal.SingleCheck".equals(fqName)
+            || "dagger.internal.Provider".equals(fqName);
+    }
+
+    /**
+     * For {@code Provider<X> field;} returns the FQ name of {@code X}.
+     * Returns null when the field is raw or when the type argument can't
+     * be statically resolved.
+     */
+    private static String parameterizedTypeArg(java.lang.reflect.Type type) {
+        if (!(type instanceof java.lang.reflect.ParameterizedType)) return null;
+        java.lang.reflect.Type[] args = ((java.lang.reflect.ParameterizedType) type).getActualTypeArguments();
+        if (args.length == 0) return null;
+        java.lang.reflect.Type t0 = args[0];
+        if (t0 instanceof Class) return ((Class<?>) t0).getName();
+        // Could be a TypeVariable / WildcardType / ParameterizedType — fall back to toString.
+        return t0.toString();
+    }
+
+    /**
+     * Calls {@code .get()} on a {@code javax.inject.Provider} (or Dagger
+     * {@code Lazy}) to materialize the wrapped instance. Returns the
+     * argument unchanged if it isn't a known wrapper, or null on failure.
+     * <strong>Side-effecting</strong> — only call when the caller has
+     * narrowed to a specific binding via the {@code interface=} filter.
+     */
+    private static Object unwrapProvider(Object value) {
+        if (value == null) return null;
+        for (String cls : new String[]{"javax.inject.Provider", "dagger.Lazy"}) {
+            try {
+                Class<?> ifaceClass = Class.forName(cls);
+                if (ifaceClass.isInstance(value)) {
+                    Method get = ifaceClass.getMethod("get");
+                    return get.invoke(value);
+                }
+            } catch (Throwable ignored) {}
+        }
+        // DoubleCheck / SingleCheck implement Provider so the loop above handles them.
+        return value;
+    }
+
+    private String simpleScopeLabel(String fqClassName) {
+        // Hilt impl classes follow Dagger…_HiltComponents_<Scope>$<ScopeC>Impl.
+        // Try to extract a short label like "Singleton" / "ActivityRetained" / "Activity".
+        if (fqClassName.contains("ActivityRetainedCImpl")) return "ActivityRetained";
+        if (fqClassName.contains("SingletonCImpl")) return "Singleton";
+        if (fqClassName.contains("ActivityCImpl")) return "Activity";
+        if (fqClassName.contains("ViewModelCImpl")) return "ViewModel";
+        if (fqClassName.contains("FragmentCImpl")) return "Fragment";
+        if (fqClassName.contains("ServiceCImpl")) return "Service";
+        // Fallback: simple name.
+        int dot = fqClassName.lastIndexOf('.');
+        return dot >= 0 ? fqClassName.substring(dot + 1) : fqClassName;
+    }
+
+    /**
      * Captures a PNG of the foreground activity's window. Mirrors what
      * the {@code /compose/screenshot} handler does — main-thread window
      * lookup, off-main-thread PixelCopy. Returns null if no activity or

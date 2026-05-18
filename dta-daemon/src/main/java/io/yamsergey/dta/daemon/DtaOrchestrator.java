@@ -371,6 +371,9 @@ public class DtaOrchestrator {
     public String waitFor(String packageName, String device, String body) throws Exception {
         return unwrap(getConnection(packageName, device).client().waitFor(body), "Failed");
     }
+    public String hiltBindings(String packageName, String device, String interfaceFilter) throws Exception {
+        return unwrap(getConnection(packageName, device).client().hiltBindings(interfaceFilter), "Failed");
+    }
 
     /**
      * Dumps the host app's logcat (filtered to its PID) and returns

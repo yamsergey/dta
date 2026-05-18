@@ -353,6 +353,11 @@ public class SidekickClient {
      * 30 s upstream, plus a small safety margin for the response trip.
      */
     public Result<String> waitFor(String body) { return httpPost("/runtime/wait_for", body, 35_000); }
+    public Result<String> hiltBindings(String interfaceFilter) {
+        String q = (interfaceFilter == null || interfaceFilter.isEmpty())
+            ? "" : "?interface=" + java.net.URLEncoder.encode(interfaceFilter, StandardCharsets.UTF_8);
+        return httpGet("/runtime/hilt_bindings" + q);
+    }
     public Result<String> listFiles(String path) { return httpGet("/runtime/files/" + (path != null ? path : "")); }
     public Result<String> listDatabases() { return httpGet("/runtime/databases"); }
     public Result<String> databaseSchema(String name) { return httpGet("/runtime/databases/" + name + "/schema"); }

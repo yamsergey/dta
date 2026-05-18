@@ -1356,9 +1356,10 @@ public class McpServer {
                 "- app_functions: Enumerates androidx.appfunctions methods the host exposes to Gemini / system AI (Android 16+ framework). Reads the KSP-generated assets/app_functions_v2.xml — no extra deps required on the host. Each entry has {id, description, parameters[{name, isRequired, description, dataType{type, typeName, isNullable, dataTypeReference}}], response, enabledByDefault, schemaCategory/Name/Version}. Returns {functions: []} with a `note` when the host doesn't use AppFunctions.\n" +
                 "- navigate: Push a destination onto the host's NavController (Navigation 2 / Compose Navigation). Requires `destination` (the route template or a literal route from navigation_graph) and optional `params` (object whose keys fill `{placeholder}` segments; extras become query params). Returns {status:\"ok\", route:\"...\"} or {error:\"...\"}. Navigation 3 (NavBackStack/NavKey) is NOT supported — use open_deeplink instead, or wait for the Nav 3 research thread to land.\n" +
                 "- open_deeplink: Fire Intent.ACTION_VIEW with a URI. Works for any destination the app exposes via <intent-filter><data>. Requires `uri` (string). Inherits the host's task affinity (no external browser detour).\n" +
-                "- logcat: Dump the host app's logcat (filtered to its PID via `adb shell logcat --pid`). Parsed into `{lines:[{timestamp, epochMs, level, tag, pid, tid, message}], count}`. Optional filters: `since_ms` (epoch ms — pass `Date.now()` before triggering an action to get **action-bounded logcat**, the canonical pattern for stub-helper analysis where the side effect doesn't reach the wire), `max_lines` (tail-bias keeps the most recent N), `filter` (substring, case-insensitive, against the raw line), `min_level` (V/D/I/W/E/F).",
+                "- logcat: Dump the host app's logcat (filtered to its PID via `adb shell logcat --pid`). Parsed into `{lines:[{timestamp, epochMs, level, tag, pid, tid, message}], count}`. Optional filters: `since_ms` (epoch ms — pass `Date.now()` before triggering an action to get **action-bounded logcat**, the canonical pattern for stub-helper analysis where the side effect doesn't reach the wire), `max_lines` (tail-bias keeps the most recent N), `filter` (substring, case-insensitive, against the raw line), `min_level` (V/D/I/W/E/F).\n" +
+                "- hilt_bindings: Surface the Hilt-generated DI graph reachable from the foreground activity (Activity + ActivityRetained + Singleton scopes). Each binding is `{scope, name, declaredType, runtimeImpl}` — `declaredType` is what the binding's interface looks like in Hilt's generated impl class, `runtimeImpl` is the concrete class currently wired. Answers the methodology question 'what impl is wired for interface X in this build?' (StubAnalyticsHelper vs FirebaseAnalyticsHelper, repo impls, theme providers, etc.) without restarting under test instrumentation. Filter with `interface` (substring against declaredType FQ name) to narrow to a single binding.",
                 schema(Map.ofEntries(
-                    Map.entry("command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions, navigate, open_deeplink, logcat", true)),
+                    Map.entry("command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions, navigate, open_deeplink, logcat, hilt_bindings", true)),
                     Map.entry("package", prop("string", "App package name (auto-detected if only one app)", false)),
                     Map.entry("device", prop("string", "Device serial (auto-detected if only one device)", false)),
                     Map.entry("stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false)),
@@ -1393,6 +1394,10 @@ public class McpServer {
                             yield ok(getDaemon().viewModelSavedState(pkg, vmId, device));
                         }
                         case "app_functions" -> ok(getDaemon().appFunctions(pkg, device));
+                        case "hilt_bindings" -> {
+                            String iface = getString(args, "interface");
+                            yield ok(getDaemon().hiltBindings(pkg, device, iface));
+                        }
                         case "logcat" -> {
                             Object sinceObj = args.get("since_ms");
                             Long since = (sinceObj instanceof Number) ? ((Number) sinceObj).longValue() : null;

@@ -183,6 +183,13 @@ public class DaemonClient {
     public String waitFor(String pkg, String device, String body) {
         return post("/api/runtime/wait_for?package=" + encode(pkg) + deviceParam(device, false), body);
     }
+    public String hiltBindings(String pkg, String device, String interfaceFilter) {
+        String url = "/api/runtime/hilt_bindings?package=" + encode(pkg) + deviceParam(device, false);
+        if (interfaceFilter != null && !interfaceFilter.isEmpty()) {
+            url += "&interface=" + encode(interfaceFilter);
+        }
+        return get(url);
+    }
     public String logcat(String pkg, String device, Long sinceMs, Integer maxLines, String filter, String minLevel) {
         StringBuilder url = new StringBuilder("/api/runtime/logcat?package=");
         url.append(encode(pkg)).append(deviceParam(device, false));

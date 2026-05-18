@@ -301,6 +301,12 @@ public final class DtaRoutes {
                     ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
+        app.get("/api/runtime/hilt_bindings", ctx -> {
+            try { jsonString(ctx, orchestrator.hiltBindings(
+                    ctx.queryParam("package"), ctx.queryParam("device"),
+                    ctx.queryParam("interface")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
         app.get("/api/runtime/logcat", ctx -> {
             try {
                 Long since = ctx.queryParam("since") != null
