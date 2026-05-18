@@ -343,11 +343,34 @@ public class RuntimeInspector {
      *       and the bare composable name.</li>
      * </ul>
      *
-     * <p>On match, returns {@code {matched:true, elapsedMs, matchedNode,
+     * <p>On match, returns {@code {matched:true, pollMs, matchedNode,
      * layoutTree, screenshot (base64 PNG)}}. On timeout, returns
-     * {@code {matched:false, elapsedMs}}.</p>
+     * {@code {matched:false, pollMs}}.</p>
+     *
+     * <p>{@code pollMs} is the duration of the polling loop only —
+     * what {@code maxMs} caps. The loop can overshoot {@code maxMs} by
+     * up to one iteration's view-tree capture cost (typically 50–200 ms;
+     * can be higher on dense Compose hierarchies under main-thread
+     * contention) because the deadline check happens after each
+     * capture, not before. Callers measuring end-to-end latency
+     * (including ADB tap dispatch, HTTP transit, and layout-tree
+     * serialization back to the daemon/MCP) should use the daemon's
+     * {@code elapsedMs} envelope field instead — see
+     * {@code DtaOrchestrator#tapAndWaitFor}.</p>
      */
     public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs) {
+        return waitFor(text, testTag, className, maxMs, true);
+    }
+
+    /**
+     * Variant that lets the caller omit the full layout tree from the
+     * match response. When {@code returnFullTree=false} the
+     * {@code layoutTree} field is left out — typically ~500 KB on dense
+     * Compose hierarchies. The matched node and screenshot are still
+     * returned, so this is the right shape for callers that just need
+     * "did the affordance appear, and what does it look like?".
+     */
+    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs, boolean returnFullTree) {
         Map<String, Object> result = new LinkedHashMap<>();
         if ((text == null || text.isEmpty())
                 && (testTag == null || testTag.isEmpty())
@@ -371,9 +394,9 @@ public class RuntimeInspector {
                 Map<String, Object> matched = findFirstMatch(tree, textLower, testTag, className);
                 if (matched != null) {
                     result.put("matched", true);
-                    result.put("elapsedMs", System.currentTimeMillis() - start);
+                    result.put("pollMs", System.currentTimeMillis() - start);
                     result.put("matchedNode", matched);
-                    result.put("layoutTree", tree);
+                    if (returnFullTree) result.put("layoutTree", tree);
                     byte[] png = captureScreenshotBytes();
                     if (png != null) {
                         result.put("screenshot",
@@ -386,7 +409,7 @@ public class RuntimeInspector {
             }
             if (System.currentTimeMillis() >= deadline) {
                 result.put("matched", false);
-                result.put("elapsedMs", System.currentTimeMillis() - start);
+                result.put("pollMs", System.currentTimeMillis() - start);
                 return result;
             }
             try {
@@ -394,7 +417,7 @@ public class RuntimeInspector {
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 result.put("matched", false);
-                result.put("elapsedMs", System.currentTimeMillis() - start);
+                result.put("pollMs", System.currentTimeMillis() - start);
                 result.put("error", "Interrupted");
                 return result;
             }

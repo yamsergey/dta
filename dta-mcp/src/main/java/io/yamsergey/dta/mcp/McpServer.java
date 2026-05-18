@@ -168,7 +168,15 @@ public class McpServer {
 
         // list_apps
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("list_apps", "List debuggable apps with sidekick installed",
+            tool("list_apps",
+                "List debuggable apps with sidekick installed on the device. " +
+                "Each entry surfaces `package`, `socket`, and — when the daemon " +
+                "has an active connection cached — `sidekickVersion` (the AAR " +
+                "version reported by the sidekick's `/health`). Use the version " +
+                "to detect skew against the daemon/plugin/CLI build before " +
+                "running tools — a mismatch usually means the host APK is stale " +
+                "and needs a rebuild. Apps with no `sidekickVersion` field " +
+                "simply haven't been touched yet this session.",
                 schema("device", "string", "Device serial (optional)")),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -293,16 +301,18 @@ public class McpServer {
                 "- `text`: substring match (case-insensitive) against the node's text.\n" +
                 "- `test_tag`: exact match against the node's `testTag` (Compose `Modifier.testTag`). Most reliable when the app under test sets explicit tags.\n" +
                 "- `class_name`: exact match against the node's `className` (View) or `composable` (Compose). Use the simple name — e.g. `\"Snackbar\"` matches `androidx.compose.material3.SnackbarHost` (suffix) and a bare Compose `Snackbar`.\n\n" +
-                "**Response on match**: `{matched: true, elapsedMs, matchedNode, layoutTree, screenshot (base64 PNG)}` — same `layoutTree` shape as `layout_tree`, with the matched node also surfaced directly so callers don't have to walk it.\n\n" +
-                "**Response on timeout**: `{matched: false, elapsedMs}`.\n\n" +
+                "**Response on match**: `{matched: true, pollMs, elapsedMs, matchedNode, layoutTree, screenshot (base64 PNG)}` — same `layoutTree` shape as `layout_tree`, with the matched node also surfaced directly so callers don't have to walk it. Set `return_full_tree: false` to omit the layout tree from the response (typically ~500KB for dense Compose hierarchies) when only the matched node + screenshot are needed.\n\n" +
+                "**Response on timeout**: `{matched: false, pollMs, elapsedMs}`.\n\n" +
+                "**Timing fields**: `pollMs` is the sidekick polling-loop duration — this is what `max_ms` caps (with a possible single-iteration overshoot up to one view-tree capture's cost). `elapsedMs` is the daemon-side end-to-end envelope, additionally covering HTTP transit and layout-tree JSON serialization back to the caller; assert `pollMs <= max_ms`, treat `elapsedMs - pollMs` as the envelope diagnostic.\n\n" +
                 "If you need to perform an action immediately before watching (the snackbar case), prefer `tap_and_wait_for` — it saves one round-trip's worth of latency which is the exact gap that lets the affordance disappear.",
-                schema(Map.of(
-                    "text", prop("string", "Substring match (case-insensitive) against node text.", false),
-                    "test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false),
-                    "class_name", prop("string", "Simple class name match (View className suffix or Compose composable name).", false),
-                    "max_ms", prop("integer", "Timeout in milliseconds (default 3000).", false),
-                    "package", prop("string", "App package name (auto-detected from foreground when omitted).", false),
-                    "device", prop("string", "Device serial (auto-detected when only one device).", false)
+                schema(Map.ofEntries(
+                    Map.entry("text", prop("string", "Substring match (case-insensitive) against node text.", false)),
+                    Map.entry("test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false)),
+                    Map.entry("class_name", prop("string", "Simple class name match (View className suffix or Compose composable name).", false)),
+                    Map.entry("max_ms", prop("integer", "Timeout in milliseconds (default 3000). Caps `pollMs`; `elapsedMs` may exceed it due to envelope cost.", false)),
+                    Map.entry("return_full_tree", prop("boolean", "Include the post-match layout tree in the response (default true). Set false to keep only `matchedNode` + screenshot — savings range from ~50 KB (flat hierarchies) to ~500 KB (dense Compose trees). The screenshot still dominates the response either way; use this when you've already captured a layout snapshot and only need the match.", false)),
+                    Map.entry("package", prop("string", "App package name (auto-detected from foreground when omitted).", false)),
+                    Map.entry("device", prop("string", "Device serial (auto-detected when only one device).", false))
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -317,6 +327,8 @@ public class McpServer {
                     if (cls != null) bodyMap.put("className", cls);
                     Object maxMs = args.get("max_ms");
                     if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
+                    Object rft = args.get("return_full_tree");
+                    if (rft instanceof Boolean) bodyMap.put("return_full_tree", rft);
                     String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                     return ok(getDaemon().waitFor(pkg, device, body));
                 } catch (Exception e) {
@@ -329,16 +341,17 @@ public class McpServer {
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("tap_and_wait_for",
                 "Tap at `(x, y)` and immediately poll for a node matching the predicate. Saves the round-trip vs `tap` → `wait_for` — that round-trip is exactly the latency that lets short-lived UI (snackbars, toasts) disappear before the second call lands.\n\n" +
-                "Coordinates are **device-pixel space** (same as `tap`). Predicate fields and response shape mirror `wait_for`.",
-                schema(Map.of(
-                    "x", prop("integer", "Tap X coordinate (device-pixel space).", true),
-                    "y", prop("integer", "Tap Y coordinate (device-pixel space).", true),
-                    "text", prop("string", "Substring match (case-insensitive) against node text.", false),
-                    "test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false),
-                    "class_name", prop("string", "Simple class name match.", false),
-                    "max_ms", prop("integer", "Wait timeout in milliseconds (default 3000).", false),
-                    "package", prop("string", "App package name (auto-detected).", false),
-                    "device", prop("string", "Device serial (auto-detected when only one device).", false)
+                "Coordinates are **device-pixel space** (same as `tap`). Predicate fields, `return_full_tree`, and response shape mirror `wait_for` — including the `pollMs` (sidekick polling, capped by `max_ms`) + `elapsedMs` (daemon end-to-end, also covers ADB tap dispatch on top of HTTP + serialization) timing split.",
+                schema(Map.ofEntries(
+                    Map.entry("x", prop("integer", "Tap X coordinate (device-pixel space).", true)),
+                    Map.entry("y", prop("integer", "Tap Y coordinate (device-pixel space).", true)),
+                    Map.entry("text", prop("string", "Substring match (case-insensitive) against node text.", false)),
+                    Map.entry("test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false)),
+                    Map.entry("class_name", prop("string", "Simple class name match.", false)),
+                    Map.entry("max_ms", prop("integer", "Wait timeout in milliseconds (default 3000). Caps `pollMs` only.", false)),
+                    Map.entry("return_full_tree", prop("boolean", "Include the post-match layout tree (default true). Set false for compact response.", false)),
+                    Map.entry("package", prop("string", "App package name (auto-detected).", false)),
+                    Map.entry("device", prop("string", "Device serial (auto-detected when only one device).", false))
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -355,6 +368,8 @@ public class McpServer {
                     if (cls != null) bodyMap.put("className", cls);
                     Object maxMs = args.get("max_ms");
                     if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
+                    Object rft = args.get("return_full_tree");
+                    if (rft instanceof Boolean) bodyMap.put("return_full_tree", rft);
                     String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                     return ok(getDaemon().tapAndWaitFor(pkg, device, x, y, body));
                 } catch (Exception e) {
@@ -484,21 +499,27 @@ public class McpServer {
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("network_data_flow",
                 "Outbound-traffic summary by destination domain — compact view of " +
-                "*which hosts the app called, with what verbs, and how much came back*. " +
+                "*which hosts the app called, with what verbs, what content, and how much came back*. " +
                 "Pre-aggregates `network_requests` so spec-extraction callers don't have " +
-                "to walk individual entries. Pass `since_ms` (an epoch ms bookmark taken " +
-                "before an action) to scope to that action's window.\n\n" +
+                "to walk individual entries. `since_ms` is the **delta primitive** — an epoch " +
+                "ms bookmark taken before an action; same semantics as `network_requests.since_ms` " +
+                "and `app_runtime command=logcat`'s `since_ms`. Pass it to scope the aggregation " +
+                "to that action's window.\n\n" +
                 "Response shape:\n" +
                 "  {\n" +
                 "    \"windowStart\": <ms or 0 if unbounded>,\n" +
                 "    \"totalRequests\": N, \"totalBytes\": M,\n" +
                 "    \"domains\": [{\"host\":\"api.example.com\",\"requests\":6,\"totalResponseBytes\":12345,\n" +
-                "                  \"byMethod\":{\"GET\":5,\"POST\":1},\"byStatus\":{\"2xx\":5,\"4xx\":1},\n" +
+                "                  \"byMethod\":{\"GET\":5,\"POST\":1},\n" +
+                "                  \"byStatus\":{\"2xx\":5,\"4xx\":1},\n" +
+                "                  \"byContentType\":{\"application/json\":5,\"image/png\":1},\n" +
                 "                  \"samplePaths\":[\"/v2/items\", ...],\"resourceTypes\":[\"xhr\"]}, ...]\n" +
                 "  }\n\n" +
                 "Domains sorted by request count desc. Sample paths capped at 5 per domain. " +
-                "`resourceTypes` only appears when the underlying capture knows it (CDP-captured " +
-                "WebView traffic). For uninstrumented apps or apps with no captured traffic, " +
+                "`byContentType` keys are normalized (parameters like `; charset=utf-8` stripped, " +
+                "lowercased) so `application/json` buckets together regardless of charset. " +
+                "`byContentType` and `resourceTypes` only appear when the underlying capture " +
+                "populated them. For uninstrumented apps or apps with no captured traffic, " +
                 "`domains` is empty — that's diagnostic data, not an error.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),

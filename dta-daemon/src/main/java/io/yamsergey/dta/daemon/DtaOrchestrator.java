@@ -369,7 +369,33 @@ public class DtaOrchestrator {
         return unwrap(getConnection(packageName, device).client().openDeepLink(body), "Failed");
     }
     public String waitFor(String packageName, String device, String body) throws Exception {
-        return unwrap(getConnection(packageName, device).client().waitFor(body), "Failed");
+        long envelopeStart = System.currentTimeMillis();
+        String raw = unwrap(getConnection(packageName, device).client().waitFor(body), "Failed");
+        return injectElapsed(raw, envelopeStart);
+    }
+
+    /**
+     * Injects the daemon-side end-to-end {@code elapsedMs} into a
+     * sidekick {@code waitFor} response. Sidekick's {@code pollMs} is
+     * just the polling-loop duration; {@code elapsedMs} additionally
+     * covers ADB tap dispatch (for {@code tapAndWaitFor}), HTTP transit,
+     * and layout-tree serialization. Surfacing both lets callers assert
+     * {@code pollMs <= max_ms} (the only thing the cap actually bounds)
+     * while still seeing the true end-to-end cost for token-budget
+     * accounting.
+     */
+    private String injectElapsed(String sidekickJson, long envelopeStart) {
+        try {
+            JsonNode root = mapper.readTree(sidekickJson);
+            if (root.isObject()) {
+                ((ObjectNode) root).put("elapsedMs", System.currentTimeMillis() - envelopeStart);
+                return mapper.writeValueAsString(root);
+            }
+        } catch (Exception ignored) {
+            // If sidekick returned something un-parseable, hand it back
+            // verbatim — better than swallowing the response.
+        }
+        return sidekickJson;
     }
     public String hiltBindings(String packageName, String device, String interfaceFilter) throws Exception {
         return unwrap(getConnection(packageName, device).client().hiltBindings(interfaceFilter), "Failed");
@@ -504,8 +530,10 @@ public class DtaOrchestrator {
      */
     public String tapAndWaitFor(String packageName, String device,
             int x, int y, String waitForBody) throws Exception {
+        long envelopeStart = System.currentTimeMillis();
         connectionManager.tap(device, x, y);
-        return unwrap(getConnection(packageName, device).client().waitFor(waitForBody), "Failed");
+        String raw = unwrap(getConnection(packageName, device).client().waitFor(waitForBody), "Failed");
+        return injectElapsed(raw, envelopeStart);
     }
 
     public String listFiles(String packageName, String device, String path) throws Exception {
@@ -670,6 +698,18 @@ public class DtaOrchestrator {
             String rt = tx.path("resourceType").asText("");
             if (!rt.isEmpty()) agg.resourceTypes.add(rt);
 
+            // Normalize content type to its bare media-type token
+            // (strip parameters like `; charset=utf-8`) so
+            // `application/json` and `application/json; charset=utf-8`
+            // bucket together. Lowercased for the same reason.
+            String ct = tx.path("responseContentType").asText("");
+            if (!ct.isEmpty()) {
+                int semi = ct.indexOf(';');
+                if (semi > 0) ct = ct.substring(0, semi);
+                ct = ct.trim().toLowerCase();
+                if (!ct.isEmpty()) agg.byContentType.merge(ct, 1, Integer::sum);
+            }
+
             if (agg.samplePaths.size() < 5) {
                 try {
                     String path = java.net.URI.create(url).getPath();
@@ -700,6 +740,10 @@ public class DtaOrchestrator {
             new java.util.TreeMap<>(a.byMethod).forEach(m::put);
             ObjectNode s = d.putObject("byStatus");
             new java.util.TreeMap<>(a.byStatus).forEach(s::put);
+            if (!a.byContentType.isEmpty()) {
+                ObjectNode ct = d.putObject("byContentType");
+                new java.util.TreeMap<>(a.byContentType).forEach(ct::put);
+            }
             ArrayNode paths = d.putArray("samplePaths");
             for (String p : a.samplePaths) paths.add(p);
             if (!a.resourceTypes.isEmpty()) {
@@ -715,6 +759,7 @@ public class DtaOrchestrator {
         long totalResponseBytes = 0;
         final Map<String, Integer> byMethod = new java.util.HashMap<>();
         final Map<String, Integer> byStatus = new java.util.HashMap<>();
+        final Map<String, Integer> byContentType = new java.util.HashMap<>();
         final java.util.LinkedHashSet<String> samplePaths = new java.util.LinkedHashSet<>();
         final java.util.TreeSet<String> resourceTypes = new java.util.TreeSet<>();
     }

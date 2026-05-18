@@ -636,6 +636,26 @@ public class SidekickConnectionManager {
     // Private ADB internals
     // ========================================================================
 
+    /**
+     * Returns the sidekick AAR version for {@code (device, packageName)}
+     * if a connection is already cached, otherwise {@code null}. Used by
+     * {@code /api/apps} to enrich each entry opportunistically without
+     * incurring connect-and-handshake cost for apps the caller hasn't
+     * actually exercised yet — version-skew detection still works
+     * because the moment a tool uses the app, its connection caches and
+     * future {@code list_apps} calls surface the version.
+     */
+    public String cachedSidekickVersion(String packageName, String device) {
+        String key = (device != null ? device : "default") + ":" + packageName;
+        ConnectionInfo info = connections.get(key);
+        if (info == null) {
+            // Try the "default" entry too — some flows cache without an
+            // explicit device serial.
+            info = connections.get("default:" + packageName);
+        }
+        return info != null ? info.sidekickVersion() : null;
+    }
+
     private String getSidekickVersion(SidekickClient client) {
         Result<HealthResponse> healthResult = client.checkHealthTyped();
         if (healthResult instanceof Success<HealthResponse> success) {

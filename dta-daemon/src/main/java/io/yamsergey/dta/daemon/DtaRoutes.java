@@ -194,6 +194,14 @@ public final class DtaRoutes {
                     var a = appsArray.addObject();
                     a.put("package", socket.packageName());
                     a.put("socket", socket.socketName());
+                    // Surface the cached sidekick AAR version for
+                    // version-skew detection. Null for apps the daemon
+                    // hasn't connected to yet — once any tool touches
+                    // the app, its connection caches and subsequent
+                    // list_apps calls report the version.
+                    String version = connectionManager.cachedSidekickVersion(
+                        socket.packageName(), device);
+                    if (version != null) a.put("sidekickVersion", version);
                 }
                 jsonNode(ctx, result);
             } catch (Exception e) {

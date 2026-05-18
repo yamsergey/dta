@@ -893,10 +893,13 @@ public class InspectorServer {
 
     /**
      * {@code POST /runtime/wait_for} — body is {@code {"text"?, "testTag"?,
-     * "className"?, "max_ms"?}}. Polls the foreground view tree every 50 ms
-     * until a node matching the predicate appears or the timeout elapses.
-     * On match: returns the matched node, full layout tree, and a base64
-     * PNG screenshot. On timeout: {@code {matched:false, elapsedMs}}.
+     * "className"?, "max_ms"?, "return_full_tree"?}}. Polls the foreground
+     * view tree every 50 ms until a node matching the predicate appears or
+     * the timeout elapses. On match: returns the matched node, optionally
+     * the full layout tree, and a base64 PNG screenshot. When
+     * {@code return_full_tree=false} the {@code layoutTree} field is
+     * omitted — typically saves ~500 KB on dense Compose hierarchies.
+     * On timeout: {@code {matched:false, pollMs}}.
      */
     @SuppressWarnings("unchecked")
     private void handleRuntimeWaitFor(String body, OutputStream out) throws IOException {
@@ -911,9 +914,13 @@ public class InspectorServer {
             if (req != null && req.get("max_ms") instanceof Number) {
                 maxMs = ((Number) req.get("max_ms")).intValue();
             }
+            boolean returnFullTree = true;
+            if (req != null && req.get("return_full_tree") instanceof Boolean) {
+                returnFullTree = (Boolean) req.get("return_full_tree");
+            }
             Map<String, Object> result =
                 new io.yamsergey.dta.sidekick.data.RuntimeInspector()
-                    .waitFor(text, testTag, className, maxMs);
+                    .waitFor(text, testTag, className, maxMs, returnFullTree);
             int status = result.containsKey("error") ? 400 : 200;
             sendJson(out, status, result);
         } catch (Exception e) {
@@ -3333,11 +3340,18 @@ public class InspectorServer {
         if (response != null) {
             map.put("responseCode", response.getStatusCode());
             map.put("responseBodySize", response.getBodySize());
+            // Include responseContentType in the list view too — it's a
+            // single short header field but unlocks per-content-type
+            // aggregation in `network_data_flow` (image/* vs JSON
+            // analytics vs script payloads) without a per-request
+            // detail fetch.
+            if (response.getContentType() != null) {
+                map.put("responseContentType", response.getContentType());
+            }
             if (includeDetails) {
                 map.put("responseMessage", response.getStatusMessage());
                 map.put("protocol", response.getProtocol());
                 map.put("responseHeaders", headersToMap(response.getHeaders()));
-                map.put("responseContentType", response.getContentType());
                 map.put("responseBody", response.getBody());
                 if (response.hasExternalBody()) {
                     map.put("responseBodyRef", response.getBodyRef().getPath());
