@@ -265,10 +265,10 @@ public class McpServer {
 
         // tap
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("tap", "Tap at screen coordinates",
+            tool("tap", "Tap at screen coordinates. Coordinates are **device-pixel space** (matches the values from `layout_tree` bounds), NOT screenshot-pixel space — the values are equal only when the screenshot density matches the device, which is not always the case (e.g. some emulators / scaled captures). If your tap lands off-target, double-check you're reading bounds from `layout_tree`, not pixel-counting a saved PNG.",
                 schema(Map.of(
-                    "x", prop("integer", "X coordinate", true),
-                    "y", prop("integer", "Y coordinate", true),
+                    "x", prop("integer", "X coordinate (device-pixel space)", true),
+                    "y", prop("integer", "Y coordinate (device-pixel space)", true),
                     "device", prop("string", "Device serial", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
@@ -592,9 +592,9 @@ public class McpServer {
 
         // clear_network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("clear_network_requests", "Clear all captured HTTP requests from an app",
+            tool("clear_network_requests", "Clear all captured HTTP requests from an app. If `package` is omitted, the daemon auto-detects the foreground app via `dumpsys window` (same fallback `screenshot` / `layout_tree` use). Returns an error when no foreground app can be detected — pass `package` explicitly in that case.",
                 schema(Map.of(
-                    "package", prop("string", "App package name", true),
+                    "package", prop("string", "App package name (optional — auto-detected from foreground app when omitted)", false),
                     "device", prop("string", "Device serial", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
@@ -1155,7 +1155,7 @@ public class McpServer {
     private static void collectCdpTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // cdp_watch_start
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("cdp_watch_start", "Start watching Custom Tabs network traffic via Chrome DevTools Protocol. Traffic will be captured automatically and stored alongside regular HTTP requests.",
+            tool("cdp_watch_start", "Scope: Chrome **Custom Tab** network capture only. NOT a general UI assertion / wait-for primitive. Starts a Chrome DevTools Protocol watcher on the host's Custom Tabs and captures their network traffic into the same store as native OkHttp requests (visible in `network_requests` with `source: \"CustomTab\"`). Useful when an app opens a CCT and you want to see what the loaded page fetches (analytics, tracking pixels, etc.). For waiting on transient in-app UI (snackbars, toasts), this is the wrong tool — use the layout polling primitives.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1172,7 +1172,7 @@ public class McpServer {
 
         // cdp_watch_stop
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("cdp_watch_stop", "Stop watching Custom Tabs network traffic",
+            tool("cdp_watch_stop", "Stop the Chrome Custom Tab network capture started by `cdp_watch_start`. Custom Tabs only — not a general UI primitive.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1189,7 +1189,7 @@ public class McpServer {
 
         // cdp_watch_status
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("cdp_watch_status", "Check if Custom Tabs network watching is active",
+            tool("cdp_watch_status", "Reports whether a Chrome Custom Tab network watcher (started via `cdp_watch_start`) is currently active for the given package. Custom Tabs only — not a general UI primitive.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1418,6 +1418,11 @@ public class McpServer {
                 "Build and launch an Android app with dta-sidekick auto-injected for inspection. " +
                 "Injects the sidekick dependency via Gradle init script, builds the APK, installs it on the device, " +
                 "and launches the main activity. After launch, use layout/network/websocket tools to inspect the app.\n\n" +
+                "**Prerequisite — minSdk ≥ 24.** Sidekick's native JVMTI agent runs on API 24+. " +
+                "If the target project declares `minSdk < 24`, the AGP manifest merger will refuse to combine " +
+                "the AAR (sidekick declares `minSdk=24`) and the build fails. Bumping the project's minSdk to " +
+                "satisfy this *modifies the build* you're observing — for brownfield research that needs to " +
+                "preserve the exact production build configuration, consider whether that's acceptable.\n\n" +
                 "On success, the response includes a `shimStatus` object: " +
                 "`{shimAttached, reachable, reason, detail, sidekickVersion}`. " +
                 "If `shimAttached=false` (or `reachable=false` after the post-launch wait window), " +

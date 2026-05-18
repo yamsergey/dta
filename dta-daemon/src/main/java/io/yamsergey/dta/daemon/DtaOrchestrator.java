@@ -454,6 +454,17 @@ public class DtaOrchestrator {
     }
 
     public String clearNetworkRequests(String packageName, String device) throws Exception {
+        // Auto-detect foreground app when caller omits packageName — same UX
+        // as screenshot() / layout(). Spec-extraction loops commonly call
+        // clear-then-act-then-query without bothering to thread the package
+        // through each call; requiring it would force callers to repeat the
+        // same dumpsys lookup we already do.
+        if (packageName == null || packageName.isEmpty()) {
+            packageName = detectForegroundPackage(device)
+                .orElseThrow(() -> new IllegalArgumentException(
+                    "package is null and no foreground app could be detected via dumpsys. "
+                    + "Pass package= explicitly or ensure an instrumented app is foreground."));
+        }
         ConnectionInfo conn = getConnectionWithCdp(packageName, device);
         return unwrap(conn.client().clearNetworkRequests(), "Failed to clear network requests");
     }
