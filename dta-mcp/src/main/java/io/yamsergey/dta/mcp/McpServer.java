@@ -480,6 +480,44 @@ public class McpServer {
             }
         ));
 
+        // network_data_flow — per-domain aggregation over network_requests
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("network_data_flow",
+                "Outbound-traffic summary by destination domain — compact view of " +
+                "*which hosts the app called, with what verbs, and how much came back*. " +
+                "Pre-aggregates `network_requests` so spec-extraction callers don't have " +
+                "to walk individual entries. Pass `since_ms` (an epoch ms bookmark taken " +
+                "before an action) to scope to that action's window.\n\n" +
+                "Response shape:\n" +
+                "  {\n" +
+                "    \"windowStart\": <ms or 0 if unbounded>,\n" +
+                "    \"totalRequests\": N, \"totalBytes\": M,\n" +
+                "    \"domains\": [{\"host\":\"api.example.com\",\"requests\":6,\"totalResponseBytes\":12345,\n" +
+                "                  \"byMethod\":{\"GET\":5,\"POST\":1},\"byStatus\":{\"2xx\":5,\"4xx\":1},\n" +
+                "                  \"samplePaths\":[\"/v2/items\", ...],\"resourceTypes\":[\"xhr\"]}, ...]\n" +
+                "  }\n\n" +
+                "Domains sorted by request count desc. Sample paths capped at 5 per domain. " +
+                "`resourceTypes` only appears when the underlying capture knows it (CDP-captured " +
+                "WebView traffic). For uninstrumented apps or apps with no captured traffic, " +
+                "`domains` is empty — that's diagnostic data, not an error.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false),
+                    "since_ms", prop("integer", "Optional epoch ms lower bound (exclusive). Same semantics as network_requests.since_ms.", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    Object sinceObj = args.get("since_ms");
+                    Long since = (sinceObj instanceof Number) ? ((Number) sinceObj).longValue() : null;
+                    String json = getDaemon().networkDataFlow(
+                        getString(args, "package"), getString(args, "device"), since);
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("network_data_flow", e);
+                }
+            }
+        ));
+
         // network_request
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("network_request", "Get detailed info about a specific HTTP request",

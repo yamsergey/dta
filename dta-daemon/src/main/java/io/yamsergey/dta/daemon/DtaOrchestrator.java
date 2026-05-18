@@ -608,6 +608,126 @@ public class DtaOrchestrator {
         return unwrap(conn.client().getNetworkStats(), "Failed to get network stats");
     }
 
+    /**
+     * Aggregates captured network requests into a per-domain "where did data
+     * go" summary. Reusable as-is by spec-extraction tooling that needs a
+     * compact "outbound traffic in the last N seconds" view without scrolling
+     * through every individual request.
+     *
+     * <p>Output shape:</p>
+     * <pre>
+     * {
+     *   "windowStart": &lt;ms or 0 if unbounded&gt;,
+     *   "totalRequests": N,
+     *   "totalBytes": M,
+     *   "domains": [
+     *     {
+     *       "host": "api.example.com",
+     *       "requests": 6,
+     *       "totalResponseBytes": 12345,
+     *       "byMethod": {"GET": 5, "POST": 1},
+     *       "byStatus": {"2xx": 5, "4xx": 1},
+     *       "samplePaths": ["/v2/items", "/v2/items/42", "/v2/auth"],
+     *       "resourceTypes": ["xhr", "fetch"]
+     *     }, ...
+     *   ]
+     * }
+     * </pre>
+     *
+     * <p>Sorted by request count descending. Sample paths are deduped and
+     * capped at 5 per domain.</p>
+     */
+    public JsonNode getNetworkDataFlow(String packageName, String device, Long sinceMs) throws Exception {
+        String raw = getNetworkRequests(packageName, device, sinceMs);
+        JsonNode parsed = mapper.readTree(raw);
+        JsonNode requests = parsed.isArray() ? parsed : parsed.path("requests");
+
+        Map<String, DomainAgg> byHost = new java.util.HashMap<>();
+        long totalBytes = 0;
+        int total = 0;
+
+        for (JsonNode tx : requests) {
+            String url = tx.path("url").asText("");
+            if (url.isEmpty()) continue;
+            String host;
+            try {
+                host = java.net.URI.create(url).getHost();
+            } catch (Exception ignored) {
+                host = null;
+            }
+            if (host == null || host.isEmpty()) host = "unknown";
+
+            DomainAgg agg = byHost.computeIfAbsent(host, h -> new DomainAgg());
+            agg.requests++;
+            total++;
+
+            String method = tx.path("method").asText("");
+            if (!method.isEmpty()) agg.byMethod.merge(method, 1, Integer::sum);
+
+            int code = tx.path("responseCode").asInt(0);
+            if (code > 0) {
+                String bucket = (code / 100) + "xx";
+                agg.byStatus.merge(bucket, 1, Integer::sum);
+            }
+
+            long size = tx.path("responseBodySize").asLong(0);
+            if (size > 0) {
+                agg.totalResponseBytes += size;
+                totalBytes += size;
+            }
+
+            String rt = tx.path("resourceType").asText("");
+            if (!rt.isEmpty()) agg.resourceTypes.add(rt);
+
+            if (agg.samplePaths.size() < 5) {
+                try {
+                    String path = java.net.URI.create(url).getPath();
+                    if (path != null && !path.isEmpty()) agg.samplePaths.add(path);
+                } catch (Exception ignored) {}
+            }
+        }
+
+        // Sort by request count desc, host asc for stable output.
+        List<Map.Entry<String, DomainAgg>> sorted = new ArrayList<>(byHost.entrySet());
+        sorted.sort((a, b) -> {
+            int byCount = Integer.compare(b.getValue().requests, a.getValue().requests);
+            return byCount != 0 ? byCount : a.getKey().compareTo(b.getKey());
+        });
+
+        ObjectNode out = mapper.createObjectNode();
+        out.put("windowStart", sinceMs == null ? 0L : sinceMs);
+        out.put("totalRequests", total);
+        out.put("totalBytes", totalBytes);
+        ArrayNode domains = out.putArray("domains");
+        for (var entry : sorted) {
+            DomainAgg a = entry.getValue();
+            ObjectNode d = domains.addObject();
+            d.put("host", entry.getKey());
+            d.put("requests", a.requests);
+            d.put("totalResponseBytes", a.totalResponseBytes);
+            ObjectNode m = d.putObject("byMethod");
+            new java.util.TreeMap<>(a.byMethod).forEach(m::put);
+            ObjectNode s = d.putObject("byStatus");
+            new java.util.TreeMap<>(a.byStatus).forEach(s::put);
+            ArrayNode paths = d.putArray("samplePaths");
+            for (String p : a.samplePaths) paths.add(p);
+            if (!a.resourceTypes.isEmpty()) {
+                ArrayNode rts = d.putArray("resourceTypes");
+                for (String rt : a.resourceTypes) rts.add(rt);
+            }
+        }
+        return out;
+    }
+
+    private static class DomainAgg {
+        int requests = 0;
+        long totalResponseBytes = 0;
+        final Map<String, Integer> byMethod = new java.util.HashMap<>();
+        final Map<String, Integer> byStatus = new java.util.HashMap<>();
+        final java.util.LinkedHashSet<String> samplePaths = new java.util.LinkedHashSet<>();
+        final java.util.TreeSet<String> resourceTypes = new java.util.TreeSet<>();
+    }
+
     public String clearNetworkRequests(String packageName, String device) throws Exception {
         // Auto-detect foreground app when caller omits packageName — same UX
         // as screenshot() / layout(). Spec-extraction loops commonly call

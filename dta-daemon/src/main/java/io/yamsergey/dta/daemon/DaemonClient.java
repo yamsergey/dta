@@ -292,6 +292,18 @@ public class DaemonClient {
         return get("/api/network/stats?package=" + encode(pkg) + deviceParam(device, false));
     }
 
+    /**
+     * Per-domain aggregation over the captured network requests — counts,
+     * bytes, method breakdown, status buckets, sample paths. Pass
+     * {@code sinceMs > 0} to scope to a window (e.g. last action's
+     * {@code Date.now()} bookmark).
+     */
+    public String networkDataFlow(String pkg, String device, Long sinceMs) {
+        String url = "/api/network/data-flow?package=" + encode(pkg) + deviceParam(device, false);
+        if (sinceMs != null && sinceMs > 0) url += "&since=" + sinceMs;
+        return get(url);
+    }
+
     public String clearNetworkRequests(String pkg, String device) {
         return delete("/api/network/clear?package=" + encode(pkg) + deviceParam(device, false));
     }

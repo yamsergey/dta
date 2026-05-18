@@ -713,6 +713,21 @@ public final class DtaRoutes {
             }
         });
 
+        app.get("/api/network/data-flow", ctx -> {
+            try {
+                String packageName = ctx.queryParam("package");
+                String device = ctx.queryParam("device");
+                String sinceStr = ctx.queryParam("since");
+                Long sinceMs = null;
+                if (sinceStr != null && !sinceStr.isEmpty()) {
+                    try { sinceMs = Long.parseLong(sinceStr); } catch (NumberFormatException ignored) {}
+                }
+                jsonNode(ctx, orchestrator.getNetworkDataFlow(packageName, device, sinceMs));
+            } catch (Exception e) {
+                error(ctx, "data_flow failed: " + e.getMessage());
+            }
+        });
+
         app.get("/api/network/stats", ctx -> {
             try {
                 String packageName = ctx.queryParam("package");
