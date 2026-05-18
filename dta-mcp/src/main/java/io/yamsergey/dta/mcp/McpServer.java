@@ -1628,33 +1628,6 @@ public class McpServer {
                 }
             }
         ));
-
-        // ---------------- list_variants ----------------
-        tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("list_variants",
-                "Enumerate buildable Gradle variants across all Android modules in a project. " +
-                "Returns one record per (module, variant) pair with the applicationId where AGP " +
-                "exposes it. Use this BEFORE `run_app` when the caller doesn't already know which " +
-                "variant string to pass — e.g. to find the demoDebug / prodDebug / stagingDebug " +
-                "name your project actually declares, or to pick the right module for a multi-app " +
-                "project.\n\n" +
-                "Response shape:\n" +
-                "  {\"variants\": [{\"module\": \":app\", \"name\": \"demoDebug\", \"applicationId\": \"com.example.demo.debug\"}, ...]}\n\n" +
-                "Cost: triggers a Gradle configure pass over every subproject (~5–15 s warm, " +
-                "30+ s cold). Treat as a one-shot per project, not per-action.",
-                schema(Map.of(
-                    "project", prop("string", "Absolute path to the Android project root directory", true)
-                ))),
-            (exchange, request) -> { var args = request.arguments();
-                try {
-                    String project = getString(args, "project");
-                    if (project == null) return errorResult("'project' parameter is required");
-                    return ok(getDaemon().listVariants(project));
-                } catch (Exception e) {
-                    return friendlyError("list_variants", e);
-                }
-            }
-        ));
     }
 
     /**

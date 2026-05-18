@@ -77,17 +77,6 @@ public class DaemonClient {
     }
 
     /**
-     * Enumerates buildable Gradle variants across all Android modules in the
-     * project. Useful for spec-extraction tooling that needs to know which
-     * (variant, applicationId) pairs exist before invoking {@link #runApp}.
-     * Backed by a configure-only Gradle pass — slow on a cold project (~10s+),
-     * fast when the configuration cache is warm.
-     */
-    public String listVariants(String project) {
-        return getLong("/api/run/variants?project=" + encode(project));
-    }
-
-    /**
      * Triggers a debug log/state export bundle for triage. Returns the raw
      * zip bytes — caller decides where to write them. Bundle redacts host
      * package, auth headers, JWTs, and emails by default; pass {@code redact=false}
@@ -512,28 +501,6 @@ public class DaemonClient {
      */
     private String postLong(String path, String body) {
         return post(path, body, Duration.ofMinutes(15));
-    }
-
-    /**
-     * GET with an extended timeout — for endpoints backed by Gradle
-     * configuration (variant enumeration, etc.) that can run for several
-     * minutes on a cold project.
-     */
-    private String getLong(String path) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + path))
-                .timeout(Duration.ofMinutes(15))
-                .GET()
-                .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            checkResponse(response);
-            return response.body();
-        } catch (DaemonException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new DaemonException("HTTP GET failed: " + path, e);
-        }
     }
 
     private String post(String path, String body, Duration timeout) {

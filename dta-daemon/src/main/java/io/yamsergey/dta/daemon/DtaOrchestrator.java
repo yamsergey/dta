@@ -125,15 +125,6 @@ public class DtaOrchestrator {
         return runner.run(req, (stage, message) -> log.debug("[{}] {}", stage, message));
     }
 
-    /**
-     * Enumerates buildable variants across all Android modules in a project.
-     * Delegates to {@link AppRunner#discoverVariants(String)}. Output is
-     * sorted by module path then variant name.
-     */
-    public List<AppRunner.VariantInfo> listVariants(String projectPath) throws Exception {
-        return new AppRunner().discoverVariants(projectPath);
-    }
-
     // ========================================================================
     // Layout tree with WebView/Custom Tab enrichment
     // ========================================================================
