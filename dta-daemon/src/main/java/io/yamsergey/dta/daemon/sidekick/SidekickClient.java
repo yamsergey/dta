@@ -379,6 +379,9 @@ public class SidekickClient {
     public Result<String> getNetworkRequests() {
         return httpGet("/network/requests");
     }
+    public Result<String> getNetworkRequestsSince(long sinceMs) {
+        return httpGet("/network/requests?since=" + sinceMs);
+    }
 
     /**
      * Gets a specific HTTP request by ID.

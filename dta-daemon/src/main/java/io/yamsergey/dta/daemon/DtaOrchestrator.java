@@ -573,8 +573,15 @@ public class DtaOrchestrator {
     // ========================================================================
 
     public String getNetworkRequests(String packageName, String device) throws Exception {
+        return getNetworkRequests(packageName, device, null);
+    }
+
+    public String getNetworkRequests(String packageName, String device, Long sinceMs) throws Exception {
         ConnectionInfo conn = getConnectionWithCdp(packageName, device);
-        return unwrap(conn.client().getNetworkRequests(), "Failed to get network requests");
+        if (sinceMs == null || sinceMs <= 0) {
+            return unwrap(conn.client().getNetworkRequests(), "Failed to get network requests");
+        }
+        return unwrap(conn.client().getNetworkRequestsSince(sinceMs), "Failed to get network requests");
     }
 
     public String getNetworkRequest(String packageName, String device, String requestId) throws Exception {

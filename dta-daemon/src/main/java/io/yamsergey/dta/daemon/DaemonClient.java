@@ -261,7 +261,12 @@ public class DaemonClient {
     // --- Network ---
 
     public String networkRequests(String pkg, String device) {
-        return get("/api/network/requests?package=" + encode(pkg) + deviceParam(device, false));
+        return networkRequests(pkg, device, null);
+    }
+    public String networkRequests(String pkg, String device, Long sinceMs) {
+        String url = "/api/network/requests?package=" + encode(pkg) + deviceParam(device, false);
+        if (sinceMs != null && sinceMs > 0) url += "&since=" + sinceMs;
+        return get(url);
     }
 
     public String networkRequest(String pkg, String requestId, String device) {

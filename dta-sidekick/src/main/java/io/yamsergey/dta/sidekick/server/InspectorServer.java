@@ -755,6 +755,15 @@ public class InspectorServer {
             if ("PUT".equals(method)) { handleRuntimeSharedPrefsWrite(prefsName, body, out); return; }
         }
 
+        // Lifted out of the switch below because that switch compares
+        // against the full `path` (with query string), which means
+        // /network/requests?since=N falls through. Network requests need
+        // the query string for the delta filter.
+        if (cleanPath.equals("/network/requests") && "GET".equals(method)) {
+            handleNetworkRequests(parseQueryParams(path), out);
+            return;
+        }
+
         switch (path) {
             case "/":
             case "/health":
@@ -770,7 +779,10 @@ public class InspectorServer {
                 handleComposeScreenshot(out);
                 break;
             case "/network/requests":
-                handleNetworkRequests(out);
+                // Kept for backward compat / no-query callers; the if
+                // above catches the query-bearing form. Either branch
+                // ends up calling the same handler.
+                handleNetworkRequests(parseQueryParams(path), out);
                 break;
             case "/network/transactions":
                 if ("POST".equals(method)) {
@@ -1638,18 +1650,30 @@ public class InspectorServer {
     /**
      * GET /network/requests - List all captured network transactions.
      */
-    private void handleNetworkRequests(OutputStream out) throws IOException {
+    private void handleNetworkRequests(Map<String, String> params, OutputStream out) throws IOException {
         try {
+            long sinceMs = -1L;
+            String sinceParam = params != null ? params.get("since") : null;
+            if (sinceParam != null && !sinceParam.isEmpty()) {
+                try { sinceMs = Long.parseLong(sinceParam); }
+                catch (NumberFormatException ignored) {}
+            }
+
             java.util.List<HttpTransaction> transactions = NetworkInspector.getTransactions();
 
             java.util.List<Map<String, Object>> transactionList = new java.util.ArrayList<>();
             for (HttpTransaction tx : transactions) {
+                // `since` is exclusive — caller passed an epoch ms taken
+                // BEFORE the action, so anything at-or-before that
+                // timestamp is the pre-action baseline. Strict >.
+                if (sinceMs > 0 && tx.getStartTime() <= sinceMs) continue;
                 transactionList.add(transactionToMap(tx, false));
             }
 
             Map<String, Object> response = new HashMap<>();
-            response.put("count", transactions.size());
+            response.put("count", transactionList.size());
             response.put("requests", transactionList);
+            if (sinceMs > 0) response.put("since", sinceMs);
 
             sendJson(out, 200, response);
 

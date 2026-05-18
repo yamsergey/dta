@@ -661,7 +661,9 @@ public final class DtaRoutes {
             try {
                 String packageName = ctx.queryParam("package");
                 String device = ctx.queryParam("device");
-                jsonString(ctx, orchestrator.getNetworkRequests(packageName, device));
+                Long since = ctx.queryParam("since") != null
+                    ? Long.parseLong(ctx.queryParam("since")) : null;
+                jsonString(ctx, orchestrator.getNetworkRequests(packageName, device, since));
             } catch (Exception e) {
                 error(ctx, "Failed: " + e.getMessage());
             }

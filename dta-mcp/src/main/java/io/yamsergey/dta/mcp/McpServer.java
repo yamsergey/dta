@@ -461,14 +461,18 @@ public class McpServer {
     private static void collectAppTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_requests", "List captured HTTP requests from an app",
+            tool("network_requests", "List captured HTTP requests from an app. Optional `since_ms` returns only requests whose `startTime > since_ms` — the **delta primitive** for action-bounded queries. Pass an epoch ms taken before triggering an action, then query after; only requests started during the action are returned. Same pattern as logcat's `since_ms`. Empty result + count=0 is normal when nothing new fired.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
-                    "device", prop("string", "Device serial", false)
+                    "device", prop("string", "Device serial", false),
+                    "since_ms", prop("integer", "Optional epoch ms lower bound (exclusive). Filters to requests started after this timestamp.", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
-                    String json = getDaemon().networkRequests(getString(args, "package"), getString(args, "device"));
+                    Object sinceObj = args.get("since_ms");
+                    Long since = (sinceObj instanceof Number) ? ((Number) sinceObj).longValue() : null;
+                    String json = getDaemon().networkRequests(
+                        getString(args, "package"), getString(args, "device"), since);
                     return ok(json);
                 } catch (Exception e) {
                     return friendlyError("tool", e);
