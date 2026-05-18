@@ -368,6 +368,23 @@ public class DtaOrchestrator {
     public String openDeepLink(String packageName, String device, String body) throws Exception {
         return unwrap(getConnection(packageName, device).client().openDeepLink(body), "Failed");
     }
+    public String waitFor(String packageName, String device, String body) throws Exception {
+        return unwrap(getConnection(packageName, device).client().waitFor(body), "Failed");
+    }
+
+    /**
+     * Daemon-side {@code tap_and_wait_for}: performs an adb tap, then
+     * immediately POSTs the wait_for predicate to sidekick. Saves the
+     * client one round-trip, which is the exact latency that lets
+     * snackbar / toast UI escape capture. The polling loop is still
+     * sidekick-side, but the tap is daemon-side because sidekick can't
+     * dispatch input events.
+     */
+    public String tapAndWaitFor(String packageName, String device,
+            int x, int y, String waitForBody) throws Exception {
+        connectionManager.tap(device, x, y);
+        return unwrap(getConnection(packageName, device).client().waitFor(waitForBody), "Failed");
+    }
 
     public String listFiles(String packageName, String device, String path) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);

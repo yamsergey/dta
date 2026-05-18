@@ -296,6 +296,19 @@ public final class DtaRoutes {
                     ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
+        app.post("/api/runtime/wait_for", ctx -> {
+            try { jsonString(ctx, orchestrator.waitFor(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/tap_and_wait_for", ctx -> {
+            try {
+                int x = Integer.parseInt(ctx.queryParam("x"));
+                int y = Integer.parseInt(ctx.queryParam("y"));
+                jsonString(ctx, orchestrator.tapAndWaitFor(
+                    ctx.queryParam("package"), ctx.queryParam("device"), x, y, ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
 
         app.get("/api/runtime/files", ctx -> {
             try {

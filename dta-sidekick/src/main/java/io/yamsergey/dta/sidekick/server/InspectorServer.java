@@ -678,6 +678,10 @@ public class InspectorServer {
             handleRuntimeOpenDeepLink(body, out);
             return;
         }
+        if (path.equals("/runtime/wait_for") && "POST".equals(method)) {
+            handleRuntimeWaitFor(body, out);
+            return;
+        }
         if (path.equals("/debug/diagnostics") && "GET".equals(method)) {
             handleDebugDiagnostics(out); return;
         }
@@ -860,6 +864,36 @@ public class InspectorServer {
                 : null;
             Map<String, Object> result =
                 new io.yamsergey.dta.sidekick.data.RuntimeInspector().navigate(destination, params);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code POST /runtime/wait_for} — body is {@code {"text"?, "testTag"?,
+     * "className"?, "max_ms"?}}. Polls the foreground view tree every 50 ms
+     * until a node matching the predicate appears or the timeout elapses.
+     * On match: returns the matched node, full layout tree, and a base64
+     * PNG screenshot. On timeout: {@code {matched:false, elapsedMs}}.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeWaitFor(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String text = req != null ? (String) req.get("text") : null;
+            String testTag = req != null ? (String) req.get("testTag") : null;
+            String className = req != null ? (String) req.get("className") : null;
+            int maxMs = 3000;
+            if (req != null && req.get("max_ms") instanceof Number) {
+                maxMs = ((Number) req.get("max_ms")).intValue();
+            }
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector()
+                    .waitFor(text, testTag, className, maxMs);
             int status = result.containsKey("error") ? 400 : 200;
             sendJson(out, status, result);
         } catch (Exception e) {
@@ -1150,6 +1184,7 @@ public class InspectorServer {
                 "/runtime/app_functions",
                 "/runtime/navigate",
                 "/runtime/open_deeplink",
+                "/runtime/wait_for",
                 "/debug/diagnostics",
                 "/layout/tree",
                 "/layout/properties/{viewId}"

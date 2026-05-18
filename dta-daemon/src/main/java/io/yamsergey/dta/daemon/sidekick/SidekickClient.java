@@ -347,6 +347,12 @@ public class SidekickClient {
     public Result<String> appFunctions() { return httpGet("/runtime/app_functions"); }
     public Result<String> navigate(String body) { return httpPost("/runtime/navigate", body); }
     public Result<String> openDeepLink(String body) { return httpPost("/runtime/open_deeplink", body); }
+    /**
+     * Long timeout because the wait_for endpoint blocks until predicate
+     * match or {@code max_ms} elapses. We allow callers to wait up to
+     * 30 s upstream, plus a small safety margin for the response trip.
+     */
+    public Result<String> waitFor(String body) { return httpPost("/runtime/wait_for", body, 35_000); }
     public Result<String> listFiles(String path) { return httpGet("/runtime/files/" + (path != null ? path : "")); }
     public Result<String> listDatabases() { return httpGet("/runtime/databases"); }
     public Result<String> databaseSchema(String name) { return httpGet("/runtime/databases/" + name + "/schema"); }

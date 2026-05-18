@@ -284,6 +284,85 @@ public class McpServer {
             }
         ));
 
+        // wait_for — poll the foreground view tree until a node matches.
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("wait_for",
+                "Block until a node matching the predicate appears in the foreground view tree, or until `max_ms` elapses. Designed for transient UI (snackbars, toasts, brief loaders) that disappears faster than a tap → screenshot round-trip would catch.\n\n" +
+                "Polling runs in-process inside the host app at fixed 50 ms intervals, so this routinely sees UI with sub-second lifetimes that an external poll loop would miss.\n\n" +
+                "**Predicate fields** (all optional, AND-combined when multiple are present — at least one must be non-empty):\n" +
+                "- `text`: substring match (case-insensitive) against the node's text.\n" +
+                "- `test_tag`: exact match against the node's `testTag` (Compose `Modifier.testTag`). Most reliable when the app under test sets explicit tags.\n" +
+                "- `class_name`: exact match against the node's `className` (View) or `composable` (Compose). Use the simple name — e.g. `\"Snackbar\"` matches `androidx.compose.material3.SnackbarHost` (suffix) and a bare Compose `Snackbar`.\n\n" +
+                "**Response on match**: `{matched: true, elapsedMs, matchedNode, layoutTree, screenshot (base64 PNG)}` — same `layoutTree` shape as `layout_tree`, with the matched node also surfaced directly so callers don't have to walk it.\n\n" +
+                "**Response on timeout**: `{matched: false, elapsedMs}`.\n\n" +
+                "If you need to perform an action immediately before watching (the snackbar case), prefer `tap_and_wait_for` — it saves one round-trip's worth of latency which is the exact gap that lets the affordance disappear.",
+                schema(Map.of(
+                    "text", prop("string", "Substring match (case-insensitive) against node text.", false),
+                    "test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false),
+                    "class_name", prop("string", "Simple class name match (View className suffix or Compose composable name).", false),
+                    "max_ms", prop("integer", "Timeout in milliseconds (default 3000).", false),
+                    "package", prop("string", "App package name (auto-detected from foreground when omitted).", false),
+                    "device", prop("string", "Device serial (auto-detected when only one device).", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+                    Map<String, Object> bodyMap = new java.util.HashMap<>();
+                    String text = getString(args, "text");
+                    String tag = getString(args, "test_tag");
+                    String cls = getString(args, "class_name");
+                    if (text != null) bodyMap.put("text", text);
+                    if (tag != null) bodyMap.put("testTag", tag);
+                    if (cls != null) bodyMap.put("className", cls);
+                    Object maxMs = args.get("max_ms");
+                    if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
+                    String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
+                    return ok(getDaemon().waitFor(pkg, device, body));
+                } catch (Exception e) {
+                    return friendlyError("wait_for", e);
+                }
+            }
+        ));
+
+        // tap_and_wait_for — tap + immediate wait, one round-trip.
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("tap_and_wait_for",
+                "Tap at `(x, y)` and immediately poll for a node matching the predicate. Saves the round-trip vs `tap` → `wait_for` — that round-trip is exactly the latency that lets short-lived UI (snackbars, toasts) disappear before the second call lands.\n\n" +
+                "Coordinates are **device-pixel space** (same as `tap`). Predicate fields and response shape mirror `wait_for`.",
+                schema(Map.of(
+                    "x", prop("integer", "Tap X coordinate (device-pixel space).", true),
+                    "y", prop("integer", "Tap Y coordinate (device-pixel space).", true),
+                    "text", prop("string", "Substring match (case-insensitive) against node text.", false),
+                    "test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false),
+                    "class_name", prop("string", "Simple class name match.", false),
+                    "max_ms", prop("integer", "Wait timeout in milliseconds (default 3000).", false),
+                    "package", prop("string", "App package name (auto-detected).", false),
+                    "device", prop("string", "Device serial (auto-detected when only one device).", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    int x = getInt(args, "x");
+                    int y = getInt(args, "y");
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+                    Map<String, Object> bodyMap = new java.util.HashMap<>();
+                    String text = getString(args, "text");
+                    String tag = getString(args, "test_tag");
+                    String cls = getString(args, "class_name");
+                    if (text != null) bodyMap.put("text", text);
+                    if (tag != null) bodyMap.put("testTag", tag);
+                    if (cls != null) bodyMap.put("className", cls);
+                    Object maxMs = args.get("max_ms");
+                    if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
+                    String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
+                    return ok(getDaemon().tapAndWaitFor(pkg, device, x, y, body));
+                } catch (Exception e) {
+                    return friendlyError("tap_and_wait_for", e);
+                }
+            }
+        ));
+
         // long_press
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("long_press", "Long-press at screen coordinates. Same coordinate space rules as `tap` (device-pixel, from `layout_tree` bounds). Implementation: zero-distance `adb input swipe` with `duration` ≥ Android's long-press threshold (~500 ms; we default to 600 ms for margin). Use this for context menus, drag-and-drop pickup, multi-select entry, anything that requires holding before lift.",

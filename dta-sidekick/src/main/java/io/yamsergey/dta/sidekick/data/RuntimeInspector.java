@@ -11,6 +11,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -315,6 +316,181 @@ public class RuntimeInspector {
         result.put("status", "ok");
         result.put("uri", uri);
         return result;
+    }
+
+    /**
+     * Polls the current view tree at fixed 50 ms intervals until a node
+     * matching the predicate appears, or until {@code maxMs} elapses.
+     * Designed for capturing transient UI (snackbars, toasts, brief
+     * loaders) that disappears faster than the daemon round-trip.
+     *
+     * <p>Polling runs in-process inside the host app — no adb / HTTP
+     * hops per check — so the actual sampling rate is much closer to
+     * 50 ms than what an external poller could achieve.</p>
+     *
+     * <p>Predicate fields (all optional, AND-combined when multiple
+     * are non-null):</p>
+     * <ul>
+     *   <li>{@code text}: substring match, case-insensitive, against
+     *       the node's {@code text} field.</li>
+     *   <li>{@code testTag}: exact match against the node's
+     *       {@code testTag} field (Compose {@code Modifier.testTag}).</li>
+     *   <li>{@code className}: exact match against the node's
+     *       {@code className} (View nodes) or {@code composable}
+     *       (Compose nodes). Use the simple name — e.g.
+     *       {@code "Snackbar"} matches both
+     *       {@code "androidx.compose.material3.SnackbarHost"} (suffix)
+     *       and the bare composable name.</li>
+     * </ul>
+     *
+     * <p>On match, returns {@code {matched:true, elapsedMs, matchedNode,
+     * layoutTree, screenshot (base64 PNG)}}. On timeout, returns
+     * {@code {matched:false, elapsedMs}}.</p>
+     */
+    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if ((text == null || text.isEmpty())
+                && (testTag == null || testTag.isEmpty())
+                && (className == null || className.isEmpty())) {
+            result.put("error", "At least one predicate (text / testTag / className) must be non-empty");
+            return result;
+        }
+        if (maxMs <= 0) maxMs = 3000;
+
+        long start = System.currentTimeMillis();
+        long deadline = start + maxMs;
+        String textLower = text != null ? text.toLowerCase() : null;
+
+        while (true) {
+            // Capture on the main thread (view-tree traversal isn't
+            // thread-safe). Bail with a short sleep + retry if we got
+            // null — typically a no-activity transient.
+            Map<String, Object> tree = runOnMainThread(
+                () -> io.yamsergey.dta.sidekick.layout.UnifiedTreeBuilder.capture());
+            if (tree != null) {
+                Map<String, Object> matched = findFirstMatch(tree, textLower, testTag, className);
+                if (matched != null) {
+                    result.put("matched", true);
+                    result.put("elapsedMs", System.currentTimeMillis() - start);
+                    result.put("matchedNode", matched);
+                    result.put("layoutTree", tree);
+                    byte[] png = captureScreenshotBytes();
+                    if (png != null) {
+                        result.put("screenshot",
+                            java.util.Base64.getEncoder().encodeToString(png));
+                        result.put("screenshotEncoding", "base64");
+                        result.put("screenshotFormat", "png");
+                    }
+                    return result;
+                }
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                result.put("matched", false);
+                result.put("elapsedMs", System.currentTimeMillis() - start);
+                return result;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                result.put("matched", false);
+                result.put("elapsedMs", System.currentTimeMillis() - start);
+                result.put("error", "Interrupted");
+                return result;
+            }
+        }
+    }
+
+    /**
+     * Walks {@code tree} depth-first, returning the first node whose
+     * fields satisfy every non-null predicate component. {@code text}
+     * arrives pre-lowercased; callers pass the original-case form for
+     * exact-match predicates ({@code testTag}, {@code className}).
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> findFirstMatch(Map<String, Object> tree,
+            String textLower, String testTag, String className) {
+        // Walk both `windows` (top-level result) and `children` (within nodes).
+        Object windows = tree.get("windows");
+        if (windows instanceof List) {
+            for (Object w : (List<?>) windows) {
+                if (w instanceof Map) {
+                    Object subtree = ((Map<String, Object>) w).get("tree");
+                    if (subtree instanceof Map) {
+                        Map<String, Object> hit = walkForMatch(
+                            (Map<String, Object>) subtree, textLower, testTag, className);
+                        if (hit != null) return hit;
+                    }
+                }
+            }
+        }
+        // Some callers may pass a single-node tree.
+        return walkForMatch(tree, textLower, testTag, className);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> walkForMatch(Map<String, Object> node,
+            String textLower, String testTag, String className) {
+        if (node == null) return null;
+        if (nodeMatches(node, textLower, testTag, className)) return node;
+        Object children = node.get("children");
+        if (children instanceof List) {
+            for (Object child : (List<?>) children) {
+                if (child instanceof Map) {
+                    Map<String, Object> hit = walkForMatch(
+                        (Map<String, Object>) child, textLower, testTag, className);
+                    if (hit != null) return hit;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean nodeMatches(Map<String, Object> node,
+            String textLower, String testTag, String className) {
+        if (textLower != null) {
+            Object t = node.get("text");
+            if (!(t instanceof String) || !((String) t).toLowerCase().contains(textLower)) {
+                return false;
+            }
+        }
+        if (testTag != null && !testTag.isEmpty()) {
+            Object tag = node.get("testTag");
+            if (!(tag instanceof String) || !testTag.equals(tag)) return false;
+        }
+        if (className != null && !className.isEmpty()) {
+            // Match either View `className` (FQ — accept a suffix) or
+            // Compose `composable` (typically the simple name already).
+            Object cn = node.get("className");
+            Object cp = node.get("composable");
+            boolean classHit = cn instanceof String
+                && (className.equals(cn) || ((String) cn).endsWith("." + className)
+                    || ((String) cn).endsWith("$" + className));
+            boolean composeHit = cp instanceof String && className.equals(cp);
+            if (!classHit && !composeHit) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Captures a PNG of the foreground activity's window. Mirrors what
+     * the {@code /compose/screenshot} handler does — main-thread window
+     * lookup, off-main-thread PixelCopy. Returns null if no activity or
+     * capture failed; callers tolerate a missing screenshot rather than
+     * failing the whole wait_for response.
+     */
+    private byte[] captureScreenshotBytes() {
+        try {
+            android.view.Window window = runOnMainThread(() -> {
+                Activity activity = WindowRootDiscovery.getCurrentActivity();
+                return activity != null ? activity.getWindow() : null;
+            });
+            if (window == null) return null;
+            return io.yamsergey.dta.sidekick.compose.ComposeHitTester.captureScreenshot(window);
+        } catch (Throwable t) {
+            SidekickLog.d(TAG, "screenshot capture failed during wait_for: " + t.getMessage());
+            return null;
+        }
     }
 
     private <T> T runOnMainThread(java.util.concurrent.Callable<T> callable) {

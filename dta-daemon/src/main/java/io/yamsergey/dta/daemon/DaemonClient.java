@@ -180,6 +180,13 @@ public class DaemonClient {
     public String openDeepLink(String pkg, String device, String body) {
         return post("/api/runtime/open_deeplink?package=" + encode(pkg) + deviceParam(device, false), body);
     }
+    public String waitFor(String pkg, String device, String body) {
+        return post("/api/runtime/wait_for?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+    public String tapAndWaitFor(String pkg, String device, int x, int y, String body) {
+        return post("/api/runtime/tap_and_wait_for?package=" + encode(pkg)
+            + deviceParam(device, false) + "&x=" + x + "&y=" + y, body);
+    }
 
     public String authenticate(String pkg, String device) {
         return post("/api/runtime/authenticate?package=" + encode(pkg) + deviceParam(device, false), "");
