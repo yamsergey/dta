@@ -377,27 +377,33 @@ public class AppRunner {
         // Release versions resolve from mavenCentral which most projects
         // already declare; no snapshot-repo injection needed.
         boolean isSnapshot = SIDEKICK_VERSION.contains("SNAPSHOT");
-        String settingsSnapshotRepo = isSnapshot
-            ? "\n                        maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }"
-            : "";
-        String projectLevelInjection = isSnapshot
-            ? "\n                // Only add the snapshot repo at project level when the\n"
-            + "                // project's settings allow it. PREFER_PROJECT (Gradle\n"
-            + "                // default) is the case where the project-level inject\n"
-            + "                // is REQUIRED — otherwise project-declared repos shadow\n"
-            + "                // our settings-level snapshot repo. PREFER_SETTINGS /\n"
-            + "                // FAIL_ON_PROJECT_REPOS forbid project-level repos; the\n"
-            + "                // settings-level injection above is enough for them.\n"
-            + "                //\n"
-            + "                // Why google() + mavenCentral() here too: declaring ANY\n"
+        boolean isLocal = SIDEKICK_VERSION.contains("-LOCAL");
+        String settingsExtraRepos =
+            (isSnapshot ? "\n                        maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }" : "")
+            + (isLocal  ? "\n                        mavenLocal()" : "");
+        // Project-level injection is only required when the project uses
+        // PREFER_PROJECT (Gradle's default). PREFER_SETTINGS /
+        // FAIL_ON_PROJECT_REPOS forbid project-level repos; the
+        // settings-level injection above is enough for them.
+        //
+        // We need it whenever we added a non-Central repo at settings level
+        // (snapshot URL or mavenLocal), because PREFER_PROJECT projects
+        // resolve from their own repo list and would otherwise shadow what
+        // we added at settings level.
+        boolean needsProjectLevel = isSnapshot || isLocal;
+        String projectLevelExtraRepos =
+            (isSnapshot ? "\n                        maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }" : "")
+            + (isLocal  ? "\n                        mavenLocal()" : "");
+        String projectLevelInjection = needsProjectLevel
+            ? "\n                // Why google() + mavenCentral() here too: declaring ANY\n"
             + "                // project-level repository under PREFER_PROJECT disables\n"
             + "                // the settings-level fallback for that project. So a\n"
             + "                // project that previously relied on settings repos for\n"
-            + "                // google/mavenCentral suddenly has only the snapshots\n"
-            + "                // URL and can't resolve kotlin-stdlib / AGP. Declaring\n"
-            + "                // them here keeps resolution behaviour the same; for\n"
-            + "                // projects that already declared them at project level\n"
-            + "                // it's a harmless duplicate.\n"
+            + "                // google/mavenCentral suddenly has only our extra repo\n"
+            + "                // and can't resolve kotlin-stdlib / AGP. Declaring them\n"
+            + "                // here keeps resolution behaviour the same; for projects\n"
+            + "                // that already declared them at project level it's a\n"
+            + "                // harmless duplicate.\n"
             + "                def mode = null\n"
             + "                try {\n"
             + "                    mode = gradle.settings.dependencyResolutionManagement.repositoriesMode.getOrNull()\n"
@@ -405,8 +411,8 @@ public class AppRunner {
             + "                if (mode == null || mode.name() == 'PREFER_PROJECT') {\n"
             + "                    repositories {\n"
             + "                        google()\n"
-            + "                        mavenCentral()\n"
-            + "                        maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }\n"
+            + "                        mavenCentral()"
+            + projectLevelExtraRepos + "\n"
             + "                    }\n"
             + "                }"
             : "";
@@ -429,7 +435,7 @@ public class AppRunner {
                     }
                 }
             }
-            """.formatted(settingsSnapshotRepo, projectLevelInjection, SIDEKICK_VERSION, SIDEKICK_VERSION, variant);
+            """.formatted(settingsExtraRepos, projectLevelInjection, SIDEKICK_VERSION, SIDEKICK_VERSION, variant);
     }
 
     // ========================================================================

@@ -670,6 +670,81 @@ public class ComposeInspector {
         "LazyLayoutItemContentFactory", "LazyListItemProvider"
     ));
 
+    /**
+     * Maps a Compose composable name to its cross-platform Material
+     * affordance label. The label is portable — a spec extractor uses it
+     * to translate between Android (snackbar / bottom-sheet / dialog) and
+     * other platforms (iOS toast / sheet / alert) without re-deriving
+     * conventions from the layout tree's pixel content each time.
+     *
+     * <p>v1 covers the high-frequency Material 3 components. The list
+     * intentionally excludes very generic primitives (Box, Column, Row)
+     * because they don't carry affordance semantics — they're layout
+     * containers, not platform conventions.</p>
+     */
+    private static final java.util.Map<String, String> MATERIAL_AFFORDANCES;
+    static {
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        // Notifications / transient UI
+        m.put("Snackbar", "material-snackbar");
+        m.put("SnackbarHost", "material-snackbar-host");
+        // Dialogs / modals
+        m.put("AlertDialog", "material-dialog-alert");
+        m.put("Dialog", "material-dialog");
+        m.put("ModalBottomSheet", "material-bottom-sheet-modal");
+        m.put("BottomSheet", "material-bottom-sheet");
+        m.put("BottomSheetScaffold", "material-bottom-sheet-scaffold");
+        // Navigation surfaces
+        m.put("ModalNavigationDrawer", "material-navigation-drawer-modal");
+        m.put("PermanentNavigationDrawer", "material-navigation-drawer-permanent");
+        m.put("DismissibleNavigationDrawer", "material-navigation-drawer-dismissible");
+        m.put("NavigationBar", "material-navigation-bar");
+        m.put("NavigationRail", "material-navigation-rail");
+        m.put("NavigationDrawer", "material-navigation-drawer");
+        m.put("TopAppBar", "material-top-app-bar");
+        m.put("BottomAppBar", "material-bottom-app-bar");
+        m.put("CenterAlignedTopAppBar", "material-top-app-bar-center");
+        m.put("LargeTopAppBar", "material-top-app-bar-large");
+        m.put("MediumTopAppBar", "material-top-app-bar-medium");
+        // Tabs
+        m.put("Tab", "material-tab");
+        m.put("TabRow", "material-tab-row");
+        m.put("ScrollableTabRow", "material-tab-row-scrollable");
+        // Actions
+        m.put("FloatingActionButton", "material-fab");
+        m.put("ExtendedFloatingActionButton", "material-fab-extended");
+        m.put("SmallFloatingActionButton", "material-fab-small");
+        m.put("LargeFloatingActionButton", "material-fab-large");
+        // Controls
+        m.put("Checkbox", "material-checkbox");
+        m.put("Switch", "material-switch");
+        m.put("RadioButton", "material-radio-button");
+        m.put("Slider", "material-slider");
+        m.put("RangeSlider", "material-slider-range");
+        // Indicators
+        m.put("LinearProgressIndicator", "material-progress-linear");
+        m.put("CircularProgressIndicator", "material-progress-circular");
+        m.put("Badge", "material-badge");
+        m.put("BadgedBox", "material-badged-box");
+        // Cards / containers
+        m.put("Card", "material-card");
+        m.put("ElevatedCard", "material-card-elevated");
+        m.put("OutlinedCard", "material-card-outlined");
+        m.put("Scaffold", "material-scaffold");
+        m.put("Surface", "material-surface");
+        // Text fields
+        m.put("TextField", "material-text-field");
+        m.put("OutlinedTextField", "material-text-field-outlined");
+        // Menus / chips
+        m.put("DropdownMenu", "material-menu-dropdown");
+        m.put("ExposedDropdownMenuBox", "material-menu-exposed");
+        m.put("AssistChip", "material-chip-assist");
+        m.put("FilterChip", "material-chip-filter");
+        m.put("InputChip", "material-chip-input");
+        m.put("SuggestionChip", "material-chip-suggestion");
+        MATERIAL_AFFORDANCES = java.util.Collections.unmodifiableMap(m);
+    }
+
     // Mapping of parent composables to child composables that should be collapsed
     // When a parent has only these children, collapse them and promote grandchildren
     private static final java.util.Map<String, java.util.Set<String>> COLLAPSE_CHILDREN;
@@ -868,6 +943,24 @@ public class ComposeInspector {
                     // Will be updated below based on source file
                     info.isLibraryComposable = false;
                 }
+            }
+        }
+
+        // Extract start line number. Compose's source-information format is
+        // C(Name)P(params)<line>@<offset>L<count>:File.kt or similar — the
+        // first `<digits>@` segment we see is the function's start line.
+        // Robust to absent line info (library composables typically lack it).
+        int atIdx = sourceInfo.indexOf('@');
+        if (atIdx > 0) {
+            int digitsEnd = atIdx;
+            int digitsStart = digitsEnd;
+            while (digitsStart > 0 && Character.isDigit(sourceInfo.charAt(digitsStart - 1))) {
+                digitsStart--;
+            }
+            if (digitsStart < digitsEnd) {
+                try {
+                    info.lineNumber = Integer.parseInt(sourceInfo.substring(digitsStart, digitsEnd));
+                } catch (NumberFormatException ignored) {}
             }
         }
 
@@ -1393,6 +1486,16 @@ public class ComposeInspector {
             // Normalize composable name for cleaner display (BasicText -> Text, etc.)
             String displayComposable = normalizeComposableName(composable);
             node.put("composable", displayComposable);
+
+            // Tag with a cross-platform Material affordance label when the
+            // composable matches a known role. The label is a portable
+            // identifier (`material-snackbar`, `material-bottom-sheet`,
+            // etc.) that maps to platform conventions in spec-extraction
+            // workflows — the spec can say "Trigger → present
+            // {material-snackbar-with-action: UNDO}" once and have an iOS
+            // extractor know to translate to the equivalent affordance.
+            String affordance = MATERIAL_AFFORDANCES.get(displayComposable);
+            if (affordance != null) node.put("affordance", affordance);
 
             // Add source file and line number if available from CompositionData
             // For library composables, add (inline) annotation; for user code, show source file without .kt
