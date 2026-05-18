@@ -459,6 +459,28 @@ public final class DtaRoutes {
             }
         });
 
+        app.get("/api/run/variants", ctx -> {
+            try {
+                String project = ctx.queryParam("project");
+                if (project == null || project.isEmpty()) {
+                    error(ctx, "'project' query param is required");
+                    return;
+                }
+                var variants = orchestrator.listVariants(project);
+                var json = mapper.createObjectNode();
+                var arr = json.putArray("variants");
+                for (var v : variants) {
+                    var node = arr.addObject();
+                    node.put("module", v.module());
+                    node.put("name", v.name());
+                    if (v.applicationId() != null) node.put("applicationId", v.applicationId());
+                }
+                jsonNode(ctx, json);
+            } catch (Exception e) {
+                error(ctx, "list_variants failed: " + e.getMessage());
+            }
+        });
+
         // ====================================================================
         // Screenshot
         // ====================================================================
