@@ -101,6 +101,11 @@ public class DaemonClient {
         return post("/api/tap?x=" + x + "&y=" + y + deviceParam(device, false), null);
     }
 
+    public String longPress(int x, int y, int durationMs, String device) {
+        return post("/api/long-press?x=" + x + "&y=" + y + "&duration=" + durationMs
+            + deviceParam(device, false), null);
+    }
+
     public String swipe(int x1, int y1, int x2, int y2, int duration, String device) {
         return post("/api/swipe?x1=" + x1 + "&y1=" + y1 + "&x2=" + x2 + "&y2=" + y2
             + "&duration=" + duration + deviceParam(device, false), null);

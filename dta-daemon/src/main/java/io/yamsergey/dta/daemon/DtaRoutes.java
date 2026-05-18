@@ -540,6 +540,20 @@ public final class DtaRoutes {
             }
         });
 
+        app.post("/api/long-press", ctx -> {
+            try {
+                int x = Integer.parseInt(ctx.queryParam("x"));
+                int y = Integer.parseInt(ctx.queryParam("y"));
+                String durationStr = ctx.queryParam("duration");
+                int duration = durationStr != null ? Integer.parseInt(durationStr) : 600;
+                String device = ctx.queryParam("device");
+                boolean success = connectionManager.longPress(device, x, y, duration);
+                ctx.json(Map.of("success", success, "x", x, "y", y, "durationMs", duration));
+            } catch (Exception e) {
+                error(ctx, "Failed to long-press: " + e.getMessage());
+            }
+        });
+
         app.post("/api/swipe", ctx -> {
             try {
                 int x1 = Integer.parseInt(ctx.queryParam("x1"));

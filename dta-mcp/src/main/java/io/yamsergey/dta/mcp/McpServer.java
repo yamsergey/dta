@@ -284,6 +284,30 @@ public class McpServer {
             }
         ));
 
+        // long_press
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("long_press", "Long-press at screen coordinates. Same coordinate space rules as `tap` (device-pixel, from `layout_tree` bounds). Implementation: zero-distance `adb input swipe` with `duration` ≥ Android's long-press threshold (~500 ms; we default to 600 ms for margin). Use this for context menus, drag-and-drop pickup, multi-select entry, anything that requires holding before lift.",
+                schema(Map.of(
+                    "x", prop("integer", "X coordinate (device-pixel space)", true),
+                    "y", prop("integer", "Y coordinate (device-pixel space)", true),
+                    "duration_ms", prop("integer", "Hold duration in milliseconds (default 600; values below ~500 may be classified as a tap by Android)", false),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    int x = getInt(args, "x");
+                    int y = getInt(args, "y");
+                    Object durObj = args.get("duration_ms");
+                    int duration = (durObj instanceof Number) ? ((Number) durObj).intValue() : 600;
+                    String device = getString(args, "device");
+                    String json = getDaemon().longPress(x, y, duration, device);
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("long_press", e);
+                }
+            }
+        ));
+
         // swipe
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("swipe", "Swipe from start point to end point. " +

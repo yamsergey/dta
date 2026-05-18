@@ -447,6 +447,29 @@ public class SidekickConnectionManager {
     }
 
     /**
+     * Long-press at a point. Internally Android implements long-press as a
+     * zero-distance swipe with a duration above the touch-slop / long-press
+     * threshold (~500 ms). Distinct from {@link #swipe} so the call site
+     * doesn't trip the same-start/end warning that swipe emits.
+     *
+     * <p>Used for: context menus, drag-and-drop pickup, multi-select mode
+     * — anything that requires holding before lift. Default duration of
+     * {@code 600 ms} clears the {@code ViewConfiguration.getLongPressTimeout()}
+     * default of 500 ms with a small margin so Android reliably classifies
+     * it as long-press rather than tap.</p>
+     */
+    public boolean longPress(String device, int x, int y, int durationMs)
+            throws IOException, InterruptedException {
+        // ViewConfiguration.LONG_PRESS_TIMEOUT defaults to 500 ms; we want a
+        // small margin above it so dispatch is unambiguous.
+        int effectiveDuration = Math.max(durationMs, 600);
+        runAdb(device, "shell", "input", "swipe",
+            String.valueOf(x), String.valueOf(y), String.valueOf(x), String.valueOf(y),
+            String.valueOf(effectiveDuration));
+        return true;
+    }
+
+    /**
      * Inputs text on the device.
      */
     public boolean inputText(String device, String text) throws IOException, InterruptedException {
