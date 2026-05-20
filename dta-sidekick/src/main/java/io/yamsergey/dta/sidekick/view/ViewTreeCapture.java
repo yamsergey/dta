@@ -203,13 +203,26 @@ public class ViewTreeCapture {
         }
 
         // === State ===
-        if (view.isClickable()) node.put("isClickable", true);
-        if (view.isFocusable()) node.put("isFocusable", true);
+        boolean clickable = view.isClickable();
+        boolean focusable = view.isFocusable();
+        boolean scrollable = view.canScrollVertically(1) || view.canScrollVertically(-1)
+            || view.canScrollHorizontally(1) || view.canScrollHorizontally(-1);
+        if (clickable)  node.put("isClickable", true);
+        if (focusable)  node.put("isFocusable", true);
         if (!view.isEnabled()) node.put("isEnabled", false);
         if (view.isSelected()) node.put("isSelected", true);
-        if (view.canScrollVertically(1) || view.canScrollVertically(-1)
-            || view.canScrollHorizontally(1) || view.canScrollHorizontally(-1)) {
-            node.put("isScrollable", true);
+        if (scrollable) node.put("isScrollable", true);
+
+        // Cross-platform interaction labels — same vocabulary as the
+        // `android` CLI's `layout` output (and the Compose semantics
+        // path in ComposeInspector). Keeps DTA's tree a strict superset
+        // for callers who don't want to special-case View vs Compose.
+        if (clickable || focusable || scrollable) {
+            java.util.List<String> interactions = new java.util.ArrayList<>(3);
+            if (clickable)  interactions.add("clickable");
+            if (focusable)  interactions.add("focusable");
+            if (scrollable) interactions.add("scrollable");
+            node.put("interactions", interactions);
         }
 
         // === Compose View detection ===

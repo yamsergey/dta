@@ -1512,6 +1512,12 @@ public class ComposeInspector {
                 if (matchedSemantics.containsKey("contentDescription")) {
                     node.put("contentDescription", matchedSemantics.get("contentDescription"));
                 }
+                // Cross-platform interaction labels — same vocabulary as
+                // the `android` CLI's `layout` output, so DTA's tree is
+                // a strict superset.
+                if (matchedSemantics.containsKey("interactions")) {
+                    node.put("interactions", matchedSemantics.get("interactions"));
+                }
             }
 
             // Get composable name and source info
@@ -2932,11 +2938,45 @@ public class ComposeInspector {
     }
 
     /**
+     * Maps a Compose SemanticsPropertyKey name to the matching
+     * {@code android layout}-vocabulary interaction label, or {@code null}
+     * if the property isn't an interaction signal. This is the bridge
+     * that lets DTA's layout-tree double as a strict superset of the
+     * `android` CLI's `layout` output: callers using either tool can
+     * treat the interactions array identically.
+     *
+     * <p>The mapping reads from both static SemanticsProperties (e.g.
+     * {@code HorizontalScrollAxisRange}) and AccessibilityAction keys
+     * (e.g. {@code OnClick}) because Compose splits "can do X" between
+     * the two — {@code Modifier.clickable} installs an OnClick action
+     * rather than setting a property.</p>
+     */
+    private static String interactionForProperty(String propertyName) {
+        if (propertyName == null) return null;
+        switch (propertyName) {
+            case "OnClick":
+                return "clickable";
+            case "ScrollBy":
+            case "HorizontalScrollAxisRange":
+            case "VerticalScrollAxisRange":
+                return "scrollable";
+            case "Focused":
+            case "RequestFocus":
+                return "focusable";
+            case "ToggleableState":
+                return "checkable";
+            default:
+                return null;
+        }
+    }
+
+    /**
      * Extracts properties from a SemanticsConfiguration.
      */
     private static void extractSemanticsProperties(Object config, Map<String, Object> result) {
         if (config == null) return;
 
+        java.util.TreeSet<String> interactions = new java.util.TreeSet<>();
         Class<?> configClass = config.getClass();
 
         // Try to access the internal props map directly
@@ -2952,14 +2992,22 @@ public class ComposeInspector {
                             Object key = entry.getKey();
                             Object value = entry.getValue();
                             if (key != null && value != null) {
-                                // Skip AccessibilityAction values - these are actions, not properties
                                 String valueClassName = value.getClass().getName();
+
+                                // Detect interactions FIRST, including
+                                // AccessibilityAction handlers — `OnClick`
+                                // and `ScrollBy` live as actions, not
+                                // properties, so the action-skip below
+                                // would lose them.
+                                String propertyName = getPropertyKeyName(key);
+                                String interaction = interactionForProperty(propertyName);
+                                if (interaction != null) interactions.add(interaction);
+
+                                // Skip AccessibilityAction values for the
+                                // rest — they're handlers, not values.
                                 if (valueClassName.contains("AccessibilityAction")) {
                                     continue;
                                 }
-
-                                // Match specific property keys
-                                String propertyName = getPropertyKeyName(key);
 
                                 if (propertyName != null) {
                                     if (propertyName.equals("Text")) {
@@ -3048,13 +3096,19 @@ public class ComposeInspector {
                                 Object value = getValue.invoke(entry);
 
                                 if (key != null && value != null) {
-                                    // Skip AccessibilityAction values
                                     String valueClassName = value.getClass().getName();
+
+                                    // Same interaction-first / action-skip
+                                    // order as the props-map iteration
+                                    // above — OnClick/ScrollBy are
+                                    // actions, not properties.
+                                    String propertyName = getPropertyKeyName(key);
+                                    String interaction = interactionForProperty(propertyName);
+                                    if (interaction != null) interactions.add(interaction);
+
                                     if (valueClassName.contains("AccessibilityAction")) {
                                         continue;
                                     }
-
-                                    String propertyName = getPropertyKeyName(key);
 
                                     if (propertyName != null) {
                                         if (propertyName.equals("Text")) {
@@ -3093,6 +3147,10 @@ public class ComposeInspector {
 
         } catch (Exception e) {
             SidekickLog.e(TAG, "Error extracting semantic properties: " + e.getMessage());
+        }
+
+        if (!interactions.isEmpty()) {
+            result.put("interactions", new java.util.ArrayList<>(interactions));
         }
     }
 
