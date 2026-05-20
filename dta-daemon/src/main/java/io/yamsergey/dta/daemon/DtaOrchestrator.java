@@ -656,6 +656,21 @@ public class DtaOrchestrator {
      * <p>Sorted by request count descending. Sample paths are deduped and
      * capped at 5 per domain.</p>
      */
+    public String getAffordances(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().getAffordances(), "Failed to get affordances");
+    }
+
+    public String setAffordances(String packageName, String device, String body) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().setAffordances(body), "Failed to set affordances");
+    }
+
+    public String resetAffordances(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().resetAffordances(), "Failed to reset affordances");
+    }
+
     public JsonNode getNetworkDataFlow(String packageName, String device, Long sinceMs) throws Exception {
         String raw = getNetworkRequests(packageName, device, sinceMs);
         JsonNode parsed = mapper.readTree(raw);

@@ -681,8 +681,20 @@ public class ComposeInspector {
      * intentionally excludes very generic primitives (Box, Column, Row)
      * because they don't carry affordance semantics — they're layout
      * containers, not platform conventions.</p>
+     *
+     * <p>The defaults are immutable; runtime overrides land via
+     * {@link #applyAffordanceOverrides} (driven by the sidekick HTTP
+     * endpoint {@code POST /layout/affordances}, which the daemon's
+     * {@code set_affordances} MCP tool calls). Callers can add new
+     * mappings (e.g. for in-house design systems or undocumented
+     * Material 3 internals like {@code OneRowSnackbar}) without
+     * rebuilding the sidekick AAR, and the lookup at capture time
+     * always sees the most recent merged view.</p>
      */
-    private static final java.util.Map<String, String> MATERIAL_AFFORDANCES;
+    private static final java.util.Map<String, String> AFFORDANCE_DEFAULTS;
+    /** Active merged view = defaults + caller overrides; volatile for
+     *  cross-thread visibility of override updates. */
+    private static volatile java.util.Map<String, String> affordances;
     static {
         java.util.Map<String, String> m = new java.util.HashMap<>();
         // Notifications / transient UI
@@ -755,7 +767,43 @@ public class ComposeInspector {
         m.put("FilterChip", "material-chip-filter");
         m.put("InputChip", "material-chip-input");
         m.put("SuggestionChip", "material-chip-suggestion");
-        MATERIAL_AFFORDANCES = java.util.Collections.unmodifiableMap(m);
+        AFFORDANCE_DEFAULTS = java.util.Collections.unmodifiableMap(m);
+        affordances = AFFORDANCE_DEFAULTS;
+    }
+
+    /**
+     * Merges caller-supplied {@code (composableName → affordanceLabel)}
+     * mappings over the built-in defaults. Caller mappings win on
+     * collision — so a team can relabel {@code "Snackbar"} to
+     * {@code "brand-snackbar"} without us patching the AAR. Passing an
+     * empty or {@code null} map is a no-op (use {@link #resetAffordances}
+     * to revert).
+     */
+    public static void applyAffordanceOverrides(java.util.Map<String, String> overrides) {
+        if (overrides == null || overrides.isEmpty()) return;
+        java.util.Map<String, String> merged = new java.util.HashMap<>(AFFORDANCE_DEFAULTS);
+        // Iterate to drop empty-string values (caller's way of removing
+        // an entry — null isn't transmissible over JSON).
+        for (var e : overrides.entrySet()) {
+            if (e.getKey() == null || e.getKey().isEmpty()) continue;
+            String v = e.getValue();
+            if (v == null || v.isEmpty()) merged.remove(e.getKey());
+            else merged.put(e.getKey(), v);
+        }
+        affordances = java.util.Collections.unmodifiableMap(merged);
+    }
+
+    /** Reverts {@link #affordances} to the immutable built-in defaults. */
+    public static void resetAffordances() {
+        affordances = AFFORDANCE_DEFAULTS;
+    }
+
+    /** Snapshot of the currently-active affordance map (defaults +
+     *  overrides). Callers use this to inspect what the layout-tree
+     *  emitter will tag — useful for "what taxonomy is live right now?"
+     *  diagnostics from MCP. */
+    public static java.util.Map<String, String> getAffordances() {
+        return affordances;
     }
 
     // Mapping of parent composables to child composables that should be collapsed
@@ -1507,7 +1555,7 @@ public class ComposeInspector {
             // workflows — the spec can say "Trigger → present
             // {material-snackbar-with-action: UNDO}" once and have an iOS
             // extractor know to translate to the equivalent affordance.
-            String affordance = MATERIAL_AFFORDANCES.get(displayComposable);
+            String affordance = affordances.get(displayComposable);
             if (affordance != null) node.put("affordance", affordance);
 
             // Add source file and line number if available from CompositionData

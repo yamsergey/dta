@@ -142,6 +142,22 @@ public class DaemonClient {
         return get("/api/layout/properties/" + encode(viewId) + "?package=" + encode(pkg) + deviceParam(device, false));
     }
 
+    /** Snapshot of the currently-active affordance map for the app. */
+    public String getAffordances(String pkg, String device) {
+        return get("/api/layout/affordances?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    /** Merge JSON {@code {"ComposableName": "affordance-label"}} mappings
+     *  over the built-in defaults. Empty-string values remove the key. */
+    public String setAffordances(String pkg, String device, String body) {
+        return post("/api/layout/affordances?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+
+    /** Reset to built-in defaults. */
+    public String resetAffordances(String pkg, String device) {
+        return delete("/api/layout/affordances?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
     // --- Runtime Data ---
 
     public String listFiles(String pkg, String path, String device) {

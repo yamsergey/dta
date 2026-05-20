@@ -965,6 +965,78 @@ public class McpServer {
                 }
             }
         ));
+
+        // set_affordances — extend the cross-platform affordance taxonomy at runtime
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("set_affordances",
+                "Extend the layout-tree affordance taxonomy at runtime, no sidekick rebuild required.\n\n" +
+                "DTA tags Compose nodes with portable affordance labels (`affordance: material-snackbar`, " +
+                "`material-bottom-sheet-modal`, ...) so cross-platform spec extractors can map Android UI to " +
+                "iOS conventions without re-deriving each time. Built-in defaults cover the documented " +
+                "Material 3 component set, but private Material internals (`OneRowSnackbar`, `SingleRowTopAppBar`, " +
+                "...) and in-house design systems (Spotify, Twitter, etc.) need additions.\n\n" +
+                "Pass a JSON object mapping composable simple-name → affordance label. Mappings merge over " +
+                "defaults; passing the same key with an empty-string value removes it from the active map. " +
+                "Live until the host app process restarts.\n\n" +
+                "Example: `{\"mappings\": {\"OneRowSnackbar\": \"material-snackbar\", \"BrandBottomSheet\": \"brand-sheet\"}}`. " +
+                "Response includes `applied` (count merged) and the full resulting `affordances` map sorted alphabetically.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "mappings", prop("object", "JSON object: {ComposableName: affordance-label}. Empty-string value deletes a key from the active map.", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    Object mappings = args.get("mappings");
+                    if (mappings == null) return errorResult("'mappings' parameter is required");
+                    String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(mappings);
+                    return ok(getDaemon().setAffordances(
+                        requireString(args, "package"), getString(args, "device"), body));
+                } catch (Exception e) {
+                    return friendlyError("set_affordances", e);
+                }
+            }
+        ));
+
+        // list_affordances — inspect the current merged map
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("list_affordances",
+                "Returns the currently-active affordance map (built-in defaults + any runtime overrides) " +
+                "for an app. Use this to verify a `set_affordances` call landed, or to see what taxonomy " +
+                "the layout-tree emitter will tag right now.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    return ok(getDaemon().getAffordances(
+                        requireString(args, "package"), getString(args, "device")));
+                } catch (Exception e) {
+                    return friendlyError("list_affordances", e);
+                }
+            }
+        ));
+
+        // reset_affordances — revert to defaults
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("reset_affordances",
+                "Revert the app's affordance map to the built-in defaults — drops every override added " +
+                "via `set_affordances` this session. Useful when starting a fresh extraction session or " +
+                "isolating whether an extraction issue is caused by a custom mapping.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    return ok(getDaemon().resetAffordances(
+                        requireString(args, "package"), getString(args, "device")));
+                } catch (Exception e) {
+                    return friendlyError("reset_affordances", e);
+                }
+            }
+        ));
     }
 
     private static void collectMockTools(List<McpServerFeatures.SyncToolSpecification> tools) {

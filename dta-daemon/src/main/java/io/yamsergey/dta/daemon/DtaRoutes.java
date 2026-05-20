@@ -650,6 +650,33 @@ public final class DtaRoutes {
             }
         });
 
+        app.get("/api/layout/affordances", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.getAffordances(
+                    ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) {
+                error(ctx, "Failed: " + e.getMessage());
+            }
+        });
+
+        app.post("/api/layout/affordances", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.setAffordances(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) {
+                error(ctx, "Failed: " + e.getMessage());
+            }
+        });
+
+        app.delete("/api/layout/affordances", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.resetAffordances(
+                    ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) {
+                error(ctx, "Failed: " + e.getMessage());
+            }
+        });
+
         app.get("/api/layout/properties/{viewId}", ctx -> {
             try {
                 String packageName = ctx.queryParam("package");

@@ -629,6 +629,23 @@ public class InspectorServer {
             return;
         }
 
+        // Runtime affordance taxonomy management.
+        //   GET    /layout/affordances        — snapshot current map (defaults + overrides)
+        //   POST   /layout/affordances        — body: {"OneRowSnackbar":"material-snackbar"} → merged over defaults
+        //   DELETE /layout/affordances        — reset to built-in defaults
+        if (path.equals("/layout/affordances")) {
+            if ("GET".equals(method)) {
+                handleGetAffordances(out);
+            } else if ("POST".equals(method)) {
+                handleSetAffordances(body, out);
+            } else if ("DELETE".equals(method)) {
+                handleResetAffordances(out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
         // Handle Custom Tabs endpoints
         if (path.equals("/customtabs/events")) {
             if ("GET".equals(method)) {
@@ -1409,6 +1426,51 @@ public class InspectorServer {
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
         }
+    }
+
+    /**
+     * GET /layout/affordances — current merged map (defaults + overrides).
+     */
+    private void handleGetAffordances(OutputStream out) throws IOException {
+        Map<String, Object> body = new HashMap<>();
+        body.put("affordances", new java.util.TreeMap<>(
+            io.yamsergey.dta.sidekick.compose.ComposeInspector.getAffordances()));
+        sendJson(out, 200, body);
+    }
+
+    /**
+     * POST /layout/affordances — body is a JSON object mapping
+     * composable simple-name → affordance label. Empty-string values
+     * remove the corresponding key from the active map. Built-in
+     * defaults remain in effect for keys not mentioned.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSetAffordances(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, String> overrides = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            io.yamsergey.dta.sidekick.compose.ComposeInspector.applyAffordanceOverrides(overrides);
+            Map<String, Object> response = new HashMap<>();
+            response.put("applied", overrides.size());
+            response.put("affordances", new java.util.TreeMap<>(
+                io.yamsergey.dta.sidekick.compose.ComposeInspector.getAffordances()));
+            sendJson(out, 200, response);
+        } catch (Exception e) {
+            sendError(out, 400, "Invalid affordances body: " + e.getMessage());
+        }
+    }
+
+    /**
+     * DELETE /layout/affordances — revert to built-in defaults.
+     */
+    private void handleResetAffordances(OutputStream out) throws IOException {
+        io.yamsergey.dta.sidekick.compose.ComposeInspector.resetAffordances();
+        Map<String, Object> body = new HashMap<>();
+        body.put("reset", true);
+        body.put("affordances", new java.util.TreeMap<>(
+            io.yamsergey.dta.sidekick.compose.ComposeInspector.getAffordances()));
+        sendJson(out, 200, body);
     }
 
     /**
