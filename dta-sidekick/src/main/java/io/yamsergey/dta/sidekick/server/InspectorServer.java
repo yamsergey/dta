@@ -935,9 +935,13 @@ public class InspectorServer {
             if (req != null && req.get("return_full_tree") instanceof Boolean) {
                 returnFullTree = (Boolean) req.get("return_full_tree");
             }
+            boolean returnScreenshot = true;
+            if (req != null && req.get("return_screenshot") instanceof Boolean) {
+                returnScreenshot = (Boolean) req.get("return_screenshot");
+            }
             Map<String, Object> result =
                 new io.yamsergey.dta.sidekick.data.RuntimeInspector()
-                    .waitFor(text, testTag, className, maxMs, returnFullTree);
+                    .waitFor(text, testTag, className, maxMs, returnFullTree, returnScreenshot);
             int status = result.containsKey("error") ? 400 : 200;
             sendJson(out, status, result);
         } catch (Exception e) {

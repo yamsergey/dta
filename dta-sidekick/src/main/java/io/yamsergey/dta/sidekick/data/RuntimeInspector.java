@@ -359,18 +359,33 @@ public class RuntimeInspector {
      * {@code DtaOrchestrator#tapAndWaitFor}.</p>
      */
     public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs) {
-        return waitFor(text, testTag, className, maxMs, true);
+        return waitFor(text, testTag, className, maxMs, true, true);
+    }
+
+    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs, boolean returnFullTree) {
+        return waitFor(text, testTag, className, maxMs, returnFullTree, true);
     }
 
     /**
-     * Variant that lets the caller omit the full layout tree from the
-     * match response. When {@code returnFullTree=false} the
-     * {@code layoutTree} field is left out — typically ~500 KB on dense
-     * Compose hierarchies. The matched node and screenshot are still
-     * returned, so this is the right shape for callers that just need
-     * "did the affordance appear, and what does it look like?".
+     * Variant that lets the caller independently omit the full layout
+     * tree and/or the base64 screenshot from the match response.
+     *
+     * <ul>
+     *   <li>{@code returnFullTree=false} → no {@code layoutTree} key
+     *       (~500 KB saved on dense Compose hierarchies).</li>
+     *   <li>{@code returnScreenshot=false} → no
+     *       {@code screenshot}/{@code screenshotEncoding}/{@code screenshotFormat}
+     *       keys, and the capture is skipped entirely (no GPU round-trip).
+     *       For NiA-sized screens this saves ~480 KB.</li>
+     * </ul>
+     *
+     * <p>The two flags are independent: a visual-debugging caller might
+     * want the screenshot without the tree; a token-budget-conscious
+     * caller might want just {@code matchedNode}. Setting both to
+     * {@code false} pushes the match response below ~10 KB.</p>
      */
-    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs, boolean returnFullTree) {
+    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs,
+                                        boolean returnFullTree, boolean returnScreenshot) {
         Map<String, Object> result = new LinkedHashMap<>();
         if ((text == null || text.isEmpty())
                 && (testTag == null || testTag.isEmpty())
@@ -397,12 +412,14 @@ public class RuntimeInspector {
                     result.put("pollMs", System.currentTimeMillis() - start);
                     result.put("matchedNode", matched);
                     if (returnFullTree) result.put("layoutTree", tree);
-                    byte[] png = captureScreenshotBytes();
-                    if (png != null) {
-                        result.put("screenshot",
-                            java.util.Base64.getEncoder().encodeToString(png));
-                        result.put("screenshotEncoding", "base64");
-                        result.put("screenshotFormat", "png");
+                    if (returnScreenshot) {
+                        byte[] png = captureScreenshotBytes();
+                        if (png != null) {
+                            result.put("screenshot",
+                                java.util.Base64.getEncoder().encodeToString(png));
+                            result.put("screenshotEncoding", "base64");
+                            result.put("screenshotFormat", "png");
+                        }
                     }
                     return result;
                 }

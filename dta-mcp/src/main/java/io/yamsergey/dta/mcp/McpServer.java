@@ -301,7 +301,7 @@ public class McpServer {
                 "- `text`: substring match (case-insensitive) against the node's text.\n" +
                 "- `test_tag`: exact match against the node's `testTag` (Compose `Modifier.testTag`). Most reliable when the app under test sets explicit tags.\n" +
                 "- `class_name`: exact match against the node's `className` (View) or `composable` (Compose). Use the simple name — e.g. `\"Snackbar\"` matches `androidx.compose.material3.SnackbarHost` (suffix) and a bare Compose `Snackbar`.\n\n" +
-                "**Response on match**: `{matched: true, pollMs, elapsedMs, matchedNode, layoutTree, screenshot (base64 PNG)}` — same `layoutTree` shape as `layout_tree`, with the matched node also surfaced directly so callers don't have to walk it. Set `return_full_tree: false` to omit the layout tree from the response (typically ~500KB for dense Compose hierarchies) when only the matched node + screenshot are needed.\n\n" +
+                "**Response on match**: `{matched: true, pollMs, elapsedMs, matchedNode, layoutTree, screenshot (base64 PNG)}` — same `layoutTree` shape as `layout_tree`, with the matched node also surfaced directly so callers don't have to walk it. Two independent opt-out flags shrink the response for token-budget-sensitive workflows: `return_full_tree: false` omits `layoutTree` (~50–500 KB depending on Compose density), `return_screenshot: false` omits `screenshot`/`screenshotEncoding`/`screenshotFormat` and skips the GPU capture entirely (~480 KB on NiA-sized screens). Setting both to `false` pushes a typical match response below ~10 KB.\n\n" +
                 "**Response on timeout**: `{matched: false, pollMs, elapsedMs}`.\n\n" +
                 "**Timing fields**: `pollMs` is the sidekick polling-loop duration — this is what `max_ms` caps (with a possible single-iteration overshoot up to one view-tree capture's cost). `elapsedMs` is the daemon-side end-to-end envelope, additionally covering HTTP transit and layout-tree JSON serialization back to the caller; assert `pollMs <= max_ms`, treat `elapsedMs - pollMs` as the envelope diagnostic.\n\n" +
                 "If you need to perform an action immediately before watching (the snackbar case), prefer `tap_and_wait_for` — it saves one round-trip's worth of latency which is the exact gap that lets the affordance disappear.",
@@ -310,7 +310,8 @@ public class McpServer {
                     Map.entry("test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false)),
                     Map.entry("class_name", prop("string", "Simple class name match (View className suffix or Compose composable name).", false)),
                     Map.entry("max_ms", prop("integer", "Timeout in milliseconds (default 3000). Caps `pollMs`; `elapsedMs` may exceed it due to envelope cost.", false)),
-                    Map.entry("return_full_tree", prop("boolean", "Include the post-match layout tree in the response (default true). Set false to keep only `matchedNode` + screenshot — savings range from ~50 KB (flat hierarchies) to ~500 KB (dense Compose trees). The screenshot still dominates the response either way; use this when you've already captured a layout snapshot and only need the match.", false)),
+                    Map.entry("return_full_tree", prop("boolean", "Include the post-match layout tree in the response (default true). Set false to keep only `matchedNode` + screenshot — savings range from ~50 KB (flat hierarchies) to ~500 KB (dense Compose trees). Use this when you've already captured a layout snapshot and only need the match.", false)),
+                    Map.entry("return_screenshot", prop("boolean", "Include the base64 PNG screenshot in the response (default true). Set false to omit `screenshot`/`screenshotEncoding`/`screenshotFormat` AND skip the GPU capture step entirely — typically ~480 KB saved on NiA-sized screens. Combine with `return_full_tree: false` for a sub-10 KB minimal match response.", false)),
                     Map.entry("package", prop("string", "App package name (auto-detected from foreground when omitted).", false)),
                     Map.entry("device", prop("string", "Device serial (auto-detected when only one device).", false))
                 ))),
@@ -329,6 +330,8 @@ public class McpServer {
                     if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
                     Object rft = args.get("return_full_tree");
                     if (rft instanceof Boolean) bodyMap.put("return_full_tree", rft);
+                    Object rs = args.get("return_screenshot");
+                    if (rs instanceof Boolean) bodyMap.put("return_screenshot", rs);
                     String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                     return ok(getDaemon().waitFor(pkg, device, body));
                 } catch (Exception e) {
@@ -341,7 +344,7 @@ public class McpServer {
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("tap_and_wait_for",
                 "Tap at `(x, y)` and immediately poll for a node matching the predicate. Saves the round-trip vs `tap` → `wait_for` — that round-trip is exactly the latency that lets short-lived UI (snackbars, toasts) disappear before the second call lands.\n\n" +
-                "Coordinates are **device-pixel space** (same as `tap`). Predicate fields, `return_full_tree`, and response shape mirror `wait_for` — including the `pollMs` (sidekick polling, capped by `max_ms`) + `elapsedMs` (daemon end-to-end, also covers ADB tap dispatch on top of HTTP + serialization) timing split.",
+                "Coordinates are **device-pixel space** (same as `tap`). Predicate fields, `return_full_tree`, `return_screenshot`, and response shape mirror `wait_for` — including the `pollMs` (sidekick polling, capped by `max_ms`) + `elapsedMs` (daemon end-to-end, also covers ADB tap dispatch on top of HTTP + serialization) timing split. Setting both `return_full_tree: false` and `return_screenshot: false` gives a sub-10 KB minimal response.",
                 schema(Map.ofEntries(
                     Map.entry("x", prop("integer", "Tap X coordinate (device-pixel space).", true)),
                     Map.entry("y", prop("integer", "Tap Y coordinate (device-pixel space).", true)),
@@ -350,6 +353,7 @@ public class McpServer {
                     Map.entry("class_name", prop("string", "Simple class name match.", false)),
                     Map.entry("max_ms", prop("integer", "Wait timeout in milliseconds (default 3000). Caps `pollMs` only.", false)),
                     Map.entry("return_full_tree", prop("boolean", "Include the post-match layout tree (default true). Set false for compact response.", false)),
+                    Map.entry("return_screenshot", prop("boolean", "Include the base64 PNG screenshot (default true). Set false to omit and skip the GPU capture — ~480 KB saved.", false)),
                     Map.entry("package", prop("string", "App package name (auto-detected).", false)),
                     Map.entry("device", prop("string", "Device serial (auto-detected when only one device).", false))
                 ))),
@@ -370,6 +374,8 @@ public class McpServer {
                     if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
                     Object rft = args.get("return_full_tree");
                     if (rft instanceof Boolean) bodyMap.put("return_full_tree", rft);
+                    Object rs = args.get("return_screenshot");
+                    if (rs instanceof Boolean) bodyMap.put("return_screenshot", rs);
                     String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                     return ok(getDaemon().tapAndWaitFor(pkg, device, x, y, body));
                 } catch (Exception e) {
