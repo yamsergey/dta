@@ -688,6 +688,19 @@ public class ComposeInspector {
         // Notifications / transient UI
         m.put("Snackbar", "material-snackbar");
         m.put("SnackbarHost", "material-snackbar-host");
+        // Material 3's public Snackbar() doesn't itself emit a layout
+        // node — it delegates to one of two private composables that do.
+        // OneRowSnackbar renders the short-text variant; TwoRowSnackbar
+        // is used when text wraps or an action is present. The tree
+        // sees the private names, so the public `Snackbar` entry alone
+        // would never match in practice.
+        m.put("OneRowSnackbar", "material-snackbar");
+        m.put("TwoRowSnackbar", "material-snackbar-with-action");
+        // Same wrapping-vs-internal pattern for top app bars in
+        // Material 3 — the public TopAppBar variants delegate to
+        // SingleRowTopAppBar / TwoRowsTopAppBar.
+        m.put("SingleRowTopAppBar", "material-top-app-bar");
+        m.put("TwoRowsTopAppBar", "material-top-app-bar-large");
         // Dialogs / modals
         m.put("AlertDialog", "material-dialog-alert");
         m.put("Dialog", "material-dialog");
