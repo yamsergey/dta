@@ -362,6 +362,53 @@ public class DtaOrchestrator {
     public String appFunctions(String packageName, String device) throws Exception {
         return unwrap(getConnection(packageName, device).client().appFunctions(), "Failed");
     }
+
+    /**
+     * Returns AppFunctions filtered by {@code schemaCategory}. When
+     * the caller passes {@code category=null}, falls through to the
+     * unfiltered set (same shape as {@link #appFunctions}). Used by
+     * the {@code list_debug_functions} MCP tool with
+     * {@code category="debug"} to surface developer-authored debug
+     * utilities while ignoring the assistant-facing functions in the
+     * same APK.
+     */
+    public JsonNode appFunctionsFiltered(String packageName, String device, String category) throws Exception {
+        String raw = appFunctions(packageName, device);
+        JsonNode parsed = mapper.readTree(raw);
+        if (category == null || category.isEmpty()) return parsed;
+
+        // Sidekick emits {packageName, manifestAsset, functions: [...]} —
+        // accept either `functions` (current sidekick) or `appFunctions`
+        // (defensive in case the field is renamed) or a bare array.
+        JsonNode src = mapper.createArrayNode();
+        if (parsed.has("functions") && parsed.get("functions").isArray()) {
+            src = parsed.get("functions");
+        } else if (parsed.has("appFunctions") && parsed.get("appFunctions").isArray()) {
+            src = parsed.get("appFunctions");
+        } else if (parsed.isArray()) {
+            src = parsed;
+        }
+
+        ObjectNode out = mapper.createObjectNode();
+        // Carry the upstream context so callers don't lose package/asset info.
+        if (parsed.has("packageName")) out.set("packageName", parsed.get("packageName"));
+        if (parsed.has("manifestAsset")) out.set("manifestAsset", parsed.get("manifestAsset"));
+        ArrayNode filtered = out.putArray("functions");
+        for (JsonNode fn : src) {
+            JsonNode cat = fn.get("schemaCategory");
+            if (cat != null && category.equals(cat.asText())) {
+                filtered.add(fn);
+            }
+        }
+        out.put("schemaCategory", category);
+        out.put("count", filtered.size());
+        return out;
+    }
+
+    public String invokeAppFunction(String packageName, String device, String body) throws Exception {
+        return unwrap(getConnection(packageName, device).client().invokeAppFunction(body),
+            "Failed to invoke AppFunction");
+    }
     public String navigate(String packageName, String device, String body) throws Exception {
         return unwrap(getConnection(packageName, device).client().navigate(body), "Failed");
     }

@@ -1577,6 +1577,72 @@ public class McpServer {
                 }
             }
         ));
+
+        // list_debug_functions — schemaCategory=debug filter over app_functions
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("list_debug_functions",
+                "List developer-authored debug utilities the host app exposes via the AppFunctions " +
+                "framework — same data as `app_runtime command=app_functions` but filtered to entries " +
+                "with `<schemaCategory>debug</schemaCategory>`. The naming convention is the team's: " +
+                "an `@AppFunctionSchemaDefinition(category=\"debug\", name=\"_dbg_<n>\", version=...)` " +
+                "interface paired with a `class <N>Impl : <N>Schema` carrying `@AppFunction` from the " +
+                "`androidx.appfunctions.service` package.\n\n" +
+                "Use this to discover what debug operations the app's developer has wired in for this " +
+                "build (typically only present in debug flavors). Each entry includes the canonical " +
+                "`functionId` to pass to `invoke_debug_function`, plus the parameter and response " +
+                "metadata you need to construct an args map.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    return ok(getDaemon().appFunctionsByCategory(
+                        requireString(args, "package"), getString(args, "device"), "debug"));
+                } catch (Exception e) {
+                    return friendlyError("list_debug_functions", e);
+                }
+            }
+        ));
+
+        // invoke_debug_function — generic dispatcher
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("invoke_debug_function",
+                "Invoke a debug AppFunction by its `functionId` (the canonical " +
+                "`<FQN>#<methodName>` value from `list_debug_functions`). Runs in-process inside " +
+                "the host app via JVMTI sidekick — no `EXECUTE_APP_FUNCTIONS` permission required " +
+                "because there's no IPC boundary.\n\n" +
+                "`args` is a JSON object whose keys match the function's parameter names exactly. " +
+                "The framework's `AppFunctionContext` parameter is supplied automatically — it does " +
+                "not appear in the `args` map.\n\n" +
+                "Response: `{\"result\": <value>}` on success or `{\"error\": \"<class>: <message>\"}` " +
+                "on failure (including impl-thrown exceptions like " +
+                "`AppFunctionInvalidArgumentException`, which are unwrapped from the reflection " +
+                "envelope before being returned).",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "function_id", prop("string", "Canonical functionId from list_debug_functions (e.g. `com.example.PingImpl#ping`).", true),
+                    "args", prop("object", "JSON object of parameter name → value. Keys must match @AppFunction parameter names exactly.", false),
+                    "timeout_ms", prop("integer", "Max ms to wait for a truly-suspending function. Default 5000. Non-suspending impls return immediately regardless.", false),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String pkg = requireString(args, "package");
+                    String functionId = requireString(args, "function_id");
+                    Object argsObj = args.get("args");
+                    Object timeout = args.get("timeout_ms");
+                    Map<String, Object> body = new java.util.LinkedHashMap<>();
+                    body.put("functionId", functionId);
+                    if (argsObj != null) body.put("args", argsObj);
+                    if (timeout instanceof Number) body.put("timeoutMs", ((Number) timeout).longValue());
+                    String json = new tools.jackson.databind.ObjectMapper().writeValueAsString(body);
+                    return ok(getDaemon().invokeAppFunction(pkg, getString(args, "device"), json));
+                } catch (Exception e) {
+                    return friendlyError("invoke_debug_function", e);
+                }
+            }
+        ));
     }
 
     private static void collectDataTools(List<McpServerFeatures.SyncToolSpecification> tools) {

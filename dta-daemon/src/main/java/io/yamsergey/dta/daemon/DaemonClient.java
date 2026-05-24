@@ -190,6 +190,16 @@ public class DaemonClient {
     public String appFunctions(String pkg, String device) {
         return get("/api/runtime/app_functions?package=" + encode(pkg) + deviceParam(device, false));
     }
+    /** Same shape as {@link #appFunctions} but server-side filtered by `<schemaCategory>`. */
+    public String appFunctionsByCategory(String pkg, String device, String category) {
+        return get("/api/runtime/app_functions?package=" + encode(pkg) + deviceParam(device, false)
+            + "&category=" + encode(category));
+    }
+    /** Body: {"functionId": "...", "args": {...}, "timeoutMs": 5000}. */
+    public String invokeAppFunction(String pkg, String device, String body) {
+        return post("/api/runtime/app_functions/invoke?package=" + encode(pkg)
+            + deviceParam(device, false), body);
+    }
     public String navigate(String pkg, String device, String body) {
         return post("/api/runtime/navigate?package=" + encode(pkg) + deviceParam(device, false), body);
     }

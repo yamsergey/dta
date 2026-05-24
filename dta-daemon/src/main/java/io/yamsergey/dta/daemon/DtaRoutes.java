@@ -291,7 +291,20 @@ public final class DtaRoutes {
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
         app.get("/api/runtime/app_functions", ctx -> {
-            try { jsonString(ctx, orchestrator.appFunctions(ctx.queryParam("package"), ctx.queryParam("device")));
+            try {
+                String category = ctx.queryParam("category");
+                if (category != null && !category.isEmpty()) {
+                    jsonNode(ctx, orchestrator.appFunctionsFiltered(
+                        ctx.queryParam("package"), ctx.queryParam("device"), category));
+                } else {
+                    jsonString(ctx, orchestrator.appFunctions(
+                        ctx.queryParam("package"), ctx.queryParam("device")));
+                }
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/app_functions/invoke", ctx -> {
+            try { jsonString(ctx, orchestrator.invokeAppFunction(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
         app.post("/api/runtime/navigate", ctx -> {

@@ -687,6 +687,10 @@ public class InspectorServer {
                 out);
             return;
         }
+        if (path.equals("/runtime/app_functions/invoke") && "POST".equals(method)) {
+            handleRuntimeAppFunctionInvoke(body, out);
+            return;
+        }
         if (path.equals("/runtime/navigate") && "POST".equals(method)) {
             handleRuntimeNavigate(body, out);
             return;
@@ -1429,6 +1433,44 @@ public class InspectorServer {
             Map<String, Object> error = new HashMap<>();
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
+        }
+    }
+
+    /**
+     * POST /runtime/app_functions/invoke — body is
+     * {@code {"functionId": "...", "args": {...}, "timeoutMs": 5000}}.
+     * Dispatches in-process via reflection on the KSP-generated
+     * {@code $AggregatedAppFunctionInvoker_Impl}. The function id is
+     * the {@code <id>} from {@code app_functions_v2.xml} (typically
+     * {@code <FQN>#<methodName>}). Returns
+     * {@code {"result": ...}} on success or {@code {"error": "..."}}.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeAppFunctionInvoke(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String functionId = req != null ? (String) req.get("functionId") : null;
+            if (functionId == null || functionId.isEmpty()) {
+                sendError(out, 400, "'functionId' is required");
+                return;
+            }
+            Object argsObj = req.get("args");
+            Map<String, Object> args = (argsObj instanceof Map)
+                ? (Map<String, Object>) argsObj
+                : new HashMap<>();
+            long timeoutMs = 5000;
+            if (req.get("timeoutMs") instanceof Number) {
+                timeoutMs = ((Number) req.get("timeoutMs")).longValue();
+            }
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.AppFunctionsInvoker(getAppContext())
+                    .invoke(functionId, args, timeoutMs);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
         }
     }
 
