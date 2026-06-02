@@ -380,6 +380,10 @@ public class ComposeInspector {
         String packageName; // e.g., "com.example.ui"
         boolean isLibraryComposable; // true for CC(...) prefix, false for C(...)
         int groupKey;       // Compose compiler key (from CompositionGroup.getKey())
+        Object anchorIdentity; // CompositionGroup.identity — the per-instance
+                               // slot-table Anchor used as RecompositionTracker key.
+                               // Distinct per visual instance; matches what the
+                               // JVMTI hook captured via getRecomposeScopeIdentity().
     }
 
     /**
@@ -862,7 +866,8 @@ public class ComposeInspector {
             String sourceInfo = null;
             ComposableInfo thisGroupInfo = null; // Info for this specific group
 
-            // Extract group key for recomposition tracking
+            // Extract group key (compiler-emitted, per source location)
+            // for diagnostics.
             int groupKey = 0;
             try {
                 Method getKey = group.getClass().getMethod("getKey");
@@ -875,6 +880,26 @@ public class ComposeInspector {
                 // key not available
             }
 
+            // Extract the group's identity (per-instance slot-table
+            // Anchor). This matches what the JVMTI hook captured via
+            // Composer.getRecomposeScopeIdentity() at increment time,
+            // so we can look up RecompositionTracker counts per
+            // visual instance instead of per source location.
+            //
+            // CompositionGroup.identity is exposed via
+            //   `Any getIdentity()` (Kotlin val)
+            // on the public CompositionGroup interface in
+            // androidx.compose.runtime.tooling.
+            Object anchorIdentity = null;
+            try {
+                Method getIdentity = group.getClass().getMethod("getIdentity");
+                getIdentity.setAccessible(true);
+                anchorIdentity = getIdentity.invoke(group);
+            } catch (NoSuchMethodException e) {
+                // older Compose versions may not expose identity;
+                // fall back to per-source-location counts below.
+            } catch (Exception ignored) {}
+
             try {
                 Method getSourceInfo = group.getClass().getMethod("getSourceInfo");
                 getSourceInfo.setAccessible(true);
@@ -884,6 +909,7 @@ public class ComposeInspector {
                     // Parse this group's sourceInfo
                     ComposableInfo parsed = parseSourceInfo(sourceInfo);
                     parsed.groupKey = groupKey;
+                    parsed.anchorIdentity = anchorIdentity;
                     if (parsed.name != null) {
                         // Log composable names for debugging
                         if (groupLogCount < 100) {
@@ -1601,9 +1627,13 @@ public class ComposeInspector {
             // Extract InspectorInfo parameters and modifiers from the LayoutNode
             extractInspectorInfoParams(layoutNode, node);
 
-            // Include recomposition counts from JVMTI hooks (if tracked)
-            if (composableInfo != null && composableInfo.groupKey != 0) {
-                int[] recompCounts = RecompositionTracker.getCounts(composableInfo.groupKey);
+            // Include recomposition counts from JVMTI hooks. Keyed by
+            // the slot-table Anchor identity (per-instance) so 8
+            // LazyColumn rows of the same composable report 8 distinct
+            // counts — matches Android Studio's
+            // RecompositionHandler.HashMap<Anchor, RecompositionData>.
+            if (composableInfo != null && composableInfo.anchorIdentity != null) {
+                int[] recompCounts = RecompositionTracker.getCounts(composableInfo.anchorIdentity);
                 if (recompCounts != null) {
                     node.put("recompositionCount", recompCounts[0]);
                     node.put("skipCount", recompCounts[1]);
