@@ -464,14 +464,27 @@ public final class DtaRoutes {
                 // (sidekick didn't install) — agents should warn instead
                 // of treating success as fully working.
                 if (result.shimStatus() != null) {
+                    var s = result.shimStatus();
                     var shim = json.putObject("shimStatus");
-                    shim.put("shimAttached", result.shimStatus().shimAttached());
-                    shim.put("reachable", result.shimStatus().reachable());
-                    if (result.shimStatus().reason() != null) shim.put("reason", result.shimStatus().reason());
-                    if (result.shimStatus().detail() != null) shim.put("detail", result.shimStatus().detail());
-                    if (result.shimStatus().sidekickVersion() != null) {
-                        shim.put("sidekickVersion", result.shimStatus().sidekickVersion());
+                    shim.put("shimAttached", s.shimAttached());
+                    shim.put("reachable", s.reachable());
+                    if (s.reason() != null) shim.put("reason", s.reason());
+                    if (s.detail() != null) shim.put("detail", s.detail());
+                    if (s.sidekickVersion() != null) shim.put("sidekickVersion", s.sidekickVersion());
+                    // Per-capability availability so callers stop
+                    // interpreting `shimAttached=false` as "DTA is
+                    // broken". On API < 28 only the JVMTI-dependent
+                    // capabilities are blocked; reflection-based
+                    // capabilities still work.
+                    if (s.available() != null) {
+                        var avail = shim.putArray("available");
+                        for (String c : s.available()) avail.add(c);
                     }
+                    if (s.unavailable() != null) {
+                        var unavail = shim.putArray("unavailable");
+                        for (String c : s.unavailable()) unavail.add(c);
+                    }
+                    if (s.explanation() != null) shim.put("explanation", s.explanation());
                 }
                 jsonNode(ctx, json);
             } catch (Exception e) {

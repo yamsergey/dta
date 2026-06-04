@@ -479,10 +479,26 @@ public class McpServer {
         ));
     }
 
+    /**
+     * Trailing note appended to every tool that requires the JVMTI shim
+     * (bytecode hooks). On API < 28 the shim refuses to install
+     * ({@code BootstrapShim} returns {@code api_too_low}) so these tools
+     * return errors. Reflection-based tools (layout_tree, app_functions,
+     * viewmodels, hilt_bindings, files, dbs, prefs, etc.) are unaffected.
+     * The agent can pre-check by reading {@code shimStatus.unavailable}
+     * from the {@code run_app} response.
+     */
+    private static final String JVMTI_REQUIRED_NOTE =
+        "\n\n**Requires API 28+ (JVMTI shim).** On lower-API devices the JVMTI shim "
+        + "refuses to install (`shimStatus.reason = \"api_too_low\"` from `run_app`) "
+        + "and this tool returns an error. Most of DTA is reflection-based and still "
+        + "works on API 26-27 — check `run_app` response's `shimStatus.available` / "
+        + "`shimStatus.unavailable` for the per-capability matrix.";
+
     private static void collectAppTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_requests", "List captured HTTP requests from an app. Optional `since_ms` returns only requests whose `startTime > since_ms` — the **delta primitive** for action-bounded queries. Pass an epoch ms taken before triggering an action, then query after; only requests started during the action are returned. Same pattern as logcat's `since_ms`. Empty result + count=0 is normal when nothing new fired.",
+            tool("network_requests", "List captured HTTP requests from an app. Optional `since_ms` returns only requests whose `startTime > since_ms` — the **delta primitive** for action-bounded queries. Pass an epoch ms taken before triggering an action, then query after; only requests started during the action are returned. Same pattern as logcat's `since_ms`. Empty result + count=0 is normal when nothing new fired." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false),
@@ -526,7 +542,7 @@ public class McpServer {
                 "lowercased) so `application/json` buckets together regardless of charset. " +
                 "`byContentType` and `resourceTypes` only appear when the underlying capture " +
                 "populated them. For uninstrumented apps or apps with no captured traffic, " +
-                "`domains` is empty — that's diagnostic data, not an error.",
+                "`domains` is empty — that's diagnostic data, not an error." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false),
@@ -547,7 +563,7 @@ public class McpServer {
 
         // network_request
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_request", "Get detailed info about a specific HTTP request",
+            tool("network_request", "Get detailed info about a specific HTTP request" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID from network_requests", true),
@@ -566,7 +582,7 @@ public class McpServer {
 
         // websocket_connections
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("websocket_connections", "List captured WebSocket connections from an app",
+            tool("websocket_connections", "List captured WebSocket connections from an app" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -583,7 +599,7 @@ public class McpServer {
 
         // websocket_connection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("websocket_connection", "Get detailed info about a WebSocket connection including messages",
+            tool("websocket_connection", "Get detailed info about a WebSocket connection including messages" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "connection_id", prop("string", "Connection ID", true),
@@ -764,7 +780,7 @@ public class McpServer {
 
         // clear_network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("clear_network_requests", "Clear all captured HTTP requests from an app. If `package` is omitted, the daemon auto-detects the foreground app via `dumpsys window` (same fallback `screenshot` / `layout_tree` use). Returns an error when no foreground app can be detected — pass `package` explicitly in that case.",
+            tool("clear_network_requests", "Clear all captured HTTP requests from an app. If `package` is omitted, the daemon auto-detects the foreground app via `dumpsys window` (same fallback `screenshot` / `layout_tree` use). Returns an error when no foreground app can be detected — pass `package` explicitly in that case." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name (optional — auto-detected from foreground app when omitted)", false),
                     "device", prop("string", "Device serial", false)
@@ -781,7 +797,7 @@ public class McpServer {
 
         // clear_websocket_connections
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("clear_websocket_connections", "Clear all captured WebSocket connections from an app",
+            tool("clear_websocket_connections", "Clear all captured WebSocket connections from an app" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -805,7 +821,7 @@ public class McpServer {
                 "Use this when network_requests' inline truncation isn't enough — for example to inspect " +
                 "the exact form-encoded payload an OAuth token POST sent, or the JSON a failing API call " +
                 "returned. Either side can be absent (request still in flight, response failed) — the " +
-                "corresponding sub-object's body field is omitted in that case.",
+                "corresponding sub-object's body field is omitted in that case." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID from network_requests", true),
@@ -824,7 +840,7 @@ public class McpServer {
 
         // network_stats
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_stats", "Get network statistics for an app",
+            tool("network_stats", "Get network statistics for an app" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -928,7 +944,10 @@ public class McpServer {
                 "Use text/type/resource_id filters to reduce output. Use view_id to get a specific subtree. " +
                 "If you omit `package`, the daemon auto-detects the foreground app from `dumpsys window` and " +
                 "returns its layout (the resolved name appears in the response as `resolvedPackage`); filters " +
-                "still require an explicit package because they are interpreted by the app's sidekick.",
+                "still require an explicit package because they are interpreted by the app's sidekick.\n\n" +
+                "**API note**: the tree shape itself is reflection-based and works on API 26+. The per-node " +
+                "`recompositionCount` and `skipCount` fields specifically require the JVMTI shim (API 28+); " +
+                "on lower-API devices those fields are absent from nodes but the rest of the tree is intact.",
                 schema(Map.of(
                     "package", prop("string", "App package name (optional — auto-detected from foreground app when omitted; required when using filters)", false),
                     "device", prop("string", "Device serial", false),
@@ -1048,7 +1067,7 @@ public class McpServer {
     private static void collectMockTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // mock_list_rules
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_list_rules", "List all mock rules for HTTP and WebSocket mocking",
+            tool("mock_list_rules", "List all mock rules for HTTP and WebSocket mocking" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -1065,7 +1084,7 @@ public class McpServer {
 
         // mock_create_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_create_rule", "Create a mock rule. Either provide request_id/message_id to create from captured data, OR provide type with other parameters to create from scratch.",
+            tool("mock_create_rule", "Create a mock rule. Either provide request_id/message_id to create from captured data, OR provide type with other parameters to create from scratch." + JVMTI_REQUIRED_NOTE,
                 schema(Map.ofEntries(
                     Map.entry("package", prop("string", "App package name", true)),
                     Map.entry("request_id", prop("string", "ID of captured HTTP request (mode 1)", false)),
@@ -1144,7 +1163,7 @@ public class McpServer {
 
         // mock_update_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)",
+            tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)" + JVMTI_REQUIRED_NOTE,
                 schema(Map.ofEntries(
                     Map.entry("package", prop("string", "App package name", true)),
                     Map.entry("rule_id", prop("string", "Mock rule ID", true)),
@@ -1192,7 +1211,7 @@ public class McpServer {
 
         // mock_delete_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_delete_rule", "Delete a mock rule",
+            tool("mock_delete_rule", "Delete a mock rule" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "rule_id", prop("string", "Mock rule ID to delete", true),
@@ -1211,7 +1230,7 @@ public class McpServer {
 
         // mock_config
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_config", "Get or update global mock configuration",
+            tool("mock_config", "Get or update global mock configuration" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "enabled", prop("boolean", "Enable/disable all mocking (optional, omit to just get config)", false),
@@ -1336,7 +1355,7 @@ public class McpServer {
         // interceptor_set
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("interceptor_set",
-                "Install or replace the interceptor script for an app. " + intercDoc,
+                "Install or replace the interceptor script for an app. " + intercDoc + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false),
@@ -1357,7 +1376,7 @@ public class McpServer {
         // interceptor_clear
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("interceptor_clear",
-                "Uninstall the active interceptor script for an app. State and logs are reset.",
+                "Uninstall the active interceptor script for an app. State and logs are reset." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1377,7 +1396,7 @@ public class McpServer {
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("interceptor_logs",
                 "Read entries from the interceptor's ring buffer (script `log()` output and caught errors). " +
-                "Pass the highest `seq` returned previously as `since` to page forward; pass 0 to read all.",
+                "Pass the highest `seq` returned previously as `since` to page forward; pass 0 to read all." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false),
@@ -1753,13 +1772,19 @@ public class McpServer {
                 "satisfy this *modifies the build* you're observing — for brownfield research that needs to " +
                 "preserve the exact production build configuration, consider whether that's acceptable.\n\n" +
                 "On success, the response includes a `shimStatus` object: " +
-                "`{shimAttached, reachable, reason, detail, sidekickVersion}`. " +
-                "If `shimAttached=false` (or `reachable=false` after the post-launch wait window), " +
-                "inspection capabilities are NOT working even though the app launched — typically because the " +
-                "build reused stale outputs with an old sidekick AAR. Surface this clearly to the user; " +
-                "common reasons: `not_debuggable` (sidekick must be added via debugImplementation), " +
-                "`agent_so_missing` / `system_load_failed` / `attach_jvmti_failed` (native-agent issues, often " +
-                "stale build), `socket_unreachable` (sidekick didn't come up — try a clean build).",
+                "`{shimAttached, reachable, reason, detail, sidekickVersion, available, unavailable, explanation}`. " +
+                "**Read `available` and `unavailable` to know which DTA tools work on this device — do not " +
+                "interpret `shimAttached=false` as 'DTA is broken'.** On API < 28 the JVMTI shim refuses to " +
+                "install (`reason=api_too_low`) but reflection-based tools — `layout_tree`, `app_functions`, " +
+                "`app_runtime` (viewmodels, hilt_bindings, navigation, lifecycle, memory, threads, logcat), " +
+                "`app_data` (files, databases, prefs), `list_apps`, `wait_for`, `tap_and_wait_for`, plus all " +
+                "ADB-driven inputs and screenshot — still work. Only JVMTI-dependent tools (network capture, " +
+                "interceptor, mocks, websocket capture, per-instance recomposition counts) are unavailable. " +
+                "Surface `shimStatus.explanation` directly to the user when it's non-empty.\n\n" +
+                "Common `reason` values: `ok` (everything works); `api_too_low` (API < 28 — see above); " +
+                "`not_debuggable` (sidekick must be added via debugImplementation); `agent_so_missing` / " +
+                "`system_load_failed` / `attach_jvmti_failed` (native-agent issues, often stale build); " +
+                "`socket_unreachable` (sidekick didn't come up — try a clean build).",
                 schema(Map.of(
                     "project", prop("string", "Absolute path to the Android project root directory", true),
                     "variant", prop("string", "Build variant in camelCase (default: debug). " +

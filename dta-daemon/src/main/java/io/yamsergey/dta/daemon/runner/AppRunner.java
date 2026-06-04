@@ -83,8 +83,90 @@ public class AppRunner {
          *  window — usually because the app is still cold-starting or
          *  sidekick wasn't injected (release build / missing
          *  dependency). */
-        boolean reachable
-    ) {}
+        boolean reachable,
+        /** MCP tool names / capability identifiers that work in this
+         *  shim state. On API < 28 the JVMTI shim is unavailable but
+         *  most of DTA is reflection-based and still functions —
+         *  this list makes that explicit so callers don't assume
+         *  shim-not-attached means everything is broken. Never
+         *  {@code null}. */
+        java.util.List<String> available,
+        /** Capability identifiers that don't work in this shim state.
+         *  Empty list when shim attached successfully. */
+        java.util.List<String> unavailable,
+        /** Plain-English explanation suitable for surfacing to the
+         *  user. Always non-null; describes what works / what doesn't
+         *  in the current shim state without forcing the caller to
+         *  interpret {@code reason} codes. */
+        String explanation
+    ) {
+        /** Capabilities that work regardless of JVMTI shim state — all
+         *  reflection-based (layout-tree walk, asset reads, Java
+         *  reflection invocation). */
+        public static final java.util.List<String> REFLECTION_ONLY_CAPABILITIES = java.util.List.of(
+            "layout_tree", "layout_properties",
+            "app_runtime:viewmodels", "app_runtime:saved_state",
+            "app_runtime:hilt_bindings", "app_runtime:app_functions",
+            "app_runtime:navigation_backstack", "app_runtime:navigation_graph",
+            "app_runtime:lifecycle", "app_runtime:memory", "app_runtime:threads",
+            "app_runtime:logcat", "app_runtime:navigate", "app_runtime:open_deeplink",
+            "app_data:databases", "app_data:database_schema", "app_data:database_query",
+            "app_data:list_prefs", "app_data:read_prefs", "app_data:write_prefs",
+            "app_data:list_files",
+            "list_apps", "list_devices", "list_debug_functions", "invoke_debug_function",
+            "list_affordances", "set_affordances", "reset_affordances",
+            "wait_for", "tap_and_wait_for",
+            "tap", "long_press", "swipe", "input_text", "press_key", "screenshot"
+        );
+
+        /** Capabilities that require the JVMTI shim (bytecode hooks).
+         *  These return errors when {@code shimAttached=false}. */
+        public static final java.util.List<String> JVMTI_DEPENDENT_CAPABILITIES = java.util.List.of(
+            "network_requests", "network_request", "network_request_body",
+            "network_stats", "network_data_flow", "clear_network_requests",
+            "interceptor_set", "interceptor_clear", "interceptor_logs",
+            "mock_list_rules", "mock_create_rule", "mock_update_rule",
+            "mock_delete_rule", "mock_config",
+            "websocket_connections", "websocket_connection",
+            "clear_websocket_connections",
+            "layout_tree:recompositionCount", "layout_tree:skipCount"
+        );
+
+        public static ShimStatus attached(String version, boolean reachable) {
+            return new ShimStatus(true, "ok", null, version, reachable,
+                concat(REFLECTION_ONLY_CAPABILITIES, JVMTI_DEPENDENT_CAPABILITIES),
+                java.util.List.of(),
+                "JVMTI shim attached. All DTA capabilities are available.");
+        }
+
+        public static ShimStatus apiTooLow(String version, boolean reachable, String detail) {
+            return new ShimStatus(false, "api_too_low", detail, version, reachable,
+                REFLECTION_ONLY_CAPABILITIES,
+                JVMTI_DEPENDENT_CAPABILITIES,
+                "JVMTI shim is not available on this Android version (API < 28). "
+                + "Bytecode-hooked features (network capture, interceptor/mocks, "
+                + "WebSocket capture, per-instance recomposition counts on layout_tree) "
+                + "won't work. Reflection-based features (layout_tree shape, "
+                + "app_functions, viewmodels, hilt_bindings, files, databases, prefs, "
+                + "navigation, logcat, ADB-driven input + screenshot) work normally.");
+        }
+
+        public static ShimStatus detached(String reason, String detail, String version, boolean reachable) {
+            return new ShimStatus(false, reason, detail, version, reachable,
+                REFLECTION_ONLY_CAPABILITIES,
+                JVMTI_DEPENDENT_CAPABILITIES,
+                "JVMTI shim not attached (reason: " + reason + "). "
+                + "Bytecode-hooked features unavailable; reflection-based features "
+                + "still work. See `available` / `unavailable` for the per-capability "
+                + "breakdown.");
+        }
+
+        private static <T> java.util.List<T> concat(java.util.List<T> a, java.util.List<T> b) {
+            java.util.List<T> out = new java.util.ArrayList<>(a.size() + b.size());
+            out.addAll(a); out.addAll(b);
+            return java.util.Collections.unmodifiableList(out);
+        }
+    }
 
     /** Actionable hint for a recognized failure mode. */
     public record ResolutionHint(
@@ -242,12 +324,15 @@ public class AppRunner {
                 // field — treat its absence as "we don't know" rather
                 // than surface a confusing false-attached signal.
                 if (shim.isMissingNode() || shim.isNull()) {
-                    return new ShimStatus(true, "unknown", null, version, true);
+                    // Older sidekicks: assume attached (best-effort), unknown reason.
+                    return ShimStatus.attached(version, true);
                 }
                 boolean attached = shim.path("attached").asBoolean(false);
                 String reason = shim.path("reason").asText(null);
                 String detail = shim.path("detail").asText(null);
-                return new ShimStatus(attached, reason, detail, version, true);
+                if (attached) return ShimStatus.attached(version, true);
+                if ("api_too_low".equals(reason)) return ShimStatus.apiTooLow(version, true, detail);
+                return ShimStatus.detached(reason, detail, version, true);
             } catch (Exception e) {
                 lastError = e;
                 try {
@@ -261,7 +346,7 @@ public class AppRunner {
         log.info("Sidekick socket didn't respond within {}ms after launch ({}). " +
                 "Skipping shim-status check; agent should retry via list_apps + /health.",
             deadlineMs, lastError != null ? lastError.getMessage() : "no error");
-        return new ShimStatus(false, "socket_unreachable",
+        return ShimStatus.detached("socket_unreachable",
             lastError != null ? lastError.getMessage() : null, null, false);
     }
 
