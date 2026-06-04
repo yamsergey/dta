@@ -249,9 +249,17 @@ public class RuntimeInspector {
             }
             // URL-encode minimally so spaces / special chars round-trip
             // through the NavController route parser. NavController itself
-            // expects the standard encoding for path segments.
-            out.append(java.net.URLEncoder.encode(value.toString(), java.nio.charset.StandardCharsets.UTF_8)
-                .replace("+", "%20"));
+            // expects the standard encoding for path segments. Use the
+            // String-encoding-name overload (`encode(s, "UTF-8")`) not the
+            // Charset overload (`encode(s, StandardCharsets.UTF_8)`) — the
+            // latter is API 33+ but sidekick targets minSdk 24. UTF-8 is
+            // guaranteed by the JLS so the checked exception is unreachable.
+            try {
+                out.append(java.net.URLEncoder.encode(value.toString(), "UTF-8")
+                    .replace("+", "%20"));
+            } catch (java.io.UnsupportedEncodingException unreachable) {
+                throw new RuntimeException(unreachable);
+            }
             consumed.add(name);
             i = close + 1;
         }
@@ -263,9 +271,15 @@ public class RuntimeInspector {
             if (consumed.contains(e.getKey()) || e.getValue() == null) continue;
             out.append(first ? '?' : '&');
             first = false;
-            out.append(java.net.URLEncoder.encode(e.getKey(), java.nio.charset.StandardCharsets.UTF_8));
-            out.append('=');
-            out.append(java.net.URLEncoder.encode(e.getValue().toString(), java.nio.charset.StandardCharsets.UTF_8));
+            // String-name overload, not the Charset overload — see the
+            // comment above on the path-segment encode call.
+            try {
+                out.append(java.net.URLEncoder.encode(e.getKey(), "UTF-8"));
+                out.append('=');
+                out.append(java.net.URLEncoder.encode(e.getValue().toString(), "UTF-8"));
+            } catch (java.io.UnsupportedEncodingException unreachable) {
+                throw new RuntimeException(unreachable);
+            }
         }
         return out.toString();
     }
@@ -416,7 +430,11 @@ public class RuntimeInspector {
                         byte[] png = captureScreenshotBytes();
                         if (png != null) {
                             result.put("screenshot",
-                                java.util.Base64.getEncoder().encodeToString(png));
+                                // android.util.Base64 (API 1+), not
+                                // java.util.Base64 (API 26+) — sidekick
+                                // minSdk = 24. NO_WRAP for single-line
+                                // output (no line breaks every 76 chars).
+                                android.util.Base64.encodeToString(png, android.util.Base64.NO_WRAP));
                             result.put("screenshotEncoding", "base64");
                             result.put("screenshotFormat", "png");
                         }
