@@ -1,0 +1,63 @@
+name: CI
+
+# Runs the full check task (lint + tests + assemble) on every PR and every
+# push to main. Catches release-only failures (Android lint, NewApi, etc.)
+# before they reach the release workflow.
+#
+# Why this exists: snapshot.yml runs publishAllPublicationsToMavenCentral
+# + buildPlugin + installDist — none of which trigger `check`. release.yml
+# does run `./gradlew build` (which includes check), so historically lint
+# errors only surfaced at tag-push time. This workflow closes that gap so
+# the lint signal arrives during code review rather than during release.
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+# Cancel an in-flight CI run for a PR when the branch is updated — the new
+# commit's run supersedes the old one. main pushes always run to completion
+# (avoid skipping a green-signal for the next release tag).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # `check` runs the full pipeline: compile, test, lint (Android lintDebug
+      # on dta-sidekick), and any module-specific verification tasks. This is
+      # the same surface release.yml's `build` task hits, so anything that
+      # would fail at tag-push time fails here instead.
+      - name: Run check (lint + tests)
+        run: ./gradlew check --no-configuration-cache
+
+      # Surface lint reports as artifacts so reviewers can inspect them
+      # without re-running locally. Only on failure to keep the artifact
+      # store tidy.
+      - name: Upload lint reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            **/build/reports/lint-results-*.html
+            **/build/reports/lint-results-*.txt
+            **/build/reports/tests/
+          retention-days: 7
