@@ -380,6 +380,10 @@ public class ComposeInspector {
         String packageName; // e.g., "com.example.ui"
         boolean isLibraryComposable; // true for CC(...) prefix, false for C(...)
         int groupKey;       // Compose compiler key (from CompositionGroup.getKey())
+        Object anchorIdentity; // CompositionGroup.identity — the per-instance
+                               // slot-table Anchor used as RecompositionTracker key.
+                               // Distinct per visual instance; matches what the
+                               // JVMTI hook captured via getRecomposeScopeIdentity().
     }
 
     /**
@@ -670,6 +674,142 @@ public class ComposeInspector {
         "LazyLayoutItemContentFactory", "LazyListItemProvider"
     ));
 
+    /**
+     * Maps a Compose composable name to its cross-platform Material
+     * affordance label. The label is portable — a spec extractor uses it
+     * to translate between Android (snackbar / bottom-sheet / dialog) and
+     * other platforms (iOS toast / sheet / alert) without re-deriving
+     * conventions from the layout tree's pixel content each time.
+     *
+     * <p>v1 covers the high-frequency Material 3 components. The list
+     * intentionally excludes very generic primitives (Box, Column, Row)
+     * because they don't carry affordance semantics — they're layout
+     * containers, not platform conventions.</p>
+     *
+     * <p>The defaults are immutable; runtime overrides land via
+     * {@link #applyAffordanceOverrides} (driven by the sidekick HTTP
+     * endpoint {@code POST /layout/affordances}, which the daemon's
+     * {@code set_affordances} MCP tool calls). Callers can add new
+     * mappings (e.g. for in-house design systems or undocumented
+     * Material 3 internals like {@code OneRowSnackbar}) without
+     * rebuilding the sidekick AAR, and the lookup at capture time
+     * always sees the most recent merged view.</p>
+     */
+    private static final java.util.Map<String, String> AFFORDANCE_DEFAULTS;
+    /** Active merged view = defaults + caller overrides; volatile for
+     *  cross-thread visibility of override updates. */
+    private static volatile java.util.Map<String, String> affordances;
+    static {
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        // Notifications / transient UI
+        m.put("Snackbar", "material-snackbar");
+        m.put("SnackbarHost", "material-snackbar-host");
+        // Material 3's public Snackbar() doesn't itself emit a layout
+        // node — it delegates to one of two private composables that do.
+        // OneRowSnackbar renders the short-text variant; TwoRowSnackbar
+        // is used when text wraps or an action is present. The tree
+        // sees the private names, so the public `Snackbar` entry alone
+        // would never match in practice.
+        m.put("OneRowSnackbar", "material-snackbar");
+        m.put("TwoRowSnackbar", "material-snackbar-with-action");
+        // Same wrapping-vs-internal pattern for top app bars in
+        // Material 3 — the public TopAppBar variants delegate to
+        // SingleRowTopAppBar / TwoRowsTopAppBar.
+        m.put("SingleRowTopAppBar", "material-top-app-bar");
+        m.put("TwoRowsTopAppBar", "material-top-app-bar-large");
+        // Dialogs / modals
+        m.put("AlertDialog", "material-dialog-alert");
+        m.put("Dialog", "material-dialog");
+        m.put("ModalBottomSheet", "material-bottom-sheet-modal");
+        m.put("BottomSheet", "material-bottom-sheet");
+        m.put("BottomSheetScaffold", "material-bottom-sheet-scaffold");
+        // Navigation surfaces
+        m.put("ModalNavigationDrawer", "material-navigation-drawer-modal");
+        m.put("PermanentNavigationDrawer", "material-navigation-drawer-permanent");
+        m.put("DismissibleNavigationDrawer", "material-navigation-drawer-dismissible");
+        m.put("NavigationBar", "material-navigation-bar");
+        m.put("NavigationRail", "material-navigation-rail");
+        m.put("NavigationDrawer", "material-navigation-drawer");
+        m.put("TopAppBar", "material-top-app-bar");
+        m.put("BottomAppBar", "material-bottom-app-bar");
+        m.put("CenterAlignedTopAppBar", "material-top-app-bar-center");
+        m.put("LargeTopAppBar", "material-top-app-bar-large");
+        m.put("MediumTopAppBar", "material-top-app-bar-medium");
+        // Tabs
+        m.put("Tab", "material-tab");
+        m.put("TabRow", "material-tab-row");
+        m.put("ScrollableTabRow", "material-tab-row-scrollable");
+        // Actions
+        m.put("FloatingActionButton", "material-fab");
+        m.put("ExtendedFloatingActionButton", "material-fab-extended");
+        m.put("SmallFloatingActionButton", "material-fab-small");
+        m.put("LargeFloatingActionButton", "material-fab-large");
+        // Controls
+        m.put("Checkbox", "material-checkbox");
+        m.put("Switch", "material-switch");
+        m.put("RadioButton", "material-radio-button");
+        m.put("Slider", "material-slider");
+        m.put("RangeSlider", "material-slider-range");
+        // Indicators
+        m.put("LinearProgressIndicator", "material-progress-linear");
+        m.put("CircularProgressIndicator", "material-progress-circular");
+        m.put("Badge", "material-badge");
+        m.put("BadgedBox", "material-badged-box");
+        // Cards / containers
+        m.put("Card", "material-card");
+        m.put("ElevatedCard", "material-card-elevated");
+        m.put("OutlinedCard", "material-card-outlined");
+        m.put("Scaffold", "material-scaffold");
+        m.put("Surface", "material-surface");
+        // Text fields
+        m.put("TextField", "material-text-field");
+        m.put("OutlinedTextField", "material-text-field-outlined");
+        // Menus / chips
+        m.put("DropdownMenu", "material-menu-dropdown");
+        m.put("ExposedDropdownMenuBox", "material-menu-exposed");
+        m.put("AssistChip", "material-chip-assist");
+        m.put("FilterChip", "material-chip-filter");
+        m.put("InputChip", "material-chip-input");
+        m.put("SuggestionChip", "material-chip-suggestion");
+        AFFORDANCE_DEFAULTS = java.util.Collections.unmodifiableMap(m);
+        affordances = AFFORDANCE_DEFAULTS;
+    }
+
+    /**
+     * Merges caller-supplied {@code (composableName → affordanceLabel)}
+     * mappings over the built-in defaults. Caller mappings win on
+     * collision — so a team can relabel {@code "Snackbar"} to
+     * {@code "brand-snackbar"} without us patching the AAR. Passing an
+     * empty or {@code null} map is a no-op (use {@link #resetAffordances}
+     * to revert).
+     */
+    public static void applyAffordanceOverrides(java.util.Map<String, String> overrides) {
+        if (overrides == null || overrides.isEmpty()) return;
+        java.util.Map<String, String> merged = new java.util.HashMap<>(AFFORDANCE_DEFAULTS);
+        // Iterate to drop empty-string values (caller's way of removing
+        // an entry — null isn't transmissible over JSON).
+        for (var e : overrides.entrySet()) {
+            if (e.getKey() == null || e.getKey().isEmpty()) continue;
+            String v = e.getValue();
+            if (v == null || v.isEmpty()) merged.remove(e.getKey());
+            else merged.put(e.getKey(), v);
+        }
+        affordances = java.util.Collections.unmodifiableMap(merged);
+    }
+
+    /** Reverts {@link #affordances} to the immutable built-in defaults. */
+    public static void resetAffordances() {
+        affordances = AFFORDANCE_DEFAULTS;
+    }
+
+    /** Snapshot of the currently-active affordance map (defaults +
+     *  overrides). Callers use this to inspect what the layout-tree
+     *  emitter will tag — useful for "what taxonomy is live right now?"
+     *  diagnostics from MCP. */
+    public static java.util.Map<String, String> getAffordances() {
+        return affordances;
+    }
+
     // Mapping of parent composables to child composables that should be collapsed
     // When a parent has only these children, collapse them and promote grandchildren
     private static final java.util.Map<String, java.util.Set<String>> COLLAPSE_CHILDREN;
@@ -726,7 +866,8 @@ public class ComposeInspector {
             String sourceInfo = null;
             ComposableInfo thisGroupInfo = null; // Info for this specific group
 
-            // Extract group key for recomposition tracking
+            // Extract group key (compiler-emitted, per source location)
+            // for diagnostics.
             int groupKey = 0;
             try {
                 Method getKey = group.getClass().getMethod("getKey");
@@ -739,6 +880,26 @@ public class ComposeInspector {
                 // key not available
             }
 
+            // Extract the group's identity (per-instance slot-table
+            // Anchor). This matches what the JVMTI hook captured via
+            // Composer.getRecomposeScopeIdentity() at increment time,
+            // so we can look up RecompositionTracker counts per
+            // visual instance instead of per source location.
+            //
+            // CompositionGroup.identity is exposed via
+            //   `Any getIdentity()` (Kotlin val)
+            // on the public CompositionGroup interface in
+            // androidx.compose.runtime.tooling.
+            Object anchorIdentity = null;
+            try {
+                Method getIdentity = group.getClass().getMethod("getIdentity");
+                getIdentity.setAccessible(true);
+                anchorIdentity = getIdentity.invoke(group);
+            } catch (NoSuchMethodException e) {
+                // older Compose versions may not expose identity;
+                // fall back to per-source-location counts below.
+            } catch (Exception ignored) {}
+
             try {
                 Method getSourceInfo = group.getClass().getMethod("getSourceInfo");
                 getSourceInfo.setAccessible(true);
@@ -748,6 +909,7 @@ public class ComposeInspector {
                     // Parse this group's sourceInfo
                     ComposableInfo parsed = parseSourceInfo(sourceInfo);
                     parsed.groupKey = groupKey;
+                    parsed.anchorIdentity = anchorIdentity;
                     if (parsed.name != null) {
                         // Log composable names for debugging
                         if (groupLogCount < 100) {
@@ -868,6 +1030,24 @@ public class ComposeInspector {
                     // Will be updated below based on source file
                     info.isLibraryComposable = false;
                 }
+            }
+        }
+
+        // Extract start line number. Compose's source-information format is
+        // C(Name)P(params)<line>@<offset>L<count>:File.kt or similar — the
+        // first `<digits>@` segment we see is the function's start line.
+        // Robust to absent line info (library composables typically lack it).
+        int atIdx = sourceInfo.indexOf('@');
+        if (atIdx > 0) {
+            int digitsEnd = atIdx;
+            int digitsStart = digitsEnd;
+            while (digitsStart > 0 && Character.isDigit(sourceInfo.charAt(digitsStart - 1))) {
+                digitsStart--;
+            }
+            if (digitsStart < digitsEnd) {
+                try {
+                    info.lineNumber = Integer.parseInt(sourceInfo.substring(digitsStart, digitsEnd));
+                } catch (NumberFormatException ignored) {}
             }
         }
 
@@ -1358,6 +1538,12 @@ public class ComposeInspector {
                 if (matchedSemantics.containsKey("contentDescription")) {
                     node.put("contentDescription", matchedSemantics.get("contentDescription"));
                 }
+                // Cross-platform interaction labels — same vocabulary as
+                // the `android` CLI's `layout` output, so DTA's tree is
+                // a strict superset.
+                if (matchedSemantics.containsKey("interactions")) {
+                    node.put("interactions", matchedSemantics.get("interactions"));
+                }
             }
 
             // Get composable name and source info
@@ -1393,6 +1579,16 @@ public class ComposeInspector {
             // Normalize composable name for cleaner display (BasicText -> Text, etc.)
             String displayComposable = normalizeComposableName(composable);
             node.put("composable", displayComposable);
+
+            // Tag with a cross-platform Material affordance label when the
+            // composable matches a known role. The label is a portable
+            // identifier (`material-snackbar`, `material-bottom-sheet`,
+            // etc.) that maps to platform conventions in spec-extraction
+            // workflows — the spec can say "Trigger → present
+            // {material-snackbar-with-action: UNDO}" once and have an iOS
+            // extractor know to translate to the equivalent affordance.
+            String affordance = affordances.get(displayComposable);
+            if (affordance != null) node.put("affordance", affordance);
 
             // Add source file and line number if available from CompositionData
             // For library composables, add (inline) annotation; for user code, show source file without .kt
@@ -1431,9 +1627,13 @@ public class ComposeInspector {
             // Extract InspectorInfo parameters and modifiers from the LayoutNode
             extractInspectorInfoParams(layoutNode, node);
 
-            // Include recomposition counts from JVMTI hooks (if tracked)
-            if (composableInfo != null && composableInfo.groupKey != 0) {
-                int[] recompCounts = RecompositionTracker.getCounts(composableInfo.groupKey);
+            // Include recomposition counts from JVMTI hooks. Keyed by
+            // the slot-table Anchor identity (per-instance) so 8
+            // LazyColumn rows of the same composable report 8 distinct
+            // counts — matches Android Studio's
+            // RecompositionHandler.HashMap<Anchor, RecompositionData>.
+            if (composableInfo != null && composableInfo.anchorIdentity != null) {
+                int[] recompCounts = RecompositionTracker.getCounts(composableInfo.anchorIdentity);
                 if (recompCounts != null) {
                     node.put("recompositionCount", recompCounts[0]);
                     node.put("skipCount", recompCounts[1]);
@@ -2768,11 +2968,45 @@ public class ComposeInspector {
     }
 
     /**
+     * Maps a Compose SemanticsPropertyKey name to the matching
+     * {@code android layout}-vocabulary interaction label, or {@code null}
+     * if the property isn't an interaction signal. This is the bridge
+     * that lets DTA's layout-tree double as a strict superset of the
+     * `android` CLI's `layout` output: callers using either tool can
+     * treat the interactions array identically.
+     *
+     * <p>The mapping reads from both static SemanticsProperties (e.g.
+     * {@code HorizontalScrollAxisRange}) and AccessibilityAction keys
+     * (e.g. {@code OnClick}) because Compose splits "can do X" between
+     * the two — {@code Modifier.clickable} installs an OnClick action
+     * rather than setting a property.</p>
+     */
+    private static String interactionForProperty(String propertyName) {
+        if (propertyName == null) return null;
+        switch (propertyName) {
+            case "OnClick":
+                return "clickable";
+            case "ScrollBy":
+            case "HorizontalScrollAxisRange":
+            case "VerticalScrollAxisRange":
+                return "scrollable";
+            case "Focused":
+            case "RequestFocus":
+                return "focusable";
+            case "ToggleableState":
+                return "checkable";
+            default:
+                return null;
+        }
+    }
+
+    /**
      * Extracts properties from a SemanticsConfiguration.
      */
     private static void extractSemanticsProperties(Object config, Map<String, Object> result) {
         if (config == null) return;
 
+        java.util.TreeSet<String> interactions = new java.util.TreeSet<>();
         Class<?> configClass = config.getClass();
 
         // Try to access the internal props map directly
@@ -2788,14 +3022,22 @@ public class ComposeInspector {
                             Object key = entry.getKey();
                             Object value = entry.getValue();
                             if (key != null && value != null) {
-                                // Skip AccessibilityAction values - these are actions, not properties
                                 String valueClassName = value.getClass().getName();
+
+                                // Detect interactions FIRST, including
+                                // AccessibilityAction handlers — `OnClick`
+                                // and `ScrollBy` live as actions, not
+                                // properties, so the action-skip below
+                                // would lose them.
+                                String propertyName = getPropertyKeyName(key);
+                                String interaction = interactionForProperty(propertyName);
+                                if (interaction != null) interactions.add(interaction);
+
+                                // Skip AccessibilityAction values for the
+                                // rest — they're handlers, not values.
                                 if (valueClassName.contains("AccessibilityAction")) {
                                     continue;
                                 }
-
-                                // Match specific property keys
-                                String propertyName = getPropertyKeyName(key);
 
                                 if (propertyName != null) {
                                     if (propertyName.equals("Text")) {
@@ -2884,13 +3126,19 @@ public class ComposeInspector {
                                 Object value = getValue.invoke(entry);
 
                                 if (key != null && value != null) {
-                                    // Skip AccessibilityAction values
                                     String valueClassName = value.getClass().getName();
+
+                                    // Same interaction-first / action-skip
+                                    // order as the props-map iteration
+                                    // above — OnClick/ScrollBy are
+                                    // actions, not properties.
+                                    String propertyName = getPropertyKeyName(key);
+                                    String interaction = interactionForProperty(propertyName);
+                                    if (interaction != null) interactions.add(interaction);
+
                                     if (valueClassName.contains("AccessibilityAction")) {
                                         continue;
                                     }
-
-                                    String propertyName = getPropertyKeyName(key);
 
                                     if (propertyName != null) {
                                         if (propertyName.equals("Text")) {
@@ -2929,6 +3177,10 @@ public class ComposeInspector {
 
         } catch (Exception e) {
             SidekickLog.e(TAG, "Error extracting semantic properties: " + e.getMessage());
+        }
+
+        if (!interactions.isEmpty()) {
+            result.put("interactions", new java.util.ArrayList<>(interactions));
         }
     }
 

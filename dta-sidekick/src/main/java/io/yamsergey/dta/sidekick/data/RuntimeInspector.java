@@ -9,7 +9,9 @@ import io.yamsergey.dta.sidekick.view.WindowRootDiscovery;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -134,6 +136,713 @@ public class RuntimeInspector {
             result.put("error", "Failed to read navigation graph: " + e.getMessage());
         }
         return result;
+    }
+
+    /**
+     * Pushes a destination onto the host app's NavController. Supports the
+     * Navigation 2 / Compose Navigation string-route API: caller passes a
+     * {@code destination} that matches a {@code <destination>} route in the
+     * graph (e.g. {@code "topic/{topicId}"} or just {@code "login"}) plus a
+     * {@code params} map; placeholders in the route template are substituted
+     * verbatim, then {@code NavController.navigate(String)} is invoked on
+     * the main thread.
+     *
+     * <p>Navigation 3 (NavBackStack/NavKey) is not supported — there is no
+     * canonical owner to reach via reflection. See sibling issue for the
+     * research thread.</p>
+     *
+     * @param destination route template (with optional {@code {placeholder}} segments)
+     *                    or a literal route already filled by the caller.
+     * @param params      map of placeholder name → value (any type with a sane
+     *                    {@code toString()}). Missing required placeholders fail
+     *                    fast; extras are appended as query parameters when the
+     *                    route doesn't already declare them.
+     */
+    public Map<String, Object> navigate(String destination, Map<String, Object> params) {
+        Map<String, Object> result = new HashMap<>();
+        if (destination == null || destination.isEmpty()) {
+            result.put("error", "Missing required 'destination' parameter");
+            return result;
+        }
+        Activity activity = WindowRootDiscovery.getCurrentActivity();
+        if (activity == null) {
+            result.put("error", "No visible activity — host app must be foreground");
+            return result;
+        }
+
+        Object navController;
+        try {
+            navController = runOnMainThread(() -> findNavController(activity));
+        } catch (Exception e) {
+            result.put("error", "NavController lookup failed: " + e.getMessage());
+            return result;
+        }
+        if (navController == null) {
+            result.put("error", "No NavController found. Navigation 2 / Compose Navigation NavController "
+                + "required. Navigation 3 (NavBackStack<NavKey>) is not yet supported — use open_deeplink "
+                + "if the destination declares an intent-filter.");
+            return result;
+        }
+
+        String filledRoute;
+        try {
+            filledRoute = fillRouteTemplate(destination, params != null ? params : Collections.emptyMap());
+        } catch (IllegalArgumentException e) {
+            result.put("error", e.getMessage());
+            return result;
+        }
+
+        // Run on main thread because NavController mutates Compose state +
+        // requires the same thread the host's NavHost is running on.
+        Throwable[] err = new Throwable[1];
+        runOnMainThread(() -> {
+            try {
+                Method navigate = navController.getClass().getMethod("navigate", String.class);
+                navigate.invoke(navController, filledRoute);
+            } catch (Throwable t) {
+                // Some Compose Navigation versions also accept (String, NavOptions);
+                // the String-only overload is the most portable. Surface the
+                // underlying cause to the caller — typical: "Navigation destination
+                // X cannot be found from the current destination".
+                err[0] = (t.getCause() != null) ? t.getCause() : t;
+            }
+            return null;
+        });
+        if (err[0] != null) {
+            result.put("error", err[0].getClass().getSimpleName() + ": " + err[0].getMessage());
+            result.put("attemptedRoute", filledRoute);
+            return result;
+        }
+        result.put("status", "ok");
+        result.put("route", filledRoute);
+        return result;
+    }
+
+    /**
+     * Substitutes {@code {name}} placeholders in a route template with values
+     * from {@code params}. Any unused params are appended as query parameters,
+     * mirroring how Compose Navigation lets callers pass optional args.
+     * Throws if a placeholder has no matching value.
+     */
+    private String fillRouteTemplate(String template, Map<String, Object> params) {
+        StringBuilder out = new StringBuilder(template.length() + 32);
+        java.util.Set<String> consumed = new java.util.LinkedHashSet<>();
+        int i = 0;
+        while (i < template.length()) {
+            int open = template.indexOf('{', i);
+            if (open < 0) {
+                out.append(template, i, template.length());
+                break;
+            }
+            int close = template.indexOf('}', open);
+            if (close < 0) {
+                // Stray '{' — copy literally.
+                out.append(template, i, template.length());
+                break;
+            }
+            out.append(template, i, open);
+            String name = template.substring(open + 1, close);
+            Object value = params.get(name);
+            if (value == null) {
+                throw new IllegalArgumentException(
+                    "Missing required param '" + name + "' for route template '" + template + "'");
+            }
+            // URL-encode minimally so spaces / special chars round-trip
+            // through the NavController route parser. NavController itself
+            // expects the standard encoding for path segments.
+            out.append(java.net.URLEncoder.encode(value.toString(), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20"));
+            consumed.add(name);
+            i = close + 1;
+        }
+        // Append unused params as query string — only if the template doesn't
+        // already carry a '?' (then it's up to the caller to format).
+        boolean hasQuery = out.indexOf("?") >= 0;
+        boolean first = !hasQuery;
+        for (Map.Entry<String, Object> e : params.entrySet()) {
+            if (consumed.contains(e.getKey()) || e.getValue() == null) continue;
+            out.append(first ? '?' : '&');
+            first = false;
+            out.append(java.net.URLEncoder.encode(e.getKey(), java.nio.charset.StandardCharsets.UTF_8));
+            out.append('=');
+            out.append(java.net.URLEncoder.encode(e.getValue().toString(), java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return out.toString();
+    }
+
+    /**
+     * Fires {@code Intent.ACTION_VIEW} with the given URI. Works for any
+     * destination the app exposes via an {@code <intent-filter>} — independent
+     * of which navigation library the app uses. The intent is launched from
+     * the foreground activity so it inherits the host's task affinity (no
+     * external "open in browser" detour).
+     */
+    public Map<String, Object> openDeepLink(String uri) {
+        Map<String, Object> result = new HashMap<>();
+        if (uri == null || uri.isEmpty()) {
+            result.put("error", "Missing required 'uri' parameter");
+            return result;
+        }
+        Activity activity = WindowRootDiscovery.getCurrentActivity();
+        if (activity == null) {
+            result.put("error", "No visible activity — host app must be foreground to launch a deep link in-task");
+            return result;
+        }
+        android.net.Uri parsed;
+        try {
+            parsed = android.net.Uri.parse(uri);
+        } catch (Exception e) {
+            result.put("error", "Invalid URI: " + e.getMessage());
+            return result;
+        }
+        Throwable[] err = new Throwable[1];
+        runOnMainThread(() -> {
+            try {
+                android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, parsed);
+                // Launch from the activity to keep the same task; if no handler
+                // claims it, Android throws ActivityNotFoundException — surface
+                // it to the caller so they know the URI didn't match anything.
+                activity.startActivity(intent);
+            } catch (Throwable t) {
+                err[0] = t;
+            }
+            return null;
+        });
+        if (err[0] != null) {
+            result.put("error", err[0].getClass().getSimpleName() + ": " + err[0].getMessage());
+            result.put("attemptedUri", uri);
+            return result;
+        }
+        result.put("status", "ok");
+        result.put("uri", uri);
+        return result;
+    }
+
+    /**
+     * Polls the current view tree at fixed 50 ms intervals until a node
+     * matching the predicate appears, or until {@code maxMs} elapses.
+     * Designed for capturing transient UI (snackbars, toasts, brief
+     * loaders) that disappears faster than the daemon round-trip.
+     *
+     * <p>Polling runs in-process inside the host app — no adb / HTTP
+     * hops per check — so the actual sampling rate is much closer to
+     * 50 ms than what an external poller could achieve.</p>
+     *
+     * <p>Predicate fields (all optional, AND-combined when multiple
+     * are non-null):</p>
+     * <ul>
+     *   <li>{@code text}: substring match, case-insensitive, against
+     *       the node's {@code text} field.</li>
+     *   <li>{@code testTag}: exact match against the node's
+     *       {@code testTag} field (Compose {@code Modifier.testTag}).</li>
+     *   <li>{@code className}: exact match against the node's
+     *       {@code className} (View nodes) or {@code composable}
+     *       (Compose nodes). Use the simple name — e.g.
+     *       {@code "Snackbar"} matches both
+     *       {@code "androidx.compose.material3.SnackbarHost"} (suffix)
+     *       and the bare composable name.</li>
+     * </ul>
+     *
+     * <p>On match, returns {@code {matched:true, pollMs, matchedNode,
+     * layoutTree, screenshot (base64 PNG)}}. On timeout, returns
+     * {@code {matched:false, pollMs}}.</p>
+     *
+     * <p>{@code pollMs} is the duration of the polling loop only —
+     * what {@code maxMs} caps. The loop can overshoot {@code maxMs} by
+     * up to one iteration's view-tree capture cost (typically 50–200 ms;
+     * can be higher on dense Compose hierarchies under main-thread
+     * contention) because the deadline check happens after each
+     * capture, not before. Callers measuring end-to-end latency
+     * (including ADB tap dispatch, HTTP transit, and layout-tree
+     * serialization back to the daemon/MCP) should use the daemon's
+     * {@code elapsedMs} envelope field instead — see
+     * {@code DtaOrchestrator#tapAndWaitFor}.</p>
+     */
+    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs) {
+        return waitFor(text, testTag, className, maxMs, true, true);
+    }
+
+    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs, boolean returnFullTree) {
+        return waitFor(text, testTag, className, maxMs, returnFullTree, true);
+    }
+
+    /**
+     * Variant that lets the caller independently omit the full layout
+     * tree and/or the base64 screenshot from the match response.
+     *
+     * <ul>
+     *   <li>{@code returnFullTree=false} → no {@code layoutTree} key
+     *       (~500 KB saved on dense Compose hierarchies).</li>
+     *   <li>{@code returnScreenshot=false} → no
+     *       {@code screenshot}/{@code screenshotEncoding}/{@code screenshotFormat}
+     *       keys, and the capture is skipped entirely (no GPU round-trip).
+     *       For NiA-sized screens this saves ~480 KB.</li>
+     * </ul>
+     *
+     * <p>The two flags are independent: a visual-debugging caller might
+     * want the screenshot without the tree; a token-budget-conscious
+     * caller might want just {@code matchedNode}. Setting both to
+     * {@code false} pushes the match response below ~10 KB.</p>
+     */
+    public Map<String, Object> waitFor(String text, String testTag, String className, int maxMs,
+                                        boolean returnFullTree, boolean returnScreenshot) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if ((text == null || text.isEmpty())
+                && (testTag == null || testTag.isEmpty())
+                && (className == null || className.isEmpty())) {
+            result.put("error", "At least one predicate (text / testTag / className) must be non-empty");
+            return result;
+        }
+        if (maxMs <= 0) maxMs = 3000;
+
+        long start = System.currentTimeMillis();
+        long deadline = start + maxMs;
+        String textLower = text != null ? text.toLowerCase() : null;
+
+        while (true) {
+            // Capture on the main thread (view-tree traversal isn't
+            // thread-safe). Bail with a short sleep + retry if we got
+            // null — typically a no-activity transient.
+            Map<String, Object> tree = runOnMainThread(
+                () -> io.yamsergey.dta.sidekick.layout.UnifiedTreeBuilder.capture());
+            if (tree != null) {
+                Map<String, Object> matched = findFirstMatch(tree, textLower, testTag, className);
+                if (matched != null) {
+                    result.put("matched", true);
+                    result.put("pollMs", System.currentTimeMillis() - start);
+                    result.put("matchedNode", matched);
+                    if (returnFullTree) result.put("layoutTree", tree);
+                    if (returnScreenshot) {
+                        byte[] png = captureScreenshotBytes();
+                        if (png != null) {
+                            result.put("screenshot",
+                                java.util.Base64.getEncoder().encodeToString(png));
+                            result.put("screenshotEncoding", "base64");
+                            result.put("screenshotFormat", "png");
+                        }
+                    }
+                    return result;
+                }
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                result.put("matched", false);
+                result.put("pollMs", System.currentTimeMillis() - start);
+                return result;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                result.put("matched", false);
+                result.put("pollMs", System.currentTimeMillis() - start);
+                result.put("error", "Interrupted");
+                return result;
+            }
+        }
+    }
+
+    /**
+     * Walks {@code tree} depth-first, returning the first node whose
+     * fields satisfy every non-null predicate component. {@code text}
+     * arrives pre-lowercased; callers pass the original-case form for
+     * exact-match predicates ({@code testTag}, {@code className}).
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> findFirstMatch(Map<String, Object> tree,
+            String textLower, String testTag, String className) {
+        // Walk both `windows` (top-level result) and `children` (within nodes).
+        Object windows = tree.get("windows");
+        if (windows instanceof List) {
+            for (Object w : (List<?>) windows) {
+                if (w instanceof Map) {
+                    Object subtree = ((Map<String, Object>) w).get("tree");
+                    if (subtree instanceof Map) {
+                        Map<String, Object> hit = walkForMatch(
+                            (Map<String, Object>) subtree, textLower, testTag, className);
+                        if (hit != null) return hit;
+                    }
+                }
+            }
+        }
+        // Some callers may pass a single-node tree.
+        return walkForMatch(tree, textLower, testTag, className);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> walkForMatch(Map<String, Object> node,
+            String textLower, String testTag, String className) {
+        if (node == null) return null;
+        if (nodeMatches(node, textLower, testTag, className)) return node;
+        Object children = node.get("children");
+        if (children instanceof List) {
+            for (Object child : (List<?>) children) {
+                if (child instanceof Map) {
+                    Map<String, Object> hit = walkForMatch(
+                        (Map<String, Object>) child, textLower, testTag, className);
+                    if (hit != null) return hit;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean nodeMatches(Map<String, Object> node,
+            String textLower, String testTag, String className) {
+        if (textLower != null) {
+            Object t = node.get("text");
+            if (!(t instanceof String) || !((String) t).toLowerCase().contains(textLower)) {
+                return false;
+            }
+        }
+        if (testTag != null && !testTag.isEmpty()) {
+            Object tag = node.get("testTag");
+            if (!(tag instanceof String) || !testTag.equals(tag)) return false;
+        }
+        if (className != null && !className.isEmpty()) {
+            // Match either View `className` (FQ — accept a suffix) or
+            // Compose `composable` (typically the simple name already).
+            Object cn = node.get("className");
+            Object cp = node.get("composable");
+            boolean classHit = cn instanceof String
+                && (className.equals(cn) || ((String) cn).endsWith("." + className)
+                    || ((String) cn).endsWith("$" + className));
+            boolean composeHit = cp instanceof String && className.equals(cp);
+            if (!classHit && !composeHit) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Lists the Hilt-generated bindings reachable from the foreground
+     * activity's component graph: Activity + ActivityRetained +
+     * Singleton scopes. Surfaces each binding's field name (the Hilt
+     * generator's name, which mirrors the source interface in most
+     * cases), the field's declared type, and the runtime implementation
+     * class.
+     *
+     * <p>Answers the methodology question "which concrete impl is wired
+     * for interface X in this build?" without restarting the app under
+     * test instrumentation. The canonical case is
+     * StubAnalyticsHelper-vs-Firebase: the demo build wires
+     * StubAnalyticsHelper, the prod build wires FirebaseAnalyticsHelper;
+     * researchers need to know which without rebuilding.</p>
+     *
+     * <p>The walk uses ActivityRetainedComponentViewModel.component as
+     * the anchor (we already enumerate this VM in {@link #viewModels}).
+     * From there we traverse to the SingletonCImpl parent via the
+     * Hilt-generated reference field {@code singletonCImpl} (alternate
+     * names tried as fallbacks). Fields whose names start with {@code $}
+     * (Jacoco) or that hold framework plumbing (Provider wrappers with
+     * no useful information at this layer) are skipped.</p>
+     *
+     * @param interfaceFilter substring match against field's declared
+     *                        type FQ name. When non-empty, only bindings
+     *                        whose declared type contains this substring
+     *                        are surfaced. Used to answer the targeted
+     *                        question "what's wired for AnalyticsHelper?"
+     *                        without paging through the whole graph.
+     */
+    public Map<String, Object> hiltBindings(String interfaceFilter) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> bindings = new ArrayList<>();
+        try {
+            List<Object> components = new ArrayList<>();
+
+            // SingletonCImpl is reachable through the Application's
+            // generated componentManager — doesn't require any activity
+            // to be resumed. This is the anchor for graph walks.
+            Object app = getApplicationInstance();
+            Object singleton = app != null ? findActivityComponent(app) : null;
+            if (singleton != null) {
+                components.add(singleton);
+            }
+
+            // ActivityRetained scope (when an activity exists at all,
+            // even paused) — found via the activity's ViewModelStore.
+            // We try the resumed activity first, then fall back to any
+            // activity in the process. If none, we silently skip — the
+            // singleton scope alone is still useful.
+            Activity activity = WindowRootDiscovery.getCurrentActivity();
+            if (activity == null) activity = findAnyActivity();
+            if (activity != null) {
+                Object retainedComponent = findRetainedComponent(activity);
+                if (retainedComponent != null) components.add(retainedComponent);
+                // Activity-scoped — the activity itself holds an
+                // ActivityCImpl via its GeneratedComponentManager.
+                Object activityComponent = findActivityComponent(activity);
+                if (activityComponent != null) components.add(activityComponent);
+            }
+
+            if (components.isEmpty()) {
+                result.put("error", "No Hilt components discoverable — host app may not use Hilt, "
+                    + "or the Application class hasn't initialized yet");
+                return result;
+            }
+
+            String filterLower = interfaceFilter != null && !interfaceFilter.isEmpty()
+                ? interfaceFilter.toLowerCase() : null;
+            for (Object component : components) {
+                bindings.addAll(componentBindings(component, filterLower));
+            }
+            result.put("bindings", bindings);
+            result.put("count", bindings.size());
+        } catch (Exception e) {
+            SidekickLog.d(TAG, "hiltBindings failed", e);
+            result.put("error", "Reflection failed: " + e.getMessage());
+        }
+        return result;
+    }
+
+    /** Returns the host app's {@link android.app.Application} singleton, or null. */
+    private Object getApplicationInstance() {
+        try {
+            Class<?> at = Class.forName("android.app.ActivityThread");
+            Object thread = at.getMethod("currentActivityThread").invoke(null);
+            return at.getMethod("getApplication").invoke(thread);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * Returns the first activity tracked in {@code ActivityThread.mActivities}
+     * regardless of paused state — used as a fallback when no activity is
+     * resumed but we still want the ActivityRetained/Activity scopes.
+     */
+    private Activity findAnyActivity() {
+        try {
+            Class<?> at = Class.forName("android.app.ActivityThread");
+            Object thread = at.getMethod("currentActivityThread").invoke(null);
+            Field activitiesField = at.getDeclaredField("mActivities");
+            activitiesField.setAccessible(true);
+            Object map = activitiesField.get(thread);
+            if (!(map instanceof Map)) return null;
+            for (Object record : ((Map<?, ?>) map).values()) {
+                Field actField = record.getClass().getDeclaredField("activity");
+                actField.setAccessible(true);
+                Activity a = (Activity) actField.get(record);
+                if (a != null) return a;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    /**
+     * Extracts the {@code ActivityRetainedCImpl} for the given activity
+     * via the {@code ActivityRetainedComponentManager$ActivityRetainedComponentViewModel.component}
+     * field that Hilt keeps in the activity's retained ViewModelStore.
+     */
+    private Object findRetainedComponent(Activity activity) {
+        try {
+            Map<String, ViewModelEntry> store = readViewModelStore(activity);
+            if (store == null) return null;
+            for (ViewModelEntry e : store.values()) {
+                String cls = e.vm.getClass().getName();
+                if (cls.contains("ActivityRetainedComponentViewModel")) {
+                    Field componentField = findField(e.vm.getClass(), "component");
+                    if (componentField == null) continue;
+                    componentField.setAccessible(true);
+                    return componentField.get(e.vm);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private Object findParentComponent(Object component, String... candidateNames) {
+        for (String name : candidateNames) {
+            Field f = findField(component.getClass(), name);
+            if (f == null) continue;
+            try {
+                f.setAccessible(true);
+                Object parent = f.get(component);
+                if (parent != null) return parent;
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    /**
+     * Finds the Hilt-generated component for any
+     * {@code GeneratedComponentManagerHolder} (Application →
+     * SingletonCImpl, Activity → ActivityCImpl, Fragment →
+     * FragmentCImpl, etc.). Pattern: holder has a no-arg
+     * {@code componentManager()} that returns a manager whose
+     * {@code generatedComponent()} returns the component.
+     */
+    private Object findActivityComponent(Object holder) {
+        try {
+            Method cm = findMethod(holder.getClass(), "componentManager");
+            if (cm == null) return null;
+            cm.setAccessible(true);
+            Object manager = cm.invoke(holder);
+            if (manager == null) return null;
+            Method gen = findMethod(manager.getClass(), "generatedComponent");
+            if (gen == null) return null;
+            gen.setAccessible(true);
+            return gen.invoke(manager);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private Method findMethod(Class<?> cls, String name) {
+        while (cls != null) {
+            for (Method m : cls.getDeclaredMethods()) {
+                if (m.getName().equals(name) && m.getParameterCount() == 0) return m;
+            }
+            cls = cls.getSuperclass();
+        }
+        return null;
+    }
+
+    private List<Map<String, Object>> componentBindings(Object component, String filterLower) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (component == null) return out;
+        String componentClass = component.getClass().getName();
+        String scope = simpleScopeLabel(componentClass);
+        Class<?> cls = component.getClass();
+        while (cls != null
+                // Walk only the Hilt-generated impl + its synthetic super
+                // (Object). Walking into framework parents adds noise.
+                && !cls.getName().equals("java.lang.Object")) {
+            for (Field f : cls.getDeclaredFields()) {
+                String name = f.getName();
+                // Skip jacoco / synthetic / our own walker tracks.
+                if (name.startsWith("$") || f.isSynthetic()) continue;
+                // Skip back-references we already followed.
+                if (name.equals("singletonCImpl") || name.equals("singletonC")
+                        || name.equals("activityRetainedCImpl") || name.equals("appComponent")) continue;
+
+                // Hilt generates the field as Provider<X> / Lazy<X>; the
+                // interesting binding is X, not the wrapper. Read the
+                // parameterized type from the generic signature so the
+                // `interface=X` filter matches what users actually mean.
+                String declaredType = f.getType().getName();
+                String boundType = declaredType;
+                if (isWrapperType(declaredType)) {
+                    String inner = parameterizedTypeArg(f.getGenericType());
+                    if (inner != null) boundType = inner;
+                }
+                if (filterLower != null
+                        && !boundType.toLowerCase().contains(filterLower)
+                        && !declaredType.toLowerCase().contains(filterLower)) continue;
+
+                Map<String, Object> binding = new LinkedHashMap<>();
+                binding.put("scope", scope);
+                binding.put("name", name);
+                binding.put("boundType", boundType);
+                if (!boundType.equals(declaredType)) binding.put("declaredType", declaredType);
+                try {
+                    f.setAccessible(true);
+                    Object value = f.get(component);
+                    if (value != null) {
+                        binding.put("runtimeImpl", value.getClass().getName());
+                        // If the field is a Provider/Lazy and the caller
+                        // asked about THIS binding specifically (filter
+                        // matched the parameterized type), materialize the
+                        // wrapped instance so they can see the concrete
+                        // impl class — that's the canonical question the
+                        // research methodology wants answered. Skipped
+                        // for unfiltered walks to avoid eagerly
+                        // instantiating every binding.
+                        if (filterLower != null && isWrapperType(declaredType)) {
+                            Object unwrapped = unwrapProvider(value);
+                            if (unwrapped != null && unwrapped != value) {
+                                binding.put("providedImpl", unwrapped.getClass().getName());
+                            }
+                        }
+                    } else {
+                        binding.put("runtimeImpl", null);
+                    }
+                } catch (Throwable t) {
+                    binding.put("runtimeImpl", "<inaccessible: " + t.getClass().getSimpleName() + ">");
+                }
+                out.add(binding);
+            }
+            cls = cls.getSuperclass();
+        }
+        return out;
+    }
+
+    private static boolean isWrapperType(String fqName) {
+        return "javax.inject.Provider".equals(fqName)
+            || "dagger.Lazy".equals(fqName)
+            || "dagger.internal.DoubleCheck".equals(fqName)
+            || "dagger.internal.SingleCheck".equals(fqName)
+            || "dagger.internal.Provider".equals(fqName);
+    }
+
+    /**
+     * For {@code Provider<X> field;} returns the FQ name of {@code X}.
+     * Returns null when the field is raw or when the type argument can't
+     * be statically resolved.
+     */
+    private static String parameterizedTypeArg(java.lang.reflect.Type type) {
+        if (!(type instanceof java.lang.reflect.ParameterizedType)) return null;
+        java.lang.reflect.Type[] args = ((java.lang.reflect.ParameterizedType) type).getActualTypeArguments();
+        if (args.length == 0) return null;
+        java.lang.reflect.Type t0 = args[0];
+        if (t0 instanceof Class) return ((Class<?>) t0).getName();
+        // Could be a TypeVariable / WildcardType / ParameterizedType — fall back to toString.
+        return t0.toString();
+    }
+
+    /**
+     * Calls {@code .get()} on a {@code javax.inject.Provider} (or Dagger
+     * {@code Lazy}) to materialize the wrapped instance. Returns the
+     * argument unchanged if it isn't a known wrapper, or null on failure.
+     * <strong>Side-effecting</strong> — only call when the caller has
+     * narrowed to a specific binding via the {@code interface=} filter.
+     */
+    private static Object unwrapProvider(Object value) {
+        if (value == null) return null;
+        for (String cls : new String[]{"javax.inject.Provider", "dagger.Lazy"}) {
+            try {
+                Class<?> ifaceClass = Class.forName(cls);
+                if (ifaceClass.isInstance(value)) {
+                    Method get = ifaceClass.getMethod("get");
+                    return get.invoke(value);
+                }
+            } catch (Throwable ignored) {}
+        }
+        // DoubleCheck / SingleCheck implement Provider so the loop above handles them.
+        return value;
+    }
+
+    private String simpleScopeLabel(String fqClassName) {
+        // Hilt impl classes follow Dagger…_HiltComponents_<Scope>$<ScopeC>Impl.
+        // Try to extract a short label like "Singleton" / "ActivityRetained" / "Activity".
+        if (fqClassName.contains("ActivityRetainedCImpl")) return "ActivityRetained";
+        if (fqClassName.contains("SingletonCImpl")) return "Singleton";
+        if (fqClassName.contains("ActivityCImpl")) return "Activity";
+        if (fqClassName.contains("ViewModelCImpl")) return "ViewModel";
+        if (fqClassName.contains("FragmentCImpl")) return "Fragment";
+        if (fqClassName.contains("ServiceCImpl")) return "Service";
+        // Fallback: simple name.
+        int dot = fqClassName.lastIndexOf('.');
+        return dot >= 0 ? fqClassName.substring(dot + 1) : fqClassName;
+    }
+
+    /**
+     * Captures a PNG of the foreground activity's window. Mirrors what
+     * the {@code /compose/screenshot} handler does — main-thread window
+     * lookup, off-main-thread PixelCopy. Returns null if no activity or
+     * capture failed; callers tolerate a missing screenshot rather than
+     * failing the whole wait_for response.
+     */
+    private byte[] captureScreenshotBytes() {
+        try {
+            android.view.Window window = runOnMainThread(() -> {
+                Activity activity = WindowRootDiscovery.getCurrentActivity();
+                return activity != null ? activity.getWindow() : null;
+            });
+            if (window == null) return null;
+            return io.yamsergey.dta.sidekick.compose.ComposeHitTester.captureScreenshot(window);
+        } catch (Throwable t) {
+            SidekickLog.d(TAG, "screenshot capture failed during wait_for: " + t.getMessage());
+            return null;
+        }
     }
 
     private <T> T runOnMainThread(java.util.concurrent.Callable<T> callable) {

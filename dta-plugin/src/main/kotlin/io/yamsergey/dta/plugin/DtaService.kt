@@ -116,6 +116,8 @@ class DtaService : Disposable {
         fun onSidekickInfoChanged(info: SidekickInfo?) {}
         /** Called whenever a fresh /api/runtime/viewmodels response is fetched. */
         fun onViewModelsChanged(json: String?) {}
+        /** Called whenever a fresh /api/runtime/app_functions response is fetched. */
+        fun onAppFunctionsChanged(json: String?) {}
     }
 
     fun addListener(listener: DtaServiceListener) { listeners.add(listener) }
@@ -569,9 +571,11 @@ class DtaService : Disposable {
             val backstack = try { client.navigationBackstack(pkg, device) } catch (_: Exception) { null }
             val graph = try { client.navigationGraph(pkg, device) } catch (_: Exception) { null }
             val viewModels = try { client.viewModels(pkg, device) } catch (_: Exception) { null }
+            val appFunctions = try { client.appFunctions(pkg, device) } catch (_: Exception) { null }
             notifyOnEdt {
                 it.onRuntimeChanged(lifecycle, memory, threads, backstack, graph)
                 it.onViewModelsChanged(viewModels)
+                it.onAppFunctionsChanged(appFunctions)
             }
         } catch (e: Exception) {
             log.debug("Runtime fetch failed: ${e.message}")
@@ -585,6 +589,29 @@ class DtaService : Disposable {
     fun fetchSavedState(pkg: String, viewModelId: String, device: String): String {
         val client = ensureDaemon()
         return client.viewModelSavedState(pkg, viewModelId, device)
+    }
+
+    /**
+     * Drives the host app's NavController to a destination. Body is the JSON
+     * payload {@code {"destination": "...", "params": {...}}}; we serialize
+     * it here so callers don't have to depend on Jackson directly.
+     */
+    fun navigate(pkg: String, device: String, destination: String, params: Map<String, String>): String {
+        val client = ensureDaemon()
+        val body = mapper.createObjectNode().apply {
+            put("destination", destination)
+            if (params.isNotEmpty()) {
+                set("params", mapper.valueToTree<tools.jackson.databind.JsonNode>(params))
+            }
+        }
+        return client.navigate(pkg, device, mapper.writeValueAsString(body))
+    }
+
+    /** Fires Intent.ACTION_VIEW on the host with the given URI. */
+    fun openDeepLink(pkg: String, device: String, uri: String): String {
+        val client = ensureDaemon()
+        val body = mapper.createObjectNode().put("uri", uri)
+        return client.openDeepLink(pkg, device, mapper.writeValueAsString(body))
     }
 
     private fun clearDataCaches() {

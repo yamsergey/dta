@@ -168,7 +168,15 @@ public class McpServer {
 
         // list_apps
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("list_apps", "List debuggable apps with sidekick installed",
+            tool("list_apps",
+                "List debuggable apps with sidekick installed on the device. " +
+                "Each entry surfaces `package`, `socket`, and — when the daemon " +
+                "has an active connection cached — `sidekickVersion` (the AAR " +
+                "version reported by the sidekick's `/health`). Use the version " +
+                "to detect skew against the daemon/plugin/CLI build before " +
+                "running tools — a mismatch usually means the host APK is stale " +
+                "and needs a rebuild. Apps with no `sidekickVersion` field " +
+                "simply haven't been touched yet this session.",
                 schema("device", "string", "Device serial (optional)")),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -265,10 +273,10 @@ public class McpServer {
 
         // tap
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("tap", "Tap at screen coordinates",
+            tool("tap", "Tap at screen coordinates. Coordinates are **device-pixel space** (matches the values from `layout_tree` bounds), NOT screenshot-pixel space — the values are equal only when the screenshot density matches the device, which is not always the case (e.g. some emulators / scaled captures). If your tap lands off-target, double-check you're reading bounds from `layout_tree`, not pixel-counting a saved PNG.",
                 schema(Map.of(
-                    "x", prop("integer", "X coordinate", true),
-                    "y", prop("integer", "Y coordinate", true),
+                    "x", prop("integer", "X coordinate (device-pixel space)", true),
+                    "y", prop("integer", "Y coordinate (device-pixel space)", true),
                     "device", prop("string", "Device serial", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
@@ -280,6 +288,122 @@ public class McpServer {
                     return ok(json);
                 } catch (Exception e) {
                     return friendlyError("tap", e);
+                }
+            }
+        ));
+
+        // wait_for — poll the foreground view tree until a node matches.
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("wait_for",
+                "Block until a node matching the predicate appears in the foreground view tree, or until `max_ms` elapses. Designed for transient UI (snackbars, toasts, brief loaders) that disappears faster than a tap → screenshot round-trip would catch.\n\n" +
+                "Polling runs in-process inside the host app at fixed 50 ms intervals, so this routinely sees UI with sub-second lifetimes that an external poll loop would miss.\n\n" +
+                "**Predicate fields** (all optional, AND-combined when multiple are present — at least one must be non-empty):\n" +
+                "- `text`: substring match (case-insensitive) against the node's text.\n" +
+                "- `test_tag`: exact match against the node's `testTag` (Compose `Modifier.testTag`). Most reliable when the app under test sets explicit tags.\n" +
+                "- `class_name`: exact match against the node's `className` (View) or `composable` (Compose). Use the simple name — e.g. `\"Snackbar\"` matches `androidx.compose.material3.SnackbarHost` (suffix) and a bare Compose `Snackbar`.\n\n" +
+                "**Response on match**: `{matched: true, pollMs, elapsedMs, matchedNode, layoutTree, screenshot (base64 PNG)}` — same `layoutTree` shape as `layout_tree`, with the matched node also surfaced directly so callers don't have to walk it. Two independent opt-out flags shrink the response for token-budget-sensitive workflows: `return_full_tree: false` omits `layoutTree` (~50–500 KB depending on Compose density), `return_screenshot: false` omits `screenshot`/`screenshotEncoding`/`screenshotFormat` and skips the GPU capture entirely (~480 KB on NiA-sized screens). Setting both to `false` pushes a typical match response below ~10 KB.\n\n" +
+                "**Response on timeout**: `{matched: false, pollMs, elapsedMs}`.\n\n" +
+                "**Timing fields**: `pollMs` is the sidekick polling-loop duration — this is what `max_ms` caps (with a possible single-iteration overshoot up to one view-tree capture's cost). `elapsedMs` is the daemon-side end-to-end envelope, additionally covering HTTP transit and layout-tree JSON serialization back to the caller; assert `pollMs <= max_ms`, treat `elapsedMs - pollMs` as the envelope diagnostic.\n\n" +
+                "If you need to perform an action immediately before watching (the snackbar case), prefer `tap_and_wait_for` — it saves one round-trip's worth of latency which is the exact gap that lets the affordance disappear.",
+                schema(Map.ofEntries(
+                    Map.entry("text", prop("string", "Substring match (case-insensitive) against node text.", false)),
+                    Map.entry("test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false)),
+                    Map.entry("class_name", prop("string", "Simple class name match (View className suffix or Compose composable name).", false)),
+                    Map.entry("max_ms", prop("integer", "Timeout in milliseconds (default 3000). Caps `pollMs`; `elapsedMs` may exceed it due to envelope cost.", false)),
+                    Map.entry("return_full_tree", prop("boolean", "Include the post-match layout tree in the response (default true). Set false to keep only `matchedNode` + screenshot — savings range from ~50 KB (flat hierarchies) to ~500 KB (dense Compose trees). Use this when you've already captured a layout snapshot and only need the match.", false)),
+                    Map.entry("return_screenshot", prop("boolean", "Include the base64 PNG screenshot in the response (default true). Set false to omit `screenshot`/`screenshotEncoding`/`screenshotFormat` AND skip the GPU capture step entirely — typically ~480 KB saved on NiA-sized screens. Combine with `return_full_tree: false` for a sub-10 KB minimal match response.", false)),
+                    Map.entry("package", prop("string", "App package name (auto-detected from foreground when omitted).", false)),
+                    Map.entry("device", prop("string", "Device serial (auto-detected when only one device).", false))
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+                    Map<String, Object> bodyMap = new java.util.HashMap<>();
+                    String text = getString(args, "text");
+                    String tag = getString(args, "test_tag");
+                    String cls = getString(args, "class_name");
+                    if (text != null) bodyMap.put("text", text);
+                    if (tag != null) bodyMap.put("testTag", tag);
+                    if (cls != null) bodyMap.put("className", cls);
+                    Object maxMs = args.get("max_ms");
+                    if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
+                    Object rft = args.get("return_full_tree");
+                    if (rft instanceof Boolean) bodyMap.put("return_full_tree", rft);
+                    Object rs = args.get("return_screenshot");
+                    if (rs instanceof Boolean) bodyMap.put("return_screenshot", rs);
+                    String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
+                    return ok(getDaemon().waitFor(pkg, device, body));
+                } catch (Exception e) {
+                    return friendlyError("wait_for", e);
+                }
+            }
+        ));
+
+        // tap_and_wait_for — tap + immediate wait, one round-trip.
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("tap_and_wait_for",
+                "Tap at `(x, y)` and immediately poll for a node matching the predicate. Saves the round-trip vs `tap` → `wait_for` — that round-trip is exactly the latency that lets short-lived UI (snackbars, toasts) disappear before the second call lands.\n\n" +
+                "Coordinates are **device-pixel space** (same as `tap`). Predicate fields, `return_full_tree`, `return_screenshot`, and response shape mirror `wait_for` — including the `pollMs` (sidekick polling, capped by `max_ms`) + `elapsedMs` (daemon end-to-end, also covers ADB tap dispatch on top of HTTP + serialization) timing split. Setting both `return_full_tree: false` and `return_screenshot: false` gives a sub-10 KB minimal response.",
+                schema(Map.ofEntries(
+                    Map.entry("x", prop("integer", "Tap X coordinate (device-pixel space).", true)),
+                    Map.entry("y", prop("integer", "Tap Y coordinate (device-pixel space).", true)),
+                    Map.entry("text", prop("string", "Substring match (case-insensitive) against node text.", false)),
+                    Map.entry("test_tag", prop("string", "Exact match against Compose Modifier.testTag.", false)),
+                    Map.entry("class_name", prop("string", "Simple class name match.", false)),
+                    Map.entry("max_ms", prop("integer", "Wait timeout in milliseconds (default 3000). Caps `pollMs` only.", false)),
+                    Map.entry("return_full_tree", prop("boolean", "Include the post-match layout tree (default true). Set false for compact response.", false)),
+                    Map.entry("return_screenshot", prop("boolean", "Include the base64 PNG screenshot (default true). Set false to omit and skip the GPU capture — ~480 KB saved.", false)),
+                    Map.entry("package", prop("string", "App package name (auto-detected).", false)),
+                    Map.entry("device", prop("string", "Device serial (auto-detected when only one device).", false))
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    int x = getInt(args, "x");
+                    int y = getInt(args, "y");
+                    String pkg = getString(args, "package");
+                    String device = getString(args, "device");
+                    Map<String, Object> bodyMap = new java.util.HashMap<>();
+                    String text = getString(args, "text");
+                    String tag = getString(args, "test_tag");
+                    String cls = getString(args, "class_name");
+                    if (text != null) bodyMap.put("text", text);
+                    if (tag != null) bodyMap.put("testTag", tag);
+                    if (cls != null) bodyMap.put("className", cls);
+                    Object maxMs = args.get("max_ms");
+                    if (maxMs instanceof Number) bodyMap.put("max_ms", ((Number) maxMs).intValue());
+                    Object rft = args.get("return_full_tree");
+                    if (rft instanceof Boolean) bodyMap.put("return_full_tree", rft);
+                    Object rs = args.get("return_screenshot");
+                    if (rs instanceof Boolean) bodyMap.put("return_screenshot", rs);
+                    String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
+                    return ok(getDaemon().tapAndWaitFor(pkg, device, x, y, body));
+                } catch (Exception e) {
+                    return friendlyError("tap_and_wait_for", e);
+                }
+            }
+        ));
+
+        // long_press
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("long_press", "Long-press at screen coordinates. Same coordinate space rules as `tap` (device-pixel, from `layout_tree` bounds). Implementation: zero-distance `adb input swipe` with `duration` ≥ Android's long-press threshold (~500 ms; we default to 600 ms for margin). Use this for context menus, drag-and-drop pickup, multi-select entry, anything that requires holding before lift.",
+                schema(Map.of(
+                    "x", prop("integer", "X coordinate (device-pixel space)", true),
+                    "y", prop("integer", "Y coordinate (device-pixel space)", true),
+                    "duration_ms", prop("integer", "Hold duration in milliseconds (default 600; values below ~500 may be classified as a tap by Android)", false),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    int x = getInt(args, "x");
+                    int y = getInt(args, "y");
+                    Object durObj = args.get("duration_ms");
+                    int duration = (durObj instanceof Number) ? ((Number) durObj).intValue() : 600;
+                    String device = getString(args, "device");
+                    String json = getDaemon().longPress(x, y, duration, device);
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("long_press", e);
                 }
             }
         ));
@@ -355,17 +479,37 @@ public class McpServer {
         ));
     }
 
+    /**
+     * Trailing note appended to every tool that requires the JVMTI shim
+     * (bytecode hooks). On API < 28 the shim refuses to install
+     * ({@code BootstrapShim} returns {@code api_too_low}) so these tools
+     * return errors. Reflection-based tools (layout_tree, app_functions,
+     * viewmodels, hilt_bindings, files, dbs, prefs, etc.) are unaffected.
+     * The agent can pre-check by reading {@code shimStatus.unavailable}
+     * from the {@code run_app} response.
+     */
+    private static final String JVMTI_REQUIRED_NOTE =
+        "\n\n**Requires API 28+ (JVMTI shim).** On lower-API devices the JVMTI shim "
+        + "refuses to install (`shimStatus.reason = \"api_too_low\"` from `run_app`) "
+        + "and this tool returns an error. Most of DTA is reflection-based and still "
+        + "works on API 26-27 — check `run_app` response's `shimStatus.available` / "
+        + "`shimStatus.unavailable` for the per-capability matrix.";
+
     private static void collectAppTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_requests", "List captured HTTP requests from an app",
+            tool("network_requests", "List captured HTTP requests from an app. Optional `since_ms` returns only requests whose `startTime > since_ms` — the **delta primitive** for action-bounded queries. Pass an epoch ms taken before triggering an action, then query after; only requests started during the action are returned. Same pattern as logcat's `since_ms`. Empty result + count=0 is normal when nothing new fired." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
-                    "device", prop("string", "Device serial", false)
+                    "device", prop("string", "Device serial", false),
+                    "since_ms", prop("integer", "Optional epoch ms lower bound (exclusive). Filters to requests started after this timestamp.", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
-                    String json = getDaemon().networkRequests(getString(args, "package"), getString(args, "device"));
+                    Object sinceObj = args.get("since_ms");
+                    Long since = (sinceObj instanceof Number) ? ((Number) sinceObj).longValue() : null;
+                    String json = getDaemon().networkRequests(
+                        getString(args, "package"), getString(args, "device"), since);
                     return ok(json);
                 } catch (Exception e) {
                     return friendlyError("tool", e);
@@ -373,9 +517,53 @@ public class McpServer {
             }
         ));
 
+        // network_data_flow — per-domain aggregation over network_requests
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("network_data_flow",
+                "Outbound-traffic summary by destination domain — compact view of " +
+                "*which hosts the app called, with what verbs, what content, and how much came back*. " +
+                "Pre-aggregates `network_requests` so spec-extraction callers don't have " +
+                "to walk individual entries. `since_ms` is the **delta primitive** — an epoch " +
+                "ms bookmark taken before an action; same semantics as `network_requests.since_ms` " +
+                "and `app_runtime command=logcat`'s `since_ms`. Pass it to scope the aggregation " +
+                "to that action's window.\n\n" +
+                "Response shape:\n" +
+                "  {\n" +
+                "    \"windowStart\": <ms or 0 if unbounded>,\n" +
+                "    \"totalRequests\": N, \"totalBytes\": M,\n" +
+                "    \"domains\": [{\"host\":\"api.example.com\",\"requests\":6,\"totalResponseBytes\":12345,\n" +
+                "                  \"byMethod\":{\"GET\":5,\"POST\":1},\n" +
+                "                  \"byStatus\":{\"2xx\":5,\"4xx\":1},\n" +
+                "                  \"byContentType\":{\"application/json\":5,\"image/png\":1},\n" +
+                "                  \"samplePaths\":[\"/v2/items\", ...],\"resourceTypes\":[\"xhr\"]}, ...]\n" +
+                "  }\n\n" +
+                "Domains sorted by request count desc. Sample paths capped at 5 per domain. " +
+                "`byContentType` keys are normalized (parameters like `; charset=utf-8` stripped, " +
+                "lowercased) so `application/json` buckets together regardless of charset. " +
+                "`byContentType` and `resourceTypes` only appear when the underlying capture " +
+                "populated them. For uninstrumented apps or apps with no captured traffic, " +
+                "`domains` is empty — that's diagnostic data, not an error." + JVMTI_REQUIRED_NOTE,
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false),
+                    "since_ms", prop("integer", "Optional epoch ms lower bound (exclusive). Same semantics as network_requests.since_ms.", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    Object sinceObj = args.get("since_ms");
+                    Long since = (sinceObj instanceof Number) ? ((Number) sinceObj).longValue() : null;
+                    String json = getDaemon().networkDataFlow(
+                        getString(args, "package"), getString(args, "device"), since);
+                    return ok(json);
+                } catch (Exception e) {
+                    return friendlyError("network_data_flow", e);
+                }
+            }
+        ));
+
         // network_request
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_request", "Get detailed info about a specific HTTP request",
+            tool("network_request", "Get detailed info about a specific HTTP request" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID from network_requests", true),
@@ -394,7 +582,7 @@ public class McpServer {
 
         // websocket_connections
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("websocket_connections", "List captured WebSocket connections from an app",
+            tool("websocket_connections", "List captured WebSocket connections from an app" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -411,7 +599,7 @@ public class McpServer {
 
         // websocket_connection
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("websocket_connection", "Get detailed info about a WebSocket connection including messages",
+            tool("websocket_connection", "Get detailed info about a WebSocket connection including messages" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "connection_id", prop("string", "Connection ID", true),
@@ -592,9 +780,9 @@ public class McpServer {
 
         // clear_network_requests
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("clear_network_requests", "Clear all captured HTTP requests from an app",
+            tool("clear_network_requests", "Clear all captured HTTP requests from an app. If `package` is omitted, the daemon auto-detects the foreground app via `dumpsys window` (same fallback `screenshot` / `layout_tree` use). Returns an error when no foreground app can be detected — pass `package` explicitly in that case." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
-                    "package", prop("string", "App package name", true),
+                    "package", prop("string", "App package name (optional — auto-detected from foreground app when omitted)", false),
                     "device", prop("string", "Device serial", false)
                 ))),
             (exchange, request) -> { var args = request.arguments();
@@ -609,7 +797,7 @@ public class McpServer {
 
         // clear_websocket_connections
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("clear_websocket_connections", "Clear all captured WebSocket connections from an app",
+            tool("clear_websocket_connections", "Clear all captured WebSocket connections from an app" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -633,7 +821,7 @@ public class McpServer {
                 "Use this when network_requests' inline truncation isn't enough — for example to inspect " +
                 "the exact form-encoded payload an OAuth token POST sent, or the JSON a failing API call " +
                 "returned. Either side can be absent (request still in flight, response failed) — the " +
-                "corresponding sub-object's body field is omitted in that case.",
+                "corresponding sub-object's body field is omitted in that case." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "request_id", prop("string", "Request ID from network_requests", true),
@@ -652,7 +840,7 @@ public class McpServer {
 
         // network_stats
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("network_stats", "Get network statistics for an app",
+            tool("network_stats", "Get network statistics for an app" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -756,7 +944,10 @@ public class McpServer {
                 "Use text/type/resource_id filters to reduce output. Use view_id to get a specific subtree. " +
                 "If you omit `package`, the daemon auto-detects the foreground app from `dumpsys window` and " +
                 "returns its layout (the resolved name appears in the response as `resolvedPackage`); filters " +
-                "still require an explicit package because they are interpreted by the app's sidekick.",
+                "still require an explicit package because they are interpreted by the app's sidekick.\n\n" +
+                "**API note**: the tree shape itself is reflection-based and works on API 26+. The per-node " +
+                "`recompositionCount` and `skipCount` fields specifically require the JVMTI shim (API 28+); " +
+                "on lower-API devices those fields are absent from nodes but the rest of the tree is intact.",
                 schema(Map.of(
                     "package", prop("string", "App package name (optional — auto-detected from foreground app when omitted; required when using filters)", false),
                     "device", prop("string", "Device serial", false),
@@ -799,12 +990,84 @@ public class McpServer {
                 }
             }
         ));
+
+        // set_affordances — extend the cross-platform affordance taxonomy at runtime
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("set_affordances",
+                "Extend the layout-tree affordance taxonomy at runtime, no sidekick rebuild required.\n\n" +
+                "DTA tags Compose nodes with portable affordance labels (`affordance: material-snackbar`, " +
+                "`material-bottom-sheet-modal`, ...) so cross-platform spec extractors can map Android UI to " +
+                "iOS conventions without re-deriving each time. Built-in defaults cover the documented " +
+                "Material 3 component set, but private Material internals (`OneRowSnackbar`, `SingleRowTopAppBar`, " +
+                "...) and in-house design systems (Spotify, Twitter, etc.) need additions.\n\n" +
+                "Pass a JSON object mapping composable simple-name → affordance label. Mappings merge over " +
+                "defaults; passing the same key with an empty-string value removes it from the active map. " +
+                "Live until the host app process restarts.\n\n" +
+                "Example: `{\"mappings\": {\"OneRowSnackbar\": \"material-snackbar\", \"BrandBottomSheet\": \"brand-sheet\"}}`. " +
+                "Response includes `applied` (count merged) and the full resulting `affordances` map sorted alphabetically.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "mappings", prop("object", "JSON object: {ComposableName: affordance-label}. Empty-string value deletes a key from the active map.", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    Object mappings = args.get("mappings");
+                    if (mappings == null) return errorResult("'mappings' parameter is required");
+                    String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(mappings);
+                    return ok(getDaemon().setAffordances(
+                        requireString(args, "package"), getString(args, "device"), body));
+                } catch (Exception e) {
+                    return friendlyError("set_affordances", e);
+                }
+            }
+        ));
+
+        // list_affordances — inspect the current merged map
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("list_affordances",
+                "Returns the currently-active affordance map (built-in defaults + any runtime overrides) " +
+                "for an app. Use this to verify a `set_affordances` call landed, or to see what taxonomy " +
+                "the layout-tree emitter will tag right now.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    return ok(getDaemon().getAffordances(
+                        requireString(args, "package"), getString(args, "device")));
+                } catch (Exception e) {
+                    return friendlyError("list_affordances", e);
+                }
+            }
+        ));
+
+        // reset_affordances — revert to defaults
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("reset_affordances",
+                "Revert the app's affordance map to the built-in defaults — drops every override added " +
+                "via `set_affordances` this session. Useful when starting a fresh extraction session or " +
+                "isolating whether an extraction issue is caused by a custom mapping.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    return ok(getDaemon().resetAffordances(
+                        requireString(args, "package"), getString(args, "device")));
+                } catch (Exception e) {
+                    return friendlyError("reset_affordances", e);
+                }
+            }
+        ));
     }
 
     private static void collectMockTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // mock_list_rules
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_list_rules", "List all mock rules for HTTP and WebSocket mocking",
+            tool("mock_list_rules", "List all mock rules for HTTP and WebSocket mocking" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial", false)
@@ -821,7 +1084,7 @@ public class McpServer {
 
         // mock_create_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_create_rule", "Create a mock rule. Either provide request_id/message_id to create from captured data, OR provide type with other parameters to create from scratch.",
+            tool("mock_create_rule", "Create a mock rule. Either provide request_id/message_id to create from captured data, OR provide type with other parameters to create from scratch." + JVMTI_REQUIRED_NOTE,
                 schema(Map.ofEntries(
                     Map.entry("package", prop("string", "App package name", true)),
                     Map.entry("request_id", prop("string", "ID of captured HTTP request (mode 1)", false)),
@@ -900,7 +1163,7 @@ public class McpServer {
 
         // mock_update_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)",
+            tool("mock_update_rule", "Update a mock rule (enable/disable, modify response/message, set content pattern)" + JVMTI_REQUIRED_NOTE,
                 schema(Map.ofEntries(
                     Map.entry("package", prop("string", "App package name", true)),
                     Map.entry("rule_id", prop("string", "Mock rule ID", true)),
@@ -948,7 +1211,7 @@ public class McpServer {
 
         // mock_delete_rule
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_delete_rule", "Delete a mock rule",
+            tool("mock_delete_rule", "Delete a mock rule" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "rule_id", prop("string", "Mock rule ID to delete", true),
@@ -967,7 +1230,7 @@ public class McpServer {
 
         // mock_config
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("mock_config", "Get or update global mock configuration",
+            tool("mock_config", "Get or update global mock configuration" + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "enabled", prop("boolean", "Enable/disable all mocking (optional, omit to just get config)", false),
@@ -1092,7 +1355,7 @@ public class McpServer {
         // interceptor_set
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("interceptor_set",
-                "Install or replace the interceptor script for an app. " + intercDoc,
+                "Install or replace the interceptor script for an app. " + intercDoc + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false),
@@ -1113,7 +1376,7 @@ public class McpServer {
         // interceptor_clear
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("interceptor_clear",
-                "Uninstall the active interceptor script for an app. State and logs are reset.",
+                "Uninstall the active interceptor script for an app. State and logs are reset." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1133,7 +1396,7 @@ public class McpServer {
         tools.add(new McpServerFeatures.SyncToolSpecification(
             tool("interceptor_logs",
                 "Read entries from the interceptor's ring buffer (script `log()` output and caught errors). " +
-                "Pass the highest `seq` returned previously as `since` to page forward; pass 0 to read all.",
+                "Pass the highest `seq` returned previously as `since` to page forward; pass 0 to read all." + JVMTI_REQUIRED_NOTE,
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false),
@@ -1155,7 +1418,7 @@ public class McpServer {
     private static void collectCdpTools(List<McpServerFeatures.SyncToolSpecification> tools) {
         // cdp_watch_start
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("cdp_watch_start", "Start watching Custom Tabs network traffic via Chrome DevTools Protocol. Traffic will be captured automatically and stored alongside regular HTTP requests.",
+            tool("cdp_watch_start", "Scope: Chrome **Custom Tab** network capture only. NOT a general UI assertion / wait-for primitive. Starts a Chrome DevTools Protocol watcher on the host's Custom Tabs and captures their network traffic into the same store as native OkHttp requests (visible in `network_requests` with `source: \"CustomTab\"`). Useful when an app opens a CCT and you want to see what the loaded page fetches (analytics, tracking pixels, etc.). For waiting on transient in-app UI (snackbars, toasts), this is the wrong tool — use the layout polling primitives.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1172,7 +1435,7 @@ public class McpServer {
 
         // cdp_watch_stop
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("cdp_watch_stop", "Stop watching Custom Tabs network traffic",
+            tool("cdp_watch_stop", "Stop the Chrome Custom Tab network capture started by `cdp_watch_start`. Custom Tabs only — not a general UI primitive.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1189,7 +1452,7 @@ public class McpServer {
 
         // cdp_watch_status
         tools.add(new McpServerFeatures.SyncToolSpecification(
-            tool("cdp_watch_status", "Check if Custom Tabs network watching is active",
+            tool("cdp_watch_status", "Reports whether a Chrome Custom Tab network watcher (started via `cdp_watch_start`) is currently active for the given package. Custom Tabs only — not a general UI primitive.",
                 schema(Map.of(
                     "package", prop("string", "App package name", true),
                     "device", prop("string", "Device serial (optional)", false)
@@ -1249,13 +1512,25 @@ public class McpServer {
                 "- memory: Heap and native memory usage (heapUsed, heapMax, nativeHeap)\n" +
                 "- threads: List all threads with state. Set stack_traces=true for full traces.\n" +
                 "- viewmodels: Live ViewModels with reflected LiveData/StateFlow/Compose state. Includes Activity-scoped (owner.type=\"Activity\") and Navigation 3 NavEntry-scoped (owner.type=\"NavEntry\", owner.key=NavKey toString). NavEntry-scoped ids are prefixed with `navEntry::` — paste the id back into saved_state for SavedStateHandle inspection.\n" +
-                "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).",
-                schema(Map.of(
-                    "command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state", true),
-                    "package", prop("string", "App package name (auto-detected if only one app)", false),
-                    "device", prop("string", "Device serial (auto-detected if only one device)", false),
-                    "stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false),
-                    "view_model_id", prop("string", "Required for saved_state — the id field from a viewmodels response", false)
+                "- saved_state: SavedStateHandle contents for the ViewModel addressed by view_model_id (from the viewmodels command).\n" +
+                "- app_functions: Enumerates androidx.appfunctions methods the host exposes to Gemini / system AI (Android 16+ framework). Reads the KSP-generated assets/app_functions_v2.xml — no extra deps required on the host. Each entry has {id, description, parameters[{name, isRequired, description, dataType{type, typeName, isNullable, dataTypeReference}}], response, enabledByDefault, schemaCategory/Name/Version}. Returns {functions: []} with a `note` when the host doesn't use AppFunctions.\n" +
+                "- navigate: Push a destination onto the host's NavController (Navigation 2 / Compose Navigation). Requires `destination` (the route template or a literal route from navigation_graph) and optional `params` (object whose keys fill `{placeholder}` segments; extras become query params). Returns {status:\"ok\", route:\"...\"} or {error:\"...\"}. Navigation 3 (NavBackStack/NavKey) is NOT supported — use open_deeplink instead, or wait for the Nav 3 research thread to land.\n" +
+                "- open_deeplink: Fire Intent.ACTION_VIEW with a URI. Works for any destination the app exposes via <intent-filter><data>. Requires `uri` (string). Inherits the host's task affinity (no external browser detour).\n" +
+                "- logcat: Dump the host app's logcat (filtered to its PID via `adb shell logcat --pid`). Parsed into `{lines:[{timestamp, epochMs, level, tag, pid, tid, message}], count}`. Optional filters: `since_ms` (epoch ms — pass `Date.now()` before triggering an action to get **action-bounded logcat**, the canonical pattern for stub-helper analysis where the side effect doesn't reach the wire), `max_lines` (tail-bias keeps the most recent N), `filter` (substring, case-insensitive, against the raw line), `min_level` (V/D/I/W/E/F).\n" +
+                "- hilt_bindings: Surface the Hilt-generated DI graph reachable from the foreground activity (Activity + ActivityRetained + Singleton scopes). Each binding is `{scope, name, declaredType, runtimeImpl}` — `declaredType` is what the binding's interface looks like in Hilt's generated impl class, `runtimeImpl` is the concrete class currently wired. Answers the methodology question 'what impl is wired for interface X in this build?' (StubAnalyticsHelper vs FirebaseAnalyticsHelper, repo impls, theme providers, etc.) without restarting under test instrumentation. Filter with `interface` (substring against declaredType FQ name) to narrow to a single binding.",
+                schema(Map.ofEntries(
+                    Map.entry("command", prop("string", "Operation: navigation_backstack, navigation_graph, lifecycle, memory, threads, viewmodels, saved_state, app_functions, navigate, open_deeplink, logcat, hilt_bindings", true)),
+                    Map.entry("package", prop("string", "App package name (auto-detected if only one app)", false)),
+                    Map.entry("device", prop("string", "Device serial (auto-detected if only one device)", false)),
+                    Map.entry("stack_traces", prop("boolean", "Include stack traces for threads command (default: false)", false)),
+                    Map.entry("view_model_id", prop("string", "Required for saved_state — the id field from a viewmodels response", false)),
+                    Map.entry("destination", prop("string", "Required for navigate — the route template or literal route to navigate to.", false)),
+                    Map.entry("params", prop("object", "Optional for navigate — map of route-placeholder → value. Extras become query params.", false)),
+                    Map.entry("uri", prop("string", "Required for open_deeplink — the URI to launch via Intent.ACTION_VIEW.", false)),
+                    Map.entry("since_ms", prop("integer", "logcat: epoch ms lower bound (drops older lines).", false)),
+                    Map.entry("max_lines", prop("integer", "logcat: cap on returned lines (tail-bias, keeps the most recent).", false)),
+                    Map.entry("filter", prop("string", "logcat: substring filter, case-insensitive.", false)),
+                    Map.entry("min_level", prop("string", "logcat: minimum severity letter (V/D/I/W/E/F).", false))
                 ))),
             (exchange, request) -> { var args = request.arguments();
                 try {
@@ -1278,10 +1553,112 @@ public class McpServer {
                                 yield errorResult("'view_model_id' is required for saved_state");
                             yield ok(getDaemon().viewModelSavedState(pkg, vmId, device));
                         }
+                        case "app_functions" -> ok(getDaemon().appFunctions(pkg, device));
+                        case "hilt_bindings" -> {
+                            String iface = getString(args, "interface");
+                            yield ok(getDaemon().hiltBindings(pkg, device, iface));
+                        }
+                        case "logcat" -> {
+                            Object sinceObj = args.get("since_ms");
+                            Long since = (sinceObj instanceof Number) ? ((Number) sinceObj).longValue() : null;
+                            Object maxObj = args.get("max_lines");
+                            Integer max = (maxObj instanceof Number) ? ((Number) maxObj).intValue() : null;
+                            String filter = getString(args, "filter");
+                            String minLevel = getString(args, "min_level");
+                            yield ok(getDaemon().logcat(pkg, device, since, max, filter, minLevel));
+                        }
+                        case "navigate" -> {
+                            String destination = getString(args, "destination");
+                            if (destination == null || destination.isEmpty())
+                                yield errorResult("'destination' is required for navigate");
+                            // Forward {destination, params} verbatim as JSON body. We re-build the
+                            // body here (rather than passing args directly) so unrelated MCP keys
+                            // like `package`/`device` don't leak into the sidekick payload.
+                            Map<String, Object> bodyMap = new java.util.HashMap<>();
+                            bodyMap.put("destination", destination);
+                            Object params = args.get("params");
+                            if (params instanceof Map) bodyMap.put("params", params);
+                            String body = new tools.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
+                            yield ok(getDaemon().navigate(pkg, device, body));
+                        }
+                        case "open_deeplink" -> {
+                            String uri = getString(args, "uri");
+                            if (uri == null || uri.isEmpty())
+                                yield errorResult("'uri' is required for open_deeplink");
+                            String body = new tools.jackson.databind.ObjectMapper()
+                                .writeValueAsString(Map.of("uri", uri));
+                            yield ok(getDaemon().openDeepLink(pkg, device, body));
+                        }
                         default -> errorResult("Unknown command: " + command);
                     };
                 } catch (Exception e) {
                     return friendlyError("app_runtime", e);
+                }
+            }
+        ));
+
+        // list_debug_functions — schemaCategory=debug filter over app_functions
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("list_debug_functions",
+                "List developer-authored debug utilities the host app exposes via the AppFunctions " +
+                "framework — same data as `app_runtime command=app_functions` but filtered to entries " +
+                "with `<schemaCategory>debug</schemaCategory>`. The naming convention is the team's: " +
+                "an `@AppFunctionSchemaDefinition(category=\"debug\", name=\"_dbg_<n>\", version=...)` " +
+                "interface paired with a `class <N>Impl : <N>Schema` carrying `@AppFunction` from the " +
+                "`androidx.appfunctions.service` package.\n\n" +
+                "Use this to discover what debug operations the app's developer has wired in for this " +
+                "build (typically only present in debug flavors). Each entry includes the canonical " +
+                "`functionId` to pass to `invoke_debug_function`, plus the parameter and response " +
+                "metadata you need to construct an args map.",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    return ok(getDaemon().appFunctionsByCategory(
+                        requireString(args, "package"), getString(args, "device"), "debug"));
+                } catch (Exception e) {
+                    return friendlyError("list_debug_functions", e);
+                }
+            }
+        ));
+
+        // invoke_debug_function — generic dispatcher
+        tools.add(new McpServerFeatures.SyncToolSpecification(
+            tool("invoke_debug_function",
+                "Invoke a debug AppFunction by its `functionId` (the canonical " +
+                "`<FQN>#<methodName>` value from `list_debug_functions`). Runs in-process inside " +
+                "the host app via JVMTI sidekick — no `EXECUTE_APP_FUNCTIONS` permission required " +
+                "because there's no IPC boundary.\n\n" +
+                "`args` is a JSON object whose keys match the function's parameter names exactly. " +
+                "The framework's `AppFunctionContext` parameter is supplied automatically — it does " +
+                "not appear in the `args` map.\n\n" +
+                "Response: `{\"result\": <value>}` on success or `{\"error\": \"<class>: <message>\"}` " +
+                "on failure (including impl-thrown exceptions like " +
+                "`AppFunctionInvalidArgumentException`, which are unwrapped from the reflection " +
+                "envelope before being returned).",
+                schema(Map.of(
+                    "package", prop("string", "App package name", true),
+                    "function_id", prop("string", "Canonical functionId from list_debug_functions (e.g. `com.example.PingImpl#ping`).", true),
+                    "args", prop("object", "JSON object of parameter name → value. Keys must match @AppFunction parameter names exactly.", false),
+                    "timeout_ms", prop("integer", "Max ms to wait for a truly-suspending function. Default 5000. Non-suspending impls return immediately regardless.", false),
+                    "device", prop("string", "Device serial", false)
+                ))),
+            (exchange, request) -> { var args = request.arguments();
+                try {
+                    String pkg = requireString(args, "package");
+                    String functionId = requireString(args, "function_id");
+                    Object argsObj = args.get("args");
+                    Object timeout = args.get("timeout_ms");
+                    Map<String, Object> body = new java.util.LinkedHashMap<>();
+                    body.put("functionId", functionId);
+                    if (argsObj != null) body.put("args", argsObj);
+                    if (timeout instanceof Number) body.put("timeoutMs", ((Number) timeout).longValue());
+                    String json = new tools.jackson.databind.ObjectMapper().writeValueAsString(body);
+                    return ok(getDaemon().invokeAppFunction(pkg, getString(args, "device"), json));
+                } catch (Exception e) {
+                    return friendlyError("invoke_debug_function", e);
                 }
             }
         ));
@@ -1389,14 +1766,25 @@ public class McpServer {
                 "Build and launch an Android app with dta-sidekick auto-injected for inspection. " +
                 "Injects the sidekick dependency via Gradle init script, builds the APK, installs it on the device, " +
                 "and launches the main activity. After launch, use layout/network/websocket tools to inspect the app.\n\n" +
+                "**Prerequisite — minSdk ≥ 24.** Sidekick's native JVMTI agent runs on API 24+. " +
+                "If the target project declares `minSdk < 24`, the AGP manifest merger will refuse to combine " +
+                "the AAR (sidekick declares `minSdk=24`) and the build fails. Bumping the project's minSdk to " +
+                "satisfy this *modifies the build* you're observing — for brownfield research that needs to " +
+                "preserve the exact production build configuration, consider whether that's acceptable.\n\n" +
                 "On success, the response includes a `shimStatus` object: " +
-                "`{shimAttached, reachable, reason, detail, sidekickVersion}`. " +
-                "If `shimAttached=false` (or `reachable=false` after the post-launch wait window), " +
-                "inspection capabilities are NOT working even though the app launched — typically because the " +
-                "build reused stale outputs with an old sidekick AAR. Surface this clearly to the user; " +
-                "common reasons: `not_debuggable` (sidekick must be added via debugImplementation), " +
-                "`agent_so_missing` / `system_load_failed` / `attach_jvmti_failed` (native-agent issues, often " +
-                "stale build), `socket_unreachable` (sidekick didn't come up — try a clean build).",
+                "`{shimAttached, reachable, reason, detail, sidekickVersion, available, unavailable, explanation}`. " +
+                "**Read `available` and `unavailable` to know which DTA tools work on this device — do not " +
+                "interpret `shimAttached=false` as 'DTA is broken'.** On API < 28 the JVMTI shim refuses to " +
+                "install (`reason=api_too_low`) but reflection-based tools — `layout_tree`, `app_functions`, " +
+                "`app_runtime` (viewmodels, hilt_bindings, navigation, lifecycle, memory, threads, logcat), " +
+                "`app_data` (files, databases, prefs), `list_apps`, `wait_for`, `tap_and_wait_for`, plus all " +
+                "ADB-driven inputs and screenshot — still work. Only JVMTI-dependent tools (network capture, " +
+                "interceptor, mocks, websocket capture, per-instance recomposition counts) are unavailable. " +
+                "Surface `shimStatus.explanation` directly to the user when it's non-empty.\n\n" +
+                "Common `reason` values: `ok` (everything works); `api_too_low` (API < 28 — see above); " +
+                "`not_debuggable` (sidekick must be added via debugImplementation); `agent_so_missing` / " +
+                "`system_load_failed` / `attach_jvmti_failed` (native-agent issues, often stale build); " +
+                "`socket_unreachable` (sidekick didn't come up — try a clean build).",
                 schema(Map.of(
                     "project", prop("string", "Absolute path to the Android project root directory", true),
                     "variant", prop("string", "Build variant in camelCase (default: debug). " +

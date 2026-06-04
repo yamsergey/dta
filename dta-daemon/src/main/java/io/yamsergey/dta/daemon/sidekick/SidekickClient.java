@@ -344,6 +344,24 @@ public class SidekickClient {
     public Result<String> viewModelSavedState(String viewModelId) {
         return httpGet("/runtime/viewmodels/" + java.net.URLEncoder.encode(viewModelId, StandardCharsets.UTF_8) + "/saved-state");
     }
+    public Result<String> appFunctions() { return httpGet("/runtime/app_functions"); }
+    public Result<String> invokeAppFunction(String body) { return httpPost("/runtime/app_functions/invoke", body, 30_000); }
+    public Result<String> navigate(String body) { return httpPost("/runtime/navigate", body); }
+    public Result<String> openDeepLink(String body) { return httpPost("/runtime/open_deeplink", body); }
+    /**
+     * Long timeout because the wait_for endpoint blocks until predicate
+     * match or {@code max_ms} elapses. We allow callers to wait up to
+     * 30 s upstream, plus a small safety margin for the response trip.
+     */
+    public Result<String> waitFor(String body) { return httpPost("/runtime/wait_for", body, 35_000); }
+    public Result<String> getAffordances() { return httpGet("/layout/affordances"); }
+    public Result<String> setAffordances(String body) { return httpPost("/layout/affordances", body); }
+    public Result<String> resetAffordances() { return httpDelete("/layout/affordances"); }
+    public Result<String> hiltBindings(String interfaceFilter) {
+        String q = (interfaceFilter == null || interfaceFilter.isEmpty())
+            ? "" : "?interface=" + java.net.URLEncoder.encode(interfaceFilter, StandardCharsets.UTF_8);
+        return httpGet("/runtime/hilt_bindings" + q);
+    }
     public Result<String> listFiles(String path) { return httpGet("/runtime/files/" + (path != null ? path : "")); }
     public Result<String> listDatabases() { return httpGet("/runtime/databases"); }
     public Result<String> databaseSchema(String name) { return httpGet("/runtime/databases/" + name + "/schema"); }
@@ -364,6 +382,9 @@ public class SidekickClient {
      */
     public Result<String> getNetworkRequests() {
         return httpGet("/network/requests");
+    }
+    public Result<String> getNetworkRequestsSince(long sinceMs) {
+        return httpGet("/network/requests?since=" + sinceMs);
     }
 
     /**

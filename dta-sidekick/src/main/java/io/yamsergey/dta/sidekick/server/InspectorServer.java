@@ -629,6 +629,23 @@ public class InspectorServer {
             return;
         }
 
+        // Runtime affordance taxonomy management.
+        //   GET    /layout/affordances        — snapshot current map (defaults + overrides)
+        //   POST   /layout/affordances        — body: {"OneRowSnackbar":"material-snackbar"} → merged over defaults
+        //   DELETE /layout/affordances        — reset to built-in defaults
+        if (path.equals("/layout/affordances")) {
+            if ("GET".equals(method)) {
+                handleGetAffordances(out);
+            } else if ("POST".equals(method)) {
+                handleSetAffordances(body, out);
+            } else if ("DELETE".equals(method)) {
+                handleResetAffordances(out);
+            } else {
+                sendError(out, 405, "Method Not Allowed");
+            }
+            return;
+        }
+
         // Handle Custom Tabs endpoints
         if (path.equals("/customtabs/events")) {
             if ("GET".equals(method)) {
@@ -663,6 +680,36 @@ public class InspectorServer {
         }
         if (path.equals("/runtime/viewmodels") && "GET".equals(method)) {
             handleRuntimeJson(new io.yamsergey.dta.sidekick.data.RuntimeInspector().viewModels(), out); return;
+        }
+        if (path.equals("/runtime/app_functions") && "GET".equals(method)) {
+            handleRuntimeJson(
+                new io.yamsergey.dta.sidekick.data.AppFunctionsInspector(getAppContext()).appFunctions(),
+                out);
+            return;
+        }
+        if (path.equals("/runtime/app_functions/invoke") && "POST".equals(method)) {
+            handleRuntimeAppFunctionInvoke(body, out);
+            return;
+        }
+        if (path.equals("/runtime/navigate") && "POST".equals(method)) {
+            handleRuntimeNavigate(body, out);
+            return;
+        }
+        if (path.equals("/runtime/open_deeplink") && "POST".equals(method)) {
+            handleRuntimeOpenDeepLink(body, out);
+            return;
+        }
+        if (path.equals("/runtime/wait_for") && "POST".equals(method)) {
+            handleRuntimeWaitFor(body, out);
+            return;
+        }
+        if (cleanPath.equals("/runtime/hilt_bindings") && "GET".equals(method)) {
+            Map<String, String> qp = parseQueryParams(path);
+            handleRuntimeJson(
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector()
+                    .hiltBindings(qp.get("interface")),
+                out);
+            return;
         }
         if (path.equals("/debug/diagnostics") && "GET".equals(method)) {
             handleDebugDiagnostics(out); return;
@@ -729,6 +776,15 @@ public class InspectorServer {
             if ("PUT".equals(method)) { handleRuntimeSharedPrefsWrite(prefsName, body, out); return; }
         }
 
+        // Lifted out of the switch below because that switch compares
+        // against the full `path` (with query string), which means
+        // /network/requests?since=N falls through. Network requests need
+        // the query string for the delta filter.
+        if (cleanPath.equals("/network/requests") && "GET".equals(method)) {
+            handleNetworkRequests(parseQueryParams(path), out);
+            return;
+        }
+
         switch (path) {
             case "/":
             case "/health":
@@ -744,7 +800,10 @@ public class InspectorServer {
                 handleComposeScreenshot(out);
                 break;
             case "/network/requests":
-                handleNetworkRequests(out);
+                // Kept for backward compat / no-query callers; the if
+                // above catches the query-bearing form. Either branch
+                // ends up calling the same handler.
+                handleNetworkRequests(parseQueryParams(path), out);
                 break;
             case "/network/transactions":
                 if ("POST".equals(method)) {
@@ -796,24 +855,119 @@ public class InspectorServer {
     // ========================================================================
 
     private io.yamsergey.dta.sidekick.data.DataInspector getDataInspector() {
+        return new io.yamsergey.dta.sidekick.data.DataInspector(getAppContext());
+    }
+
+    /**
+     * Resolves an app-level {@link android.content.Context} for inspectors
+     * that need to touch resources/assets/system services. Prefers the
+     * foreground activity (so it picks up per-activity theming etc.); falls
+     * back to the application context via ActivityThread when no activity
+     * is current.
+     */
+    private android.content.Context getAppContext() {
         android.app.Activity activity = io.yamsergey.dta.sidekick.view.WindowRootDiscovery.getCurrentActivity();
         if (activity != null) {
-            return new io.yamsergey.dta.sidekick.data.DataInspector(activity);
+            return activity;
         }
-        // Fallback: reflectively get the Application context
         try {
             Class<?> atClass = Class.forName("android.app.ActivityThread");
             Object at = atClass.getMethod("currentActivityThread").invoke(null);
-            android.app.Application app = (android.app.Application) atClass.getMethod("getApplication").invoke(at);
-            return new io.yamsergey.dta.sidekick.data.DataInspector(app);
+            return (android.app.Application) atClass.getMethod("getApplication").invoke(at);
         } catch (Exception e) {
-            throw new RuntimeException("Cannot get app context for data inspection", e);
+            throw new RuntimeException("Cannot get app context for runtime inspection", e);
         }
     }
 
     private void handleRuntimeJson(Map<String, Object> data, OutputStream out) throws IOException {
         try {
             sendJson(out, 200, data);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code POST /runtime/navigate} — body is {@code {"destination": "...",
+     * "params": {…}}}. Drives the foreground NavController (Navigation 2 /
+     * Compose Navigation). Status 200 with {@code {"status":"ok","route":"…"}}
+     * on success, 400 with {@code {"error":"…"}} on lookup / argument failure.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeNavigate(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String destination = req != null ? (String) req.get("destination") : null;
+            Map<String, Object> params = req != null && req.get("params") instanceof Map
+                ? (Map<String, Object>) req.get("params")
+                : null;
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector().navigate(destination, params);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code POST /runtime/wait_for} — body is {@code {"text"?, "testTag"?,
+     * "className"?, "max_ms"?, "return_full_tree"?}}. Polls the foreground
+     * view tree every 50 ms until a node matching the predicate appears or
+     * the timeout elapses. On match: returns the matched node, optionally
+     * the full layout tree, and a base64 PNG screenshot. When
+     * {@code return_full_tree=false} the {@code layoutTree} field is
+     * omitted — typically saves ~500 KB on dense Compose hierarchies.
+     * On timeout: {@code {matched:false, pollMs}}.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeWaitFor(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String text = req != null ? (String) req.get("text") : null;
+            String testTag = req != null ? (String) req.get("testTag") : null;
+            String className = req != null ? (String) req.get("className") : null;
+            int maxMs = 3000;
+            if (req != null && req.get("max_ms") instanceof Number) {
+                maxMs = ((Number) req.get("max_ms")).intValue();
+            }
+            boolean returnFullTree = true;
+            if (req != null && req.get("return_full_tree") instanceof Boolean) {
+                returnFullTree = (Boolean) req.get("return_full_tree");
+            }
+            boolean returnScreenshot = true;
+            if (req != null && req.get("return_screenshot") instanceof Boolean) {
+                returnScreenshot = (Boolean) req.get("return_screenshot");
+            }
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector()
+                    .waitFor(text, testTag, className, maxMs, returnFullTree, returnScreenshot);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * {@code POST /runtime/open_deeplink} — body is {@code {"uri": "..."}}.
+     * Fires {@code Intent.ACTION_VIEW} from the foreground activity.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeOpenDeepLink(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String uri = req != null ? (String) req.get("uri") : null;
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.RuntimeInspector().openDeepLink(uri);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
         } catch (Exception e) {
             sendError(out, 500, e.getMessage());
         }
@@ -1079,6 +1233,11 @@ public class InspectorServer {
                 "/runtime/threads",
                 "/runtime/viewmodels",
                 "/runtime/viewmodels/{id}/saved-state",
+                "/runtime/app_functions",
+                "/runtime/navigate",
+                "/runtime/open_deeplink",
+                "/runtime/wait_for",
+                "/runtime/hilt_bindings",
                 "/debug/diagnostics",
                 "/layout/tree",
                 "/layout/properties/{viewId}"
@@ -1275,6 +1434,89 @@ public class InspectorServer {
             error.put("error", e.getMessage());
             sendJson(out, 500, error);
         }
+    }
+
+    /**
+     * POST /runtime/app_functions/invoke — body is
+     * {@code {"functionId": "...", "args": {...}, "timeoutMs": 5000}}.
+     * Dispatches in-process via reflection on the KSP-generated
+     * {@code $AggregatedAppFunctionInvoker_Impl}. The function id is
+     * the {@code <id>} from {@code app_functions_v2.xml} (typically
+     * {@code <FQN>#<methodName>}). Returns
+     * {@code {"result": ...}} on success or {@code {"error": "..."}}.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleRuntimeAppFunctionInvoke(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, Object> req = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            String functionId = req != null ? (String) req.get("functionId") : null;
+            if (functionId == null || functionId.isEmpty()) {
+                sendError(out, 400, "'functionId' is required");
+                return;
+            }
+            Object argsObj = req.get("args");
+            Map<String, Object> args = (argsObj instanceof Map)
+                ? (Map<String, Object>) argsObj
+                : new HashMap<>();
+            long timeoutMs = 5000;
+            if (req.get("timeoutMs") instanceof Number) {
+                timeoutMs = ((Number) req.get("timeoutMs")).longValue();
+            }
+            Map<String, Object> result =
+                new io.yamsergey.dta.sidekick.data.AppFunctionsInvoker(getAppContext())
+                    .invoke(functionId, args, timeoutMs);
+            int status = result.containsKey("error") ? 400 : 200;
+            sendJson(out, status, result);
+        } catch (Exception e) {
+            sendError(out, 500, e.getMessage());
+        }
+    }
+
+    /**
+     * GET /layout/affordances — current merged map (defaults + overrides).
+     */
+    private void handleGetAffordances(OutputStream out) throws IOException {
+        Map<String, Object> body = new HashMap<>();
+        body.put("affordances", new java.util.TreeMap<>(
+            io.yamsergey.dta.sidekick.compose.ComposeInspector.getAffordances()));
+        sendJson(out, 200, body);
+    }
+
+    /**
+     * POST /layout/affordances — body is a JSON object mapping
+     * composable simple-name → affordance label. Empty-string values
+     * remove the corresponding key from the active map. Built-in
+     * defaults remain in effect for keys not mentioned.
+     */
+    @SuppressWarnings("unchecked")
+    private void handleSetAffordances(String body, OutputStream out) throws IOException {
+        try {
+            Map<String, String> overrides = body != null && !body.isEmpty()
+                ? gson.fromJson(body, Map.class)
+                : new HashMap<>();
+            io.yamsergey.dta.sidekick.compose.ComposeInspector.applyAffordanceOverrides(overrides);
+            Map<String, Object> response = new HashMap<>();
+            response.put("applied", overrides.size());
+            response.put("affordances", new java.util.TreeMap<>(
+                io.yamsergey.dta.sidekick.compose.ComposeInspector.getAffordances()));
+            sendJson(out, 200, response);
+        } catch (Exception e) {
+            sendError(out, 400, "Invalid affordances body: " + e.getMessage());
+        }
+    }
+
+    /**
+     * DELETE /layout/affordances — revert to built-in defaults.
+     */
+    private void handleResetAffordances(OutputStream out) throws IOException {
+        io.yamsergey.dta.sidekick.compose.ComposeInspector.resetAffordances();
+        Map<String, Object> body = new HashMap<>();
+        body.put("reset", true);
+        body.put("affordances", new java.util.TreeMap<>(
+            io.yamsergey.dta.sidekick.compose.ComposeInspector.getAffordances()));
+        sendJson(out, 200, body);
     }
 
     /**
@@ -1523,18 +1765,30 @@ public class InspectorServer {
     /**
      * GET /network/requests - List all captured network transactions.
      */
-    private void handleNetworkRequests(OutputStream out) throws IOException {
+    private void handleNetworkRequests(Map<String, String> params, OutputStream out) throws IOException {
         try {
+            long sinceMs = -1L;
+            String sinceParam = params != null ? params.get("since") : null;
+            if (sinceParam != null && !sinceParam.isEmpty()) {
+                try { sinceMs = Long.parseLong(sinceParam); }
+                catch (NumberFormatException ignored) {}
+            }
+
             java.util.List<HttpTransaction> transactions = NetworkInspector.getTransactions();
 
             java.util.List<Map<String, Object>> transactionList = new java.util.ArrayList<>();
             for (HttpTransaction tx : transactions) {
+                // `since` is exclusive — caller passed an epoch ms taken
+                // BEFORE the action, so anything at-or-before that
+                // timestamp is the pre-action baseline. Strict >.
+                if (sinceMs > 0 && tx.getStartTime() <= sinceMs) continue;
                 transactionList.add(transactionToMap(tx, false));
             }
 
             Map<String, Object> response = new HashMap<>();
-            response.put("count", transactions.size());
+            response.put("count", transactionList.size());
             response.put("requests", transactionList);
+            if (sinceMs > 0) response.put("since", sinceMs);
 
             sendJson(out, 200, response);
 
@@ -3194,11 +3448,18 @@ public class InspectorServer {
         if (response != null) {
             map.put("responseCode", response.getStatusCode());
             map.put("responseBodySize", response.getBodySize());
+            // Include responseContentType in the list view too — it's a
+            // single short header field but unlocks per-content-type
+            // aggregation in `network_data_flow` (image/* vs JSON
+            // analytics vs script payloads) without a per-request
+            // detail fetch.
+            if (response.getContentType() != null) {
+                map.put("responseContentType", response.getContentType());
+            }
             if (includeDetails) {
                 map.put("responseMessage", response.getStatusMessage());
                 map.put("protocol", response.getProtocol());
                 map.put("responseHeaders", headersToMap(response.getHeaders()));
-                map.put("responseContentType", response.getContentType());
                 map.put("responseBody", response.getBody());
                 if (response.hasExternalBody()) {
                     map.put("responseBodyRef", response.getBodyRef().getPath());

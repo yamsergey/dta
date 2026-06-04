@@ -447,6 +447,53 @@ public class SidekickConnectionManager {
     }
 
     /**
+     * Long-press at a point. Internally Android implements long-press as a
+     * zero-distance swipe with a duration above the touch-slop / long-press
+     * threshold (~500 ms). Distinct from {@link #swipe} so the call site
+     * doesn't trip the same-start/end warning that swipe emits.
+     *
+     * <p>Used for: context menus, drag-and-drop pickup, multi-select mode
+     * — anything that requires holding before lift. Default duration of
+     * {@code 600 ms} clears the {@code ViewConfiguration.getLongPressTimeout()}
+     * default of 500 ms with a small margin so Android reliably classifies
+     * it as long-press rather than tap.</p>
+     */
+    public boolean longPress(String device, int x, int y, int durationMs)
+            throws IOException, InterruptedException {
+        // ViewConfiguration.LONG_PRESS_TIMEOUT defaults to 500 ms; we want a
+        // small margin above it so dispatch is unambiguous.
+        int effectiveDuration = Math.max(durationMs, 600);
+        runAdb(device, "shell", "input", "swipe",
+            String.valueOf(x), String.valueOf(y), String.valueOf(x), String.valueOf(y),
+            String.valueOf(effectiveDuration));
+        return true;
+    }
+
+    /**
+     * Returns the PID of the named process, or {@code -1} if the
+     * process isn't running. Uses {@code pidof} which is universally
+     * available on modern Android (toybox).
+     */
+    public int pidOf(String device, String packageName) throws IOException, InterruptedException {
+        String raw = runAdb(device, "shell", "pidof", packageName).trim();
+        if (raw.isEmpty()) return -1;
+        // Multiple PIDs possible for multi-process apps — take the first
+        // (the main process); finer-grained selection is a v2.
+        String first = raw.split("\\s+")[0];
+        try { return Integer.parseInt(first); } catch (NumberFormatException e) { return -1; }
+    }
+
+    /**
+     * Dumps logcat lines for a specific PID, returning the raw threadtime
+     * output. {@code -d} makes logcat dump-and-exit (no streaming); {@code
+     * --pid} filters to a single process so a noisy device's system-wide
+     * log doesn't drown the host's lines. Caller filters/parses upstream.
+     */
+    public String logcatDumpForPid(String device, int pid) throws IOException, InterruptedException {
+        return runAdb(device, "shell", "logcat", "-d", "-v", "threadtime", "--pid=" + pid);
+    }
+
+    /**
      * Inputs text on the device.
      */
     public boolean inputText(String device, String text) throws IOException, InterruptedException {
@@ -588,6 +635,26 @@ public class SidekickConnectionManager {
     // ========================================================================
     // Private ADB internals
     // ========================================================================
+
+    /**
+     * Returns the sidekick AAR version for {@code (device, packageName)}
+     * if a connection is already cached, otherwise {@code null}. Used by
+     * {@code /api/apps} to enrich each entry opportunistically without
+     * incurring connect-and-handshake cost for apps the caller hasn't
+     * actually exercised yet — version-skew detection still works
+     * because the moment a tool uses the app, its connection caches and
+     * future {@code list_apps} calls surface the version.
+     */
+    public String cachedSidekickVersion(String packageName, String device) {
+        String key = (device != null ? device : "default") + ":" + packageName;
+        ConnectionInfo info = connections.get(key);
+        if (info == null) {
+            // Try the "default" entry too — some flows cache without an
+            // explicit device serial.
+            info = connections.get("default:" + packageName);
+        }
+        return info != null ? info.sidekickVersion() : null;
+    }
 
     private String getSidekickVersion(SidekickClient client) {
         Result<HealthResponse> healthResult = client.checkHealthTyped();

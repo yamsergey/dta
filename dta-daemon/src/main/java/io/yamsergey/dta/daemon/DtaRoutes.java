@@ -194,6 +194,14 @@ public final class DtaRoutes {
                     var a = appsArray.addObject();
                     a.put("package", socket.packageName());
                     a.put("socket", socket.socketName());
+                    // Surface the cached sidekick AAR version for
+                    // version-skew detection. Null for apps the daemon
+                    // hasn't connected to yet — once any tool touches
+                    // the app, its connection caches and subsequent
+                    // list_apps calls report the version.
+                    String version = connectionManager.cachedSidekickVersion(
+                        socket.packageName(), device);
+                    if (version != null) a.put("sidekickVersion", version);
                 }
                 jsonNode(ctx, result);
             } catch (Exception e) {
@@ -280,6 +288,64 @@ public final class DtaRoutes {
         app.get("/api/runtime/viewmodels/{id}/saved-state", ctx -> {
             try { jsonString(ctx, orchestrator.viewModelSavedState(
                     ctx.queryParam("package"), ctx.queryParam("device"), ctx.pathParam("id")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/app_functions", ctx -> {
+            try {
+                String category = ctx.queryParam("category");
+                if (category != null && !category.isEmpty()) {
+                    jsonNode(ctx, orchestrator.appFunctionsFiltered(
+                        ctx.queryParam("package"), ctx.queryParam("device"), category));
+                } else {
+                    jsonString(ctx, orchestrator.appFunctions(
+                        ctx.queryParam("package"), ctx.queryParam("device")));
+                }
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/app_functions/invoke", ctx -> {
+            try { jsonString(ctx, orchestrator.invokeAppFunction(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/navigate", ctx -> {
+            try { jsonString(ctx, orchestrator.navigate(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/open_deeplink", ctx -> {
+            try { jsonString(ctx, orchestrator.openDeepLink(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/wait_for", ctx -> {
+            try { jsonString(ctx, orchestrator.waitFor(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/hilt_bindings", ctx -> {
+            try { jsonString(ctx, orchestrator.hiltBindings(
+                    ctx.queryParam("package"), ctx.queryParam("device"),
+                    ctx.queryParam("interface")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.get("/api/runtime/logcat", ctx -> {
+            try {
+                Long since = ctx.queryParam("since") != null
+                    ? Long.parseLong(ctx.queryParam("since")) : null;
+                Integer maxLines = ctx.queryParam("maxLines") != null
+                    ? Integer.parseInt(ctx.queryParam("maxLines")) : null;
+                ctx.json(orchestrator.logcat(
+                    ctx.queryParam("package"), ctx.queryParam("device"),
+                    since, maxLines,
+                    ctx.queryParam("filter"), ctx.queryParam("minLevel")));
+            } catch (Exception e) { error(ctx, e.getMessage()); }
+        });
+        app.post("/api/runtime/tap_and_wait_for", ctx -> {
+            try {
+                int x = Integer.parseInt(ctx.queryParam("x"));
+                int y = Integer.parseInt(ctx.queryParam("y"));
+                jsonString(ctx, orchestrator.tapAndWaitFor(
+                    ctx.queryParam("package"), ctx.queryParam("device"), x, y, ctx.body()));
             } catch (Exception e) { error(ctx, e.getMessage()); }
         });
 
@@ -398,14 +464,27 @@ public final class DtaRoutes {
                 // (sidekick didn't install) — agents should warn instead
                 // of treating success as fully working.
                 if (result.shimStatus() != null) {
+                    var s = result.shimStatus();
                     var shim = json.putObject("shimStatus");
-                    shim.put("shimAttached", result.shimStatus().shimAttached());
-                    shim.put("reachable", result.shimStatus().reachable());
-                    if (result.shimStatus().reason() != null) shim.put("reason", result.shimStatus().reason());
-                    if (result.shimStatus().detail() != null) shim.put("detail", result.shimStatus().detail());
-                    if (result.shimStatus().sidekickVersion() != null) {
-                        shim.put("sidekickVersion", result.shimStatus().sidekickVersion());
+                    shim.put("shimAttached", s.shimAttached());
+                    shim.put("reachable", s.reachable());
+                    if (s.reason() != null) shim.put("reason", s.reason());
+                    if (s.detail() != null) shim.put("detail", s.detail());
+                    if (s.sidekickVersion() != null) shim.put("sidekickVersion", s.sidekickVersion());
+                    // Per-capability availability so callers stop
+                    // interpreting `shimAttached=false` as "DTA is
+                    // broken". On API < 28 only the JVMTI-dependent
+                    // capabilities are blocked; reflection-based
+                    // capabilities still work.
+                    if (s.available() != null) {
+                        var avail = shim.putArray("available");
+                        for (String c : s.available()) avail.add(c);
                     }
+                    if (s.unavailable() != null) {
+                        var unavail = shim.putArray("unavailable");
+                        for (String c : s.unavailable()) unavail.add(c);
+                    }
+                    if (s.explanation() != null) shim.put("explanation", s.explanation());
                 }
                 jsonNode(ctx, json);
             } catch (Exception e) {
@@ -526,6 +605,20 @@ public final class DtaRoutes {
             }
         });
 
+        app.post("/api/long-press", ctx -> {
+            try {
+                int x = Integer.parseInt(ctx.queryParam("x"));
+                int y = Integer.parseInt(ctx.queryParam("y"));
+                String durationStr = ctx.queryParam("duration");
+                int duration = durationStr != null ? Integer.parseInt(durationStr) : 600;
+                String device = ctx.queryParam("device");
+                boolean success = connectionManager.longPress(device, x, y, duration);
+                ctx.json(Map.of("success", success, "x", x, "y", y, "durationMs", duration));
+            } catch (Exception e) {
+                error(ctx, "Failed to long-press: " + e.getMessage());
+            }
+        });
+
         app.post("/api/swipe", ctx -> {
             try {
                 int x1 = Integer.parseInt(ctx.queryParam("x1"));
@@ -583,6 +676,33 @@ public final class DtaRoutes {
             }
         });
 
+        app.get("/api/layout/affordances", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.getAffordances(
+                    ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) {
+                error(ctx, "Failed: " + e.getMessage());
+            }
+        });
+
+        app.post("/api/layout/affordances", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.setAffordances(
+                    ctx.queryParam("package"), ctx.queryParam("device"), ctx.body()));
+            } catch (Exception e) {
+                error(ctx, "Failed: " + e.getMessage());
+            }
+        });
+
+        app.delete("/api/layout/affordances", ctx -> {
+            try {
+                jsonString(ctx, orchestrator.resetAffordances(
+                    ctx.queryParam("package"), ctx.queryParam("device")));
+            } catch (Exception e) {
+                error(ctx, "Failed: " + e.getMessage());
+            }
+        });
+
         app.get("/api/layout/properties/{viewId}", ctx -> {
             try {
                 String packageName = ctx.queryParam("package");
@@ -602,7 +722,9 @@ public final class DtaRoutes {
             try {
                 String packageName = ctx.queryParam("package");
                 String device = ctx.queryParam("device");
-                jsonString(ctx, orchestrator.getNetworkRequests(packageName, device));
+                Long since = ctx.queryParam("since") != null
+                    ? Long.parseLong(ctx.queryParam("since")) : null;
+                jsonString(ctx, orchestrator.getNetworkRequests(packageName, device, since));
             } catch (Exception e) {
                 error(ctx, "Failed: " + e.getMessage());
             }
@@ -627,6 +749,21 @@ public final class DtaRoutes {
                 jsonString(ctx, orchestrator.getNetworkRequestBody(packageName, device, requestId));
             } catch (Exception e) {
                 error(ctx, "Failed: " + e.getMessage());
+            }
+        });
+
+        app.get("/api/network/data-flow", ctx -> {
+            try {
+                String packageName = ctx.queryParam("package");
+                String device = ctx.queryParam("device");
+                String sinceStr = ctx.queryParam("since");
+                Long sinceMs = null;
+                if (sinceStr != null && !sinceStr.isEmpty()) {
+                    try { sinceMs = Long.parseLong(sinceStr); } catch (NumberFormatException ignored) {}
+                }
+                jsonNode(ctx, orchestrator.getNetworkDataFlow(packageName, device, sinceMs));
+            } catch (Exception e) {
+                error(ctx, "data_flow failed: " + e.getMessage());
             }
         });
 

@@ -101,6 +101,11 @@ public class DaemonClient {
         return post("/api/tap?x=" + x + "&y=" + y + deviceParam(device, false), null);
     }
 
+    public String longPress(int x, int y, int durationMs, String device) {
+        return post("/api/long-press?x=" + x + "&y=" + y + "&duration=" + durationMs
+            + deviceParam(device, false), null);
+    }
+
     public String swipe(int x1, int y1, int x2, int y2, int duration, String device) {
         return post("/api/swipe?x1=" + x1 + "&y1=" + y1 + "&x2=" + x2 + "&y2=" + y2
             + "&duration=" + duration + deviceParam(device, false), null);
@@ -137,6 +142,22 @@ public class DaemonClient {
         return get("/api/layout/properties/" + encode(viewId) + "?package=" + encode(pkg) + deviceParam(device, false));
     }
 
+    /** Snapshot of the currently-active affordance map for the app. */
+    public String getAffordances(String pkg, String device) {
+        return get("/api/layout/affordances?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    /** Merge JSON {@code {"ComposableName": "affordance-label"}} mappings
+     *  over the built-in defaults. Empty-string values remove the key. */
+    public String setAffordances(String pkg, String device, String body) {
+        return post("/api/layout/affordances?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+
+    /** Reset to built-in defaults. */
+    public String resetAffordances(String pkg, String device) {
+        return delete("/api/layout/affordances?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
     // --- Runtime Data ---
 
     public String listFiles(String pkg, String path, String device) {
@@ -165,6 +186,48 @@ public class DaemonClient {
     public String viewModelSavedState(String pkg, String viewModelId, String device) {
         return get("/api/runtime/viewmodels/" + encode(viewModelId) + "/saved-state?package="
                 + encode(pkg) + deviceParam(device, false));
+    }
+    public String appFunctions(String pkg, String device) {
+        return get("/api/runtime/app_functions?package=" + encode(pkg) + deviceParam(device, false));
+    }
+    /** Same shape as {@link #appFunctions} but server-side filtered by `<schemaCategory>`. */
+    public String appFunctionsByCategory(String pkg, String device, String category) {
+        return get("/api/runtime/app_functions?package=" + encode(pkg) + deviceParam(device, false)
+            + "&category=" + encode(category));
+    }
+    /** Body: {"functionId": "...", "args": {...}, "timeoutMs": 5000}. */
+    public String invokeAppFunction(String pkg, String device, String body) {
+        return post("/api/runtime/app_functions/invoke?package=" + encode(pkg)
+            + deviceParam(device, false), body);
+    }
+    public String navigate(String pkg, String device, String body) {
+        return post("/api/runtime/navigate?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+    public String openDeepLink(String pkg, String device, String body) {
+        return post("/api/runtime/open_deeplink?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+    public String waitFor(String pkg, String device, String body) {
+        return post("/api/runtime/wait_for?package=" + encode(pkg) + deviceParam(device, false), body);
+    }
+    public String hiltBindings(String pkg, String device, String interfaceFilter) {
+        String url = "/api/runtime/hilt_bindings?package=" + encode(pkg) + deviceParam(device, false);
+        if (interfaceFilter != null && !interfaceFilter.isEmpty()) {
+            url += "&interface=" + encode(interfaceFilter);
+        }
+        return get(url);
+    }
+    public String logcat(String pkg, String device, Long sinceMs, Integer maxLines, String filter, String minLevel) {
+        StringBuilder url = new StringBuilder("/api/runtime/logcat?package=");
+        url.append(encode(pkg)).append(deviceParam(device, false));
+        if (sinceMs != null) url.append("&since=").append(sinceMs);
+        if (maxLines != null) url.append("&maxLines=").append(maxLines);
+        if (filter != null && !filter.isEmpty()) url.append("&filter=").append(encode(filter));
+        if (minLevel != null && !minLevel.isEmpty()) url.append("&minLevel=").append(encode(minLevel));
+        return get(url.toString());
+    }
+    public String tapAndWaitFor(String pkg, String device, int x, int y, String body) {
+        return post("/api/runtime/tap_and_wait_for?package=" + encode(pkg)
+            + deviceParam(device, false) + "&x=" + x + "&y=" + y, body);
     }
 
     public String authenticate(String pkg, String device) {
@@ -224,7 +287,12 @@ public class DaemonClient {
     // --- Network ---
 
     public String networkRequests(String pkg, String device) {
-        return get("/api/network/requests?package=" + encode(pkg) + deviceParam(device, false));
+        return networkRequests(pkg, device, null);
+    }
+    public String networkRequests(String pkg, String device, Long sinceMs) {
+        String url = "/api/network/requests?package=" + encode(pkg) + deviceParam(device, false);
+        if (sinceMs != null && sinceMs > 0) url += "&since=" + sinceMs;
+        return get(url);
     }
 
     public String networkRequest(String pkg, String requestId, String device) {
@@ -237,6 +305,18 @@ public class DaemonClient {
 
     public String networkStats(String pkg, String device) {
         return get("/api/network/stats?package=" + encode(pkg) + deviceParam(device, false));
+    }
+
+    /**
+     * Per-domain aggregation over the captured network requests — counts,
+     * bytes, method breakdown, status buckets, sample paths. Pass
+     * {@code sinceMs > 0} to scope to a window (e.g. last action's
+     * {@code Date.now()} bookmark).
+     */
+    public String networkDataFlow(String pkg, String device, Long sinceMs) {
+        String url = "/api/network/data-flow?package=" + encode(pkg) + deviceParam(device, false);
+        if (sinceMs != null && sinceMs > 0) url += "&since=" + sinceMs;
+        return get(url);
     }
 
     public String clearNetworkRequests(String pkg, String device) {

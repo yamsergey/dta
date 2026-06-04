@@ -359,6 +359,229 @@ public class DtaOrchestrator {
     public String viewModelSavedState(String packageName, String device, String viewModelId) throws Exception {
         return unwrap(getConnection(packageName, device).client().viewModelSavedState(viewModelId), "Failed");
     }
+    public String appFunctions(String packageName, String device) throws Exception {
+        return unwrap(getConnection(packageName, device).client().appFunctions(), "Failed");
+    }
+
+    /**
+     * Returns AppFunctions filtered by {@code schemaCategory}. When
+     * the caller passes {@code category=null}, falls through to the
+     * unfiltered set (same shape as {@link #appFunctions}). Used by
+     * the {@code list_debug_functions} MCP tool with
+     * {@code category="debug"} to surface developer-authored debug
+     * utilities while ignoring the assistant-facing functions in the
+     * same APK.
+     */
+    public JsonNode appFunctionsFiltered(String packageName, String device, String category) throws Exception {
+        String raw = appFunctions(packageName, device);
+        JsonNode parsed = mapper.readTree(raw);
+        if (category == null || category.isEmpty()) return parsed;
+
+        // Sidekick emits {packageName, manifestAsset, functions: [...]} —
+        // accept either `functions` (current sidekick) or `appFunctions`
+        // (defensive in case the field is renamed) or a bare array.
+        JsonNode src = mapper.createArrayNode();
+        if (parsed.has("functions") && parsed.get("functions").isArray()) {
+            src = parsed.get("functions");
+        } else if (parsed.has("appFunctions") && parsed.get("appFunctions").isArray()) {
+            src = parsed.get("appFunctions");
+        } else if (parsed.isArray()) {
+            src = parsed;
+        }
+
+        ObjectNode out = mapper.createObjectNode();
+        // Carry the upstream context so callers don't lose package/asset info.
+        if (parsed.has("packageName")) out.set("packageName", parsed.get("packageName"));
+        if (parsed.has("manifestAsset")) out.set("manifestAsset", parsed.get("manifestAsset"));
+        ArrayNode filtered = out.putArray("functions");
+        for (JsonNode fn : src) {
+            JsonNode cat = fn.get("schemaCategory");
+            if (cat != null && category.equals(cat.asText())) {
+                filtered.add(fn);
+            }
+        }
+        out.put("schemaCategory", category);
+        out.put("count", filtered.size());
+        return out;
+    }
+
+    public String invokeAppFunction(String packageName, String device, String body) throws Exception {
+        return unwrap(getConnection(packageName, device).client().invokeAppFunction(body),
+            "Failed to invoke AppFunction");
+    }
+    public String navigate(String packageName, String device, String body) throws Exception {
+        return unwrap(getConnection(packageName, device).client().navigate(body), "Failed");
+    }
+    public String openDeepLink(String packageName, String device, String body) throws Exception {
+        return unwrap(getConnection(packageName, device).client().openDeepLink(body), "Failed");
+    }
+    public String waitFor(String packageName, String device, String body) throws Exception {
+        long envelopeStart = System.currentTimeMillis();
+        String raw = unwrap(getConnection(packageName, device).client().waitFor(body), "Failed");
+        return injectElapsed(raw, envelopeStart);
+    }
+
+    /**
+     * Injects the daemon-side end-to-end {@code elapsedMs} into a
+     * sidekick {@code waitFor} response. Sidekick's {@code pollMs} is
+     * just the polling-loop duration; {@code elapsedMs} additionally
+     * covers ADB tap dispatch (for {@code tapAndWaitFor}), HTTP transit,
+     * and layout-tree serialization. Surfacing both lets callers assert
+     * {@code pollMs <= max_ms} (the only thing the cap actually bounds)
+     * while still seeing the true end-to-end cost for token-budget
+     * accounting.
+     */
+    private String injectElapsed(String sidekickJson, long envelopeStart) {
+        try {
+            JsonNode root = mapper.readTree(sidekickJson);
+            if (root.isObject()) {
+                ((ObjectNode) root).put("elapsedMs", System.currentTimeMillis() - envelopeStart);
+                return mapper.writeValueAsString(root);
+            }
+        } catch (Exception ignored) {
+            // If sidekick returned something un-parseable, hand it back
+            // verbatim — better than swallowing the response.
+        }
+        return sidekickJson;
+    }
+    public String hiltBindings(String packageName, String device, String interfaceFilter) throws Exception {
+        return unwrap(getConnection(packageName, device).client().hiltBindings(interfaceFilter), "Failed");
+    }
+
+    /**
+     * Dumps the host app's logcat (filtered to its PID) and returns
+     * parsed records. {@code sinceMs} is a wall-clock epoch in ms; lines
+     * older than that are dropped. Use {@code System.currentTimeMillis()}
+     * before triggering an action and pass it here to get action-bounded
+     * logs — the canonical pattern for stub-helper analysis
+     * (StubAnalyticsHelper logs events that don't reach the wire).
+     */
+    public Map<String, Object> logcat(String packageName, String device,
+            Long sinceMs, Integer maxLines, String filterSubstring,
+            String minLevel) throws Exception {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (packageName == null || packageName.isEmpty()) {
+            String resolved = detectForegroundPackage(device).orElse(null);
+            if (resolved == null) {
+                result.put("error", "package not provided and no foreground app detected");
+                return result;
+            }
+            packageName = resolved;
+            result.put("resolvedPackage", packageName);
+        }
+        int pid = connectionManager.pidOf(device, packageName);
+        if (pid <= 0) {
+            result.put("error", "Could not find PID for " + packageName + " — app not running?");
+            return result;
+        }
+        result.put("pid", pid);
+
+        String raw = connectionManager.logcatDumpForPid(device, pid);
+        List<Map<String, Object>> parsed = parseLogcatThreadtime(raw, sinceMs, filterSubstring, minLevel);
+        if (maxLines != null && maxLines > 0 && parsed.size() > maxLines) {
+            // Keep the most recent N lines — the caller's bookmark is at
+            // the front of the bounded window, so tail-bias gives the
+            // "what happened during my action" view.
+            parsed = parsed.subList(parsed.size() - maxLines, parsed.size());
+        }
+        result.put("lines", parsed);
+        result.put("count", parsed.size());
+        return result;
+    }
+
+    /**
+     * Parses {@code logcat -v threadtime} output into structured records.
+     * Sample line:
+     * <pre>05-18 10:32:14.123  1234  5678 I MyTag: hello world</pre>
+     *
+     * <p>Logcat timestamps are MM-dd HH:mm:ss.SSS with no year (the year
+     * is implicit / "now"), and the device's local timezone — we
+     * reconstruct the epoch using the daemon's TZ as a best-effort,
+     * surfacing the original string as {@code timestamp} for cases where
+     * the wall-clock conversion matters less than the relative ordering.</p>
+     */
+    private List<Map<String, Object>> parseLogcatThreadtime(String raw, Long sinceMs,
+            String filterSubstring, String minLevel) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (raw == null || raw.isEmpty()) return out;
+        String filterLower = filterSubstring != null ? filterSubstring.toLowerCase() : null;
+        // Levels in increasing severity. Filter rejects below minLevel.
+        int minLevelOrdinal = levelOrdinal(minLevel);
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS");
+        int currentYear = java.time.LocalDate.now().getYear();
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+
+        for (String line : raw.split("\\R")) {
+            if (line.length() < 20) continue;
+            // Format: "MM-dd HH:mm:ss.SSS  PID  TID L TAG: MSG"
+            // Use a single regex to extract — handles variable whitespace.
+            java.util.regex.Matcher m = LOGCAT_LINE.matcher(line);
+            if (!m.matches()) continue;
+            String ts = m.group(1);
+            int pid = Integer.parseInt(m.group(2));
+            int tid = Integer.parseInt(m.group(3));
+            String level = m.group(4);
+            String tag = m.group(5).trim();
+            String msg = m.group(6);
+
+            if (levelOrdinal(level) < minLevelOrdinal) continue;
+            if (filterLower != null && !line.toLowerCase().contains(filterLower)) continue;
+
+            long epochMs;
+            try {
+                java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(
+                    currentYear + "-" + ts, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+                epochMs = ldt.atZone(zone).toInstant().toEpochMilli();
+            } catch (Exception e) { epochMs = -1; }
+
+            if (sinceMs != null && epochMs > 0 && epochMs < sinceMs) continue;
+
+            Map<String, Object> rec = new LinkedHashMap<>();
+            rec.put("timestamp", ts);
+            if (epochMs > 0) rec.put("epochMs", epochMs);
+            rec.put("level", level);
+            rec.put("tag", tag);
+            rec.put("pid", pid);
+            rec.put("tid", tid);
+            rec.put("message", msg);
+            out.add(rec);
+        }
+        return out;
+    }
+
+    private static final java.util.regex.Pattern LOGCAT_LINE = java.util.regex.Pattern.compile(
+        "^(\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d{3})\\s+" +
+        "(\\d+)\\s+(\\d+)\\s+([VDIWEFAS])\\s+([^:]+):\\s*(.*)$");
+
+    private static int levelOrdinal(String level) {
+        if (level == null || level.isEmpty()) return 0;
+        return switch (level.charAt(0)) {
+            case 'V' -> 0;
+            case 'D' -> 1;
+            case 'I' -> 2;
+            case 'W' -> 3;
+            case 'E' -> 4;
+            case 'F', 'A' -> 5;     // fatal / assert
+            case 'S' -> 6;          // silent
+            default -> 0;
+        };
+    }
+
+    /**
+     * Daemon-side {@code tap_and_wait_for}: performs an adb tap, then
+     * immediately POSTs the wait_for predicate to sidekick. Saves the
+     * client one round-trip, which is the exact latency that lets
+     * snackbar / toast UI escape capture. The polling loop is still
+     * sidekick-side, but the tap is daemon-side because sidekick can't
+     * dispatch input events.
+     */
+    public String tapAndWaitFor(String packageName, String device,
+            int x, int y, String waitForBody) throws Exception {
+        long envelopeStart = System.currentTimeMillis();
+        connectionManager.tap(device, x, y);
+        String raw = unwrap(getConnection(packageName, device).client().waitFor(waitForBody), "Failed");
+        return injectElapsed(raw, envelopeStart);
+    }
 
     public String listFiles(String packageName, String device, String path) throws Exception {
         ConnectionInfo conn = getConnection(packageName, device);
@@ -425,8 +648,15 @@ public class DtaOrchestrator {
     // ========================================================================
 
     public String getNetworkRequests(String packageName, String device) throws Exception {
+        return getNetworkRequests(packageName, device, null);
+    }
+
+    public String getNetworkRequests(String packageName, String device, Long sinceMs) throws Exception {
         ConnectionInfo conn = getConnectionWithCdp(packageName, device);
-        return unwrap(conn.client().getNetworkRequests(), "Failed to get network requests");
+        if (sinceMs == null || sinceMs <= 0) {
+            return unwrap(conn.client().getNetworkRequests(), "Failed to get network requests");
+        }
+        return unwrap(conn.client().getNetworkRequestsSince(sinceMs), "Failed to get network requests");
     }
 
     public String getNetworkRequest(String packageName, String device, String requestId) throws Exception {
@@ -444,7 +674,170 @@ public class DtaOrchestrator {
         return unwrap(conn.client().getNetworkStats(), "Failed to get network stats");
     }
 
+    /**
+     * Aggregates captured network requests into a per-domain "where did data
+     * go" summary. Reusable as-is by spec-extraction tooling that needs a
+     * compact "outbound traffic in the last N seconds" view without scrolling
+     * through every individual request.
+     *
+     * <p>Output shape:</p>
+     * <pre>
+     * {
+     *   "windowStart": &lt;ms or 0 if unbounded&gt;,
+     *   "totalRequests": N,
+     *   "totalBytes": M,
+     *   "domains": [
+     *     {
+     *       "host": "api.example.com",
+     *       "requests": 6,
+     *       "totalResponseBytes": 12345,
+     *       "byMethod": {"GET": 5, "POST": 1},
+     *       "byStatus": {"2xx": 5, "4xx": 1},
+     *       "samplePaths": ["/v2/items", "/v2/items/42", "/v2/auth"],
+     *       "resourceTypes": ["xhr", "fetch"]
+     *     }, ...
+     *   ]
+     * }
+     * </pre>
+     *
+     * <p>Sorted by request count descending. Sample paths are deduped and
+     * capped at 5 per domain.</p>
+     */
+    public String getAffordances(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().getAffordances(), "Failed to get affordances");
+    }
+
+    public String setAffordances(String packageName, String device, String body) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().setAffordances(body), "Failed to set affordances");
+    }
+
+    public String resetAffordances(String packageName, String device) throws Exception {
+        ConnectionInfo conn = getConnection(packageName, device);
+        return unwrap(conn.client().resetAffordances(), "Failed to reset affordances");
+    }
+
+    public JsonNode getNetworkDataFlow(String packageName, String device, Long sinceMs) throws Exception {
+        String raw = getNetworkRequests(packageName, device, sinceMs);
+        JsonNode parsed = mapper.readTree(raw);
+        JsonNode requests = parsed.isArray() ? parsed : parsed.path("requests");
+
+        Map<String, DomainAgg> byHost = new java.util.HashMap<>();
+        long totalBytes = 0;
+        int total = 0;
+
+        for (JsonNode tx : requests) {
+            String url = tx.path("url").asText("");
+            if (url.isEmpty()) continue;
+            String host;
+            try {
+                host = java.net.URI.create(url).getHost();
+            } catch (Exception ignored) {
+                host = null;
+            }
+            if (host == null || host.isEmpty()) host = "unknown";
+
+            DomainAgg agg = byHost.computeIfAbsent(host, h -> new DomainAgg());
+            agg.requests++;
+            total++;
+
+            String method = tx.path("method").asText("");
+            if (!method.isEmpty()) agg.byMethod.merge(method, 1, Integer::sum);
+
+            int code = tx.path("responseCode").asInt(0);
+            if (code > 0) {
+                String bucket = (code / 100) + "xx";
+                agg.byStatus.merge(bucket, 1, Integer::sum);
+            }
+
+            long size = tx.path("responseBodySize").asLong(0);
+            if (size > 0) {
+                agg.totalResponseBytes += size;
+                totalBytes += size;
+            }
+
+            String rt = tx.path("resourceType").asText("");
+            if (!rt.isEmpty()) agg.resourceTypes.add(rt);
+
+            // Normalize content type to its bare media-type token
+            // (strip parameters like `; charset=utf-8`) so
+            // `application/json` and `application/json; charset=utf-8`
+            // bucket together. Lowercased for the same reason.
+            String ct = tx.path("responseContentType").asText("");
+            if (!ct.isEmpty()) {
+                int semi = ct.indexOf(';');
+                if (semi > 0) ct = ct.substring(0, semi);
+                ct = ct.trim().toLowerCase();
+                if (!ct.isEmpty()) agg.byContentType.merge(ct, 1, Integer::sum);
+            }
+
+            if (agg.samplePaths.size() < 5) {
+                try {
+                    String path = java.net.URI.create(url).getPath();
+                    if (path != null && !path.isEmpty()) agg.samplePaths.add(path);
+                } catch (Exception ignored) {}
+            }
+        }
+
+        // Sort by request count desc, host asc for stable output.
+        List<Map.Entry<String, DomainAgg>> sorted = new ArrayList<>(byHost.entrySet());
+        sorted.sort((a, b) -> {
+            int byCount = Integer.compare(b.getValue().requests, a.getValue().requests);
+            return byCount != 0 ? byCount : a.getKey().compareTo(b.getKey());
+        });
+
+        ObjectNode out = mapper.createObjectNode();
+        out.put("windowStart", sinceMs == null ? 0L : sinceMs);
+        out.put("totalRequests", total);
+        out.put("totalBytes", totalBytes);
+        ArrayNode domains = out.putArray("domains");
+        for (var entry : sorted) {
+            DomainAgg a = entry.getValue();
+            ObjectNode d = domains.addObject();
+            d.put("host", entry.getKey());
+            d.put("requests", a.requests);
+            d.put("totalResponseBytes", a.totalResponseBytes);
+            ObjectNode m = d.putObject("byMethod");
+            new java.util.TreeMap<>(a.byMethod).forEach(m::put);
+            ObjectNode s = d.putObject("byStatus");
+            new java.util.TreeMap<>(a.byStatus).forEach(s::put);
+            if (!a.byContentType.isEmpty()) {
+                ObjectNode ct = d.putObject("byContentType");
+                new java.util.TreeMap<>(a.byContentType).forEach(ct::put);
+            }
+            ArrayNode paths = d.putArray("samplePaths");
+            for (String p : a.samplePaths) paths.add(p);
+            if (!a.resourceTypes.isEmpty()) {
+                ArrayNode rts = d.putArray("resourceTypes");
+                for (String rt : a.resourceTypes) rts.add(rt);
+            }
+        }
+        return out;
+    }
+
+    private static class DomainAgg {
+        int requests = 0;
+        long totalResponseBytes = 0;
+        final Map<String, Integer> byMethod = new java.util.HashMap<>();
+        final Map<String, Integer> byStatus = new java.util.HashMap<>();
+        final Map<String, Integer> byContentType = new java.util.HashMap<>();
+        final java.util.LinkedHashSet<String> samplePaths = new java.util.LinkedHashSet<>();
+        final java.util.TreeSet<String> resourceTypes = new java.util.TreeSet<>();
+    }
+
     public String clearNetworkRequests(String packageName, String device) throws Exception {
+        // Auto-detect foreground app when caller omits packageName — same UX
+        // as screenshot() / layout(). Spec-extraction loops commonly call
+        // clear-then-act-then-query without bothering to thread the package
+        // through each call; requiring it would force callers to repeat the
+        // same dumpsys lookup we already do.
+        if (packageName == null || packageName.isEmpty()) {
+            packageName = detectForegroundPackage(device)
+                .orElseThrow(() -> new IllegalArgumentException(
+                    "package is null and no foreground app could be detected via dumpsys. "
+                    + "Pass package= explicitly or ensure an instrumented app is foreground."));
+        }
         ConnectionInfo conn = getConnectionWithCdp(packageName, device);
         return unwrap(conn.client().clearNetworkRequests(), "Failed to clear network requests");
     }
