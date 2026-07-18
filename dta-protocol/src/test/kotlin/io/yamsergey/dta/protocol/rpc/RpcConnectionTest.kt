@@ -122,6 +122,21 @@ class RpcConnectionTest {
     }
 
     @Test
+    fun `handler degradation markers surface on the response`() {
+        val h = Harness()
+        h.registry.register("layout_tree") { ctx ->
+            ctx.markDegraded("compose", "inspection disabled: enable-too-late")
+            buildJsonObject { put("nodes", 0) }
+        }
+        h.receive(Request(id = 6, method = "layout_tree"))
+
+        val response = assertIs<Response>(h.sentMessages().single())
+        val marker = response.degraded!!.single()
+        assertEquals("compose", marker.capability)
+        assertTrue("enable-too-late" in marker.reason)
+    }
+
+    @Test
     fun `null handler result becomes an empty object result not an error`() {
         val h = Harness()
         h.registry.register("side_effect_only") { null }

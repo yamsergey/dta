@@ -12,7 +12,6 @@ import io.yamsergey.dta.protocol.rpc.ServerSessionConnectionListener
 import io.yamsergey.dta.protocol.rpc.SessionIdentity
 import io.yamsergey.dta.protocol.wire.WebSocketConnection
 import io.yamsergey.dta.sidekick.capability.CapabilityRegistry
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.concurrent.thread

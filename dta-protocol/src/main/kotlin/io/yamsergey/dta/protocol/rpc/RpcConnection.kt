@@ -20,6 +20,7 @@ class RpcContext internal constructor(
     private val eventSender: (String, JsonElement?) -> Long,
 ) {
     internal val binaries = mutableListOf<ByteArray>()
+    internal val degradations = mutableListOf<DegradationMarker>()
 
     fun sendEvent(name: String, data: JsonElement? = null): Long = eventSender(name, data)
 
@@ -27,6 +28,12 @@ class RpcContext internal constructor(
      * and ships it as an id-tagged binary frame right after (contract §4). */
     fun attachBinary(payload: ByteArray) {
         binaries += payload
+    }
+
+    /** Declares that part of this response came from a degraded path; the
+     * marker rides the response (constitution III — no silent degradation). */
+    fun markDegraded(capability: String, reason: String) {
+        degradations += DegradationMarker(capability, reason)
     }
 }
 
@@ -79,18 +86,19 @@ class RpcConnection(
         val context = RpcContext(request.params, ::sendEvent)
         val response = try {
             val result = handler(context) ?: buildJsonObject { }
-            if (context.binaries.isEmpty()) {
-                Response(id = request.id, result = result)
-            } else {
-                Response(
-                    id = request.id,
-                    result = result,
-                    binary = BinaryAnnouncement(
+            Response(
+                id = request.id,
+                result = result,
+                degraded = context.degradations.ifEmpty { null },
+                binary = if (context.binaries.isEmpty()) {
+                    null
+                } else {
+                    BinaryAnnouncement(
                         frames = context.binaries.size,
                         totalBytes = context.binaries.sumOf { it.size.toLong() },
-                    ),
-                )
-            }
+                    )
+                },
+            )
         } catch (e: InvalidParamsException) {
             errorResponse(request.id, ErrorCodes.INVALID_PARAMS, e.message ?: "invalid params")
         } catch (e: Exception) {
