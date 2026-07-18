@@ -1,80 +1,10 @@
-# Ignore Gradle project-specific cache directory
-.gradle
-
-# Ignore Gradle build output directory
-build
-
-# CMake build directory (Android NDK)
-.cxx/
-
-# Ignore IDE/LSP configuration files
-.project
-.settings/
-.classpath
-.factorypath
-bin/
-
-# Ignore IDE files
-.vscode/
+build/
+.gradle/
+.kotlin/
 .idea/
 *.iml
-
-# Debug log files
-*.log
-android-tools-debug.log
-debug-android.log
-detailed-module-detection.log
-final-test.log
-graphitem-debug.log
-self-dep-debug.log
-test-logging.log
-test-modelbuilder-fix.log
-variants-debug.log
-
-# OS generated files
+local.properties
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Temporary files
-*.tmp
-*.temp
-*.swp
-*.swo
-*~
-
-# Agents
-
-.gemini/
-.claude/
-.mcp.json
-
-# Neovim Socket
-nvim.socket
-
-
-# Misc
-
-# - Unclear what is it, but pop ups time by time
-Task
-
-# Plan / design / triage docs — kept locally under
-# ~/work/projects/dta/, never committed to the source repo.
-PLAN*.md
-ISSUE*.md
-docs/plans/
-
-# - For simplicity pattern "output-.*\.json" used for any generated json files.
-output-*\.json
-
-# Test fixtures
-test-fixtures/**/local.properties
-test-fixtures/**/.idea/
-CLAUDE.md
-.intellijPlatform/
-*.hprof
-.kotlin/
+*.log
+.env*
+out/
