@@ -22,6 +22,15 @@ class DtaDaemon(
     private val runAdb: (List<String>) -> AdbExec.Result = { args -> adb.run(*args.toTypedArray()) }
     private val forwards = PortForwards(runAdb)
 
+    init {
+        // FR-011: forwards leaked by a previous run are cleaned at startup.
+        // Never fatal — no adb/no devices just means nothing to sweep.
+        runCatching { forwards.startupSweep() }
+    }
+
+    /** Re-runs the leaked-forward cleanup; returns how many were removed. */
+    fun startupSweep(): Int = forwards.startupSweep()
+
     val discovery = SidekickDiscovery(runAdb)
 
     val connections = SidekickConnectionManager(

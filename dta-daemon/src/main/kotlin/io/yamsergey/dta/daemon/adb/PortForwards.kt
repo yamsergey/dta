@@ -3,6 +3,7 @@ package io.yamsergey.dta.daemon.adb
 import io.yamsergey.dta.daemon.discovery.ConnectionKey
 
 class AppNotRunningException(message: String) : Exception(message)
+class DeviceGoneException(message: String) : Exception(message)
 class AdbCommandException(message: String) : Exception(message)
 
 /**
@@ -17,6 +18,9 @@ class PortForwards(
     fun forward(key: ConnectionKey): Int {
         val socketName = "dta_sidekick_${key.packageName}"
         val scan = runAdb(listOf("-s", key.serial, "shell", "cat", "/proc/net/unix"))
+        if (scan.exitCode != 0 && "not found" in scan.stderr) {
+            throw DeviceGoneException("device ${key.serial} disconnected")
+        }
         if ("@$socketName" !in scan.stdout) {
             throw AppNotRunningException(
                 "${key.packageName} is not running on ${key.serial} — launch it first",
@@ -32,5 +36,21 @@ class PortForwards(
 
     fun remove(serial: String, port: Int) {
         runAdb(listOf("-s", serial, "forward", "--remove", "tcp:$port"))
+    }
+
+    /** Removes forwards leaked by a previous run — ONLY ours (`dta_sidekick_*`);
+     * other tools' forwards are never touched (FR-011, discovery contract §3). */
+    fun startupSweep(): Int {
+        val listing = runAdb(listOf("forward", "--list"))
+        var removed = 0
+        listing.stdout.lineSequence().forEach { line ->
+            val fields = line.trim().split(Regex("\\s+"))
+            if (fields.size < 3) return@forEach
+            if (!fields[2].startsWith("localabstract:dta_sidekick_")) return@forEach
+            val port = fields[1].removePrefix("tcp:").toIntOrNull() ?: return@forEach
+            remove(fields[0], port)
+            removed++
+        }
+        return removed
     }
 }
