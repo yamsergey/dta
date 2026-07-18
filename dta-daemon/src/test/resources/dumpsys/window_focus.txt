@@ -1,0 +1,2 @@
+  mCurrentFocus=Window{d3ec253 u0 io.yamsergey.dta.fixture.channel/io.yamsergey.dta.fixture.channel.MainActivity}
+  mFocusedApp=ActivityRecord{cbe153d u0 io.yamsergey.dta.fixture.channel/.MainActivity t722}
