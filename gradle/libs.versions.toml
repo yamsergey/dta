@@ -6,6 +6,9 @@ serialization = "1.9.0"
 junit-jupiter = "5.13.4"
 junit-platform = "1.13.4"
 androidx-startup = "1.2.0"
+# compileOnly ONLY — sidekick compiles against these Compose surfaces but never
+# ships them; the host app supplies the runtime version (constitution I).
+compose = "1.7.6"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -14,6 +17,8 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit-platform" }
 androidx-startup = { module = "androidx.startup:startup-runtime", version.ref = "androidx-startup" }
+compose-ui = { module = "androidx.compose.ui:ui", version.ref = "compose" }
+compose-ui-tooling-data = { module = "androidx.compose.ui:ui-tooling-data", version.ref = "compose" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

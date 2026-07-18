@@ -37,8 +37,16 @@ dependencies {
     api(project(":dta-protocol"))
     implementation(libs.androidx.startup)
 
+    // compileOnly ONLY: sidekick reflects/probes for Compose at runtime and the
+    // host app supplies the real version. These MUST NOT appear in the AAR's
+    // runtime classpath — verified by DependencyLeakTest (constitution I).
+    compileOnly(libs.compose.ui)
+    compileOnly(libs.compose.ui.tooling.data)
+
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
+    testImplementation(libs.compose.ui)
+    testImplementation(libs.compose.ui.tooling.data)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
