@@ -17,7 +17,7 @@ class RpcConnectionTest {
     private class Harness {
         val sent = Collections.synchronizedList(mutableListOf<String>())
         val registry = MethodRegistry()
-        val rpc = RpcConnection(registry) { sent += it }
+        val rpc = RpcConnection(registry, sendText = { sent += it })
 
         fun receive(message: Message) = rpc.handleText(DtaJson.encodeToString(Message.serializer(), message))
 
@@ -28,7 +28,7 @@ class RpcConnectionTest {
     @Test
     fun `known method dispatches and responds with matching id`() {
         val h = Harness()
-        h.registry.register("echo") { params -> params ?: JsonPrimitive("empty") }
+        h.registry.register("echo") { ctx -> ctx.params ?: JsonPrimitive("empty") }
         h.receive(Request(id = 42, method = "echo", params = buildJsonObject { put("x", 1) }))
 
         val response = assertIs<Response>(h.sentMessages().single())

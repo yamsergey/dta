@@ -22,8 +22,9 @@ class ServerSession(
     private val registry: MethodRegistry,
     private val sendText: (String) -> Unit,
     private val requestClose: (code: Int, reason: String) -> Unit = { _, _ -> },
+    sendBinary: (ByteArray) -> Unit = {},
 ) {
-    private val rpc = RpcConnection(registry, sendText)
+    private val rpc = RpcConnection(registry, sendText, sendBinary)
 
     @Volatile
     var helloCompleted: Boolean = false
@@ -134,6 +135,7 @@ class ServerSessionConnectionListener(
             registry = registry,
             sendText = connection::sendText,
             requestClose = { code, reason -> connection.close(code, reason) },
+            sendBinary = connection::sendBinary,
         ).also(onSession)
     }
 

@@ -4,6 +4,7 @@ import android.net.LocalServerSocket
 import android.net.LocalSocket
 import android.util.Log
 import io.yamsergey.dta.protocol.rpc.CapabilityStatus
+import io.yamsergey.dta.protocol.rpc.DiagnosticMethods
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.rpc.IdentityReport
 import io.yamsergey.dta.protocol.rpc.MethodRegistry
@@ -47,6 +48,7 @@ object SidekickServer {
                     capabilities.buildIdentity(packageName, sidekickVersion),
                 )
             }
+            DiagnosticMethods.install(this)
         }
         val identity = SessionIdentity(packageName = packageName, serverVersion = sidekickVersion)
         val socketName = "dta_sidekick_$packageName"

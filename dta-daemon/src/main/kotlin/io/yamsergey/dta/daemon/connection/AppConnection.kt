@@ -24,6 +24,14 @@ class RequestTimeoutException(message: String) : Exception(message)
 class SidekickRpcException(val code: Int, message: String, val details: JsonObject? = null) :
     Exception(message)
 
+/** A response in full: JSON result plus any binary continuation frames and
+ * degradation markers (wire contract §2, §4). */
+data class RpcResult(
+    val result: JsonElement,
+    val binaryPayloads: List<ByteArray> = emptyList(),
+    val degraded: List<io.yamsergey.dta.protocol.rpc.DegradationMarker>? = null,
+)
+
 /** A verified duplex link to one app's sidekick. */
 interface AppConnection {
     val hello: HelloResult
@@ -31,6 +39,10 @@ interface AppConnection {
     val isOpen: Boolean
 
     suspend fun request(method: String, params: JsonObject? = null, timeout: Duration? = null): JsonElement
+
+    /** Like [request] but surfaces binary payloads and degradation markers. */
+    suspend fun requestFull(method: String, params: JsonObject? = null, timeout: Duration? = null): RpcResult =
+        RpcResult(result = request(method, params, timeout))
 
     suspend fun close()
 }

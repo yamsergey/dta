@@ -4,30 +4,53 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /** Thrown by a handler to signal a parameter problem (contract §7, -32602). */
 class InvalidParamsException(message: String) : Exception(message)
 
-class MethodRegistry {
-    private val handlers = ConcurrentHashMap<String, (JsonObject?) -> JsonElement?>()
+/**
+ * Per-request context a handler runs against: its params, event push on the
+ * calling connection, and binary attachments for the response (contract §4).
+ */
+class RpcContext internal constructor(
+    val params: JsonObject?,
+    private val eventSender: (String, JsonElement?) -> Long,
+) {
+    internal val binaries = mutableListOf<ByteArray>()
 
-    fun register(method: String, handler: (JsonObject?) -> JsonElement?) {
+    fun sendEvent(name: String, data: JsonElement? = null): Long = eventSender(name, data)
+
+    /** Queues a binary payload; the dispatcher announces it on the response
+     * and ships it as an id-tagged binary frame right after (contract §4). */
+    fun attachBinary(payload: ByteArray) {
+        binaries += payload
+    }
+}
+
+typealias MethodHandler = (RpcContext) -> JsonElement?
+
+class MethodRegistry {
+    private val handlers = ConcurrentHashMap<String, MethodHandler>()
+
+    fun register(method: String, handler: MethodHandler) {
         handlers[method] = handler
     }
 
-    operator fun get(method: String): ((JsonObject?) -> JsonElement?)? = handlers[method]
+    operator fun get(method: String): MethodHandler? = handlers[method]
 }
 
 /**
  * Server-side RPC message pump: routes incoming requests to [registry],
- * emits responses and events through [sendText]. Transport-agnostic —
- * the WebSocket adapter wires it to a real connection.
+ * emits responses/events through [sendText] and binary continuations through
+ * [sendBinary]. Transport-agnostic — the WebSocket adapter wires it up.
  */
 class RpcConnection(
     private val registry: MethodRegistry,
     private val sendText: (String) -> Unit,
+    private val sendBinary: (ByteArray) -> Unit = {},
 ) {
     private val eventSeq = AtomicLong(0)
 
@@ -48,19 +71,41 @@ class RpcConnection(
 
     private fun handleRequest(request: Request) {
         val handler = registry[request.method]
-        val response = if (handler == null) {
-            errorResponse(request.id, ErrorCodes.METHOD_NOT_FOUND, "Unknown method: ${request.method}")
-        } else {
-            try {
-                Response(id = request.id, result = handler(request.params) ?: buildJsonObject { })
-            } catch (e: InvalidParamsException) {
-                errorResponse(request.id, ErrorCodes.INVALID_PARAMS, e.message ?: "invalid params")
-            } catch (e: Exception) {
-                // FR-013: short and actionable, never a stack trace.
-                errorResponse(request.id, ErrorCodes.INTERNAL, shortMessage(e))
+        if (handler == null) {
+            send(errorResponse(request.id, ErrorCodes.METHOD_NOT_FOUND, "Unknown method: ${request.method}"))
+            return
+        }
+
+        val context = RpcContext(request.params, ::sendEvent)
+        val response = try {
+            val result = handler(context) ?: buildJsonObject { }
+            if (context.binaries.isEmpty()) {
+                Response(id = request.id, result = result)
+            } else {
+                Response(
+                    id = request.id,
+                    result = result,
+                    binary = BinaryAnnouncement(
+                        frames = context.binaries.size,
+                        totalBytes = context.binaries.sumOf { it.size.toLong() },
+                    ),
+                )
+            }
+        } catch (e: InvalidParamsException) {
+            errorResponse(request.id, ErrorCodes.INVALID_PARAMS, e.message ?: "invalid params")
+        } catch (e: Exception) {
+            // FR-013: short and actionable, never a stack trace.
+            errorResponse(request.id, ErrorCodes.INTERNAL, shortMessage(e))
+        }
+
+        send(response)
+        if (response.binary != null) {
+            context.binaries.forEach { payload ->
+                sendBinary(
+                    ByteBuffer.allocate(8 + payload.size).putLong(request.id).put(payload).array(),
+                )
             }
         }
-        send(response)
     }
 
     fun sendEvent(name: String, data: JsonElement? = null): Long {

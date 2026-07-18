@@ -24,7 +24,7 @@ import kotlin.time.Duration.Companion.seconds
 class SidekickConnectionTest {
 
     private fun registryWithDiagnostics() = MethodRegistry().apply {
-        register("echo") { params -> params ?: JsonPrimitive("empty") }
+        register("echo") { ctx -> ctx.params ?: JsonPrimitive("empty") }
         register("identity") {
             DtaJson.encodeToJsonElement(
                 IdentityReport.serializer(),
