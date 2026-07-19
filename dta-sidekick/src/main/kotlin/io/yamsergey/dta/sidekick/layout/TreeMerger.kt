@@ -60,22 +60,29 @@ object TreeMerger {
     }
 
     /** Walk the compose tree; wherever a node's id is a known embedded-host,
-     * attach the corresponding embedded view subtree — matched by id. */
+     * attach the corresponding embedded view subtree — matched by id. Any
+     * embedded view NOT matched to a compose parent is attached at the compose
+     * root rather than dropped (constitution III — no silent loss). */
     private fun embedViews(
         composeTree: Node,
         embeds: List<EmbeddedHost>,
         embeddedViewRoots: Map<Long, Node>,
     ): Node {
-        if (embeds.isEmpty()) return composeTree
         val byComposeNode = embeds.associate { it.composeNodeId to it.viewDrawingId }
+        val consumed = mutableSetOf<Long>()
         fun rec(node: Node): Node {
             val mappedChildren = node.children.map { rec(it) }
             val embeddedViewId = byComposeNode[node.id]
             val extra = embeddedViewId?.let { embeddedViewRoots[it] }
+            if (extra != null) consumed += embeddedViewId
             val children = if (extra != null) mappedChildren + extra else mappedChildren
             return node.withChildren(children)
         }
-        return rec(composeTree)
+        val enriched = rec(composeTree)
+        // Attach any embedded views the semantics walk didn't map, so they are
+        // present (identity-parented when possible, root-parented otherwise).
+        val leftover = embeddedViewRoots.filterKeys { it !in consumed }.values.toList()
+        return if (leftover.isEmpty()) enriched else enriched.withChildren(enriched.children + leftover)
     }
 
     private fun firstFramePending(host: Node): Node =

@@ -84,6 +84,11 @@ class ViewCapture(private val maxDepth: Int = 100) {
         if (className == composeViewClass) {
             hosts[id] = view
             hostIds += id
+            // The compose subtree is captured via semantics, but classic Views
+            // embedded in it (AndroidView) live under AndroidViewsHandler in the
+            // ComposeView's View descendants — scan for them so the merger can
+            // reparent them (they'd otherwise be lost at this boundary).
+            if (view is ViewGroup) scanEmbedded(view, hosts, embedded, hostIds)
             return viewNode(view, id, className, emptyList(), null)
         }
 
@@ -113,6 +118,30 @@ class ViewCapture(private val maxDepth: Int = 100) {
             emptyList()
         }
         return viewNode(view, id, className, children, null)
+    }
+
+    /** Recursively scans a ComposeView's View descendants for
+     * AndroidViewsHandler and records each embedded classic View subtree. */
+    private fun scanEmbedded(
+        group: ViewGroup,
+        hosts: MutableMap<Long, View>,
+        embedded: MutableMap<Long, Node>,
+        hostIds: MutableSet<Long>,
+    ) {
+        for (i in 0 until group.childCount) {
+            val child = group.getChildAt(i)
+            if (child::class.java.name == androidViewsHandlerClass && child is ViewGroup) {
+                for (j in 0 until child.childCount) {
+                    val embeddedView = child.getChildAt(j)
+                    if (embeddedView.visibility != View.GONE) {
+                        embedded[embeddedView.uniqueDrawingIdCompat()] =
+                            walk(embeddedView, 0, hosts, embedded, hostIds)
+                    }
+                }
+            } else if (child is ViewGroup) {
+                scanEmbedded(child, hosts, embedded, hostIds)
+            }
+        }
     }
 
     private fun viewNode(
