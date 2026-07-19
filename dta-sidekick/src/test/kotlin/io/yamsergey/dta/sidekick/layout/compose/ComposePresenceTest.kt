@@ -28,8 +28,8 @@ class ComposePresenceTest {
         },
     )
 
-    private val composeUi = "androidx.compose.ui.platform.AndroidComposeView"
-    private val toolingData = "androidx.compose.ui.tooling.data.CompositionDataRecord"
+    private val composeUi = ComposePresence.COMPOSE_UI_MARKER
+    private val toolingData = ComposePresence.TOOLING_DATA_MARKER
 
     @Test
     fun `no compose in the app means tier 1 unavailable and nothing probed further`() {

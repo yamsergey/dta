@@ -179,7 +179,15 @@ class ViewCapture(private val maxDepth: Int = 100) {
     private fun renderOutline(view: View, loc: IntArray): Quad? {
         val m = Matrix()
         view.transformMatrixToGlobal(m)
-        if (m.isIdentity) return null
+        // transformMatrixToGlobal always carries the screen translation, so
+        // isIdentity is never true. Only a genuine rotation/scale/skew (the
+        // non-translation components) warrants a distinct rendered outline.
+        val v = FloatArray(9).also { m.getValues(it) }
+        val rotatedOrScaled = kotlin.math.abs(v[Matrix.MSCALE_X] - 1f) > 1e-3f ||
+            kotlin.math.abs(v[Matrix.MSCALE_Y] - 1f) > 1e-3f ||
+            kotlin.math.abs(v[Matrix.MSKEW_X]) > 1e-3f ||
+            kotlin.math.abs(v[Matrix.MSKEW_Y]) > 1e-3f
+        if (!rotatedOrScaled) return null
         val pts = floatArrayOf(0f, 0f, view.width.toFloat(), 0f, view.width.toFloat(), view.height.toFloat(), 0f, view.height.toFloat())
         m.mapPoints(pts)
         return Quad(pts[0], pts[1], pts[2], pts[3], pts[4], pts[5], pts[6], pts[7])

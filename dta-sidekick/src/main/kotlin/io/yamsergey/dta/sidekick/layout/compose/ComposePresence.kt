@@ -51,7 +51,8 @@ class ComposePresence(
 
     companion object {
         const val COMPOSE_UI_MARKER = "androidx.compose.ui.platform.AndroidComposeView"
-        const val TOOLING_DATA_MARKER = "androidx.compose.ui.tooling.data.CompositionDataRecord"
+        // SlotTreeKt carries asTree/mapTree — the entry point Tier-2 actually calls.
+        const val TOOLING_DATA_MARKER = "androidx.compose.ui.tooling.data.SlotTreeKt"
 
         /** Reads the AndroidX-embedded version file for an artifact, e.g.
          * `META-INF/androidx.compose.ui_ui.version` — the same signal Studio
