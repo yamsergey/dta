@@ -10,9 +10,19 @@ import io.yamsergey.dta.protocol.rpc.IdentityReport
 import io.yamsergey.dta.protocol.rpc.MethodRegistry
 import io.yamsergey.dta.protocol.rpc.ServerSessionConnectionListener
 import io.yamsergey.dta.protocol.rpc.SessionIdentity
+import io.yamsergey.dta.protocol.layout.LayoutCapture
+import io.yamsergey.dta.protocol.layout.LayoutFilter
+import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.wire.WebSocketConnection
 import io.yamsergey.dta.sidekick.capability.CapabilityRegistry
+import io.yamsergey.dta.sidekick.layout.LayoutCapability
+import io.yamsergey.dta.sidekick.layout.LayoutCaptureMethod
+import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlin.concurrent.thread
 
@@ -39,6 +49,16 @@ object SidekickServer {
             CapabilityStatus("channel", CapabilityStatus.Status.AVAILABLE)
         }
 
+        // layout capability status is computed from the SAME compose probes the
+        // capture uses, so identity and captures never disagree (contract §5).
+        val composePresence = ComposePresence()
+        capabilities.register(LayoutCapability.NAME) { LayoutCapability.status(composePresence) }
+
+        val layoutMethod = LayoutCaptureMethod(
+            presence = composePresence,
+            screenProvider = { screenMetadata(packageName) },
+        )
+
         val registry = MethodRegistry().apply {
             register("ping") { buildJsonObject { put("pong", true) } }
             register("identity") {
@@ -46,6 +66,10 @@ object SidekickServer {
                     IdentityReport.serializer(),
                     capabilities.buildIdentity(packageName, sidekickVersion),
                 )
+            }
+            register("layout_tree") { ctx ->
+                val filter = ctx.params?.let { parseFilter(it) }
+                DtaJson.encodeToJsonElement(LayoutCapture.serializer(), layoutMethod.capture(filter))
             }
             DiagnosticMethods.install(this)
         }
@@ -96,5 +120,56 @@ object SidekickServer {
         } finally {
             runCatching { client.close() }
         }
+    }
+
+    private fun parseFilter(params: JsonObject): LayoutFilter? {
+        fun str(key: String) = (params[key]?.jsonPrimitive?.contentOrNullSafe())
+        val filter = LayoutFilter(
+            text = str("text"),
+            type = str("type"),
+            resourceId = str("resource_id") ?: str("resourceId"),
+            rootId = params["root_id"]?.jsonPrimitive?.longOrNull ?: params["rootId"]?.jsonPrimitive?.longOrNull,
+        )
+        return filter.takeUnless { it.isEmpty }
+    }
+
+    private fun kotlinx.serialization.json.JsonPrimitive.contentOrNullSafe(): String? =
+        if (this is kotlinx.serialization.json.JsonNull) null else content.ifEmpty { null }
+
+    /** Screen metadata for the foreground display. */
+    private fun screenMetadata(packageName: String): Screen {
+        val app = currentApplication()
+        val metrics = app?.resources?.displayMetrics
+        return Screen(
+            widthPx = metrics?.widthPixels ?: 0,
+            heightPx = metrics?.heightPixels ?: 0,
+            density = metrics?.density ?: 1f,
+            activity = currentActivityName(),
+        )
+    }
+
+    private fun currentApplication(): android.app.Application? = try {
+        val activityThread = Class.forName("android.app.ActivityThread")
+        val current = activityThread.getMethod("currentActivityThread").invoke(null)
+        activityThread.getMethod("getApplication").invoke(current) as? android.app.Application
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun currentActivityName(): String? = try {
+        val activityThread = Class.forName("android.app.ActivityThread")
+        val current = activityThread.getMethod("currentActivityThread").invoke(null)
+        @Suppress("UNCHECKED_CAST")
+        val activities = activityThread.getDeclaredField("mActivities").apply { isAccessible = true }
+            .get(current) as? Map<Any, Any>
+        activities?.values?.firstNotNullOfOrNull { record ->
+            val paused = record.javaClass.getDeclaredField("paused").apply { isAccessible = true }.getBoolean(record)
+            if (paused) null else {
+                val activity = record.javaClass.getDeclaredField("activity").apply { isAccessible = true }.get(record)
+                activity?.javaClass?.name
+            }
+        }
+    } catch (_: Throwable) {
+        null
     }
 }
