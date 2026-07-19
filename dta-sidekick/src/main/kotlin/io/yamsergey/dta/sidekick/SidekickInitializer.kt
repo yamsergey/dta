@@ -1,7 +1,10 @@
 package io.yamsergey.dta.sidekick
 
 import android.content.Context
+import android.util.Log
 import androidx.startup.Initializer
+import io.yamsergey.dta.sidekick.layout.compose.ComposeInspection
+import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
 import io.yamsergey.dta.sidekick.server.SidekickServer
 
 /**
@@ -13,6 +16,12 @@ import io.yamsergey.dta.sidekick.server.SidekickServer
 class SidekickInitializer : Initializer<Unit> {
 
     override fun create(context: Context) {
+        // Enable Compose slot-table exposure BEFORE any composition (the only
+        // reliable time). Guarded so a Views-only app never loads Compose.
+        if (ComposePresence().composePresent) {
+            runCatching { ComposeInspection.enableEarly() }
+                .onFailure { Log.w("DtaSidekick", "compose inspection enable failed: ${it.message}") }
+        }
         SidekickServer.start(
             packageName = context.packageName,
             sidekickVersion = BuildConfig.VERSION,

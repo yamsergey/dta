@@ -25,34 +25,72 @@ class ToolingEnrichment {
         val out = HashMap<Long, EnrichmentEntry>()
         for (data in tables) {
             val group = asTree.invoke(null, data) ?: continue
-            collect(group, out)
+            collect(group, Context(null, null, null, emptyList(), true), null, out)
         }
         if (out.isEmpty()) error("tooling produced no groups")
         return out
     }
 
-    private fun collect(group: Any, out: MutableMap<Long, EnrichmentEntry>) {
-        val name = group.call("getName") as? String
-        val semanticsId = semanticsIdOf(group)
+    /** The nearest enclosing named composable while descending — a NodeGroup's
+     * semantics id is labeled with this. */
+    private class Context(
+        val name: String?,
+        val sourceFile: String?,
+        val lineNumber: Int?,
+        val parameters: List<Parameter>,
+        val library: Boolean,
+    )
+
+    private fun collect(
+        group: Any,
+        inherited: Context,
+        inheritedUser: Context?,
+        out: MutableMap<Long, EnrichmentEntry>,
+    ) {
+        val rawName = group.call("getName") as? String
+        val name = rawName?.let(::normalize)
         val location = group.call("getLocation")
         val sourceFile = location?.call("getSourceFile") as? String
         val line = (location?.call("getLineNumber") as? Int)?.takeIf { it > 0 }
 
-        if (name != null && semanticsId != null) {
-            out[semanticsId] = EnrichmentEntry(
-                name = normalize(name),
-                sourceFile = sourceFile,
-                lineNumber = line,
-                parameters = parametersOf(group),
-                library = sourceFile == null,
-            )
+        val meaningful = name != null && rawName !in SKIP_NAMES
+        // Nearest meaningful composable (may be a library internal).
+        val context = if (meaningful) {
+            Context(name!!, sourceFile, line, parametersOf(group), isLibraryFile(sourceFile))
+        } else {
+            inherited
+        }
+        // Nearest USER composable (source file not a known framework file) —
+        // this is what a developer wants to see labeling the node.
+        val userContext = if (meaningful && !isLibraryFile(sourceFile)) context else inheritedUser
+
+        val semanticsId = semanticsIdOf(group)
+        if (semanticsId != null && !out.containsKey(semanticsId)) {
+            val chosen = userContext ?: context
+            if (chosen.name != null) {
+                out[semanticsId] = EnrichmentEntry(
+                    name = chosen.name,
+                    sourceFile = chosen.sourceFile,
+                    lineNumber = chosen.lineNumber,
+                    parameters = chosen.parameters,
+                    library = chosen.library,
+                )
+            }
         }
         @Suppress("UNCHECKED_CAST")
-        (group.call("getChildren") as? Iterable<Any>)?.forEach { collect(it, out) }
+        (group.call("getChildren") as? Iterable<Any>)?.forEach { collect(it, context, userContext, out) }
+    }
+
+    /** A composable's source file is a framework file when it lives in a known
+     * Compose/AndroidX file — user composables live elsewhere (the app). */
+    private fun isLibraryFile(sourceFile: String?): Boolean {
+        if (sourceFile == null) return true
+        return sourceFile in LIBRARY_FILES
     }
 
     private fun semanticsIdOf(group: Any): Long? = try {
-        val node = group.call("getNode")
+        // NodeGroup.node is the LayoutInfo; its getSemanticsId matches SemanticsNode.id.
+        val node = group.javaClass.methods.firstOrNull { it.name == "getNode" && it.parameterCount == 0 }?.invoke(group)
         (node?.call("getSemanticsId") as? Int)?.toLong()
     } catch (_: Throwable) {
         null
@@ -71,8 +109,16 @@ class ToolingEnrichment {
 
     @Suppress("UNCHECKED_CAST")
     private fun compositionDataSet(host: View): Iterable<Any>? {
-        val tagId = host.resources.getIdentifier("inspection_slot_table_set", "id", "androidx.compose.ui")
-        if (tagId == 0) return null
+        // Compose merges its resources into the app's package, so resolve the
+        // tag id under the app package (not "androidx.compose.ui"). Fall back to
+        // scanning both known packages for robustness across AGP namespacing.
+        val res = host.resources
+        val pkg = host.context.packageName
+        val tagId = res.getIdentifier("inspection_slot_table_set", "id", pkg)
+            .takeIf { it != 0 }
+            ?: res.getIdentifier("inspection_slot_table_set", "id", "androidx.compose.ui")
+                .takeIf { it != 0 }
+            ?: return null
         return host.getTag(tagId) as? Iterable<Any>
     }
 
@@ -83,5 +129,24 @@ class ToolingEnrichment {
         "BasicText" -> "Text"
         "BasicTextField" -> "TextField"
         else -> name
+    }
+
+    private companion object {
+        // Node-emitting / layout primitives that must not become a node's label.
+        val SKIP_NAMES = setOf(
+            "ReusableComposeNode", "ComposeNode", "Layout", "LayoutNode",
+            "SubcomposeLayout", "ReusableContentHost", "ReusableContent",
+        )
+
+        // Common Compose/Material/Foundation source files — composables from
+        // these are framework internals, not the developer's own code.
+        val LIBRARY_FILES = setOf(
+            "Text.kt", "BasicText.kt", "BasicTextField.kt", "TextField.kt",
+            "Surface.kt", "Box.kt", "Row.kt", "Column.kt", "Layout.kt",
+            "Button.kt", "Card.kt", "Scaffold.kt", "AppBar.kt", "Icon.kt",
+            "Image.kt", "Spacer.kt", "SelectionContainer.kt", "CoreText.kt",
+            "AndroidView.kt", "ComposeView.android.kt", "Wrapper.android.kt",
+            "SnackbarHost.kt", "ProvideTextStyle.kt", "TextStyle.kt",
+        )
     }
 }
