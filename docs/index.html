@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DTA — Development Tools for Android</title>
+<meta name="description" content="Give your coding agent the runtime: the real screen, the real network traffic, the real database rows. An MCP server for Android debugging.">
+<link rel="icon" type="image/svg+xml" href="assets/droid-monitor-live.svg">
+<script>
+/* Follow the device's appearance. The design system's light palette is opt-in via
+   data-theme on <html>, so nothing is redefined here — this picks one. Inline and
+   above the stylesheet on purpose: it must run before the first paint. */
+(function () {
+  var q = matchMedia('(prefers-color-scheme: light)');
+  var set = function (on) { document.documentElement.dataset.theme = on ? 'light' : 'dark'; };
+  set(q.matches);
+  q.addEventListener ? q.addEventListener('change', function (e) { set(e.matches); })
+                     : q.addListener(function (e) { set(e.matches); });
+})();
+</script>
+<link rel="stylesheet" href="styles.css">
+
+<meta property="og:title" content="DTA — Development Tools for Android">
+<meta property="og:description" content="Your agent writes code from the source. It debugs from nothing. DTA hands it the runtime.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yamsergey.github.io/dta/">
+
+<style>
+/* ---------------------------------------------------------------------------
+   The design system ships two type scales: --stage-* for the 1920x1080 slide
+   surface and --text-* for documentation. A marketing page is neither — it needs
+   display sizes that answer to a viewport instead of a fixed stage. So the three
+   below are page-local, built on the same tracking rules, and they are the only
+   sizes here that do not come from a token.
+   ------------------------------------------------------------------------- */
+:root {
+  --web-display: clamp(34px, 6.2vw, 68px);
+  --web-h2:      clamp(26px, 3.4vw, 38px);
+  --web-lead:    clamp(17px, 1.7vw, 21px);
+  --gutter: clamp(20px, 5vw, 64px);
+}
+
+body { margin: 0; }
+.wrap { max-width: 1060px; margin: 0 auto; padding-inline: var(--gutter); }
+section { padding-block: clamp(56px, 9vw, 112px); }
+section + section { border-top: var(--border); }
+
+/* header ------------------------------------------------------------------ */
+.top { position: sticky; top: 0; z-index: 20; background: var(--color-ground);
+  border-bottom: var(--border); padding-block: 14px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
+.top .wrap { display: flex; align-items: center; gap: var(--space-2); }
+.top .brand { display: flex; align-items: center; gap: 10px; font-weight: 700;
+  letter-spacing: var(--track-label); text-transform: uppercase; font-size: var(--text-xs);
+  color: var(--color-ink); }
+.top .brand .droid-slot { width: 26px; flex: none; display: block; }
+.top nav { margin-left: auto; display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.top nav a { font-size: var(--text-sm); color: var(--color-ink-dim); text-decoration: none; }
+.top nav a:hover { color: var(--color-signal); }
+
+/* hero -------------------------------------------------------------------- */
+.hero { text-align: center; padding-block: clamp(56px, 10vw, 128px) clamp(48px, 7vw, 88px); }
+.hero .droid-wrap { width: clamp(100px, 15vw, 150px); margin: 0 auto var(--space-4); }
+h1 { font-size: var(--web-display); line-height: 1.04; letter-spacing: var(--track-display);
+  font-weight: 800; margin: 0 0 var(--space-3); color: var(--color-ink); }
+h1 .setup { color: var(--color-ink-dim); }
+.lead { font-size: var(--web-lead); line-height: 1.6; color: var(--color-ink-dim);
+  max-width: 62ch; margin: 0 auto; }
+.cta { display: flex; gap: var(--space-2); justify-content: center; flex-wrap: wrap;
+  margin-top: var(--space-5); }
+.btn { display: inline-flex; align-items: center; gap: 10px; text-decoration: none;
+  font-size: var(--text-sm); padding: 13px 22px; border-radius: var(--radius-sm);
+  border: var(--border-strong); color: var(--color-ink); transition: border-color var(--dur) var(--ease); }
+.btn:hover { border-color: var(--color-signal); }
+.btn-signal { background: var(--color-signal); border-color: var(--color-signal);
+  color: var(--color-ground); font-weight: 700; }
+.btn-signal:hover { filter: brightness(1.08); border-color: var(--color-signal); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+
+/* headings ---------------------------------------------------------------- */
+h2 { font-size: var(--web-h2); line-height: 1.12; letter-spacing: var(--track-display);
+  font-weight: 800; margin: 0 0 var(--space-3); color: var(--color-ink); }
+.sec-lead { font-size: var(--text-lg); line-height: 1.65; color: var(--color-ink-dim);
+  max-width: 68ch; margin: 0 0 var(--space-5); }
+p { line-height: 1.7; }
+
+/* the two-column contrast ------------------------------------------------- */
+.contrast { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--space-5);
+  font-size: var(--text-md); }
+.contrast > div { padding: 14px 0; border-bottom: var(--border); }
+.contrast .hd { font-size: var(--text-xs); letter-spacing: var(--track-label);
+  text-transform: uppercase; color: var(--color-ink-faint); border-bottom: var(--border-strong); }
+.contrast b { color: var(--color-ink); font-weight: 700; }
+@media (max-width: 680px) { .contrast { grid-template-columns: 1fr; }
+  .contrast .hd:nth-child(2) { margin-top: var(--space-4); } }
+
+/* blind list -------------------------------------------------------------- */
+.blind { list-style: none; padding: 0; margin: 0; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px var(--space-4); }
+.blind li { display: flex; align-items: flex-start; gap: 12px; font-size: var(--text-md);
+  color: var(--color-ink-dim); padding: 9px 0; border-bottom: var(--border); }
+.blind .icon { width: 20px; height: 20px; flex: none; margin-top: 2px; }
+
+/* clips ------------------------------------------------------------------- */
+.clip { margin-top: var(--space-5); }
+.clip + .clip { margin-top: var(--space-6); }
+.clip-head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap;
+  margin-bottom: var(--space-2); }
+.clip-head .step { font-size: var(--text-xs); letter-spacing: var(--track-label);
+  text-transform: uppercase; color: var(--color-signal); }
+.clip-head .what { font-size: var(--text-md); color: var(--color-ink); }
+.clip video { width: 100%; display: block; border-radius: var(--radius-md);
+  border: var(--border); background: var(--color-inset); }
+.clip figcaption { font-size: var(--text-sm); color: var(--color-ink-faint);
+  margin-top: 10px; line-height: 1.6; }
+
+/* capability cards -------------------------------------------------------- */
+.caps { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3); margin-top: var(--space-5); }
+.cap { border: var(--border); border-radius: var(--radius-md); padding: var(--space-3); }
+.cap h3 { font-size: var(--text-md); margin: 0 0 10px; color: var(--color-ink);
+  display: flex; align-items: center; gap: 10px; }
+.cap h3 .icon { width: 20px; height: 20px; flex: none; }
+.cap p { font-size: var(--text-sm); color: var(--color-ink-dim); margin: 0; line-height: 1.65; }
+
+/* install ----------------------------------------------------------------- */
+.ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: var(--space-3); margin-top: var(--space-4); }
+.way { border: var(--border); border-radius: var(--radius-md); padding: var(--space-3);
+  display: flex; flex-direction: column; gap: 12px; }
+.way h3 { font-size: var(--text-md); margin: 0; color: var(--color-ink); }
+.way p { font-size: var(--text-sm); color: var(--color-ink-dim); margin: 0; }
+.way pre { margin: 0; }
+pre { background: var(--color-inset); border: var(--border); border-radius: var(--radius-sm);
+  padding: 14px 16px; overflow-x: auto; font-size: var(--text-sm); line-height: 1.7;
+  color: var(--color-ink); }
+pre .c { color: var(--color-ink-faint); }
+.clients { display: flex; gap: 10px; flex-wrap: wrap; margin-top: var(--space-4); }
+
+/* footer ------------------------------------------------------------------ */
+footer { border-top: var(--border); padding-block: var(--space-5);
+  padding-bottom: calc(var(--space-5) + env(safe-area-inset-bottom, 0px)); }
+footer .wrap { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center;
+  font-size: var(--text-sm); color: var(--color-ink-faint); }
+footer a { color: var(--color-ink-dim); text-decoration: none; }
+footer a:hover { color: var(--color-signal); }
+footer .sp { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <span class="brand"><span class="droid-slot"><svg class="droid" viewBox="0 0 696 696" fill="currentColor" aria-hidden="true" style="width:100%"><path fill-rule="evenodd" d="M508 345L502 347L496 351L492 355L489 361L488 364L488 377L489 380L491 384L493 387L496 390L502 394L505 394L508 396L518 396L524 394L528 392L533 387L535 384L537 380L538 376L538 365L537 361L535 357L533 354L530 351L524 347L518 345ZM83 364L79 376L79 487L89 507L101 515L115 518L118 601L127 618L142 629L156 633L543 633L566 625L581 606L584 596L584 520L610 508L621 490L622 387L621 373L614 359L605 351L584 344L583 333L577 320L561 305L544 300L155 300L134 309L120 326L116 344L95 351ZM133 544L136 540L256 540L260 536L275 496L281 509L298 568L303 574L310 574L313 572L332 445L336 456L353 585L357 597L366 598L370 593L400 492L404 497L417 532L423 540L565 540L567 542L567 596L556 611L544 616L155 616L143 610L135 599ZM590 363L595 365L600 369L604 375L605 380L605 484L603 490L601 493L598 496L593 499L588 500L586 501L583 497L585 363ZM114 362L117 365L116 500L114 501L112 501L105 498L98 491L96 487L95 381L97 373L100 369L105 365ZM135 335L145 322L155 317L546 317L560 326L567 340L567 523L433 525L406 459L397 456L391 463L365 548L341 378L336 371L329 371L325 378L303 527L284 466L277 459L271 461L246 525L136 525L133 522ZM438 184L435 186L430 191L428 195L428 208L430 211L435 216L438 218L442 219L449 219L453 218L456 216L461 211L462 209L463 206L463 197L462 193L460 190L456 186L453 184L449 183L443 183ZM248 184L244 186L239 191L239 193L237 195L237 207L240 213L241 214L242 214L247 218L252 219L257 219L262 218L265 216L269 212L271 209L272 203L273 201L272 196L271 193L269 190L265 186L262 184L257 183L252 183ZM131 256L131 264L136 269L564 269L569 263L559 225L535 183L507 153L470 126L471 121L502 70L504 63L498 56L493 56L488 60L453 118L422 105L382 96L358 94L319 96L297 100L246 117L212 61L207 56L201 56L196 62L197 69L230 126L195 151L164 184L142 223ZM151 248L165 214L181 190L208 162L234 143L258 130L296 117L335 111L364 111L404 117L432 126L459 139L493 163L525 198L540 224L547 241L549 251L547 253L154 253L152 252Z"/></svg></span>DTA</span>
+    <nav>
+      <a href="#see">See it work</a>
+      <a href="#reads">What it reads</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/yamsergey/dta">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="droid-wrap"><svg class="droid" viewBox="0 0 696 696" aria-hidden="true" style="width:100%"><defs><linearGradient id="fade-hero" x1="-240" y1="0" x2="-20" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity="1"/></linearGradient><mask id="sweep-hero" maskUnits="userSpaceOnUse" x="0" y="0" width="696" height="696"><rect class="droid-sweep" x="-240" y="0" width="220" height="696" fill="url(#fade-hero)"/></mask></defs><path class="droid-body" fill-rule="evenodd" d="M83 364L79 376L79 487L89 507L101 515L115 518L118 601L127 618L142 629L156 633L543 633L566 625L581 606L584 596L584 520L610 508L621 490L622 387L621 373L614 359L605 351L584 344L583 333L577 320L561 305L544 300L155 300L134 309L120 326L116 344L95 351Z M133 544L136 540L256 540L260 536L275 496L281 509L298 568L303 574L310 574L313 572L332 445L336 456L353 585L357 597L366 598L370 593L400 492L404 497L417 532L423 540L565 540L567 542L567 596L556 611L544 616L155 616L143 610L135 599Z M590 363L595 365L600 369L604 375L605 380L605 484L603 490L601 493L598 496L593 499L588 500L586 501L583 497L585 363Z M114 362L117 365L116 500L114 501L112 501L105 498L98 491L96 487L95 381L97 373L100 369L105 365Z M135 335L145 322L155 317L546 317L560 326L567 340L567 523L433 525L406 459L397 456L391 463L365 548L341 378L336 371L329 371L325 378L303 527L284 466L277 459L271 461L246 525L136 525L133 522Z M438 184L435 186L430 191L428 195L428 208L430 211L435 216L438 218L442 219L449 219L453 218L456 216L461 211L462 209L463 206L463 197L462 193L460 190L456 186L453 184L449 183L443 183Z M248 184L244 186L239 191L239 193L237 195L237 207L240 213L241 214L242 214L247 218L252 219L257 219L262 218L265 216L269 212L271 209L272 203L273 201L272 196L271 193L269 190L265 186L262 184L257 183L252 183Z M131 256L131 264L136 269L564 269L569 263L559 225L535 183L507 153L470 126L471 121L502 70L504 63L498 56L493 56L488 60L453 118L422 105L382 96L358 94L319 96L297 100L246 117L212 61L207 56L201 56L196 62L197 69L230 126L195 151L164 184L142 223Z M151 248L165 214L181 190L208 162L234 143L258 130L296 117L335 111L364 111L404 117L432 126L459 139L493 163L525 198L540 224L547 241L549 251L547 253L154 253L152 252Z"/><path class="droid-screen" d="M135,335 L145,322 L155,317 L546,317 L560,326 L567,340 L567,616 L155,616 L143,610 L135,599 Z"/><polygon class="droid-band" points="133,522 136,525 246,525 271,461 277,459 284,466 303,527 325,378 329,371 336,371 341,378 365,548 391,463 397,456 406,459 433,525 567,523 565,540 423,540 417,532 404,497 400,492 370,593 366,598 357,597 353,585 336,456 332,445 313,572 310,574 303,574 298,568 281,509 275,496 260,536 256,540 136,540 133,544" mask="url(#sweep-hero)"/><polygon class="droid-dot blink" points="508,345 502,347 496,351 492,355 489,361 488,364 488,377 489,380 491,384 493,387 496,390 502,394 505,394 508,396 518,396 524,394 528,392 533,387 535,384 537,380 538,376 538,365 537,361 535,357 533,354 530,351 524,347 518,345"/></svg></div>
+    <h1><span class="setup">Your agent writes code from the&nbsp;source.</span><br>It debugs from nothing.</h1>
+    <p class="lead">DTA gives AI assistants direct access to a running Android app through the Model
+      Context Protocol — the real screen, the real network traffic, the real database rows. From Android
+      Studio, the terminal, or any MCP client.</p>
+    <div class="cta">
+      <a class="btn btn-signal" href="https://plugins.jetbrains.com/plugin/31236-dta--development-tools-for-android">Get the plugin</a>
+      <a class="btn" href="#install">Install the CLI</a>
+      <a class="btn" href="https://github.com/yamsergey/dta">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        Source</a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Same model. Different job.</h2>
+    <p class="sec-lead">Agents got fast at writing code because we had already solved the input problem
+      by accident — the source was just lying there on disk. Debugging never got that gift.</p>
+    <div class="contrast">
+      <div class="hd">writing code</div><div class="hd">debugging</div>
+      <div>the input is the <b>source</b></div><div>the input is the <b>state</b></div>
+      <div>it's on disk</div><div>it's in a process, on a device, right now</div>
+      <div>the agent already has it</div><div>the agent has <b>never seen it</b></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What your agent can't see</h2>
+    <p class="sec-lead">Ask why a screen came back broken and it will answer anyway — fluently, citing
+      your files, and with no way for either of you to check it. Not because the model is weak. Because
+      none of this ever reaches it.</p>
+    <ul class="blind">
+      <li><svg class="icon icon-ghost" viewBox="0 0 24 24"><path d="M3 8h14"/><path d="M14 5l3 3-3 3"/><path d="M21 16H7"/><path d="M10 13l-3 3 3 3"/></svg> HTTP status and response body</li>
+      <li><svg class="icon icon-ghost" viewBox="0 0 24 24"><path d="M3 4v16"/><path d="M21 4v16"/><path d="M6 9h12"/><path d="M15 6l3 3-3 3"/><path d="M18 15H6"/><path d="M9 12l-3 3 3 3"/></svg> WebSocket frames</li>
+      <li><svg class="icon icon-ghost" viewBox="0 0 24 24"><path d="M9 3h6v4H9z"/><path d="M12 7v4"/><path d="M6 11h12"/><path d="M6 11v6"/><path d="M18 11v6"/><path d="M3 17h6v4H3z"/><path d="M15 17h6v4h-6z"/></svg> which class drew the screen</li>
+      <li><svg class="icon icon-ghost" viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M9 15v-4h5"/><path d="M12 9l3 2-3 2"/></svg> recomposition counts</li>
+      <li><svg class="icon icon-ghost" viewBox="0 0 24 24"><path d="M3 4h18v16H3z"/><path d="M3 9h18"/><path d="M10 13l-2 2 2 2"/><path d="M14 13l2 2-2 2"/></svg> WebView DOM, cookies, storage</li>
+      <li><svg class="icon icon-ghost" viewBox="0 0 24 24"><path d="M4 4h16v4H4z"/><path d="M4 10h16v4H4z"/><path d="M4 16h16v4H4z"/></svg> Room rows and SharedPreferences</li>
+    </ul>
+  </div>
+</section>
+
+<section id="see">
+  <div class="wrap">
+    <h2>See it work</h2>
+    <p class="sec-lead">Three clips from one real bug: a profile screen that fails after a device
+      restore. Nothing here is staged output — it is an agent driving a running emulator through DTA,
+      at the speed it actually happened.</p>
+
+    <figure class="clip">
+      <div class="clip-head"><span class="step">investigate</span>
+        <span class="what">a hypothesis from the source, confirmed on the device</span></div>
+      <video src="assets/clips/demo1-token.mp4" poster="assets/clips/demo1-token.jpg"
+             controls muted playsinline preload="none"></video>
+      <figcaption>The agent reads the stored token off the running app instead of guessing about it —
+        and finds it is the one restored from a backup, not the one the server issued.</figcaption>
+    </figure>
+
+    <figure class="clip">
+      <div class="clip-head"><span class="step">reproduce</span>
+        <span class="what">make the failure happen on demand</span></div>
+      <video src="assets/clips/demo5-reproduce.mp4" poster="assets/clips/demo5-reproduce.jpg"
+             controls muted playsinline preload="none"></video>
+      <figcaption>A mock rule on <code>/userinfo</code> turns an intermittent, restore-only bug into
+        something that breaks every time you ask it to — which is what makes it fixable.</figcaption>
+    </figure>
+
+    <figure class="clip">
+      <div class="clip-head"><span class="step">validate</span>
+        <span class="what">and find the fix is only half done</span></div>
+      <video src="assets/clips/demo6-validate.mp4" poster="assets/clips/demo6-validate.jpg"
+             controls muted playsinline preload="none"></video>
+      <figcaption>The interesting half. Forcing the 401 again shows the screen now recovers — and that
+        the session is still not being cleared. A fix that looked finished, caught by checking.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="reads">
+  <div class="wrap">
+    <h2>What it reads, and what it can do</h2>
+    <p class="sec-lead">A sidekick library inside your debug build, a daemon on your machine, and an MCP
+      server your agent already knows how to talk to.</p>
+    <div class="caps">
+      <div class="cap">
+        <h3><svg class="icon" viewBox="0 0 24 24"><path d="M9 3h6v4H9z"/><path d="M12 7v4"/><path d="M6 11h12"/><path d="M6 11v6"/><path d="M18 11v6"/><path d="M3 17h6v4H3z"/><path d="M15 17h6v4h-6z"/></svg> Screen analysis</h3>
+        <p>The real view hierarchy — classes, bounds, layout parameters, Compose composable names and
+          recomposition counts, and DOM trees from WebViews and Chrome Custom Tabs. Not the semantic
+          accessibility tree <code>uiautomator dump</code> gives you.</p>
+      </div>
+      <div class="cap">
+        <h3><svg class="icon" viewBox="0 0 24 24"><path d="M3 8h14"/><path d="M14 5l3 3-3 3"/><path d="M21 16H7"/><path d="M10 13l-3 3 3 3"/></svg> Network analysis</h3>
+        <p>Recording starts when the app does: OkHttp requests, WebSocket connections, Custom Tab and
+          WebView traffic. No "start recording" button, so no missed first request.</p>
+      </div>
+      <div class="cap">
+        <h3><svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h16"/><path d="M17 9l3 3-3 3"/></svg> Mocking</h3>
+        <p>Mock rules for HTTP and WebSocket, built from traffic it already captured or written from
+          scratch — so an edge case stops being something you wait for.</p>
+      </div>
+      <div class="cap">
+        <h3><svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M9 9l4 3-4 3"/></svg> Build &amp; launch</h3>
+        <p>One call builds the APK with the sidekick injected, installs it and launches it. If the
+          sandbox won't allow it, it prints the commands instead of failing quietly.</p>
+      </div>
+      <div class="cap">
+        <h3><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v7"/><path d="M8 7l4-4 4 4"/><path d="M4 13h16v8H4z"/><path d="M9 17h6"/></svg> Interaction</h3>
+        <p>Tap, swipe, type, press keys — then read the screen and the traffic back to confirm what
+          actually happened. The whole inspect, mock, interact, verify loop without leaving the chat.</p>
+      </div>
+      <div class="cap">
+        <h3><svg class="icon" viewBox="0 0 24 24"><path d="M4 4h16v4H4z"/><path d="M4 10h16v4H4z"/><path d="M4 16h16v4H4z"/></svg> App storage</h3>
+        <p>Room and SQLite rows, SharedPreferences, WebView cookies and storage — read directly, so
+          "the cache is stale" is something it checks rather than something it suspects.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sec-lead">Two ways in. The plugin is the shortest path if you live in Android Studio; the
+      CLI is the one to use with Claude Code, Cursor, or anything else that speaks MCP.</p>
+
+    <div class="ways">
+      <div class="way">
+        <h3>Android Studio plugin</h3>
+        <p>Embeds the daemon, injects the sidekick into debug builds, and adds a four-tab inspector —
+          layout, network, WebSocket, MCP.</p>
+        <p><a class="btn" href="https://plugins.jetbrains.com/plugin/31236-dta--development-tools-for-android">JetBrains Marketplace</a></p>
+      </div>
+      <div class="way">
+        <h3>CLI</h3>
+        <p>Java 21 or newer.</p>
+<pre>brew tap yamsergey/packages
+brew install dta-cli
+claude mcp add dta -- dta-cli mcp</pre>
+      </div>
+    </div>
+
+    <h3 style="font-size:var(--text-md);margin:var(--space-5) 0 var(--space-2);color:var(--color-ink)">Then add the sidekick to your debug build</h3>
+<pre><span class="c">// build.gradle.kts — debug only, never shipped</span>
+debugImplementation("io.github.yamsergey:dta-sidekick:0.9.40")</pre>
+    <p style="font-size:var(--text-sm);color:var(--color-ink-dim);margin-top:var(--space-2)">
+      It starts itself through AndroidX Startup — there is nothing to call. The plugin can inject it for
+      you instead, if you would rather not touch the build file.</p>
+
+    <div class="clients">
+      <span class="tag">Claude Code</span><span class="tag">Cursor</span><span class="tag">Claude Desktop</span>
+      <span class="tag">Android Studio&nbsp;Gemini</span><span class="tag">VS&nbsp;Code</span>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Apache&nbsp;2.0</span>
+    <a href="https://github.com/yamsergey/dta">github.com/yamsergey/dta</a>
+    <a href="https://github.com/yamsergey/dta/issues">Issues</a>
+    <span class="sp">Built by Sergey Yamshchikov</span>
+  </div>
+</footer>
+
+</body>
+</html>
