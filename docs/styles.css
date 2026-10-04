@@ -1,0 +1,564 @@
+/* ============================================================================
+   DTA — design system
+   Dark, terminal-native. One stylesheet: tokens first, then the component layer.
+   Link this from every page and take every value from a var().
+   ========================================================================= */
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('assets/fonts/jetbrains-mono-latin-var.woff2') format('woff2');
+}
+
+:root {
+  /* ---- ground & ink -----------------------------------------------------
+     A single dark ground with three inks. The ground is warm-neutral black,
+     not pure #000 — pure black on a projector loses the panel edges. */
+  --color-ground:      #0d0d0d;
+  --color-surface:     #141414;   /* panels, cards, terminal bodies */
+  --color-inset:       #0a0a0a;   /* inputs and code wells inside a surface */
+  --color-line:        #2c2c2c;   /* default border */
+  --color-line-strong: #3c3c3c;   /* section divider */
+
+  --color-ink:         rgba(255,255,255,0.88);  /* body */
+  --color-ink-dim:     rgba(255,255,255,0.56);  /* secondary */
+  --color-ink-faint:   rgba(255,255,255,0.36);  /* captions, metadata */
+  --color-ink-ghost:   rgba(255,255,255,0.26);  /* page furniture */
+
+  /* ---- signal: observed runtime truth -----------------------------------
+     Green marks something the machine actually saw — a captured status code,
+     a real tool call, a value read off the device. Never decoration. */
+  --color-signal:      #3dff8f;
+  --color-signal-dim:  rgba(61,255,143,0.55);
+  --color-signal-wash: rgba(61,255,143,0.07);
+
+  /* ---- alert: live, risky, bounded --------------------------------------
+     Red marks the live demo, a known limit, a caution. Nothing else. */
+  --color-alert:       #ff5f56;
+  --color-alert-dim:   rgba(255,95,86,0.55);
+  --color-alert-wash:  rgba(255,95,86,0.08);
+
+  /* ---- type -------------------------------------------------------------
+     One family, three roles. A devtool talks in the face its output is in. */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-display: var(--font-mono);
+  --font-body: var(--font-mono);
+
+  --weight-body: 400;
+  --weight-mid: 500;
+  --weight-display: 800;
+
+  --track-display: -0.02em;   /* large type tightens */
+  --track-body: 0; /* @kind font */
+  --track-label: 0.24em;      /* uppercase labels open up */
+
+  /* interface scale */
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 19px;
+  --text-xl: 26px;
+  --text-2xl: 34px;
+
+  /* stage scale — 1920x1080 slide surface, read from 20 m */
+  --stage-display: 104px;
+  --stage-h1: 88px;
+  --stage-h2: 76px;
+  --stage-h3: 60px;
+  --stage-statement: 70px;
+  --stage-lead: 40px;
+  --stage-body: 34px;
+  --stage-code: 30px;
+  --stage-code-sm: 26px;
+  --stage-label: 22px;
+
+  /* ---- space: 8px base --------------------------------------------------- */
+  --space-1: 8px;  --space-2: 16px; --space-3: 24px; --space-4: 32px;
+  --space-5: 48px; --space-6: 64px; --space-7: 80px; --space-8: 96px;
+  --space-9: 120px;
+
+  /* ---- shape ------------------------------------------------------------
+     Small radii only — a terminal window, never a pill. */
+  --radius-sm: 5px;
+  --radius-md: 10px;
+  --border: 1px solid var(--color-line);
+  --border-strong: 2px solid var(--color-line-strong);
+
+  /* ---- motion -----------------------------------------------------------
+     One signature: signal travelling a wire. Everything else is a short fade.
+     Motion here encodes the argument — it never decorates. */
+  --dur-fast: 180ms; /* @kind other */
+  --dur: 280ms; /* @kind other */
+  --dur-flow: 2s; /* @kind other */
+  --ease: cubic-bezier(.2, .6, .2, 1); /* @kind other */
+
+  /* ---- stage geometry ---------------------------------------------------- */
+  --stage-w: 1920px;
+  --stage-h: 1080px;
+  --stage-margin-x: 120px;   /* 6.25% — survives projector overscan */
+  --stage-margin-y: 96px;
+
+  /* ---- themed furniture — values that used to be hard-coded ------------- */
+  --color-dot:          #2a2a2a;              /* terminal bar dots */
+  --color-icon-unlit:   rgba(255,255,255,0.30);
+  --color-overlay:      #080808;              /* index, help */
+  --color-rehearse-bg:  rgba(4,4,4,.96);
+  --color-rehearse-line:#262626;
+  --color-rehearse-ink: rgba(255,255,255,.72);
+  --color-media-bg:     #000;
+  --color-bezel:        #1c1c1c;
+  --shadow-device:      0 40px 120px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+
+/* ============================================================================
+   Light mode — opt in with data-theme="light" (or .theme-light) on <html>.
+   Same roles, same rules. Ground is warm paper, not #fff, for the same reason
+   the dark ground isn't #000. The signals are re-cut darker: #3dff8f on paper
+   is 1.3:1 and would read as a highlighter, not as evidence.
+   ========================================================================= */
+[data-theme="light"], .theme-light {
+  --color-ground:      #f4f3f0;
+  --color-surface:     #fbfaf8;
+  --color-inset:       #eceae5;
+  --color-line:        #d8d5ce;
+  --color-line-strong: #bfbbb2;
+
+  --color-ink:         #161615;   /* 16:1 */
+  --color-ink-dim:     #53514c;   /* 7.3:1 */
+  --color-ink-faint:   #6f6c66;   /* 4.8:1 */
+  --color-ink-ghost:   #9a968e;   /* furniture only */
+
+  --color-signal:      #067a3c;   /* 5.2:1 on ground */
+  --color-signal-dim:  rgba(6,122,60,0.78);
+  --color-signal-wash: rgba(6,122,60,0.10);
+
+  --color-alert:       #c4302a;   /* 5.0:1 on ground */
+  --color-alert-dim:   rgba(196,48,42,0.7);
+  --color-alert-wash:  rgba(196,48,42,0.08);
+
+  --color-dot:          #d2cec6;
+  --color-icon-unlit:   rgba(22,22,21,0.28);
+  --color-overlay:      #efede9;
+  --color-rehearse-bg:  rgba(250,249,246,.97);
+  --color-rehearse-line:#d8d5ce;
+  --color-rehearse-ink: rgba(22,22,21,.78);
+  --color-media-bg:     #e6e4df;
+  --color-bezel:        #1c1c1c;
+  --shadow-device:      0 30px 90px rgba(40,34,20,.18);
+  color-scheme: light;
+}
+
+/* ============================================================================
+   Base
+   ========================================================================= */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-weight: var(--weight-body);
+  font-size: var(--text-md);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--color-signal-wash); color: var(--color-signal); }
+
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+}
+
+a { color: var(--color-signal); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  letter-spacing: var(--track-display);
+  line-height: 1.08;
+  text-wrap: balance;
+}
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+
+code, pre { font-family: var(--font-mono); font-variant-ligatures: none; }
+table { font-variant-numeric: tabular-nums; }
+
+/* ============================================================================
+   Chrome — the small labels that orient a reader
+   ========================================================================= */
+
+/* Eyebrow above a heading. Signal-colored only when it names something observed. */
+.kicker {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-mid);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--color-signal-dim);
+}
+.kicker-quiet { color: var(--color-ink-faint); }
+
+/* Status chip. Default is neutral; -live is the only red one. */
+.tag {
+  display: inline-block;
+  font-size: var(--text-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+}
+.tag-live { color: var(--color-alert); border-color: var(--color-alert);
+            animation: live-pulse 2.4s ease-in-out infinite; }
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+.tag-signal { color: var(--color-signal); border-color: var(--color-signal-dim); }
+
+/* A section divider that reads as a wire: a rule with one live segment. */
+.trace {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--color-signal) 0, var(--color-signal) 72px,
+    var(--color-line-strong) 72px, var(--color-line-strong) 100%);
+}
+
+/* ============================================================================
+   Surfaces
+   ========================================================================= */
+.panel {
+  background: var(--color-surface);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+.panel-inset { background: var(--color-inset); }
+
+/* Terminal — the system's signature surface. Three dots, then output. */
+.terminal {
+  background: var(--color-surface);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+.terminal-bar { display: flex; gap: 10px; margin-bottom: var(--space-2); }
+.terminal-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--color-dot); display: block; }
+.terminal pre { white-space: pre-wrap; color: var(--color-ink); }
+/* Roles inside terminal output — the only place color carries meaning densely. */
+.t-prompt { color: var(--color-signal); }
+.t-said   { color: var(--color-signal); }  /* the line the agent leans on */
+.t-path   { color: var(--color-ink-dim); }
+.t-note   { color: var(--color-ink-faint); }
+
+/* ============================================================================
+   Icons — 24px grid, 2px stroke, butt caps, miter joins.
+   Square-cut on purpose: this is a system for machine-facing tools.
+   ========================================================================= */
+.icon {
+  width: 24px; height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+  display: inline-block;
+  vertical-align: -0.15em;
+}
+.icon-lg { width: 40px; height: 40px; }
+.icon-signal { color: var(--color-signal); }
+.icon-ghost  { color: var(--color-ink-ghost); }
+/* Stage-scale icons: a slide icon is read from the back row, so it is not 24px. */
+.slide .icon { width: 44px; height: 44px; stroke-width: 1.6; }
+/* unlit, but still legible from the back row — the payoff is it lighting up later */
+.slide .icon-ghost { color: var(--color-icon-unlit); }
+.slide-head .icon { width: 38px; height: 38px; }
+.s-list .icon { flex: none; }
+
+/* ============================================================================
+   The mark — the droid, from the brand sheet
+   Two forms: the visor (the tool itself) and the droid at a monitor (the tool
+   reading a screen). Both take their colour from the text around them, and both
+   have a live state: a pulse on the visor, a running heartbeat on the monitor.
+   The live state means something is actually running — never use it as ambience.
+   ========================================================================= */
+.droid { display: block; fill: currentColor; color: inherit; }
+.droid-signal, .droid-signal .droid { color: var(--color-signal); }
+
+.droid .droid-pulse { fill: var(--color-signal); animation: droid-pulse 1.4s ease-in-out infinite; }
+@keyframes droid-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.18; } }
+
+/* The monitor's heartbeat, ported from the intro sequence: the band is the real
+   artwork shape, not a line drawn over it, and the screen plate behind it hides
+   the static trace the art carries. A 920-unit gradient window sweeps the band —
+   brightest at its leading edge, fading back over roughly half its width. */
+.droid .droid-body   { fill: currentColor; }
+.droid .droid-screen { fill: var(--color-inset); }
+.droid .droid-band   { fill: var(--color-signal); opacity: .92;
+                       filter: drop-shadow(0 0 6px var(--color-signal-dim)); }
+.droid .droid-dot    { fill: var(--color-signal); }
+
+@keyframes droid-sweep { from { transform: translateX(0); } to { transform: translateX(720px); } }
+.droid .droid-sweep { animation: droid-sweep 5.45s linear infinite; }  /* 132 units/s, as the intro */
+
+/* The dot keeps its own 1.4s cycle: a fast dip, a flat hold, a hard recovery. */
+@keyframes droid-blink {
+  0%, 35% { opacity: 1; }
+  47%, 65% { opacity: .08; }
+  65.1%, 100% { opacity: 1; }
+}
+.droid .droid-dot.blink { animation: droid-blink 1.4s ease-in-out infinite; }
+
+/* The older glyph, kept for surfaces that already ship it. */
+.mark { fill: currentColor; display: block; }
+
+/* ============================================================================
+   Stage — the 1920x1080 slide surface
+   ========================================================================= */
+.stage {
+  position: absolute; left: 50%; top: 50%;
+  width: var(--stage-w); height: var(--stage-h);
+  transform-origin: center center;
+  background: var(--color-ground);
+}
+.slide {
+  position: absolute; inset: 0;
+  padding: var(--stage-margin-y) var(--stage-margin-x);
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-4);
+}
+.slide.on { display: flex; }
+.slide-center { align-items: center; text-align: center; }
+
+/* Slide type roles — these are the sizes, don't invent new ones. */
+.s-display   { font-size: var(--stage-display); font-weight: var(--weight-display);
+               letter-spacing: var(--track-display); line-height: 1.06; }
+.s-statement { font-size: var(--stage-statement); font-weight: var(--weight-display);
+               letter-spacing: var(--track-display); line-height: 1.3; }
+.s-h3        { font-size: var(--stage-h3); font-weight: var(--weight-display);
+               letter-spacing: var(--track-display); line-height: 1.25; }
+.s-h2        { font-size: var(--stage-h2); font-weight: var(--weight-display);
+               letter-spacing: var(--track-display); line-height: 1.1; }
+.s-lead      { font-size: var(--stage-lead); line-height: 1.45; color: var(--color-ink-dim); }
+.s-body      { font-size: var(--stage-body); line-height: 1.4; }
+.s-kicker    { font-size: var(--stage-label); font-weight: var(--weight-mid);
+               letter-spacing: var(--track-label); text-transform: uppercase;
+               color: var(--color-signal-dim); }
+.s-kicker-quiet { color: var(--color-ink-faint); }
+.slide pre   { font-size: var(--stage-code); line-height: 1.55; }
+.slide pre.sm{ font-size: var(--stage-code-sm); line-height: 1.5; }
+.slide .panel, .slide .terminal { padding: var(--space-5) var(--space-6); border-radius: 12px; }
+.slide .tag  { font-size: var(--stage-label); padding: 8px 16px; }
+
+/* Demo header: number, title, and how it's being shown. */
+.slide-head { display: flex; align-items: baseline; gap: var(--space-3); }
+
+/* ---- phase rail -----------------------------------------------------------
+   The four moves of the debugging loop, carried across every bug so the room
+   always knows which one it is watching. Declaring the loop once and then
+   never showing it again is how a talk stops feeling joined up. */
+.phases {
+  display: flex; gap: var(--space-5); align-items: center;
+  font-size: var(--stage-label); letter-spacing: var(--track-label);
+  text-transform: uppercase; color: var(--color-ink-ghost);
+  margin-bottom: var(--space-4);
+}
+.phases span { position: relative; padding-left: 30px; white-space: nowrap; }
+.phases span::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  width: 13px; height: 13px; margin-top: -7px;
+  border-radius: 50%; border: 2px solid currentColor;
+}
+/* a move already made on this bug */
+.phases .done { color: var(--color-ink-faint); }
+.phases .done::before { background: var(--color-ink-faint); }
+/* the move happening on this slide */
+.phases .now { color: var(--color-signal); }
+.phases .now::before { background: var(--color-signal); box-shadow: 0 0 0 5px var(--color-signal-wash); }
+.slide-head .n { font-size: var(--stage-label); font-weight: var(--weight-mid);
+                 letter-spacing: var(--track-label); text-transform: uppercase;
+                 color: var(--color-signal-dim); }
+.slide-head .t { font-size: var(--stage-body); color: var(--color-ink-dim); }
+.slide-head .tag { margin-left: auto; }
+
+/* Enumerated slide list — one line per idea, trailing note in faint ink. */
+.s-list { list-style: none; display: flex; flex-direction: column; gap: var(--space-3); }
+.s-list li { font-size: var(--stage-lead); color: var(--color-ink);
+             display: flex; gap: var(--space-4); align-items: baseline; }
+.s-list .tail { font-size: var(--stage-code); color: var(--color-ink-dim); }
+.s-list .lead-col { width: 520px; flex: none; font-size: var(--stage-body);
+                   color: var(--color-ink); }
+
+/* Two-column comparison, ruled not boxed. */
+.s-cols { display: grid; grid-template-columns: 1fr 1fr; border-top: var(--border); }
+.s-cols div { padding: var(--space-4) var(--space-5); border-bottom: var(--border);
+              font-size: var(--stage-body); line-height: 1.35; }
+.s-cols div:nth-child(odd) { border-right: var(--border); color: var(--color-ink-dim); }
+.s-cols .hd { font-size: var(--stage-label); letter-spacing: var(--track-label);
+              text-transform: uppercase; color: var(--color-ink-faint); padding-bottom: var(--space-2); }
+/* By default the left column is secondary — the known thing, or the one already made.
+   Use -equal when the two columns are peers and neither is the point. */
+.s-cols-equal div:nth-child(odd):not(.hd) { color: var(--color-ink); }
+
+/* A slide arrives — a short rise, not a transition effect. */
+@keyframes slide-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.slide.on { animation: slide-in var(--dur-fast) var(--ease) both; }
+
+/* Progressive reveal. Respect reduced motion. */
+.frag { opacity: 0; transform: translateY(10px); transition: opacity .28s ease, transform .28s ease; }
+.frag.shown { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .frag { transition: none; }
+  .slide.on { animation: none; }
+  .dg-packet, .tag-live { animation: none; }
+  .dg-packet { display: none; }
+  .droid .droid-pulse, .droid .droid-sweep, .droid .droid-dot.blink { animation: none; }
+  .droid .droid-sweep { display: none; }
+}
+
+/* ---- text utilities -------------------------------------------------------
+   The only four. Anything else takes a token directly. */
+.signal { color: var(--color-signal); }
+.alert  { color: var(--color-alert); }
+.dim    { color: var(--color-ink-dim); }
+.faint  { color: var(--color-ink-faint); }
+
+/* A vertical run of blocks. Gap, never margins. */
+.stack { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* ============================================================================
+   Media slot — a recording that may not exist yet
+   A deck is built before its clips are shot. The slot says what belongs here.
+   ========================================================================= */
+.media { position: relative; flex: 1; display: flex; align-items: center;
+         justify-content: center; min-height: 0; }
+/* The video is ALWAYS laid out. It must never be display:none: a hidden <video>
+   is never loaded by the browser, so loadedmetadata never fires, so the .ready
+   class is never added — and it stays hidden for good. The placeholder covers it
+   instead, and is removed once the clip reports itself playable. */
+/* Fill the slot rather than taking the file's intrinsic size: a clip that hasn't
+   loaded yet has no intrinsic size at all, so it collapses to a thumbnail and the
+   slide looks broken until it buffers. object-fit letterboxes against the slot. */
+.media video { width: 100%; height: 100%; object-fit: contain;
+               border-radius: var(--radius-md);
+               border: var(--border); background: var(--color-media-bg); display: block; }
+.media-missing {
+  position: absolute; inset: 0;              /* sits over the video, not beside it */
+  background: var(--color-ground);
+  display: flex; flex-direction: column; gap: var(--space-2);
+  align-items: center; justify-content: center;
+  border: 1px dashed var(--color-line-strong); border-radius: 12px;
+  color: var(--color-ink-faint); text-align: center;
+}
+.media-missing b { color: var(--color-signal-dim); font-size: var(--stage-body);
+                   font-weight: var(--weight-mid); }
+.media-missing span { font-size: var(--stage-code-sm); line-height: 1.5; max-width: 62%; }
+/* Status, not instructions: a play badge centred on the clip, which disappears
+   the moment it starts. The old text label sat in the corner and overlapped the
+   picture, and it had to be re-worded every time the key binding changed. */
+.media-hint {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 104px; height: 104px; border-radius: 50%;
+  background: rgba(22, 22, 21, 0.72); backdrop-filter: blur(2px);
+  display: none; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.media-hint::before {
+  content: ''; margin-left: 9px;
+  border-style: solid; border-width: 23px 0 23px 36px;
+  border-color: transparent transparent transparent #fff;
+}
+/* only offer it once the clip can actually play, and take it away while it runs */
+.media video.ready ~ .media-hint { display: flex; }
+.media video.playing ~ .media-hint { display: none; }
+
+/* ============================================================================
+   Device — an app screen quoted inside a slide
+   ========================================================================= */
+.device {
+  width: 400px; height: 840px; flex: none; position: relative; overflow: hidden;
+  border: 14px solid var(--color-bezel); border-radius: 44px; background: #f6f7f9;
+  box-shadow: var(--shadow-device);
+}
+.device-bar { height: 64px; background: #fff; border-bottom: 1px solid #e6e8ec;
+              display: flex; align-items: center; padding: 0 22px;
+              color: #1a1a2e; font-size: 22px; font-weight: 600;
+              font-family: system-ui, sans-serif; }
+.device-body { height: calc(100% - 64px); display: flex; flex-direction: column;
+               align-items: center; justify-content: center; gap: 18px;
+               padding: 0 40px; text-align: center; font-family: system-ui, sans-serif; }
+.device-error { width: 76px; height: 76px; border-radius: 50%; border: 3px solid #d94a3d;
+                color: #d94a3d; display: flex; align-items: center; justify-content: center;
+                font-size: 44px; font-weight: 600; }
+.device-msg { color: #1a1a2e; font-size: 26px; font-weight: 600; }
+.device-sub { color: #6b7280; font-size: 19px; line-height: 1.4; }
+.device-btn { border: 1px solid #c9ccd3; color: #3b4252; border-radius: 8px;
+              padding: 12px 28px; font-size: 19px; }
+
+/* ============================================================================
+   Diagram — boxes on a wire
+   ========================================================================= */
+.diagram { width: 100%; }
+.diagram .dg-box { fill: none; stroke: var(--color-line-strong); stroke-width: 2; }
+.diagram .dg-label { fill: var(--color-ink); font-family: var(--font-mono); font-size: 30px; }
+.diagram .dg-label-signal { fill: var(--color-signal); }
+.diagram .dg-meta { fill: var(--color-ink-faint); font-family: var(--font-mono); font-size: 22px; }
+.diagram .dg-wire { stroke: var(--color-signal); stroke-width: 2; fill: none; opacity: .62; }
+/* The signature: a packet travelling the wire. The diagram claims data moves —
+   this is the claim, moving. One animation in the whole system. */
+@keyframes wire-flow { from { stroke-dashoffset: 186; } to { stroke-dashoffset: 0; } }
+.diagram .dg-packet { stroke: var(--color-signal); stroke-width: 2; fill: none;
+                      stroke-dasharray: 14 172; animation: wire-flow var(--dur-flow) linear infinite; }
+
+/* ============================================================================
+   Deck furniture — the parts of a deck the room never sees
+   Index, help, blackout, rehearsal notes, toast. All above the stage.
+   ========================================================================= */
+#chrome { position: absolute; right: 44px; bottom: 32px; font-size: 30px;
+          font-weight: var(--weight-mid); color: var(--color-ink-faint);
+          letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
+
+#black { position: absolute; inset: 0; background: #000; display: none; z-index: 50; }
+#black.on { display: block; }
+
+#index { position: absolute; inset: 0; background: var(--color-overlay); z-index: 60; display: none;
+         padding: var(--space-7) var(--stage-margin-x); flex-direction: column; overflow: hidden; }
+#index.on { display: flex; }
+#index h3 { font-size: var(--stage-label); letter-spacing: var(--track-label);
+            text-transform: uppercase; color: var(--color-ink-faint); font-weight: var(--weight-mid);
+            margin-bottom: var(--space-4); }
+#index ol { list-style: none; columns: 2; column-gap: 90px; }
+#index li { font-size: 28px; line-height: 2.0; color: var(--color-ink-dim); cursor: pointer;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#index li b { color: var(--color-ink-faint); font-weight: var(--weight-body);
+              display: inline-block; width: 56px; }
+#index li.cur { color: var(--color-signal); }
+#index li:hover { color: var(--color-ink); }
+
+#help { position: absolute; inset: 0; background: var(--color-overlay); z-index: 65; display: none;
+        padding: var(--space-9); align-items: center; justify-content: center; }
+#help.on { display: flex; }
+#help table { font-size: 30px; line-height: 2.1; color: var(--color-ink-dim); border-spacing: 60px 0; }
+#help td:first-child { color: var(--color-signal); text-align: right; }
+
+#rehearse { position: absolute; left: 0; right: 0; bottom: 0; max-height: 42%; overflow: auto;
+            background: var(--color-rehearse-bg); border-top: 1px solid var(--color-rehearse-line);
+            padding: var(--space-4) var(--space-6); font-size: 24px; line-height: 1.55;
+            white-space: pre-wrap; color: var(--color-rehearse-ink); display: none; z-index: 55; }
+#rehearse.on { display: block; }
+#rehearse b { display: block; color: var(--color-alert); font-size: 18px;
+              letter-spacing: var(--track-label); margin-bottom: var(--space-2);
+              font-weight: var(--weight-body); }
+
+#toast { position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%);
+         background: var(--color-surface); border: var(--border); color: var(--color-ink);
+         font-size: 22px; padding: 16px 26px; border-radius: var(--radius-sm);
+         display: none; z-index: 70; max-width: 1200px; text-align: center; }
+#toast.on { display: block; }
