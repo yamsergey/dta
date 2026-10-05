@@ -261,8 +261,9 @@ footer .sp { margin-left: auto; }
       </div>
       <div class="cap">
         <h3><svg class="icon" viewBox="0 0 24 24"><path d="M3 8h14"/><path d="M14 5l3 3-3 3"/><path d="M21 16H7"/><path d="M10 13l-3 3 3 3"/></svg> Network analysis</h3>
-        <p>Recording starts when the app does: OkHttp requests, WebSocket connections, Custom Tab and
-          WebView traffic. No "start recording" button, so no missed first request.</p>
+        <p>Recording starts when the app does: OkHttp requests, WebSocket connections and Chrome
+          Custom Tab traffic. No "start recording" button, so no missed first request.
+          A WebView's own network calls are not captured yet — its DOM, cookies and storage are.</p>
       </div>
       <div class="cap">
         <h3><svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h16"/><path d="M17 9l3 3-3 3"/></svg> Mocking</h3>
