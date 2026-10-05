@@ -92,7 +92,7 @@ DTA returns the real UI hierarchy — view classes, bounds, positions, layout pa
 
 ### Network Analysis
 
-Sidekick auto-records from app launch — HTTP requests (OkHttp), WebSocket connections, Chrome Custom Tab traffic, and WebView network requests. No "start recording" button, no missed requests. Your agent can query the full history at any point.
+Sidekick auto-records from app launch — HTTP requests (OkHttp), WebSocket connections, Chrome Custom Tab traffic. (A WebView's own network requests are not captured yet — its DOM, cookies and storage are.) No "start recording" button, no missed requests. Your agent can query the full history at any point.
 
 ### Mocking
 
