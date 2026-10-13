@@ -61,7 +61,7 @@ dependencies {
     api libs.batik.codec
 
     // SLF4J for logging
-    implementation 'org.slf4j:slf4j-api:2.0.16'
+    implementation 'org.slf4j:slf4j-api:2.0.17'
 
     implementation libs.sugar.lombok
     annotationProcessor libs.sugar.lombok
