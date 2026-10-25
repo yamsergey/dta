@@ -75,4 +75,45 @@ class NetworkCapabilityTest {
         assertEquals(Status.DEGRADED, status.status)
         assertTrue("no longer compiles" in status.reason!!)
     }
+
+    @Test
+    fun `a present library capture does not cover degrades the capability, saying why`() {
+        val status = NetworkCapability.status(
+            attachFailure = null,
+            libraries = listOf(
+                LibraryState("okhttp3", present = true, installFailure = null),
+                LibraryState("grpc", present = true, installFailure = null, unsupported = NetworkCapability.GRPC_UNSUPPORTED),
+            ),
+            bounds = bounds,
+        )
+        assertEquals(Status.DEGRADED, status.status)
+        assertTrue("grpc not captured" in status.reason!!, status.reason)
+        assertEquals(LibraryStatus("grpc", Status.UNAVAILABLE, NetworkCapability.GRPC_UNSUPPORTED), status.libraries!![1])
+        assertTrue("present in app" in NetworkCapability.GRPC_UNSUPPORTED)
+    }
+
+    @Test
+    fun `an absent gRPC is listed but does not degrade`() {
+        val status = NetworkCapability.status(
+            attachFailure = null,
+            libraries = listOf(
+                LibraryState("okhttp3", present = true, installFailure = null),
+                NetworkCapability.probeGrpc(javaClass.classLoader),
+            ),
+            bounds = bounds,
+        )
+        assertEquals(Status.AVAILABLE, status.status)
+        assertEquals(LibraryStatus("grpc", Status.UNAVAILABLE, NetworkCapability.ABSENT), status.libraries!![1])
+    }
+
+    @Test
+    fun `the gRPC probe finds the channel class on the app loader`() {
+        val loader = object : ClassLoader(null) {
+            override fun findClass(name: String): Class<*> =
+                if (name == "io.grpc.ManagedChannel") Any::class.java else throw ClassNotFoundException(name)
+        }
+        val state = NetworkCapability.probeGrpc(loader)
+        assertTrue(state.present)
+        assertEquals(NetworkCapability.GRPC_UNSUPPORTED, state.unsupported)
+    }
 }

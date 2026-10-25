@@ -421,6 +421,8 @@ object NetworkLibraries {
     const val OKHTTP3_WS = "okhttp3-ws"
     const val NV_WEBSOCKET = "nv-websocket"
     const val JAVA_WEBSOCKET = "java-websocket"
+    /** Detected only: its traffic bypasses the captured HTTP stack (feature 006). */
+    const val GRPC = "grpc"
 
-    val ALL = listOf(OKHTTP3, URLCONNECTION, OKHTTP3_WS, NV_WEBSOCKET, JAVA_WEBSOCKET)
+    val ALL = listOf(OKHTTP3, URLCONNECTION, OKHTTP3_WS, NV_WEBSOCKET, JAVA_WEBSOCKET, GRPC)
 }

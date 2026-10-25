@@ -62,6 +62,7 @@ object NetworkRuntime {
             { OkHttpWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
             { NvWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
             { JavaWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
+            { NetworkCapability.probeGrpc(loader) },
         ).zip(NetworkLibraries.ALL).map { (install, name) ->
             try {
                 install()
