@@ -8,6 +8,7 @@ import io.yamsergey.dta.sidekick.hooks.Hooks
 import io.yamsergey.dta.sidekick.network.Initiators
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
+import io.yamsergey.dta.sidekick.network.script.ScriptRuntime
 
 /**
  * OkHttp 3/4/5 HTTP capture: an exit hook on `OkHttpClient#networkInterceptors()` returns
@@ -16,7 +17,7 @@ import io.yamsergey.dta.sidekick.network.NetworkRecorder
  * it — and the response as the server sent it, before they change it. (Android Studio puts
  * its interceptor first; we deliberately differ: debugging the network needs what was on
  * the wire, or the server gets blamed for client-side changes.) A hook on
- * `OkHttpClient#interceptors()` adds [FailureInterceptor] first, for calls that fail
+ * `OkHttpClient#interceptors()` adds [ScriptInterceptor] first: it runs the network script and records calls that fail
  * before reaching the network layer. Entry hooks on `RealCall#enqueue`/`#execute` (both
  * the 4.x+ and 3.x class names) remember where the app issued each call, so async
  * requests carry the enqueue site rather than dispatcher frames (FR-010).
@@ -27,11 +28,11 @@ internal object OkHttpCapture {
 
     private const val CLIENT = "okhttp3.OkHttpClient"
 
-    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators): LibraryState {
+    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripts: ScriptRuntime): LibraryState {
         val client = probe(loader) ?: return LibraryState(NetworkLibraries.OKHTTP3, present = false, installFailure = null)
-        val seenCalls = NetworkSeenCalls()
-        val network = DtaInterceptor(recorder, seenCalls, initiators)
-        val failures = FailureInterceptor(recorder, seenCalls, initiators)
+        val contexts = CallContexts()
+        val network = DtaInterceptor(recorder, contexts, initiators)
+        val app = ScriptInterceptor(recorder, contexts, initiators, scripts, recorder.bodyBound)
         val callSites = REAL_CALLS.mapNotNull { name ->
             runCatching { Class.forName(name, false, loader) }.getOrNull()
         }.flatMap { realCall ->
@@ -45,7 +46,7 @@ internal object OkHttpCapture {
                 override fun onExit(result: Any?): Any? = withInterceptor(result, network, last = true)
             }),
             Hooks.exit(client, "interceptors", "()Ljava/util/List;", object : ExitHandler {
-                override fun onExit(result: Any?): Any? = withInterceptor(result, failures, last = false)
+                override fun onExit(result: Any?): Any? = withInterceptor(result, app, last = false)
             }),
         )).filterIsInstance<Hooks.Install.Failed>().firstOrNull()?.reason
         return LibraryState(NetworkLibraries.OKHTTP3, present = true, installFailure = failure)

@@ -32,7 +32,7 @@ import java.io.OutputStream
  */
 internal class DtaInterceptor(
     private val recorder: NetworkRecorder,
-    private val seenCalls: NetworkSeenCalls,
+    private val contexts: CallContexts,
     private val initiators: Initiators,
 ) : Interceptor {
 
@@ -40,8 +40,7 @@ internal class DtaInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val id = try {
-            seenCalls.mark(chain.call())
-            startExchange(request, initiators.forCall(chain.call(), InitiatorSite.CALL))
+            startExchange(request, initiators.forCall(chain.call(), InitiatorSite.CALL)).also { contexts.entryCreated(chain.call(), it) }
         } catch (_: Throwable) {
             null
         }

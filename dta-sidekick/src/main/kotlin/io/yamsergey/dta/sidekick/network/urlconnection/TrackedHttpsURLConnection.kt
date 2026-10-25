@@ -2,6 +2,7 @@ package io.yamsergey.dta.sidekick.network.urlconnection
 
 import io.yamsergey.dta.protocol.network.Initiator
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
+import io.yamsergey.dta.sidekick.network.script.ScriptRuntime
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.URL
@@ -20,9 +21,11 @@ internal class TrackedHttpsURLConnection(
     private val delegate: HttpsURLConnection,
     recorder: NetworkRecorder,
     initiator: Initiator,
+    scripts: ScriptRuntime,
+    openRaw: (java.net.URL) -> java.net.HttpURLConnection,
 ) : HttpsURLConnection(delegate.url) {
 
-    private val http = TrackedHttpURLConnection(delegate, recorder, initiator)
+    private val http = TrackedHttpURLConnection(delegate, recorder, initiator, scripts, openRaw)
 
     override fun getCipherSuite(): String? = delegate.cipherSuite
     override fun getLocalCertificates(): Array<Certificate>? = delegate.localCertificates

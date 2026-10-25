@@ -55,12 +55,13 @@ object NetworkRuntime {
         if (!HookAttach.attached) return
         val loader = context.classLoader
         val initiators = Initiators()
+        val wsScripting = WsScripting(recorder, scripts)
         libraries = listOf(
-            { OkHttpCapture.install(loader, recorder, initiators) },
-            { UrlConnectionCapture.install(recorder, initiators) },
-            { OkHttpWebSocketCapture.install(loader, recorder, initiators) },
-            { NvWebSocketCapture.install(loader, recorder, initiators) },
-            { JavaWebSocketCapture.install(loader, recorder, initiators) },
+            { OkHttpCapture.install(loader, recorder, initiators, scripts) },
+            { UrlConnectionCapture.install(recorder, initiators, scripts) },
+            { OkHttpWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
+            { NvWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
+            { JavaWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
         ).zip(NetworkLibraries.ALL).map { (install, name) ->
             try {
                 install()

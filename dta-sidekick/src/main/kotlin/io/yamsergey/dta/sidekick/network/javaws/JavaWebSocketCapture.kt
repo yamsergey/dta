@@ -8,6 +8,7 @@ import io.yamsergey.dta.sidekick.network.EntryHooks
 import io.yamsergey.dta.sidekick.network.Initiators
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
+import io.yamsergey.dta.sidekick.network.WsScripting
 import io.yamsergey.dta.sidekick.network.WsSockets
 import java.nio.ByteBuffer
 
@@ -23,7 +24,7 @@ internal object JavaWebSocketCapture {
     private const val IMPL = "org.java_websocket.WebSocketImpl"
     private const val CONN = "Lorg/java_websocket/WebSocket;"
 
-    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators): LibraryState {
+    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting): LibraryState {
         val clientClass = EntryHooks.load(CLIENT, loader)
         val implClass = EntryHooks.load(IMPL, loader)
         if (clientClass == null || implClass == null) {
@@ -42,14 +43,21 @@ internal object JavaWebSocketCapture {
         client.on("onWebsocketOpen", "(${CONN}Lorg/java_websocket/handshake/Handshakedata;)V") { self, _ ->
             sockets[self]?.let { recorder.wsOpened(it) }
         }
-        client.on("onWebsocketMessage", "(${CONN}Ljava/lang/String;)V") { self, params ->
-            val id = sockets[self] ?: return@on
-            val text = params[1] as? String ?: return@on
-            recorder.wsMessage(id, Direction.IN, MessageOpcode.TEXT, text.toByteArray(Charsets.UTF_8), initiator = null)
+        client.control("onWebsocketMessage", "(${CONN}Ljava/lang/String;)V") { self, params ->
+            val id = sockets[self] ?: return@control EntryHooks.PROCEED
+            val text = params[1] as? String ?: return@control EntryHooks.PROCEED
+            val d = scripting.handle(id, Direction.IN, MessageOpcode.TEXT, text, null, initiator = null)
+            if (d.dropped) return@control Unit
+            d.text?.let { params[1] = it }
+            EntryHooks.PROCEED
         }
-        client.on("onWebsocketMessage", "(${CONN}Ljava/nio/ByteBuffer;)V") { self, params ->
-            val id = sockets[self] ?: return@on
-            recorder.wsMessage(id, Direction.IN, MessageOpcode.BINARY, (params[1] as? ByteBuffer)?.copyBytes() ?: return@on, initiator = null)
+        client.control("onWebsocketMessage", "(${CONN}Ljava/nio/ByteBuffer;)V") { self, params ->
+            val id = sockets[self] ?: return@control EntryHooks.PROCEED
+            val bytes = (params[1] as? ByteBuffer)?.copyBytes() ?: return@control EntryHooks.PROCEED
+            val d = scripting.handle(id, Direction.IN, MessageOpcode.BINARY, null, bytes, initiator = null)
+            if (d.dropped) return@control Unit
+            d.bytes?.let { params[1] = ByteBuffer.wrap(it) }
+            EntryHooks.PROCEED
         }
         client.on("onWebsocketClose", "(${CONN}ILjava/lang/String;Z)V") { self, params ->
             sockets[self]?.let { recorder.wsClosed(it, params[1] as? Int, params[2] as? String) }
@@ -59,14 +67,21 @@ internal object JavaWebSocketCapture {
         }
 
         val impl = EntryHooks(implClass)
-        impl.on("send", "(Ljava/lang/String;)V") { self, params ->
-            val id = sockets[self] ?: return@on
-            val text = params[0] as? String ?: return@on
-            recorder.wsMessage(id, Direction.OUT, MessageOpcode.TEXT, text.toByteArray(Charsets.UTF_8), initiators.capture(InitiatorSite.SEND))
+        impl.control("send", "(Ljava/lang/String;)V") { self, params ->
+            val id = sockets[self] ?: return@control EntryHooks.PROCEED
+            val text = params[0] as? String ?: return@control EntryHooks.PROCEED
+            val d = scripting.handle(id, Direction.OUT, MessageOpcode.TEXT, text, null, initiators.capture(InitiatorSite.SEND))
+            if (d.dropped) return@control Unit
+            d.text?.let { params[0] = it }
+            EntryHooks.PROCEED
         }
-        impl.on("send", "(Ljava/nio/ByteBuffer;)V") { self, params ->
-            val id = sockets[self] ?: return@on
-            recorder.wsMessage(id, Direction.OUT, MessageOpcode.BINARY, (params[0] as? ByteBuffer)?.copyBytes() ?: return@on, initiators.capture(InitiatorSite.SEND))
+        impl.control("send", "(Ljava/nio/ByteBuffer;)V") { self, params ->
+            val id = sockets[self] ?: return@control EntryHooks.PROCEED
+            val bytes = (params[0] as? ByteBuffer)?.copyBytes() ?: return@control EntryHooks.PROCEED
+            val d = scripting.handle(id, Direction.OUT, MessageOpcode.BINARY, null, bytes, initiators.capture(InitiatorSite.SEND))
+            if (d.dropped) return@control Unit
+            d.bytes?.let { params[0] = ByteBuffer.wrap(it) }
+            EntryHooks.PROCEED
         }
 
         val failure = listOf(client, impl).firstNotNullOfOrNull { it.state(NetworkLibraries.JAVA_WEBSOCKET).installFailure }

@@ -16,11 +16,15 @@ import java.net.HttpURLConnection
  * the app unchanged.
  */
 internal class UrlConnectionTracker(
-    private val delegate: HttpURLConnection,
+    private val target: () -> HttpURLConnection,
     private val recorder: NetworkRecorder,
     private val initiator: Initiator,
 ) {
-    private var id: String? = null
+    private val delegate: HttpURLConnection get() = target()
+
+    /** The captured entry, once the request started. */
+    var id: String? = null
+        private set
     private var responseRecorded = false
     private var bodyStarted = false
     private var failed = false

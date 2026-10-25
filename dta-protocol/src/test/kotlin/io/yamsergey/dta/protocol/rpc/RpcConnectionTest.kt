@@ -82,6 +82,17 @@ class RpcConnectionTest {
     }
 
     @Test
+    fun `a handler throwing an Error answers INTERNAL instead of killing the host process`() {
+        val h = Harness()
+        h.registry.register("linkage") { throw NoClassDefFoundError("Failed resolution of: Lsome/Missing;") }
+        h.receive(Request(id = 5, method = "linkage"))
+
+        val response = assertIs<Response>(h.sentMessages().single())
+        assertEquals(ErrorCodes.INTERNAL, response.error!!.code)
+        assertTrue("some/Missing" in response.error!!.message, response.error!!.message)
+    }
+
+    @Test
     fun `malformed json is ignored without reply or crash`() {
         val h = Harness()
         h.rpc.handleText("""{"type":"nope"}""")

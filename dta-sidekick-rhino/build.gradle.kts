@@ -32,5 +32,12 @@ tasks.shadowJar {
     rename("LICENSE.txt", "rhino-LICENSE.txt")
 }
 
-configurations.named("runtimeElements") { outgoing.artifacts.clear(); outgoing.artifact(tasks.shadowJar) }
-configurations.named("apiElements") { outgoing.artifacts.clear(); outgoing.artifact(tasks.shadowJar) }
+// Consumers get only the relocated jar. The secondary variants (classes/resources
+// directories) must go too: Android consumers prefer them and would get an empty module.
+for (name in listOf("runtimeElements", "apiElements")) {
+    configurations.named(name) {
+        outgoing.artifacts.clear()
+        outgoing.variants.clear()
+        outgoing.artifact(tasks.shadowJar)
+    }
+}

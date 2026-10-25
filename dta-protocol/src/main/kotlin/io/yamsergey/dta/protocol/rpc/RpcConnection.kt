@@ -101,8 +101,9 @@ class RpcConnection(
             )
         } catch (e: InvalidParamsException) {
             errorResponse(request.id, ErrorCodes.INVALID_PARAMS, e.message ?: "invalid params")
-        } catch (e: Exception) {
-            // FR-013: short and actionable, never a stack trace.
+        } catch (e: Throwable) {
+            // FR-013: short and actionable, never a stack trace. Errors too (e.g. a linkage
+            // error): a handler must never take the host app down (constitution I).
             errorResponse(request.id, ErrorCodes.INTERNAL, shortMessage(e))
         }
 
@@ -127,7 +128,7 @@ class RpcConnection(
     private fun errorResponse(id: Long, code: Int, message: String) =
         Response(id = id, error = ErrorInfo(code = code, message = message))
 
-    private fun shortMessage(e: Exception): String {
+    private fun shortMessage(e: Throwable): String {
         val detail = e.message?.lineSequence()?.firstOrNull()?.trim()
         return if (detail.isNullOrBlank()) "${e.javaClass.simpleName} in handler" else detail
     }
