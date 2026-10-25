@@ -47,6 +47,7 @@ class LayoutCaptureMethod(
         val windows = result.windows
         if (filter != null) {
             val matches = windows.flatMapIndexed { i, w -> filter.apply(w.root, i) }
+            LevelResolution.filterHint(filter, matches, result.delivered)?.let { degraded += it }
             return LayoutCapture(
                 screen = result.screen,
                 source = CaptureSource.SIDEKICK,

@@ -4,6 +4,8 @@ import io.yamsergey.dta.protocol.layout.ComposeNode
 import io.yamsergey.dta.protocol.layout.DegradationCodes
 import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.layout.FallbackNode
+import io.yamsergey.dta.protocol.layout.LayoutFilter
+import io.yamsergey.dta.protocol.layout.Match
 import io.yamsergey.dta.protocol.layout.Node
 import io.yamsergey.dta.protocol.layout.ViewNode
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
@@ -57,6 +59,16 @@ object LevelResolution {
      * was reduced, so the requested level stands. */
     fun delivered(requested: DetailLevel, hosts: List<HostResolution>): DetailLevel =
         hosts.minOfOrNull { it.served } ?: requested
+
+    /** A type filter with zero matches below `layout` may be looking for a
+     * layout-only composable, which only richer levels contain: say so
+     * rather than return a silently empty result. */
+    fun filterHint(filter: LayoutFilter, matches: List<Match>, delivered: DetailLevel): DegradationMarker? =
+        if (matches.isEmpty() && filter.type != null && delivered < DetailLevel.LAYOUT) {
+            DegradationMarker(LayoutCapability.NAME, DegradationCodes.FILTER_NEEDS_RICHER_DETAIL)
+        } else {
+            null
+        }
 
     private fun Node.withMarkers(codes: List<String>): Node {
         val merged = degraded.orEmpty() + codes.map { DegradationMarker(LayoutCapability.NAME, it) }

@@ -100,11 +100,11 @@ class DegradationVocabularyAuditTest {
         assertTrue(all.all { it.isNotBlank() } && all.toSet().size == all.size)
     }
 
-    /** filter-needs-richer-detail must have a producing path. Disabled (not
-     * deleted) until the filter hint lands (T036); enabling it is part of it. */
-    @org.junit.jupiter.api.Disabled("red until T036 adds the producer")
     @Test
-    fun `filter-needs-richer-detail is produced`() {
-        error("no producer yet for filter-needs-richer-detail")
+    fun `filter-needs-richer-detail is produced by the filter hint`() {
+        val hint = LevelResolution.filterHint(
+            io.yamsergey.dta.protocol.layout.LayoutFilter(type = "Row"), emptyList(), DetailLevel.SEMANTIC,
+        )
+        assertTrue(hint?.reason == DegradationCodes.FILTER_NEEDS_RICHER_DETAIL)
     }
 }
