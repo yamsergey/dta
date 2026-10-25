@@ -9,14 +9,15 @@ import io.yamsergey.dta.sidekick.network.store.StoreBounds
 
 /**
  * What capture knows about one library. [unsupported] marks a library present in the app
- * whose traffic capture does not cover by design (gRPC) — unlike [installFailure], nothing
- * went wrong, but its traffic is still invisible, so it degrades the capability (III).
+ * whose traffic capture does not cover by design (gRPC). It is stated in the library list
+ * but does not degrade the capability: presence alone (often a transitive dependency)
+ * does not mean any traffic went uncaptured.
  */
 data class LibraryState(val name: String, val present: Boolean, val installFailure: String?, val unsupported: String? = null)
 
 /**
  * The `network` capability status (contract §1): unavailable when hooks cannot attach,
- * degraded when a library the app uses could not be hooked or is not covered (gRPC); absent libraries are listed
+ * degraded when a library the app uses could not be hooked; absent and uncovered (gRPC) libraries are listed
  * but do not degrade. Pure, so every reason is tested without a device.
  */
 object NetworkCapability {
@@ -47,8 +48,8 @@ object NetworkCapability {
                 else -> LibraryStatus(lib.name, CapabilityStatus.Status.AVAILABLE)
             }
         }
-        val uncovered = libraries.filter { it.present && (it.installFailure ?: it.unsupported) != null }
-        val problems = uncovered.map { "${it.name} not captured: ${it.installFailure ?: it.unsupported}" } +
+        val failed = libraries.filter { it.present && it.installFailure != null }
+        val problems = failed.map { "${it.name} not captured: ${it.installFailure}" } +
             listOfNotNull(script?.unavailable?.let { "network script ${script.id} not applied: $it" })
         val (status, reason) = when {
             attachFailure != null -> CapabilityStatus.Status.UNAVAILABLE to "hooks unavailable: $attachFailure"

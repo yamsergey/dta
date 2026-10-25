@@ -47,9 +47,9 @@ prototype lives on the `pre-refined` branch.
   - Captured libraries: OkHttp 3/4/5 (network interceptor, plus failures before
     a connection such as refused/DNS/TLS), `HttpURLConnection`, OkHttp
     WebSocket, nv-websocket-client, Java-WebSocket. The capability lists each
-    library's status, gRPC included: detected, not captured (it has its own
-    transport), which degrades the capability so an empty list is not mistaken
-    for no traffic.
+    library's status, gRPC included: detected and listed as not captured (it
+    has its own transport), so an empty list is not mistaken for no traffic.
+    Presence alone does not degrade the capability.
   - Every request, connection and outgoing message carries an **initiator**
     stack, app frames marked, `firstAppFrame` set; async OkHttp calls show the
     `enqueue` site, not the dispatcher thread.

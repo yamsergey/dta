@@ -77,7 +77,7 @@ class NetworkCapabilityTest {
     }
 
     @Test
-    fun `a present library capture does not cover degrades the capability, saying why`() {
+    fun `a present library capture does not cover is listed with the reason, without degrading`() {
         val status = NetworkCapability.status(
             attachFailure = null,
             libraries = listOf(
@@ -86,8 +86,8 @@ class NetworkCapabilityTest {
             ),
             bounds = bounds,
         )
-        assertEquals(Status.DEGRADED, status.status)
-        assertTrue("grpc not captured" in status.reason!!, status.reason)
+        assertEquals(Status.AVAILABLE, status.status)
+        assertEquals(null, status.reason)
         assertEquals(LibraryStatus("grpc", Status.UNAVAILABLE, NetworkCapability.GRPC_UNSUPPORTED), status.libraries!![1])
         assertTrue("present in app" in NetworkCapability.GRPC_UNSUPPORTED)
     }
