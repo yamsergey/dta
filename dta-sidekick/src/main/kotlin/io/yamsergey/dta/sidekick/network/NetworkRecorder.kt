@@ -161,7 +161,7 @@ class NetworkRecorder(
         }
         return BodyRecorder(sink, bodyBound) { capture ->
             guard {
-                val head = decodedHead(id, part, encoding)
+                val head = decodedHead(id, part, encoding)?.takeIf { it.isNotEmpty() }
                 val info = bodyInfo(part, capture, contentType, encoding, declaredBytes)
                 onInfo(
                     info.copy(

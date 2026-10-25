@@ -149,6 +149,12 @@ class NetworkMethods(
         return ClearResult(clearedEntries = removed, clearedAtMs = store.coverage().clearedAtMs ?: 0)
     }
 
+    private fun bodiesOf(entry: NetworkEntry): List<io.yamsergey.dta.protocol.network.BodyInfo> = when (entry) {
+        is HttpEntry -> listOfNotNull(entry.requestBody, entry.responseBody)
+        is WsMessageEntry -> listOf(entry.payload)
+        is WsConnectionEntry -> emptyList()
+    }
+
     /** Decoded text of a stored body for `bodyContains`; raw bytes when the encoding cannot be undone. */
     private fun bodyText(entry: NetworkEntry, part: BodyPart): String? {
         val info = when (part) {
@@ -175,6 +181,7 @@ class NetworkMethods(
             }
             if (dropped > 0) add(DegradationCodes.NETWORK_EVENTS_DROPPED)
             if (entries.any { it.initiator?.missing != null }) add(DegradationCodes.NETWORK_INITIATOR_MISSING)
+            if (entries.any { e -> bodiesOf(e).any { it.completeness != Completeness.COMPLETE } }) add(DegradationCodes.NETWORK_BODY_INCOMPLETE)
         }
         return codes.map { DegradationMarker(NetworkCapability.NAME, it) }.ifEmpty { null }
     }

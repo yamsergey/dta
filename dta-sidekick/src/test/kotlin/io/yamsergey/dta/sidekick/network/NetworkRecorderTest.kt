@@ -184,6 +184,14 @@ class NetworkRecorderTest {
     }
 
     @Test
+    fun `a body the app never read has no preview`() {
+        val id = recorder.httpStarted("okhttp3", "GET", "http://h/a", emptyList(), initiator)
+        recorder.httpResponse(id, 404, emptyList(), null)
+        recorder.httpResponseBody(id, "application/json", null, 14).finish(endOfStream = false)
+        assertNull((entry(id) as HttpEntry).responseBody!!.preview)
+    }
+
+    @Test
     fun `message payloads get previews by opcode`() {
         val id = recorder.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)
         val text = recorder.wsMessage(id, Direction.OUT, MessageOpcode.TEXT, "hello".toByteArray(), initiator)!!

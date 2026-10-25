@@ -11,7 +11,8 @@ prototype lives on the `pre-refined` branch.
 |---|---|
 | `dta-protocol` | Pure-JVM wire core: hand-rolled RFC 6455 server half, JSON message envelope, hello-gated RPC sessions, diagnostic methods, and the shared layout tree model + filter. No Android, no third-party transport deps. |
 | `dta-daemon` | Host side (library): ADB discovery (`/proc/net/unix` scan), port-forward ownership with startup sweep, `SidekickConnectionManager` (the single connection-lifecycle owner), `SidekickConnection` (JDK WebSocket client), and `LayoutService` (sidekick-vs-uiautomator-fallback decision ladder with honest labeling). |
-| `dta-sidekick` | Android AAR embedded in debug builds: `LocalServerSocket` accept loop, AndroidX Startup init, capability registry with live statuses, and layout capture (View walk + two-tier Compose: semantics always, ui-tooling-data enrichment when present). Zero third-party runtime deps — Compose is `compileOnly` (constitution I). |
+| `dta-sidekick` | Android AAR embedded in debug builds: `LocalServerSocket` accept loop, AndroidX Startup init, capability registry with live statuses, layout capture (View walk + two-tier Compose: semantics always, ui-tooling-data enrichment when present), and network capture through a JVMTI agent (`libdta-agent.so`, dex rewriting on vendored AOSP slicer). Zero third-party runtime deps — Compose and OkHttp are `compileOnly` (constitution I). |
+| `dta-sidekick-shim` | Pure-Java hook dispatcher, dexed into the AAR's assets and put on the bootstrap class path by the agent, so boot classes (`java.net.URL`) can call it. Its `onEntry`/`onExit` signatures are a frozen ABI. |
 
 ## Capabilities
 
@@ -39,6 +40,33 @@ prototype lives on the `pre-refined` branch.
   ui-tooling-data `mapTree` (reflective); framework vs. user frames are told
   apart by call-site package hash.
 
+- **network** (feature 004): HTTP and WebSocket traffic in **one** list —
+  `network_list`, `network_entry`, `network_body`, `network_clear`, and live
+  `network.entry` events. Entry kinds: `http`, `ws-connection`, `ws-message`.
+  - Captured libraries: OkHttp 3/4/5 (network interceptor, plus failures before
+    a connection such as refused/DNS/TLS), `HttpURLConnection`, OkHttp
+    WebSocket, nv-websocket-client, Java-WebSocket. The capability lists each
+    library's status.
+  - Every request, connection and outgoing message carries an **initiator**
+    stack, app frames marked, `firstAppFrame` set; async OkHttp calls show the
+    `enqueue` site, not the dispatcher thread.
+  - Bodies of any type are teed to device storage as the app reads them (no
+    pre-buffering), up to 32 MB each; listings carry size, type and a ≤256-char
+    preview. `network_body` returns wire bytes; the daemon decodes (gzip,
+    deflate; br/zstd stated as not decoded) and writes files with sha256.
+  - On-device filters across all kinds: `url`, `method`, `status`
+    (`404`/`4xx`/`failed`/`pending`), `kinds`, time range, `bodyContains`
+    (with match locations), `runs`.
+  - History persists across process restarts (100 MB, oldest evicted first);
+    entries are labeled by process run; in-flight entries of a dead process read
+    `process-ended`. Capture starts before `Application.onCreate` and runs
+    without a client (observation, constitution v1.3.0).
+  - Opt-in redaction (`redact`), applied by the daemon: credential headers,
+    secret/personal JSON/form/query fields; formats it cannot inspect, binary
+    included, are withheld unless `allowUnredacted`.
+  - Requirements: API 28+ and a debuggable app; otherwise the capability says
+    why. Reductions use eight `network-*` degradation codes.
+
 ## Protocol
 
 One duplex WebSocket per (device, app) over
@@ -52,8 +80,8 @@ discovery.md).
 
 ```bash
 ./gradlew build                 # everything incl. the sidekick AAR
-./gradlew :dta-protocol:test :dta-daemon:test :dta-sidekick:testDebugUnitTest
-                                # deviceless suite — no device/emulator needed
+./gradlew test                  # deviceless suite (protocol, daemon, sidekick,
+                                # shim) — no device/emulator needed
 ```
 
 End-to-end verification runs from the workspace root (outside this repo):
@@ -66,3 +94,7 @@ Development follows the project constitution
 (`../.specify/memory/constitution.md`): strict TDD, no silent degradation,
 one lifecycle owner per concern, deviceless-testable cores, and the AS/AOSP
 sources as prior art for framework internals.
+
+Third-party code: `dta-sidekick/src/main/cpp/third_party/slicer` is AOSP
+dexter/slicer (Apache 2.0), vendored with one patch (checks throw instead of
+aborting); see its `README.dta`.
