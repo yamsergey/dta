@@ -123,6 +123,15 @@ class TeeStreamsTest {
     }
 
     @Test
+    fun `an omitted body states why and stores nothing`() {
+        val sink = MemorySink()
+        val (rec, result) = recorder(sink)
+        rec.omit("duplex body")
+        assertEquals(BodyCapture(0, 0, Completeness.OMITTED, "duplex body"), result())
+        assertTrue(sink.closed)
+    }
+
+    @Test
     fun `recorder finishes once`() {
         var calls = 0
         val rec = BodyRecorder(MemorySink(), 100) { calls++ }

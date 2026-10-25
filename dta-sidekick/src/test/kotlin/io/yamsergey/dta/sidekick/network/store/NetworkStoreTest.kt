@@ -5,6 +5,9 @@ import io.yamsergey.dta.protocol.network.HttpEntry
 import io.yamsergey.dta.protocol.network.HttpState
 import io.yamsergey.dta.protocol.network.EntryChange
 import io.yamsergey.dta.protocol.network.Order
+import io.yamsergey.dta.protocol.network.RunEnd
+import io.yamsergey.dta.protocol.network.WsConnectionEntry
+import io.yamsergey.dta.protocol.network.WsState
 import io.yamsergey.dta.protocol.rpc.InvalidParamsException
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
@@ -33,12 +36,14 @@ class NetworkStoreTest {
         queueCapacity: Int = 10_000,
         startWriter: Boolean = true,
         pid: Int = 42,
+        bounds: StoreBounds = StoreBounds(),
     ) = NetworkStore(
         storage = root?.let { StorageDir(it) },
         pid = pid,
         clock = { now++ },
         queueCapacity = queueCapacity,
         startWriter = startWriter,
+        bounds = bounds,
     ).also { opened += it }
 
     private fun http(store: NetworkStore, url: String = "http://h/x", state: HttpState = HttpState.PENDING): HttpEntry =
@@ -122,8 +127,7 @@ class NetworkStoreTest {
 
     @Test
     fun `writer queue overflow is counted as dropped and never blocks`() {
-        // capacity 4: the run record takes one slot, three entries fit
-        val s = store(queueCapacity = 4, startWriter = false)
+        val s = store(queueCapacity = 3, startWriter = false)
         repeat(5) { s.upsert(http(s)) }
         assertEquals(2, s.coverage().dropped)
         assertEquals(5, s.coverage().stored)
@@ -168,5 +172,132 @@ class NetworkStoreTest {
         val e = http(s)
         assertEquals(EntryChange.CREATED, s.upsert(e))
         assertEquals(EntryChange.UPDATED, s.upsert(e.copy(state = HttpState.COMPLETE)))
+    }
+
+    @Test
+    fun `clear empties entries, segments and bodies and states when`() {
+        val s = store()
+        val e = http(s)
+        s.upsert(e)
+        s.openBodySink(e.id, BodyPart.RESPONSE)!!.apply { write(byteArrayOf(1), 0, 1); close() }
+        s.flush()
+        val cleared = s.clear()
+        assertEquals(1, cleared)
+        assertEquals(0, s.coverage().stored)
+        assertTrue(s.coverage().clearedAtMs != null)
+        assertNull(s.openBody(e.id, BodyPart.RESPONSE))
+        assertTrue(File(dir, "bodies").listFiles()!!.isEmpty())
+        s.upsert(http(s))
+        s.flush()
+        val log = File(dir, "segments").listFiles()!!.joinToString("") { it.readText() }
+        assertFalse(e.id in log, "cleared entries are gone from the log")
+    }
+
+    // ---- persistence (US5) ----------------------------------------------------------
+
+    private fun restart(s: NetworkStore, pid: Int = 43, bounds: StoreBounds = StoreBounds()): NetworkStore {
+        s.close()
+        now += 1000
+        return store(pid = pid, bounds = bounds)
+    }
+
+    @Test
+    fun `a new process loads earlier runs, labeled, before its own entries`() {
+        val first = store()
+        val old = http(first, state = HttpState.COMPLETE)
+        first.upsert(old)
+        val second = restart(first)
+        val fresh = http(second)
+        second.upsert(fresh)
+        assertEquals(listOf(old.id, fresh.id), second.list(order = Order.OLDEST_FIRST, limit = 10).entries.map { it.id })
+        val runs = second.coverage().runs
+        assertEquals(listOf(first.runId, second.runId), runs.map { it.runId })
+        assertEquals(RunEnd.PROCESS_ENDED, runs[0].ended)
+        assertEquals(old.timeMs, runs[0].endedAtMs)
+        assertNull(runs[1].ended)
+    }
+
+    @Test
+    fun `in-flight entries of a finished run become process-ended`() {
+        val first = store()
+        val pendingHttp = http(first)
+        first.upsert(pendingHttp)
+        val socket = WsConnectionEntry(first.nextId(), first.runId, now++, "okhttp3-ws", url = "ws://h", state = WsState.OPEN)
+        first.upsert(socket)
+        val second = restart(first)
+        assertEquals(HttpState.PROCESS_ENDED, (second.get(pendingHttp.id) as HttpEntry).state)
+        assertEquals(WsState.PROCESS_ENDED, (second.get(socket.id) as WsConnectionEntry).state)
+    }
+
+    @Test
+    fun `bodies of earlier runs stay readable`() {
+        val first = store()
+        val e = http(first)
+        first.upsert(e)
+        first.openBodySink(e.id, BodyPart.RESPONSE)!!.apply { write(byteArrayOf(7, 8), 0, 2); close() }
+        val second = restart(first)
+        assertContentEquals(byteArrayOf(7, 8), second.openBody(e.id, BodyPart.RESPONSE)!!.use { it.readBytes() })
+    }
+
+    @Test
+    fun `over the history bound the oldest entries and their bodies are evicted, stated`() {
+        val bounds = StoreBounds(historyBytes = 20_000, segmentBytes = 2_000)
+        val s = store(bounds = bounds)
+        val ids = (1..20).map { i ->
+            val e = http(s, "http://h/$i")
+            s.upsert(e)
+            s.openBodySink(e.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(2_000), 0, 2_000); close() }
+            s.flush()
+            e.id
+        }
+        s.evictIfNeeded()
+        val c = s.coverage()
+        assertTrue(c.evicted > 0, "evicted ${c.evicted}")
+        assertTrue(s.diskBytes() <= bounds.historyBytes, "disk ${s.diskBytes()}")
+        val kept = s.list(order = Order.OLDEST_FIRST, limit = 100).entries.map { it.id }
+        assertEquals(ids.takeLast(kept.size), kept, "the newest survive, in order")
+        assertEquals(s.get(kept.first())!!.timeMs, c.earliestMs)
+        assertNull(s.openBody(ids.first(), BodyPart.RESPONSE))
+    }
+
+    @Test
+    fun `evicted entries stay evicted after a restart, even if updated later`() {
+        val bounds = StoreBounds(historyBytes = 6_000, segmentBytes = 1_000)
+        val s = store(bounds = bounds)
+        val first = http(s, "http://h/first")
+        s.upsert(first)
+        s.openBodySink(first.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(5_000), 0, 5_000); close() }
+        repeat(5) { i -> s.upsert(http(s, "http://h/filler-$i")); s.flush() }
+        val big = http(s, "http://h/big")
+        s.upsert(big)
+        s.openBodySink(big.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(3_000), 0, 3_000); close() }
+        s.flush()
+        s.evictIfNeeded()
+        assertNull(s.get(first.id))
+        s.upsert(first.copy(state = HttpState.COMPLETE)) // a late update for an evicted entry
+        val evicted = s.coverage().evicted
+        val again = restart(s, bounds = bounds)
+        assertNull(again.get(first.id), "evicted entry must not come back")
+        assertEquals(evicted, again.coverage().evicted)
+    }
+
+    @Test
+    fun `clear also survives a restart`() {
+        val s = store()
+        s.upsert(http(s))
+        s.flush()
+        s.clear()
+        val again = restart(s)
+        assertEquals(0, again.coverage().stored)
+        assertEquals(1, again.coverage().runs.size, "only the new live run is left")
+    }
+
+    @Test
+    fun `runs scope current is the live run only`() {
+        val first = store()
+        first.upsert(http(first))
+        val second = restart(first)
+        second.upsert(http(second))
+        assertEquals(1, second.list(limit = 10) { it.runId == second.runId }.total)
     }
 }

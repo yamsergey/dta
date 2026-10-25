@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.startup.Initializer
 import io.yamsergey.dta.sidekick.layout.compose.ComposeInspection
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
+import io.yamsergey.dta.sidekick.network.NetworkRuntime
 import io.yamsergey.dta.sidekick.server.SidekickServer
 
 /**
@@ -22,6 +23,9 @@ class SidekickInitializer : Initializer<Unit> {
             runCatching { ComposeInspection.enableEarly() }
                 .onFailure { Log.w("DtaSidekick", "compose inspection enable failed: ${it.message}") }
         }
+        // Normally already started by HooksProvider; idempotent, so the network methods
+        // exist even if that provider was stripped from the manifest.
+        runCatching { NetworkRuntime.start(context) }
         SidekickServer.start(
             packageName = context.packageName,
             sidekickVersion = BuildConfig.VERSION,

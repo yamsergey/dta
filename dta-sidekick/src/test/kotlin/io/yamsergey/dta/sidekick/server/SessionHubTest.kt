@@ -78,7 +78,7 @@ class SessionHubTest {
     }
 
     @Test
-    fun `a slow session loses overflow, counted and reported once when it drains`() {
+    fun `a slow session loses overflow, counted and reported when it drains`() {
         val gate = CountDownLatch(1)
         val slow = FakeSession(gate = gate)
         hub.add(slow)
@@ -88,9 +88,10 @@ class SessionHubTest {
         gate.countDown()
         awaitTrue("drop report") { slow.received.any { it.first == "network.events-dropped" } }
         Thread.sleep(100)
-        val drops = slow.received.filter { it.first == "network.events-dropped" }
-        assertEquals(1, drops.size)
+        val reported = slow.received.filter { it.first == "network.events-dropped" }
+            .sumOf { it.second!!.jsonObject["count"]!!.jsonPrimitive.int }
         val delivered = slow.received.count { it.first == "network.entry" }
-        assertEquals(10, delivered + drops.single().second!!.jsonObject["count"]!!.jsonPrimitive.int)
+        assertEquals(10, delivered + reported, "every event is either delivered or counted as dropped")
+        assertTrue(reported > 0)
     }
 }

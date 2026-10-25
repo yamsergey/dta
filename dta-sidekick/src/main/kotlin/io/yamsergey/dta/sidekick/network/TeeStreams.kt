@@ -51,6 +51,15 @@ class BodyRecorder(
         }
     }
 
+    /** The body exists but cannot be observed without changing the app's behavior. */
+    @Synchronized
+    fun omit(reason: String) {
+        if (finished) return
+        finished = true
+        closeSink()
+        deliver(BodyCapture(0, 0, Completeness.OMITTED, reason))
+    }
+
     @Synchronized
     fun finish(endOfStream: Boolean) {
         if (finished) return
@@ -68,6 +77,10 @@ class BodyRecorder(
             )
             else -> BodyCapture(stored, observed, Completeness.COMPLETE, null)
         }
+        deliver(capture)
+    }
+
+    private fun deliver(capture: BodyCapture) {
         try {
             onDone(capture)
         } catch (_: Throwable) {

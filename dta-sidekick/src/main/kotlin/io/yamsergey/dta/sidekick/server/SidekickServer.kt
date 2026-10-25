@@ -16,6 +16,9 @@ import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.wire.WebSocketConnection
 import io.yamsergey.dta.sidekick.capability.CapabilityRegistry
 import io.yamsergey.dta.sidekick.hooks.HookSelfTest
+import io.yamsergey.dta.sidekick.network.NetworkCapability
+import io.yamsergey.dta.sidekick.network.NetworkMethods
+import io.yamsergey.dta.sidekick.network.NetworkRuntime
 import io.yamsergey.dta.sidekick.layout.LayoutCapability
 import io.yamsergey.dta.sidekick.layout.LayoutCaptureMethod
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
@@ -55,6 +58,8 @@ object SidekickServer {
         val composePresence = ComposePresence()
         capabilities.register(LayoutCapability.NAME) { LayoutCapability.status(composePresence) }
 
+        capabilities.register(NetworkCapability.NAME) { NetworkRuntime.capability() }
+
         val layoutMethod = LayoutCaptureMethod(
             presence = composePresence,
             screenProvider = { screenMetadata(packageName) },
@@ -75,6 +80,7 @@ object SidekickServer {
             DiagnosticMethods.install(this)
             // Diagnostic: proves JVMTI entry/exit hooks on app and boot classes (feature 004).
             register("hook_selftest") { HookSelfTest.run() }
+            NetworkRuntime.store?.let { store -> NetworkMethods(store) { NetworkRuntime.capability() }.install(this) }
         }
         val identity = SessionIdentity(packageName = packageName, serverVersion = sidekickVersion)
         val socketName = "dta_sidekick_$packageName"

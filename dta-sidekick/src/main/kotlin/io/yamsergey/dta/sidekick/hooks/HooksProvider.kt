@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import android.util.Log
+import io.yamsergey.dta.sidekick.network.NetworkRuntime
 
 /**
  * Attaches the hook agent as early as a library can run: a ContentProvider whose
@@ -18,6 +19,7 @@ class HooksProvider : ContentProvider() {
         val context = context ?: return false
         try {
             HookAttach.attach(context)
+            NetworkRuntime.start(context)
         } catch (t: Throwable) {
             Log.w("DtaHooks", "hook attach crashed: $t")
         }

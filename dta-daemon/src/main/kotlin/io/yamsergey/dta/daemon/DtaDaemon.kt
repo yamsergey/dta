@@ -10,12 +10,22 @@ import io.yamsergey.dta.daemon.discovery.SidekickDiscovery
 import io.yamsergey.dta.daemon.layout.ForegroundDetector
 import io.yamsergey.dta.daemon.layout.LayoutService
 import io.yamsergey.dta.daemon.layout.UiAutomatorFallback
+import io.yamsergey.dta.daemon.network.BodyOutput
+import io.yamsergey.dta.daemon.network.BodyResult
+import io.yamsergey.dta.daemon.network.NetworkService
+import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.layout.LayoutCapture
 import io.yamsergey.dta.protocol.layout.LayoutFilter
 import io.yamsergey.dta.protocol.layout.LayoutTreeParams
 import io.yamsergey.dta.protocol.layout.Screen
+import io.yamsergey.dta.protocol.network.ClearResult
+import io.yamsergey.dta.protocol.network.NetworkEntryDetail
+import io.yamsergey.dta.protocol.network.NetworkEntryEvent
+import io.yamsergey.dta.protocol.network.NetworkPage
+import io.yamsergey.dta.protocol.network.NetworkQuery
+import kotlinx.coroutines.flow.Flow
 import java.net.URI
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -92,6 +102,37 @@ class DtaDaemon(
         )
         return service.capture(serial, pkg, LayoutTreeParams(filters, detail, frameworkFrames))
     }
+
+    /** Network history of [pkg]: HTTP and WebSocket entries in one list (feature 004). */
+    suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage =
+        networkService(serial, pkg).list(query)
+
+    suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean = false): NetworkEntryDetail =
+        networkService(serial, pkg).entry(id, redact)
+
+    /**
+     * One body: decoded text, or bytes to a file (binary bodies need [BodyOutput.File]).
+     * With [redact], bodies that cannot be redacted are withheld unless [allowUnredacted].
+     */
+    suspend fun networkBody(
+        serial: String,
+        pkg: String,
+        id: String,
+        part: BodyPart,
+        output: BodyOutput = BodyOutput.Text,
+        redact: Boolean = false,
+        allowUnredacted: Boolean = false,
+    ): BodyResult = networkService(serial, pkg).body(id, part, output, redact, allowUnredacted)
+
+    suspend fun networkClear(serial: String, pkg: String): ClearResult =
+        networkService(serial, pkg).clear()
+
+    /** Live entry events; collect for as long as needed. */
+    fun networkEvents(serial: String, pkg: String): Flow<NetworkEntryEvent> =
+        networkService(serial, pkg).events()
+
+    private fun networkService(serial: String, pkg: String) =
+        NetworkService { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun screenOf(serial: String): Screen {
         // wm size / density via adb, best-effort.
