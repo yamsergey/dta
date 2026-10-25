@@ -110,8 +110,8 @@ prototype lives on the `pre-refined` branch.
     (`.proto` sources, compiled on the JVM — no `protoc`) or
     `SchemaInput.DescriptorSet(bytes)` (`protoc --include_imports
     --descriptor_set_out`), then `networkMappingAdd(pkg, BodyMappingSpec(urlPattern,
-    part, schema, type, method?, direction?))`. Globs match the full URL; OkHttp
-    records WebSocket URLs as `http(s)`, so write socket patterns as `*/path`.
+    part, schema, type, method?, direction?))`. Globs match the full URL; a WebSocket
+    message matches by its connection's URL (e.g. `ws://*/chat`).
     User mappings win over OTLP; the most literal pattern wins, then the most
     recent. Stored per app under `~/.dta/schemas/<package>/` (`DtaDaemon(dataDir)`).
     `networkSchemas`, `networkSchemaRemove` (returns the mappings now broken),
