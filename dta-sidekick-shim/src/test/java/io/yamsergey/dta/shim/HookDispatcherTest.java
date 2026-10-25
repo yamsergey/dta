@@ -200,4 +200,88 @@ class HookDispatcherTest {
         HookDispatcher.onExit(voidLabel);
         assertNull(seen[0]);
     }
+
+    // ---- control entry hook (feature 005) ----
+
+    @Test
+    void controlWithoutHandlerProceeds() {
+        assertSame(HookDispatcher.PROCEED, HookDispatcher.onEntryControl(new Object[] {LABEL, null, "a"}));
+    }
+
+    @Test
+    void controlHandlerRewritesArgumentsInPlace() {
+        HookRegistry.control(LABEL, new ControlHandler() {
+            @Override
+            public Object onEntry(Object self, Object[] params) {
+                params[0] = "b";
+                return HookDispatcher.PROCEED;
+            }
+        });
+        Object[] args = {LABEL, null, "a"};
+        assertSame(HookDispatcher.PROCEED, HookDispatcher.onEntryControl(args));
+        assertEquals("b", args[2], "the rewritten parameter is visible to the transformed method");
+    }
+
+    @Test
+    void controlHandlerCanReturnEarly() {
+        HookRegistry.control(LABEL, new ControlHandler() {
+            @Override
+            public Object onEntry(Object self, Object[] params) {
+                return "early";
+            }
+        });
+        assertEquals("early", HookDispatcher.onEntryControl(new Object[] {LABEL, null, "a"}));
+    }
+
+    @Test
+    void throwingControlHandlerProceedsWithArgumentsUntouched() {
+        HookRegistry.control(LABEL, new ControlHandler() {
+            @Override
+            public Object onEntry(Object self, Object[] params) {
+                params[0] = "changed";
+                throw new IllegalStateException("boom");
+            }
+        });
+        Object[] args = {LABEL, null, "a"};
+        assertSame(HookDispatcher.PROCEED, HookDispatcher.onEntryControl(args));
+        assertEquals("a", args[2]);
+        assertEquals(1, HookRegistry.errorCount(LABEL));
+    }
+
+    @Test
+    void firstNonProceedResultWins() {
+        HookRegistry.control(LABEL, new ControlHandler() {
+            @Override
+            public Object onEntry(Object self, Object[] params) {
+                return HookDispatcher.PROCEED;
+            }
+        });
+        HookRegistry.control(LABEL, new ControlHandler() {
+            @Override
+            public Object onEntry(Object self, Object[] params) {
+                return "second";
+            }
+        });
+        HookRegistry.control(LABEL, new ControlHandler() {
+            @Override
+            public Object onEntry(Object self, Object[] params) {
+                return "third";
+            }
+        });
+        assertEquals("second", HookDispatcher.onEntryControl(new Object[] {LABEL, null, "a"}));
+    }
+
+    @Test
+    void controlIsNotReentered() {
+        final int[] calls = {0};
+        HookRegistry.control(LABEL, new ControlHandler() {
+            @Override
+            public Object onEntry(Object self, Object[] params) {
+                calls[0]++;
+                return HookDispatcher.onEntryControl(new Object[] {LABEL, null, "x"});
+            }
+        });
+        assertSame(HookDispatcher.PROCEED, HookDispatcher.onEntryControl(new Object[] {LABEL, null, "a"}));
+        assertEquals(1, calls[0]);
+    }
 }

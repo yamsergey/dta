@@ -16,6 +16,7 @@ public final class HookRegistry {
 
     private static final ConcurrentHashMap<String, List<EntryHandler>> ENTRY = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, List<ExitHandler>> EXIT = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, List<ControlHandler>> CONTROL = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, AtomicLong> ERRORS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Throwable> LAST_ERROR = new ConcurrentHashMap<>();
 
@@ -33,7 +34,13 @@ public final class HookRegistry {
         chain(EXIT, label).add(handler);
     }
 
+    public static void control(String label, ControlHandler handler) {
+        chain(CONTROL, label).add(handler);
+    }
+
     public static void remove(String label, Object handler) {
+        List<ControlHandler> controls = CONTROL.get(label);
+        if (controls != null) controls.remove(handler);
         List<EntryHandler> entries = ENTRY.get(label);
         if (entries != null) entries.remove(handler);
         List<ExitHandler> exits = EXIT.get(label);
@@ -62,12 +69,17 @@ public final class HookRegistry {
     public static void clear() {
         ENTRY.clear();
         EXIT.clear();
+        CONTROL.clear();
         ERRORS.clear();
         LAST_ERROR.clear();
     }
 
     static List<EntryHandler> entryHandlers(String label) {
         return ENTRY.get(label);
+    }
+
+    static List<ControlHandler> controlHandlers(String label) {
+        return CONTROL.get(label);
     }
 
     static List<ExitHandler> exitHandlers(String label) {

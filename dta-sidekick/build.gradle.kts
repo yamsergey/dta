@@ -97,6 +97,8 @@ androidComponents {
 dependencies {
     api(project(":dta-protocol"))
     compileOnly(project(":dta-sidekick-shim"))
+    // Network scripting engine: Rhino relocated to io.yamsergey.dta.vendor.rhino (feature 005).
+    implementation(project(":dta-sidekick-rhino"))
     shimClasses(project(":dta-sidekick-shim"))
     implementation(libs.androidx.startup)
 

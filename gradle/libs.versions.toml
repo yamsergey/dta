@@ -11,6 +11,9 @@ androidx-startup = "1.2.0"
 compose = "1.7.6"
 # compileOnly ONLY in sidekick (constitution I); runtime for tests.
 okhttp = "4.12.0"
+# Relocated into dta-sidekick-rhino; never a plain dependency (constitution I).
+rhino = "1.7.15"
+shadow = "9.0.2"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -20,6 +23,7 @@ junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "jun
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit-platform" }
 androidx-startup = { module = "androidx.startup:startup-runtime", version.ref = "androidx-startup" }
 compose-ui = { module = "androidx.compose.ui:ui", version.ref = "compose" }
+rhino = { module = "org.mozilla:rhino", version.ref = "rhino" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
 compose-ui-tooling-data = { module = "androidx.compose.ui:ui-tooling-data", version.ref = "compose" }
@@ -28,4 +32,5 @@ compose-ui-tooling-data = { module = "androidx.compose.ui:ui-tooling-data", vers
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 android-library = { id = "com.android.library", version.ref = "agp" }

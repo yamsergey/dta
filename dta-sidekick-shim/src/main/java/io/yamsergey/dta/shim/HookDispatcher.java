@@ -14,6 +14,10 @@ import java.util.List;
  *   <li>exit: {@code onExit(Ljava/lang/String;X)X} for X in Object (ReturnAsObject) and
  *       every primitive, and {@code onExit(Ljava/lang/String;)V} — slicer ExitHook
  *       PassMethodSignature</li>
+ *   <li>control (added in feature 005): {@code onEntryControl([Ljava/lang/Object;)Ljava/lang/Object;}
+ *       and the field {@code PROCEED} — the agent's control entry hook writes the array's
+ *       parameters back and runs the method when the result is {@code PROCEED}, otherwise
+ *       returns the result</li>
  * </ul>
  *
  * <p>Nothing here may throw into the host app: handler failures are counted in
@@ -30,7 +34,43 @@ public final class HookDispatcher {
         }
     };
 
+    /** Returned by {@link #onEntryControl} to run the method (with possibly rewritten params). */
+    public static final Object PROCEED = new Object();
+
     private HookDispatcher() {}
+
+    /**
+     * Control entry: {@code args = [label, this-or-null, params...]}. Each handler gets a copy
+     * of the current params; its rewrites are adopted only if it does not throw. The first
+     * result other than {@link #PROCEED} is returned (an early return). Never throws.
+     */
+    public static Object onEntryControl(Object[] args) {
+        if (args == null || args.length < 2 || !(args[0] instanceof String)) return PROCEED;
+        String label = (String) args[0];
+        List<ControlHandler> handlers = HookRegistry.controlHandlers(label);
+        if (handlers == null || handlers.isEmpty()) return PROCEED;
+        boolean[] inHook = IN_HOOK.get();
+        if (inHook[0]) return PROCEED;
+        inHook[0] = true;
+        try {
+            for (ControlHandler handler : handlers) {
+                Object[] params = new Object[args.length - 2];
+                System.arraycopy(args, 2, params, 0, params.length);
+                Object result;
+                try {
+                    result = handler.onEntry(args[1], params);
+                } catch (Throwable t) {
+                    HookRegistry.recordError(label, t);
+                    continue;
+                }
+                System.arraycopy(params, 0, args, 2, params.length);
+                if (result != PROCEED) return result;
+            }
+            return PROCEED;
+        } finally {
+            inHook[0] = false;
+        }
+    }
 
     public static void onEntry(Object[] args) {
         if (args == null || args.length < 2 || !(args[0] instanceof String)) return;

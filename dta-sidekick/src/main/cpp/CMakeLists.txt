@@ -11,7 +11,7 @@ target_include_directories(slicer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 # Upstream builds with -Wall -Werror plus suppressions; we only need it to compile.
 target_compile_options(slicer PRIVATE -w -fexceptions -fvisibility=hidden)
 
-add_library(dta-agent SHARED agent.cc transform.cc)
+add_library(dta-agent SHARED agent.cc transform.cc control_entry_hook.cc)
 target_compile_options(dta-agent PRIVATE -Wall -fexceptions -fvisibility=hidden)
 target_link_libraries(dta-agent PRIVATE slicer android log z)
 # 16 KB page alignment (Android 15+ devices).

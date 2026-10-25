@@ -1,5 +1,7 @@
 #include "transform.h"
 
+#include "control_entry_hook.h"
+
 #include <exception>
 #include <memory>
 
@@ -32,7 +34,9 @@ class CallbackAllocator : public dex::Writer::Allocator {
 bool ApplyOne(std::shared_ptr<ir::DexFile> dex_ir, const std::string& descriptor,
               const HookTarget& target) {
   slicer::MethodInstrumenter mi(dex_ir);
-  if (target.entry) {
+  if (target.kind == HookKind::kControl) {
+    mi.AddTransformation<ControlEntryHook>(kDispatcher);
+  } else if (target.kind == HookKind::kEntry) {
     mi.AddTransformation<slicer::EntryHook>(ir::MethodId(kDispatcher, "onEntry"),
                                             slicer::EntryHook::Tweak::ArrayParams);
   } else {

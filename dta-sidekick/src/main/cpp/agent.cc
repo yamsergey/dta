@@ -163,7 +163,7 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeAddToBootstrap(JNIEnv* en
 extern "C" JNIEXPORT jstring JNICALL
 Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
                                                             jclass target, jstring method,
-                                                            jstring signature, jboolean entry) {
+                                                            jstring signature, jint kind) {
   if (g_jvmti == nullptr) return env->NewStringUTF("agent not attached");
 
   char* class_sig = nullptr;
@@ -174,7 +174,8 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
   std::string descriptor(class_sig);
   g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(class_sig));
 
-  dta::HookTarget hook{ToString(env, method), ToString(env, signature), entry == JNI_TRUE};
+  if (kind < 0 || kind > 2) return env->NewStringUTF("unknown hook kind");
+  dta::HookTarget hook{ToString(env, method), ToString(env, signature), static_cast<dta::HookKind>(kind)};
   {
     std::lock_guard<std::mutex> lock(g_targets_mutex);
     g_targets[descriptor].push_back(hook);

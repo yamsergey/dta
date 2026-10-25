@@ -1,5 +1,6 @@
 package io.yamsergey.dta.sidekick.hooks
 
+import io.yamsergey.dta.shim.ControlHandler
 import io.yamsergey.dta.shim.EntryHandler
 import io.yamsergey.dta.shim.ExitHandler
 import io.yamsergey.dta.shim.HookRegistry
@@ -20,10 +21,14 @@ object Hooks {
     private val nativelyInstalled = HashSet<String>()
 
     fun entry(cls: Class<*>, method: String, descriptor: String, handler: EntryHandler): Install =
-        install(cls, method, descriptor, entry = true) { HookRegistry.entry(it, handler) }
+        install(cls, method, descriptor, NativeAgent.ENTRY) { HookRegistry.entry(it, handler) }
 
     fun exit(cls: Class<*>, method: String, descriptor: String, handler: ExitHandler): Install =
-        install(cls, method, descriptor, entry = false) { HookRegistry.exit(it, handler) }
+        install(cls, method, descriptor, NativeAgent.EXIT) { HookRegistry.exit(it, handler) }
+
+    /** A hook that may rewrite the method's parameters or return early (feature 005). */
+    fun control(cls: Class<*>, method: String, descriptor: String, handler: ControlHandler): Install =
+        install(cls, method, descriptor, NativeAgent.CONTROL) { HookRegistry.control(it, handler) }
 
     fun entry(className: String, loader: ClassLoader?, method: String, descriptor: String, handler: EntryHandler): Install =
         load(className, loader)?.let { entry(it, method, descriptor, handler) } ?: Install.ClassAbsent(className)
@@ -46,13 +51,13 @@ object Hooks {
         }
 
     @Synchronized
-    private fun install(cls: Class<*>, method: String, descriptor: String, entry: Boolean, register: (String) -> Unit): Install {
+    private fun install(cls: Class<*>, method: String, descriptor: String, kind: Int, register: (String) -> Unit): Install {
         if (!HookAttach.attached) return Install.Failed(HookAttach.reason ?: "hooks not attached")
         return try {
             val label = HookRegistry.label(cls.name, method, descriptor)
-            val key = (if (entry) "E " else "X ") + label
+            val key = "$kind $label"
             if (key !in nativelyInstalled) {
-                NativeAgent.nativeHook(cls, method, descriptor, entry)?.let { return Install.Failed(it) }
+                NativeAgent.nativeHook(cls, method, descriptor, kind)?.let { return Install.Failed(it) }
                 nativelyInstalled += key
             }
             register(label)

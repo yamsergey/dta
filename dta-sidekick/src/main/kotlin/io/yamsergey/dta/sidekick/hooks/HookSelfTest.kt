@@ -1,6 +1,8 @@
 package io.yamsergey.dta.sidekick.hooks
 
+import io.yamsergey.dta.shim.ControlHandler
 import io.yamsergey.dta.shim.EntryHandler
+import io.yamsergey.dta.shim.HookDispatcher
 import io.yamsergey.dta.shim.ExitHandler
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -12,6 +14,9 @@ import java.net.URLConnection
 /** App-loader class the self-test hooks; never used for anything else. */
 class SelfTestProbe {
     fun value(x: Int): String = "original-$x"
+
+    /** Control-hook probe: also has a primitive param, to exercise unboxing writeback. */
+    fun echo(text: String, times: Int): String = "echo-" + text.repeat(times)
 }
 
 /**
@@ -24,6 +29,7 @@ object HookSelfTest {
     private const val SELFTEST_HOST = "dta-selftest.invalid"
     private const val PROBE_DESCRIPTOR = "(I)Ljava/lang/String;"
     private const val OPEN_DESCRIPTOR = "()Ljava/net/URLConnection;"
+    private const val ECHO_DESCRIPTOR = "(Ljava/lang/String;I)Ljava/lang/String;"
 
     @Volatile private var probeEntry = false
     @Volatile private var urlEntry = false
@@ -46,6 +52,8 @@ object HookSelfTest {
         probeEntry = false; probeExit = false; urlEntry = false; urlExit = false
 
         val probeResult = SelfTestProbe().value(7)
+        val rewritten = SelfTestProbe().echo("a", 1)
+        val early = SelfTestProbe().echo("stop", 1)
         val connection = URL("http://$SELFTEST_HOST/probe").openConnection()
 
         return buildJsonObject {
@@ -56,6 +64,13 @@ object HookSelfTest {
                     put("entry", probeEntry)
                     put("exit", probeExit)
                     put("exitReplaced", probeResult == "replaced-7")
+                }
+                putJsonObject("control-probe") {
+                    put("install", installed.getValue("control"))
+                    // "a"×1 is rewritten to "b"×2 by the handler before the body runs.
+                    put("argumentRewritten", rewritten == "echo-bb")
+                    put("returnedEarly", early == "early")
+                    put("observed", "$rewritten / $early")
                 }
                 putJsonObject("java.net.URL#openConnection") {
                     put("install", installed.getValue("url"))
@@ -104,6 +119,19 @@ object HookSelfTest {
                 }
             }),
         )
-        return mapOf("app-probe" to probe, "url" to url)
+        val control = describe(
+            Hooks.control(SelfTestProbe::class.java, "echo", ECHO_DESCRIPTOR, object : ControlHandler {
+                override fun onEntry(self: Any?, params: Array<Any?>): Any? = when (params[0]) {
+                    "a" -> {
+                        params[0] = "b"
+                        params[1] = 2
+                        HookDispatcher.PROCEED
+                    }
+                    "stop" -> "early"
+                    else -> HookDispatcher.PROCEED
+                }
+            }),
+        )
+        return mapOf("app-probe" to probe, "url" to url, "control" to control)
     }
 }

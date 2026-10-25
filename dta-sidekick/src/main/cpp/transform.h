@@ -11,10 +11,12 @@
 
 namespace dta {
 
+enum class HookKind : int { kEntry = 0, kExit = 1, kControl = 2 };
+
 struct HookTarget {
   std::string method;     // e.g. "openConnection"
   std::string signature;  // e.g. "()Ljava/net/URLConnection;"
-  bool entry;             // true: entry hook, false: exit hook
+  HookKind kind;
 };
 
 // Rewrites the single-class dex image `class_data` for `descriptor`
