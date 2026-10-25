@@ -1,0 +1,49 @@
+// Fixture schema for feature 006 (custom protobuf decoding). The fixture app encodes
+// these messages by hand (ProtoWriter); field numbers here are the contract.
+syntax = "proto3";
+
+package fixture.v1;
+
+import "fixture/v1/common.proto";
+
+message Order {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_NEW = 1;
+    STATUS_PAID = 2;
+  }
+
+  string id = 1;
+  int64 amount_cents = 2;
+  Status status = 3;
+  repeated Item items = 4;
+  map<string, string> tags = 5;
+  oneof payment {
+    Card card = 6;
+    string voucher = 7;
+  }
+  Common meta = 8;
+  optional string note = 9;
+}
+
+message Item {
+  string sku = 1;
+  int32 quantity = 2;
+}
+
+message Card {
+  string number = 1;
+  string holder = 2;
+}
+
+message OrderAck {
+  string order_id = 1;
+  bool accepted = 2;
+  string message = 3;
+}
+
+message ChatMessage {
+  string from = 1;
+  string text = 2;
+  int64 at = 3;
+}

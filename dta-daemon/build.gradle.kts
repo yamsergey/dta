@@ -17,6 +17,10 @@ kotlin {
 dependencies {
     api(project(":dta-protocol"))
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.protobuf.java)
+    implementation(libs.protobuf.java.util)
+    implementation(libs.opentelemetry.proto)
+    implementation(libs.wire.schema)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)

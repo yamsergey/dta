@@ -1,16 +1,23 @@
 package io.yamsergey.dta.daemon.network
 
 import io.yamsergey.dta.protocol.network.BodyInfo
+import io.yamsergey.dta.protocol.network.DecodingInfo
 import io.yamsergey.dta.protocol.network.RedactionInfo
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
 
 /** Where a fetched body goes (contract §7). */
 sealed interface BodyOutput {
-    /** Decoded text; binary bodies are refused with a pointer to [File]. */
+    /**
+     * Decoded text. A binary body a schema selects comes back as JSON; other binary bodies
+     * are refused with a pointer to [File].
+     */
     data object Text : BodyOutput
 
-    /** Bytes written to [path]; [decoded] undoes Content-Encoding, false keeps wire bytes. */
-    data class File(val path: String, val decoded: Boolean = true) : BodyOutput
+    /**
+     * Bytes written to [path]; [decoded] undoes Content-Encoding, false keeps wire bytes.
+     * [structured] writes the decoded JSON instead, or fails with [BodyNotDecodedException].
+     */
+    data class File(val path: String, val decoded: Boolean = true, val structured: Boolean = false) : BodyOutput
 }
 
 data class BodyResult(
@@ -28,7 +35,13 @@ data class BodyResult(
     val degraded: List<DegradationMarker>? = null,
     /** Present iff redaction was requested; `applied = false` when overridden. */
     val redaction: RedactionInfo? = null,
+    /** How the body was (not) decoded as structured data (feature 006). */
+    val decoding: DecodingInfo? = null,
 )
 
 /** Text was requested for a binary body. */
 class BinaryBodyException(message: String) : Exception(message)
+
+/** Structured output was requested for a body that was not decoded; [decoding] says why. */
+class BodyNotDecodedException(val decoding: DecodingInfo) :
+    Exception("body not decoded: ${decoding.reason ?: "no schema maps it (networkSchemaAdd + networkMappingAdd)"}")

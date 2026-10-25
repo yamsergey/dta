@@ -1,6 +1,14 @@
 package io.yamsergey.dta.daemon.network
 
 import io.yamsergey.dta.daemon.connection.AppConnection
+import io.yamsergey.dta.daemon.network.proto.BodyDecoding
+import io.yamsergey.dta.daemon.network.proto.BodyTarget
+import io.yamsergey.dta.daemon.network.proto.Decoded
+import io.yamsergey.dta.daemon.network.proto.MappingPart
+import io.yamsergey.dta.protocol.network.DecodingInfo
+import io.yamsergey.dta.protocol.network.DecodingOutcome
+import io.yamsergey.dta.protocol.network.HttpEntry
+import io.yamsergey.dta.protocol.network.WsConnectionEntry
 import io.yamsergey.dta.protocol.layout.DegradationCodes
 import io.yamsergey.dta.protocol.network.BodyCodec
 import io.yamsergey.dta.protocol.network.BodyInfo
@@ -36,7 +44,10 @@ import kotlinx.serialization.json.put
  * a reachable sidekick the connection error propagates (nothing could stand in for
  * capture, so nothing is substituted silently).
  */
-class NetworkService(private val connection: suspend () -> AppConnection) {
+class NetworkService(
+    private val decoding: BodyDecoding = BodyDecoding.NONE,
+    private val connection: suspend () -> AppConnection,
+) {
 
     suspend fun list(query: NetworkQuery = NetworkQuery()): NetworkPage {
         val page = DtaJson.decodeFromJsonElement(NetworkPage.serializer(), connection().request("network_list", query.toJson()))
@@ -103,25 +114,67 @@ class NetworkService(private val connection: suspend () -> AppConnection) {
 
         if (redact && !allowUnredacted) return redactedBody(id, part, info, wire, output, degraded)
         val overridden = if (redact) RedactionInfo(applied = false) else null
+        val structured = structured(id, part, info, wire)
+        val decoding = structured.info
 
         return when (output) {
-            BodyOutput.Text -> {
-                if (info.binary) {
-                    throw BinaryBodyException(
-                        "binary body (${info.contentType ?: "unknown type"}, ${humanBytes(info.storedBytes)}) — " +
-                            "fetch it with BodyOutput.File(path) to get the bytes",
-                    )
+            BodyOutput.Text -> when (decoding.outcome) {
+                DecodingOutcome.DECODED, DecodingOutcome.DECODED_WITH_WARNINGS -> {
+                    val json = structured.json!!
+                    BodyResult(info, text = json, bytes = json.length.toLong(), degraded = degraded, redaction = overridden, decoding = decoding)
                 }
-                val decoded = BodyCodec.decode(wire, info.encoding)
-                BodyResult(info, text = String(decoded.bytes, Charsets.UTF_8), bytes = decoded.bytes.size.toLong(), note = decoded.note, degraded = degraded, redaction = overridden)
+                DecodingOutcome.NOT_DECODED -> BodyResult(
+                    info, bytes = 0, degraded = degraded, redaction = overridden, decoding = decoding,
+                    note = "not decoded: ${decoding.reason}; fetch the bytes with BodyOutput.File(path)",
+                )
+                DecodingOutcome.NOT_APPLICABLE -> {
+                    if (info.binary) {
+                        throw BinaryBodyException(
+                            "binary body (${info.contentType ?: "unknown type"}, ${humanBytes(info.storedBytes)}) — " +
+                                "fetch it with BodyOutput.File(path) to get the bytes, or add its protobuf schema " +
+                                "(networkSchemaAdd + networkMappingAdd) to read it as JSON",
+                        )
+                    }
+                    val decoded = BodyCodec.decode(wire, info.encoding)
+                    BodyResult(info, text = String(decoded.bytes, Charsets.UTF_8), bytes = decoded.bytes.size.toLong(), note = decoded.note, degraded = degraded, redaction = overridden, decoding = decoding)
+                }
             }
             is BodyOutput.File -> {
-                val (bytes, note) = if (output.decoded) BodyCodec.decode(wire, info.encoding).let { it.bytes to it.note } else wire to null
+                val (bytes, note) = when {
+                    output.structured -> (structured.json ?: throw BodyNotDecodedException(decoding)).toByteArray(Charsets.UTF_8) to null
+                    output.decoded -> BodyCodec.decode(wire, info.encoding).let { it.bytes to it.note }
+                    else -> wire to null
+                }
                 val file = File(output.path)
                 file.absoluteFile.parentFile?.mkdirs()
                 file.writeBytes(bytes)
-                BodyResult(info, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), note = note, degraded = degraded, redaction = overridden)
+                BodyResult(info, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), note = note, degraded = degraded, redaction = overridden, decoding = decoding)
             }
+        }
+    }
+
+    /** The one decoding of a body (FR-021): the same for text, file and redaction. */
+    private suspend fun structured(id: String, part: BodyPart, info: BodyInfo, wire: ByteArray): Decoded {
+        val notApplicable = Decoded(null, DecodingInfo(DecodingOutcome.NOT_APPLICABLE))
+        if (decoding === BodyDecoding.NONE) return notApplicable
+        val target = target(id, part, info) ?: return notApplicable
+        return decoding.decode(target, wire, info)
+    }
+
+    /** What the rules match: the exchange's URL and method, or the socket's URL and the message direction. */
+    private suspend fun target(id: String, part: BodyPart, info: BodyInfo): BodyTarget? {
+        val mappingPart = when (part) {
+            BodyPart.REQUEST, BodyPart.APP_REQUEST -> MappingPart.REQUEST
+            BodyPart.RESPONSE, BodyPart.APP_RESPONSE -> MappingPart.RESPONSE
+            BodyPart.MESSAGE, BodyPart.APP_MESSAGE -> MappingPart.MESSAGE
+        }
+        return when (val entry = entry(id).entry) {
+            is HttpEntry -> BodyTarget(entry.url, entry.method, mappingPart, null, info.contentType)
+            is WsMessageEntry -> {
+                val socket = entry(entry.connectionId).entry as? WsConnectionEntry ?: return null
+                BodyTarget(socket.url, null, mappingPart, entry.direction, info.contentType)
+            }
+            else -> null
         }
     }
 

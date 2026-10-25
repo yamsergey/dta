@@ -30,6 +30,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.net.URI
 import kotlin.test.Test
+import io.yamsergey.dta.protocol.network.DecodingOutcome
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -47,12 +49,27 @@ class NetworkServiceTest {
     private val json = """{"ok":true}""".toByteArray()
     private val zipped = java.io.ByteArrayOutputStream().also { o -> java.util.zip.GZIPOutputStream(o).use { it.write(json) } }.toByteArray()
     private val proto = ByteArray(4_400_000) { (it % 251).toByte() }.copyOf(10)
+    private val ts = com.google.protobuf.Timestamp.newBuilder().setSeconds(1_700_000_000).build().toByteArray()
+
+    /** Requests of `entry` decode as a Timestamp — a stand-in for any selected schema. */
+    private val decoding = io.yamsergey.dta.daemon.network.proto.BodyDecoding(
+        listOf(
+            io.yamsergey.dta.daemon.network.proto.DecodingRule { t ->
+                if (t.url == entry.url && t.method == "GET" && t.part == io.yamsergey.dta.daemon.network.proto.MappingPart.REQUEST) {
+                    io.yamsergey.dta.daemon.network.proto.Selection(com.google.protobuf.Timestamp.getDescriptor(), "protobuf", "s", "m1")
+                } else null
+            },
+        ),
+    )
+
     private val bodies = mapOf(
         "text" to (BodyInfo(BodyPart.RESPONSE, json.size.toLong(), contentType = "application/json", completeness = Completeness.COMPLETE) to json),
         "gzip" to (BodyInfo(BodyPart.RESPONSE, zipped.size.toLong(), contentType = "application/json", encoding = "gzip", completeness = Completeness.COMPLETE) to zipped),
         "proto" to (BodyInfo(BodyPart.REQUEST, 4_400_000, contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to proto),
         "br" to (BodyInfo(BodyPart.RESPONSE, 3, contentType = "text/plain", encoding = "br", completeness = Completeness.COMPLETE) to byteArrayOf(1, 2, 3)),
         "secret" to (BodyInfo(BodyPart.REQUEST, 0, contentType = "application/json", completeness = Completeness.COMPLETE) to """{"password":"SECRET-P","name":"ok"}""".toByteArray()),
+        "ts" to (BodyInfo(BodyPart.REQUEST, ts.size.toLong(), contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to ts),
+        "tsbad" to (BodyInfo(BodyPart.REQUEST, 3, contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to byteArrayOf(0x0A, 0x7F, 0x41)),
         "cut" to (BodyInfo(BodyPart.RESPONSE, 2, contentType = "text/plain", completeness = Completeness.TRUNCATED, completenessReason = "bound") to "ab".toByteArray()),
     )
 
@@ -79,11 +96,14 @@ class NetworkServiceTest {
         }
     }
 
-    private fun <T> withService(block: suspend (NetworkService, TestWsServer) -> T): T = runBlocking {
+    private fun <T> withService(
+        decoding: io.yamsergey.dta.daemon.network.proto.BodyDecoding = io.yamsergey.dta.daemon.network.proto.BodyDecoding.NONE,
+        block: suspend (NetworkService, TestWsServer) -> T,
+    ): T = runBlocking {
         TestWsServer(registry()).use { server ->
             val connection = SidekickConnection.connect(URI("ws://127.0.0.1:${server.port}/"))
             try {
-                block(NetworkService { connection }, server)
+                block(NetworkService(decoding) { connection }, server)
             } finally {
                 connection.close()
             }
@@ -134,6 +154,52 @@ class NetworkServiceTest {
     fun `text output refuses binary bodies with an actionable message`() = withService { service, _ ->
         val e = kotlin.test.assertFailsWith<BinaryBodyException> { service.body("proto", BodyPart.REQUEST) }
         assertTrue("application/x-protobuf" in e.message!! && "BodyOutput.File" in e.message!!, e.message)
+        assertTrue("networkSchemaAdd" in e.message!!, "says how to make it readable: ${e.message}")
+    }
+
+    @Test
+    fun `every body result states its decoding`() = withService(decoding) { service, _ ->
+        val text = service.body("text", BodyPart.RESPONSE)
+        assertEquals(DecodingOutcome.NOT_APPLICABLE, text.decoding!!.outcome)
+        assertEquals("""{"ok":true}""", text.text)
+        val raw = service.body("proto", BodyPart.RESPONSE, BodyOutput.File(java.io.File(tmp, "p.bin").path))
+        assertEquals(DecodingOutcome.NOT_APPLICABLE, raw.decoding!!.outcome)
+    }
+
+    @Test
+    fun `a selected binary body comes back as JSON stating how it was decoded`() = withService(decoding) { service, _ ->
+        val result = service.body("ts", BodyPart.REQUEST)
+        assertEquals("\"2023-11-14T22:13:20Z\"", result.text)
+        assertEquals(DecodingOutcome.DECODED, result.decoding!!.outcome)
+        assertEquals("google.protobuf.Timestamp", result.decoding!!.type)
+        assertEquals("m1", result.decoding!!.rule)
+    }
+
+    @Test
+    fun `a selected body that does not parse is stated, not thrown, and raw bytes stay available`() = withService(decoding) { service, _ ->
+        val result = service.body("tsbad", BodyPart.REQUEST)
+        assertEquals(null, result.text)
+        assertEquals(DecodingOutcome.NOT_DECODED, result.decoding!!.outcome)
+        assertTrue("google.protobuf.Timestamp" in result.decoding!!.reason!!, result.decoding!!.reason)
+        val raw = service.body("tsbad", BodyPart.REQUEST, BodyOutput.File(java.io.File(tmp, "bad.bin").path))
+        assertContentEquals(byteArrayOf(0x0A, 0x7F, 0x41), java.io.File(raw.file!!).readBytes())
+    }
+
+    @Test
+    fun `structured file output writes the decoded JSON or fails with the reason`() = withService(decoding) { service, _ ->
+        val out = java.io.File(tmp, "ts.json")
+        val result = service.body("ts", BodyPart.REQUEST, BodyOutput.File(out.path, structured = true))
+        assertEquals("\"2023-11-14T22:13:20Z\"", out.readText())
+        assertEquals(DecodingOutcome.DECODED, result.decoding!!.outcome)
+        val raw = service.body("ts", BodyPart.REQUEST, BodyOutput.File(java.io.File(tmp, "ts.bin").path))
+        assertContentEquals(ts, java.io.File(raw.file!!).readBytes(), "unstructured file keeps the bytes (FR-005)")
+        val e = kotlin.test.assertFailsWith<BodyNotDecodedException> {
+            service.body("tsbad", BodyPart.REQUEST, BodyOutput.File(java.io.File(tmp, "bad.json").path, structured = true))
+        }
+        assertEquals(DecodingOutcome.NOT_DECODED, e.decoding.outcome)
+        kotlin.test.assertFailsWith<BodyNotDecodedException> {
+            service.body("proto", BodyPart.RESPONSE, BodyOutput.File(java.io.File(tmp, "na.json").path, structured = true))
+        }
     }
 
     @Test

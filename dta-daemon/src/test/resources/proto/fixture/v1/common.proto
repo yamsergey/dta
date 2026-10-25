@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package fixture.v1;
+
+message Common {
+  string client = 1;
+  int32 version = 2;
+}
