@@ -52,7 +52,9 @@ class ToolingEnrichment {
         // research T015 note): used as-is; 0 means unknown.
         val line = (location?.let { api.lineNumber.invoke(it) } as Int?)?.takeIf { it > 0 }
 
-        val userFrame = ComposableClassifier.isMeaningful(name) && !ComposableClassifier.isLibrary(sourceFile)
+        val packageHash = (location?.let { api.packageHash.invoke(it) } as Int?) ?: -1
+
+        val userFrame = ComposableClassifier.isMeaningful(name) && !ComposableClassifier.isLibrary(sourceFile, packageHash)
         val parameters = if (userFrame) parametersOf(api, context) else emptyList()
 
         val layoutId = (group.node as? LayoutInfo)?.let { node ->
@@ -65,6 +67,7 @@ class ToolingEnrichment {
             parameters = parameters,
             layoutId = layoutId,
             children = children.map { it as ToolingGroup },
+            packageHash = packageHash,
         )
     }
 
@@ -108,6 +111,7 @@ class ToolingEnrichment {
         val parameters: Method,
         val sourceFile: Method,
         val lineNumber: Method,
+        val packageHash: Method,
     ) {
         fun newCache(): Any = cacheClass.getDeclaredConstructor().newInstance()
 
@@ -136,6 +140,7 @@ class ToolingEnrichment {
                     parameters = context.getMethod("getParameters"),
                     sourceFile = location.getMethod("getSourceFile"),
                     lineNumber = location.getMethod("getLineNumber"),
+                    packageHash = location.getMethod("getPackageHash"),
                 )
             }
         }

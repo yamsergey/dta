@@ -11,9 +11,22 @@ object ComposableClassifier {
      * node-emitting / layout primitive. */
     fun isMeaningful(rawName: String?): Boolean = rawName != null && rawName !in SKIP_NAMES
 
-    /** A composable's source file is a framework file when it lives in a known
-     * Compose/AndroidX file — user composables live elsewhere (the app). */
-    fun isLibrary(sourceFile: String?): Boolean = sourceFile == null || sourceFile in LIBRARY_FILES
+    /**
+     * A frame is framework when its call site's package is a known framework
+     * package. Without package information ([packageHash] -1) it falls back to
+     * known framework file names; a missing source file is framework.
+     */
+    fun isLibrary(sourceFile: String?, packageHash: Int = -1): Boolean = when {
+        sourceFile == null -> true
+        packageHash != -1 -> packageHash in FRAMEWORK_HASHES
+        else -> sourceFile in LIBRARY_FILES
+    }
+
+    /** SourceLocation.packageHash of a dotted package name. */
+    fun packageHash(packageName: String): Int =
+        kotlin.math.abs(packageName.fold(0) { hash, c -> hash * 31 + c.code })
+
+    private val FRAMEWORK_HASHES: Set<Int> = FrameworkPackages.NAMES.mapTo(HashSet(), ::packageHash)
 
     fun normalize(name: String): String = when (name) {
         "BasicText" -> "Text"

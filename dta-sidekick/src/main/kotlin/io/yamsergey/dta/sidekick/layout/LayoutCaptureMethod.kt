@@ -39,7 +39,7 @@ class LayoutCaptureMethod(
 ) {
     fun capture(params: LayoutTreeParams = LayoutTreeParams()): LayoutCapture {
         val filter = params.filter
-        val result = runOnMainThread { captureOnMain(params.detail) }
+        val result = runOnMainThread { captureOnMain(params.detail, params.frameworkFrames) }
         val degraded = mutableListOf<DegradationMarker>()
         degraded += result.degraded
 
@@ -73,7 +73,7 @@ class LayoutCaptureMethod(
         val delivered: DetailLevel,
     )
 
-    private fun captureOnMain(level: DetailLevel): MainResult {
+    private fun captureOnMain(level: DetailLevel, frameworkFrames: Boolean): MainResult {
         val degraded = mutableListOf<DegradationMarker>()
         val captured = viewCapture.captureWindows()
         val tier2 = presence.tier2Available
@@ -82,7 +82,7 @@ class LayoutCaptureMethod(
         val hosts = mutableListOf<HostResolution>()
         val windows = captured.map { window ->
             val composeWalks = window.composeHosts.mapNotNull { (hostId, hostView) ->
-                captureComposeHost(hostId, hostView, tier2, level)?.also { hosts += it }?.walk
+                captureComposeHost(hostId, hostView, tier2, level, frameworkFrames)?.also { hosts += it }?.walk
             }
             Window(window.title, window.type, window.zOrder, TreeMerger.merge(window.walk, composeWalks))
         }
@@ -100,16 +100,23 @@ class LayoutCaptureMethod(
         hostView: View,
         tier2: Boolean,
         level: DetailLevel,
+        frameworkFrames: Boolean,
     ): HostResolution? {
         if (!presence.composePresent) return null
         val host = SemanticsCapture().capture(hostView) ?: return null
         val semantic = ComposeWalkResult(hostId, host.tree, host.embeddedHosts)
-        val tooling = if (tier2) runCatching { enrich(hostId, hostView, host, level) } else null
+        val tooling = if (tier2) runCatching { enrich(hostId, hostView, host, level, frameworkFrames) } else null
         return LevelResolution.resolveHost(level, semantic, tooling)
     }
 
     /** Throws on any tooling failure (the caller discards everything). */
-    private fun enrich(hostId: Long, hostView: View, host: SemanticsCapture.HostCapture, level: DetailLevel): ToolingOutcome {
+    private fun enrich(
+        hostId: Long,
+        hostView: View,
+        host: SemanticsCapture.HostCapture,
+        level: DetailLevel,
+        frameworkFrames: Boolean,
+    ): ToolingOutcome {
         val read = ToolingEnrichment().read(hostView)
         val labels = ToolingTree.label(read.groups)
         if (labels.isEmpty()) error("tooling produced no groups")
@@ -119,12 +126,22 @@ class LayoutCaptureMethod(
             return ToolingOutcome(ComposeWalkResult(hostId, labeled, host.embeddedHosts), DetailLevel.SEMANTIC, sourceInfo)
         }
         val records = LayoutRecords.from(read.layoutNodes)
-        val tree = ContainerAssembly.insertContainers(labeled, records, labels)
+        var tree = ContainerAssembly.insertContainers(labeled, records, labels)
+        var served = DetailLevel.LAYOUT
+        var sourceInfoPresent = sourceInfo
+        if (level == DetailLevel.COMPOSITION) {
+            val chains = ToolingTree.chains(read.groups, records, frameworkFrames)
+            tree = EnrichmentOverlay.applyChains(tree, chains.chains)
+            served = DetailLevel.COMPOSITION
+            // A chain missing its subcomposition prefix is incomplete source
+            // information, stated rather than shipped as whole.
+            if (chains.unresolvedPrefix) sourceInfoPresent = false
+        }
         val semanticEmbeds = host.embeddedHosts.map { it.composeNodeId }.toSet()
         val containerEmbeds = records.mapNotNull { r ->
             r.interopViewId?.takeIf { r.id !in semanticEmbeds }?.let { EmbeddedHost(r.id, it) }
         }
-        return ToolingOutcome(ComposeWalkResult(hostId, tree, host.embeddedHosts + containerEmbeds), DetailLevel.LAYOUT, sourceInfo)
+        return ToolingOutcome(ComposeWalkResult(hostId, tree, host.embeddedHosts + containerEmbeds), served, sourceInfoPresent)
     }
 
     private fun <T> runOnMainThread(block: () -> T): T {

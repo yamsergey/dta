@@ -42,4 +42,33 @@ class ComposableClassifierTest {
         assertEquals("TextField", ComposableClassifier.normalize("BasicTextField"))
         assertEquals("Row", ComposableClassifier.normalize("Row"))
     }
+
+    // ---- feature 003: package-hash classification (AS inspector prior art) ----
+
+    @Test
+    fun `package hash follows the SourceLocation formula`() {
+        assertEquals("androidx.compose.foundation.lazy.layout".fold(0) { h, c -> h * 31 + c.code }.let { kotlin.math.abs(it) },
+            ComposableClassifier.packageHash("androidx.compose.foundation.lazy.layout"))
+    }
+
+    @Test
+    fun `framework packages are library whatever the file is called`() {
+        val lazyLayout = ComposableClassifier.packageHash("androidx.compose.foundation.lazy.layout")
+        val viewinterop = ComposableClassifier.packageHash("androidx.compose.ui.viewinterop")
+        assertTrue(ComposableClassifier.isLibrary("LazySaveableStateHolder.kt", lazyLayout))
+        assertTrue(ComposableClassifier.isLibrary("AndroidView.android.kt", viewinterop))
+    }
+
+    @Test
+    fun `app packages are user even for files named like framework files`() {
+        val app = ComposableClassifier.packageHash("io.yamsergey.dta.fixture.channel")
+        assertFalse(ComposableClassifier.isLibrary("ContainersScreen.kt", app))
+        assertFalse(ComposableClassifier.isLibrary("Button.kt", app))
+    }
+
+    @Test
+    fun `unknown package hash falls back to the file list`() {
+        assertTrue(ComposableClassifier.isLibrary("Box.kt", -1))
+        assertFalse(ComposableClassifier.isLibrary("ContainersScreen.kt", -1))
+    }
 }

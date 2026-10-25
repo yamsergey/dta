@@ -44,6 +44,16 @@ object EnrichmentOverlay {
         return rec(tree)
     }
 
+    /** Attaches call chains (composition level) to Compose nodes by id. */
+    fun applyChains(tree: Node, chains: Map<Long, List<io.yamsergey.dta.protocol.layout.Frame>>): Node {
+        fun rec(node: Node): Node {
+            val mapped = node.children.map { rec(it) }
+            if (node !is ComposeNode) return node.withChildren(mapped)
+            return node.copy(callChain = node.id?.let { chains[it] }, children = mapped)
+        }
+        return rec(tree)
+    }
+
     private fun Node.withChildren(newChildren: List<Node>): Node = when (this) {
         is io.yamsergey.dta.protocol.layout.ViewNode -> copy(children = newChildren)
         is ComposeNode -> copy(children = newChildren)
