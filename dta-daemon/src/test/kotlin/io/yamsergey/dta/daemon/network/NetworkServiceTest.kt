@@ -164,6 +164,12 @@ class NetworkServiceTest {
 
     private fun sha256(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 
+    @Test
+    fun `parts are sent by their wire names`() = withService { service, _ ->
+        service.body("text", BodyPart.APP_RESPONSE)
+        assertEquals("app-response", lastParams!!["part"]!!.jsonPrimitive.content)
+    }
+
     // ---- redaction (US6) -------------------------------------------------------------
 
     @Test

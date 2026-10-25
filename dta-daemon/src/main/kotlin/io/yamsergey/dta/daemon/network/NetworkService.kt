@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
@@ -91,7 +92,7 @@ class NetworkService(private val connection: suspend () -> AppConnection) {
             "network_body",
             buildJsonObject {
                 put("id", id)
-                put("part", part.name.lowercase())
+                put("part", DtaJson.encodeToJsonElement(BodyPart.serializer(), part).jsonPrimitive.content)
             },
             BODY_TIMEOUT,
         )
