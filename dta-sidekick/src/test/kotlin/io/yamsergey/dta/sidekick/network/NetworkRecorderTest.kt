@@ -103,6 +103,15 @@ class NetworkRecorderTest {
     }
 
     @Test
+    fun `a compressed request body states its encoding`() {
+        val id = recorder.httpStarted("okhttp3", "POST", "http://h/v1/traces", emptyList(), initiator)
+        val body = recorder.httpRequestBody(id, contentType = "application/x-protobuf", declaredBytes = -1, encoding = "gzip")
+        body.accept(byteArrayOf(0x1f, 0x8b.toByte()), 0, 2)
+        body.finish(endOfStream = true)
+        assertEquals("gzip", (entry(id) as HttpEntry).requestBody!!.encoding)
+    }
+
+    @Test
     fun `failure is stated with exception class and message`() {
         val id = recorder.httpStarted("okhttp3", "GET", "http://h/a", emptyList(), initiator)
         now += 3

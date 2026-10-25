@@ -44,7 +44,7 @@ internal class UrlConnectionTracker(
     fun requestBody(stream: OutputStream): OutputStream {
         val exchange = id ?: return stream
         val body = safe {
-            recorder.httpRequestBody(exchange, delegate.getRequestProperty("Content-Type"), null)
+            recorder.httpRequestBody(exchange, delegate.getRequestProperty("Content-Type"), null, delegate.getRequestProperty("Content-Encoding"))
         } ?: return stream
         return TeeOutputStream(stream, body)
     }

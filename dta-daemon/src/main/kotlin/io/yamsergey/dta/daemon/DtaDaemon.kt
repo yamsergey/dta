@@ -14,6 +14,8 @@ import io.yamsergey.dta.daemon.network.BodyOutput
 import io.yamsergey.dta.daemon.network.BodyResult
 import io.yamsergey.dta.daemon.network.NetworkScriptService
 import io.yamsergey.dta.daemon.network.NetworkService
+import io.yamsergey.dta.daemon.network.proto.BodyDecoding
+import io.yamsergey.dta.daemon.network.proto.Otlp
 import io.yamsergey.dta.protocol.network.ScriptLogPage
 import io.yamsergey.dta.protocol.network.ScriptStatus
 import io.yamsergey.dta.protocol.network.BodyPart
@@ -114,7 +116,9 @@ class DtaDaemon(
         networkService(serial, pkg).entry(id, redact)
 
     /**
-     * One body: decoded text, or bytes to a file (binary bodies need [BodyOutput.File]).
+     * One body: decoded text, or bytes to a file. Protobuf bodies a rule selects (built-in
+     * OTLP, user mappings) come back as JSON with [BodyResult.decoding]; other binary bodies
+     * need [BodyOutput.File].
      * With [redact], bodies that cannot be redacted are withheld unless [allowUnredacted].
      */
     suspend fun networkBody(
@@ -149,7 +153,7 @@ class DtaDaemon(
         NetworkScriptService { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun networkService(serial: String, pkg: String) =
-        NetworkService { connections.connect(ConnectionKey(serial, pkg)) }
+        NetworkService(BodyDecoding(Otlp.rules)) { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun screenOf(serial: String): Screen {
         // wm size / density via adb, best-effort.

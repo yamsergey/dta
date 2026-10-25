@@ -61,8 +61,8 @@ class NetworkRecorder(
         return id
     }
 
-    fun httpRequestBody(id: String, contentType: String?, declaredBytes: Long?): BodyRecorder =
-        bodyRecorder(id, BodyPart.REQUEST, contentType, null, declaredBytes) { info ->
+    fun httpRequestBody(id: String, contentType: String?, declaredBytes: Long?, encoding: String? = null): BodyRecorder =
+        bodyRecorder(id, BodyPart.REQUEST, contentType, encoding, declaredBytes) { info ->
             updateHttp(id) { it.copy(requestBody = info) }
         }
 
@@ -251,7 +251,7 @@ class NetworkRecorder(
             record(t)
             null
         }
-        return BodyRecorder(sink, bodyBound) { capture ->
+        return BodyRecorder(sink, bodyBound, declaredBytes?.takeIf { it >= 0 }) { capture ->
             guard {
                 val head = decodedHead(id, part, encoding)?.takeIf { it.isNotEmpty() }
                 val info = bodyInfo(part, capture, contentType, encoding, declaredBytes)

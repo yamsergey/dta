@@ -28,6 +28,8 @@ data class BodyCapture(
 class BodyRecorder(
     private var sink: BodySink?,
     private val bound: Long,
+    /** Content-Length when known: seeing all of it is complete even if the app never reads EOF. */
+    private val declaredBytes: Long? = null,
     private val onDone: (BodyCapture) -> Unit,
 ) {
     private var stored = 0L
@@ -71,7 +73,7 @@ class BodyRecorder(
                 stored, observed, Completeness.TRUNCATED,
                 "per-body bound of $bound bytes reached; $observed bytes observed",
             )
-            !endOfStream -> BodyCapture(
+            !endOfStream && observed != declaredBytes -> BodyCapture(
                 stored, observed, Completeness.PARTIALLY_OBSERVED,
                 "app stopped reading after $observed bytes",
             )

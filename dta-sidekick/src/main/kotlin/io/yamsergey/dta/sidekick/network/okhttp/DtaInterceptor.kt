@@ -70,7 +70,7 @@ internal class DtaInterceptor(
             initiator = initiator,
         )
         val body = request.body ?: return id
-        val recorderForBody = recorder.httpRequestBody(id, body.contentType()?.toString(), body.contentLength())
+        val recorderForBody = recorder.httpRequestBody(id, body.contentType()?.toString(), body.contentLength(), request.header("Content-Encoding"))
         when {
             runCatching { body.isDuplex() }.getOrDefault(false) ->
                 omit(recorderForBody, "duplex request body: streamed concurrently with the response, cannot be observed without altering it")

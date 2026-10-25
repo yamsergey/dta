@@ -24,9 +24,9 @@ class TeeStreamsTest {
 
     private val data = ByteArray(10_000) { (it * 31 + 7).toByte() }
 
-    private fun recorder(sink: BodySink?, bound: Long = 1_000_000): Pair<BodyRecorder, () -> BodyCapture?> {
+    private fun recorder(sink: BodySink?, bound: Long = 1_000_000, declared: Long? = null): Pair<BodyRecorder, () -> BodyCapture?> {
         var captured: BodyCapture? = null
-        return BodyRecorder(sink, bound) { captured = it } to { captured }
+        return BodyRecorder(sink, bound, declared) { captured = it } to { captured }
     }
 
     @Test
@@ -72,6 +72,16 @@ class TeeStreamsTest {
         assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
         assertEquals(100, capture.observedBytes)
         assertNotNull(capture.reason)
+    }
+
+    @Test
+    fun `closing after every declared byte was read is complete`() {
+        val (empty, emptyResult) = recorder(MemorySink(), declared = 0)
+        TeeInputStream(ByteArrayInputStream(ByteArray(0)), empty).close()
+        assertEquals(Completeness.COMPLETE, emptyResult()!!.completeness, "an empty body the app never read")
+        val (rec, result) = recorder(MemorySink(), declared = 100)
+        TeeInputStream(ByteArrayInputStream(data.copyOf(100)), rec).use { s -> s.readNBytes(100) }
+        assertEquals(Completeness.COMPLETE, result()!!.completeness, "all 100 declared bytes seen, EOF never read")
     }
 
     @Test
