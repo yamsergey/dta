@@ -48,6 +48,12 @@ enum class BodyPart {
     @SerialName("request") REQUEST,
     @SerialName("response") RESPONSE,
     @SerialName("message") MESSAGE,
+    /** Feature 005: the request as the app built it, when a script changed it. */
+    @SerialName("app-request") APP_REQUEST,
+    /** Feature 005: the response as delivered to the app, when a script changed it. */
+    @SerialName("app-response") APP_RESPONSE,
+    /** Feature 005: a message as the app sent or received it, when a script changed it. */
+    @SerialName("app-message") APP_MESSAGE,
 }
 
 /** How much of a body is stored; anything but [COMPLETE] carries a reason (FR-017). */
@@ -147,6 +153,8 @@ sealed interface NetworkEntry {
     val library: String
     /** Null only on incoming WebSocket messages. */
     val initiator: Initiator?
+    /** What the network script did to this entry (feature 005); null when untouched. */
+    val intervention: InterventionRecord?
 
     /** List form: everything but headers. */
     fun summary(): NetworkEntry
@@ -173,8 +181,18 @@ data class HttpEntry(
     val responseBody: BodyInfo? = null,
     /** h2, http/1.1 when known. */
     val protocol: String? = null,
+    override val intervention: InterventionRecord? = null,
+    /** The request as the app built it, when the script changed it; the fields above are the wire view. */
+    val appRequest: HttpRequestSnapshot? = null,
+    /** The response as delivered to the app, when the script changed it. */
+    val appResponse: HttpResponseSnapshot? = null,
 ) : NetworkEntry {
-    override fun summary() = copy(requestHeaders = null, responseHeaders = null)
+    override fun summary() = copy(
+        requestHeaders = null,
+        responseHeaders = null,
+        appRequest = appRequest?.copy(headers = emptyList()),
+        appResponse = appResponse?.copy(headers = emptyList()),
+    )
 }
 
 @Serializable
@@ -195,6 +213,7 @@ data class WsConnectionEntry(
     val handshakeHeaders: List<Header>? = null,
     /** Sent + received. */
     val messageCount: Int = 0,
+    override val intervention: InterventionRecord? = null,
 ) : NetworkEntry {
     override fun summary() = copy(handshakeHeaders = null)
 }
@@ -210,10 +229,69 @@ data class WsMessageEntry(
     val connectionId: String,
     val direction: Direction,
     val opcode: MessageOpcode,
+    /** What went on (or came off) the wire. */
     val payload: BodyInfo,
+    override val intervention: InterventionRecord? = null,
+    /** What the app sent or received, when the script changed it. */
+    val appPayload: BodyInfo? = null,
 ) : NetworkEntry {
     override fun summary() = this
 }
+
+// ---- feature 005: intervention -------------------------------------------------------
+
+@Serializable
+enum class ScriptHandler {
+    @SerialName("request") REQUEST,
+    @SerialName("response") RESPONSE,
+    @SerialName("ws-send") WS_SEND,
+    @SerialName("ws-receive") WS_RECEIVE,
+}
+
+@Serializable
+enum class ChangedField {
+    @SerialName("url") URL,
+    @SerialName("method") METHOD,
+    @SerialName("headers") HEADERS,
+    @SerialName("body") BODY,
+    @SerialName("status") STATUS,
+    @SerialName("payload") PAYLOAD,
+}
+
+/** What the network script did to one entry (FR-016): never a silent intervention. */
+@Serializable
+data class InterventionRecord(
+    val scriptId: String,
+    /** Handlers that ran and changed something or had an effect. */
+    val handlers: List<ScriptHandler> = emptyList(),
+    val changed: List<ChangedField> = emptyList(),
+    /** Time spent in `sleep()`. */
+    val delayMs: Long? = null,
+    /** Time spent in the script, excluding `sleep()`. */
+    val scriptMs: Long = 0,
+    val throttleBytesPerSecond: Long? = null,
+    /** Answered by the script: nothing went on the wire. */
+    val mocked: Boolean = false,
+    /** The app saw a failure (HTTP) or the message was not delivered (WebSocket). */
+    val dropped: Boolean = false,
+    /** A handler error; the traffic passed unchanged. */
+    val error: String? = null,
+)
+
+@Serializable
+data class HttpRequestSnapshot(
+    val url: String,
+    val method: String,
+    val headers: List<Header>,
+    val body: BodyInfo? = null,
+)
+
+@Serializable
+data class HttpResponseSnapshot(
+    val status: Int,
+    val headers: List<Header>,
+    val body: BodyInfo? = null,
+)
 
 @Serializable
 enum class RunEnd {

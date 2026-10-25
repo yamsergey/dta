@@ -46,6 +46,8 @@ data class NetworkFilter(
     val bodyContains: String? = null,
     /** Default: all runs. */
     val runs: RunScope? = null,
+    /** Feature 005: true = only entries the network script touched; false = only untouched. */
+    val intervened: Boolean? = null,
 )
 
 /** `network_list` params (contract §2). Shared so daemon and sidekick agree (constitution VI). */

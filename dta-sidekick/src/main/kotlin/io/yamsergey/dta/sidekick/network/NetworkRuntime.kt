@@ -9,6 +9,9 @@ import io.yamsergey.dta.sidekick.hooks.HookAttach
 import io.yamsergey.dta.sidekick.network.javaws.JavaWebSocketCapture
 import io.yamsergey.dta.sidekick.network.nv.NvWebSocketCapture
 import io.yamsergey.dta.sidekick.network.okhttp.OkHttpCapture
+import io.yamsergey.dta.sidekick.network.script.ScriptRuntime
+import io.yamsergey.dta.sidekick.network.script.ScriptStore
+import io.yamsergey.dta.protocol.network.ScriptSummary
 import io.yamsergey.dta.sidekick.network.okhttp.OkHttpWebSocketCapture
 import io.yamsergey.dta.sidekick.network.store.NetworkStore
 import io.yamsergey.dta.sidekick.network.store.StorageDir
@@ -31,13 +34,22 @@ object NetworkRuntime {
     var store: NetworkStore? = null
         private set
 
+    /** The one network script of this process (feature 005). */
+    val scripts = ScriptRuntime()
+
+    @Volatile
+    var scriptStore: ScriptStore = ScriptStore(null)
+        private set
+
     @Volatile
     private var libraries: List<LibraryState> = NetworkLibraries.ALL.map { LibraryState(it, present = false, installFailure = null) }
 
     @Synchronized
     fun start(context: Context) {
         if (store != null) return
-        val created = NetworkStore(StorageDir(File(context.noBackupFilesDir, "dta/network")), pid = Process.myPid())
+        val root = File(context.noBackupFilesDir, "dta/network")
+        scriptStore = ScriptStore(root)
+        val created = NetworkStore(StorageDir(root), pid = Process.myPid())
         val recorder = NetworkRecorder(created) { name, data -> SidekickServer.sessions.publish(name, data) }
         store = created
         if (!HookAttach.attached) return
@@ -61,6 +73,7 @@ object NetworkRuntime {
 
     fun capability(): CapabilityStatus {
         val bounds = store?.bounds ?: io.yamsergey.dta.sidekick.network.store.StoreBounds()
-        return NetworkCapability.status(HookAttach.reason, libraries, bounds)
+        val script = scripts.current()?.let { ScriptSummary(it.id, it.installedAtMs, scripts.unavailable) }
+        return NetworkCapability.status(HookAttach.reason, libraries, bounds, script)
     }
 }

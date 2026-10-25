@@ -88,6 +88,8 @@ data class CapabilityStatus(
     val libraries: List<io.yamsergey.dta.protocol.network.LibraryStatus>? = null,
     /** network capability only: storage bounds (feature 004). */
     val bounds: io.yamsergey.dta.protocol.network.NetworkBounds? = null,
+    /** network capability only: the active network script (feature 005). */
+    val script: io.yamsergey.dta.protocol.network.ScriptSummary? = null,
 ) {
     @Serializable
     enum class Status {

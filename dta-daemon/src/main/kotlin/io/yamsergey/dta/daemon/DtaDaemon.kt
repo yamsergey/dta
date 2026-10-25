@@ -12,7 +12,10 @@ import io.yamsergey.dta.daemon.layout.LayoutService
 import io.yamsergey.dta.daemon.layout.UiAutomatorFallback
 import io.yamsergey.dta.daemon.network.BodyOutput
 import io.yamsergey.dta.daemon.network.BodyResult
+import io.yamsergey.dta.daemon.network.NetworkScriptService
 import io.yamsergey.dta.daemon.network.NetworkService
+import io.yamsergey.dta.protocol.network.ScriptLogPage
+import io.yamsergey.dta.protocol.network.ScriptStatus
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.layout.DetailLevel
@@ -130,6 +133,20 @@ class DtaDaemon(
     /** Live entry events; collect for as long as needed. */
     fun networkEvents(serial: String, pkg: String): Flow<NetworkEntryEvent> =
         networkService(serial, pkg).events()
+
+    /** Installs (replaces) the app's network script; it persists until [networkScriptClear]. */
+    suspend fun networkScriptSet(serial: String, pkg: String, source: String): ScriptStatus =
+        scriptService(serial, pkg).set(source)
+
+    suspend fun networkScriptClear(serial: String, pkg: String): Boolean = scriptService(serial, pkg).clear()
+
+    suspend fun networkScriptStatus(serial: String, pkg: String): ScriptStatus = scriptService(serial, pkg).status()
+
+    suspend fun networkScriptLogs(serial: String, pkg: String, since: Long = 0): ScriptLogPage =
+        scriptService(serial, pkg).logs(since)
+
+    private fun scriptService(serial: String, pkg: String) =
+        NetworkScriptService { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun networkService(serial: String, pkg: String) =
         NetworkService { connections.connect(ConnectionKey(serial, pkg)) }

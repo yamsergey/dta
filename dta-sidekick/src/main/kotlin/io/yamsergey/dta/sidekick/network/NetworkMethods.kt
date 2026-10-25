@@ -2,6 +2,7 @@ package io.yamsergey.dta.sidekick.network
 
 import io.yamsergey.dta.protocol.layout.DegradationCodes
 import io.yamsergey.dta.protocol.network.BodyCodec
+import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.ClearResult
 import io.yamsergey.dta.protocol.network.Completeness
@@ -33,6 +34,8 @@ import java.time.Instant
  */
 class NetworkMethods(
     private val store: NetworkStore,
+    /** Codes the network script contributes (feature 005: unavailable, not persisted). */
+    private val scriptDegradations: () -> List<String> = { emptyList() },
     private val captureStatus: () -> CapabilityStatus,
 ) {
     fun install(registry: MethodRegistry) {
@@ -110,16 +113,12 @@ class NetworkMethods(
         val id = (params?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
             ?: throw InvalidParamsException("network_body requires a string 'id'")
         val partName = (params["part"] as? JsonPrimitive)?.content
-        val part = BodyPart.entries.firstOrNull { it.name.equals(partName, ignoreCase = true) }
-            ?: throw InvalidParamsException("unknown part '$partName'; valid values: request, response, message")
+        val part = BodyPart.entries.firstOrNull { wireName(it) == partName }
+            ?: throw InvalidParamsException("unknown part '$partName'; valid values: ${BodyPart.entries.joinToString(", ") { wireName(it) }}")
         val entry = store.get(id) ?: throw InvalidParamsException(
             "unknown entry id $id; it may have been evicted (earliest stored: ${earliest()})",
         )
-        val info = when (part) {
-            BodyPart.REQUEST -> (entry as? HttpEntry)?.requestBody
-            BodyPart.RESPONSE -> (entry as? HttpEntry)?.responseBody
-            BodyPart.MESSAGE -> (entry as? WsMessageEntry)?.payload
-        } ?: throw InvalidParamsException("entry $id has no ${part.name.lowercase()} body")
+        val info = bodyOf(entry, part) ?: throw InvalidParamsException("entry $id has no ${wireName(part)} body")
 
         val input = store.openBody(id, part)
         if (input == null) {
@@ -149,19 +148,23 @@ class NetworkMethods(
         return ClearResult(clearedEntries = removed, clearedAtMs = store.coverage().clearedAtMs ?: 0)
     }
 
-    private fun bodiesOf(entry: NetworkEntry): List<io.yamsergey.dta.protocol.network.BodyInfo> = when (entry) {
-        is HttpEntry -> listOfNotNull(entry.requestBody, entry.responseBody)
-        is WsMessageEntry -> listOf(entry.payload)
-        is WsConnectionEntry -> emptyList()
+    private fun bodiesOf(entry: NetworkEntry): List<BodyInfo> = BodyPart.entries.mapNotNull { bodyOf(entry, it) }
+
+    /** The body info of one part of an entry, wire or app side; null when absent. */
+    private fun bodyOf(entry: NetworkEntry, part: BodyPart): BodyInfo? = when (part) {
+        BodyPart.REQUEST -> (entry as? HttpEntry)?.requestBody
+        BodyPart.RESPONSE -> (entry as? HttpEntry)?.responseBody
+        BodyPart.MESSAGE -> (entry as? WsMessageEntry)?.payload
+        BodyPart.APP_REQUEST -> (entry as? HttpEntry)?.appRequest?.body
+        BodyPart.APP_RESPONSE -> (entry as? HttpEntry)?.appResponse?.body
+        BodyPart.APP_MESSAGE -> (entry as? WsMessageEntry)?.appPayload
     }
+
+    private fun wireName(part: BodyPart): String = DtaJson.encodeToJsonElement(BodyPart.serializer(), part).let { (it as JsonPrimitive).content }
 
     /** Decoded text of a stored body for `bodyContains`; raw bytes when the encoding cannot be undone. */
     private fun bodyText(entry: NetworkEntry, part: BodyPart): String? {
-        val info = when (part) {
-            BodyPart.REQUEST -> (entry as? HttpEntry)?.requestBody
-            BodyPart.RESPONSE -> (entry as? HttpEntry)?.responseBody
-            BodyPart.MESSAGE -> (entry as? WsMessageEntry)?.payload
-        } ?: return null
+        val info = bodyOf(entry, part) ?: return null
         val raw = store.openBody(entry.id, part)?.use { it.readBytes() } ?: return null
         return String(BodyCodec.decode(raw, info.encoding).bytes, Charsets.UTF_8)
     }
@@ -182,6 +185,7 @@ class NetworkMethods(
             if (dropped > 0) add(DegradationCodes.NETWORK_EVENTS_DROPPED)
             if (entries.any { it.initiator?.missing != null }) add(DegradationCodes.NETWORK_INITIATOR_MISSING)
             if (entries.any { e -> bodiesOf(e).any { it.completeness != Completeness.COMPLETE } }) add(DegradationCodes.NETWORK_BODY_INCOMPLETE)
+            addAll(scriptDegradations())
         }
         return codes.map { DegradationMarker(NetworkCapability.NAME, it) }.ifEmpty { null }
     }

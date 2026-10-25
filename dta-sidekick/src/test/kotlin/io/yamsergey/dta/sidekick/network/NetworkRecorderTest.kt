@@ -228,4 +228,59 @@ class NetworkRecorderTest {
         assertTrue(store.get(id) != null, "the entry is stored even when publishing fails")
         assertTrue(broken.errorCount > 0)
     }
+
+    // ---- feature 005: interventions ----
+
+    private val record = io.yamsergey.dta.protocol.network.InterventionRecord(
+        "s1", listOf(io.yamsergey.dta.protocol.network.ScriptHandler.REQUEST), listOf(io.yamsergey.dta.protocol.network.ChangedField.HEADERS), delayMs = 5,
+    )
+
+    @Test
+    fun `an intervention record merges into the entry`() {
+        val id = recorder.httpStarted("okhttp3", "GET", "http://h/a", emptyList(), initiator)
+        recorder.recordIntervention(id, record)
+        recorder.recordIntervention(id, record.copy(handlers = listOf(io.yamsergey.dta.protocol.network.ScriptHandler.RESPONSE), changed = emptyList(), delayMs = 7))
+        val merged = (entry(id) as HttpEntry).intervention!!
+        assertEquals(12, merged.delayMs)
+        assertEquals(2, merged.handlers.size)
+    }
+
+    @Test
+    fun `app-side request and response snapshots keep their bodies under the app parts`() {
+        val id = recorder.httpStarted("okhttp3", "POST", "http://h/a", emptyList(), initiator)
+        recorder.httpAppRequest(id, "http://h/original", "POST", listOf(Header("A", "1")), "original".toByteArray(), "text/plain")
+        recorder.httpAppResponse(id, 200, listOf(Header("X", "y")), "patched".toByteArray(), "text/plain")
+        val e = entry(id) as HttpEntry
+        assertEquals("http://h/original", e.appRequest!!.url)
+        assertEquals(BodyPart.APP_REQUEST, e.appRequest!!.body!!.part)
+        assertEquals(200, e.appResponse!!.status)
+        assertContentEquals("original".toByteArray(), store.openBody(id, BodyPart.APP_REQUEST)!!.readBytes())
+        assertContentEquals("patched".toByteArray(), store.openBody(id, BodyPart.APP_RESPONSE)!!.readBytes())
+        assertEquals("patched", e.appResponse!!.body!!.preview)
+    }
+
+    @Test
+    fun `a message's app-side payload is kept`() {
+        val conn = recorder.wsStarted("okhttp3-ws", "ws://h", emptyList(), initiator)
+        val m = recorder.wsMessage(conn, Direction.OUT, MessageOpcode.TEXT, "v2-hello".toByteArray(), initiator)!!
+        recorder.wsAppPayload(m, "v1-hello".toByteArray())
+        assertEquals(BodyPart.APP_MESSAGE, (entry(m) as WsMessageEntry).appPayload!!.part)
+        assertContentEquals("v1-hello".toByteArray(), store.openBody(m, BodyPart.APP_MESSAGE)!!.readBytes())
+    }
+
+    @Test
+    fun `mocked and dropped exchanges are entries of their own`() {
+        val mocked = recorder.httpMocked("okhttp3", "GET", "http://h/m", emptyList(), initiator, 503, listOf(Header("Retry-After", "5")), "down".toByteArray(), record.copy(mocked = true))
+        val m = entry(mocked) as HttpEntry
+        assertEquals(HttpState.COMPLETE, m.state)
+        assertEquals(503, m.status)
+        assertEquals(true, m.intervention!!.mocked)
+        assertContentEquals("down".toByteArray(), store.openBody(mocked, BodyPart.RESPONSE)!!.readBytes())
+
+        val dropped = recorder.httpDropped("okhttp3", "GET", "http://h/d", emptyList(), initiator, "dropped by DTA network script s1", record.copy(dropped = true))
+        val d = entry(dropped) as HttpEntry
+        assertEquals(HttpState.FAILED, d.state)
+        assertTrue("s1" in d.failure!!)
+        assertEquals(true, d.intervention!!.dropped)
+    }
 }

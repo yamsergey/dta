@@ -23,6 +23,7 @@ class NetworkFilterEval(
     fun matches(entry: NetworkEntry): List<MatchLocation>? {
         val locations = mutableListOf<MatchLocation>()
         filter.kinds?.let { if (kindOf(entry) !in it) return null }
+        filter.intervened?.let { wanted -> if ((entry.intervention != null) != wanted) return null }
         if (filter.runs == RunScope.CURRENT && entry.runId != liveRunId) return null
         filter.sinceMs?.let { if (entry.timeMs < it) return null }
         filter.untilMs?.let { if (entry.timeMs > it) return null }
@@ -42,7 +43,7 @@ class NetworkFilterEval(
         filter.bodyContains?.let { needle ->
             val hits = bodies(entry).filter { (info, part) -> searchable(info) && bodyText(entry, part)?.contains(needle) == true }
             if (hits.isEmpty()) return null
-            locations += hits.map { (_, part) -> location(part) }
+            locations += hits.map { (_, part) -> location(part) }.distinct()
         }
         return locations
     }
@@ -53,15 +54,20 @@ class NetworkFilterEval(
     }
 
     private fun bodies(entry: NetworkEntry): List<Pair<BodyInfo, BodyPart>> = when (entry) {
-        is HttpEntry -> listOfNotNull(entry.requestBody?.let { it to BodyPart.REQUEST }, entry.responseBody?.let { it to BodyPart.RESPONSE })
-        is WsMessageEntry -> listOf(entry.payload to BodyPart.MESSAGE)
+        is HttpEntry -> listOfNotNull(
+            entry.requestBody?.let { it to BodyPart.REQUEST },
+            entry.responseBody?.let { it to BodyPart.RESPONSE },
+            entry.appRequest?.body?.let { it to BodyPart.APP_REQUEST },
+            entry.appResponse?.body?.let { it to BodyPart.APP_RESPONSE },
+        )
+        is WsMessageEntry -> listOfNotNull(entry.payload to BodyPart.MESSAGE, entry.appPayload?.let { it to BodyPart.APP_MESSAGE })
         is WsConnectionEntry -> emptyList()
     }
 
     private fun location(part: BodyPart) = when (part) {
-        BodyPart.REQUEST -> MatchLocation.REQUEST_BODY
-        BodyPart.RESPONSE -> MatchLocation.RESPONSE_BODY
-        BodyPart.MESSAGE -> MatchLocation.PAYLOAD
+        BodyPart.REQUEST, BodyPart.APP_REQUEST -> MatchLocation.REQUEST_BODY
+        BodyPart.RESPONSE, BodyPart.APP_RESPONSE -> MatchLocation.RESPONSE_BODY
+        BodyPart.MESSAGE, BodyPart.APP_MESSAGE -> MatchLocation.PAYLOAD
     }
 
     private fun statusMatches(entry: HttpEntry, status: String): Boolean = when {

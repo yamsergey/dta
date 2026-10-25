@@ -62,4 +62,17 @@ class NetworkCapabilityTest {
             status.libraries!!.first(),
         )
     }
+
+    @Test
+    fun `an active script is part of the capability`() {
+        val status = NetworkCapability.status(null, emptyList(), bounds, script = io.yamsergey.dta.protocol.network.ScriptSummary("abc", 5))
+        assertEquals("abc", status.script!!.id)
+    }
+
+    @Test
+    fun `a script that cannot apply degrades the capability`() {
+        val status = NetworkCapability.status(null, emptyList(), bounds, script = io.yamsergey.dta.protocol.network.ScriptSummary("abc", 5, unavailable = "no longer compiles"))
+        assertEquals(Status.DEGRADED, status.status)
+        assertTrue("no longer compiles" in status.reason!!)
+    }
 }

@@ -40,7 +40,8 @@ class NetworkMethodsTest {
     }
     private val recorder by lazy { NetworkRecorder(store, clock = { now }) { _, _ -> } }
     private var status = CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE)
-    private val methods by lazy { NetworkMethods(store) { status } }
+    private var scriptCodes = emptyList<String>()
+    private val methods by lazy { NetworkMethods(store, { scriptCodes }) { status } }
     private val initiator = Initiator("main", InitiatorSite.CALL, frames = emptyList())
 
     @AfterEach
@@ -250,5 +251,13 @@ class NetworkMethodsTest {
         val memory = NetworkStore(null, pid = 9, clock = { now++ })
         val m = NetworkMethods(memory) { status }
         assertTrue(DegradationCodes.NETWORK_HISTORY_NOT_PERSISTED in m.list(null).degraded!!.map { it.reason })
+    }
+
+    @Test
+    fun `script degradations are stated on pages and details`() {
+        val id = recorder.httpStarted("okhttp3", "GET", "http://h/a", emptyList(), initiator)
+        scriptCodes = listOf(DegradationCodes.NETWORK_SCRIPT_NOT_PERSISTED)
+        assertTrue(DegradationCodes.NETWORK_SCRIPT_NOT_PERSISTED in methods.list(null).degraded!!.map { it.reason })
+        assertTrue(DegradationCodes.NETWORK_SCRIPT_NOT_PERSISTED in methods.entry(params("""{"id":"$id"}""")).degraded!!.map { it.reason })
     }
 }

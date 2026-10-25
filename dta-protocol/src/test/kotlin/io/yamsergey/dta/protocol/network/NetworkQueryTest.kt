@@ -73,4 +73,9 @@ class NetworkQueryTest {
         val q = NetworkQuery(filter = NetworkFilter(kinds = listOf(EntryKind.WS_CONNECTION)), limit = 5)
         assertEquals(q, NetworkQuery.parse(q.toJson()))
     }
+
+    @Test
+    fun `intervened parses`() {
+        assertEquals(true, parse("""{"filter":{"intervened":true}}""").filter!!.intervened)
+    }
 }

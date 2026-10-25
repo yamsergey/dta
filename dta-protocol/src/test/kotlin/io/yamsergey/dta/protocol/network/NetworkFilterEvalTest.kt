@@ -96,4 +96,24 @@ class NetworkFilterEvalTest {
         assertEquals(listOf(ok.id), ids(NetworkFilter(url = "auth", status = "200", runs = RunScope.CURRENT, bodyContains = "A-1")))
         assertNull(eval(NetworkFilter(url = "auth", method = "POST")).matches(ok))
     }
+
+    @Test
+    fun `intervened keeps only entries the script touched, or only untouched ones`() {
+        val touched = ok.copy(id = "r2-1:9", intervention = InterventionRecord("s", delayMs = 5))
+        val e = NetworkFilterEval(NetworkFilter(intervened = true), "r2-1", { null }, { _, _ -> null })
+        assertEquals(listOf(MatchLocation.URL).size - 1, e.matches(touched)!!.size)
+        assertNull(e.matches(ok))
+        val untouched = NetworkFilterEval(NetworkFilter(intervened = false), "r2-1", { null }, { _, _ -> null })
+        assertNull(untouched.matches(touched))
+        assertEquals(emptyList(), untouched.matches(ok))
+    }
+
+    @Test
+    fun `body contains also searches the app-side body of a scripted entry`() {
+        val scripted = ok.copy(id = "r2-1:8", appResponse = HttpResponseSnapshot(200, emptyList(), body(BodyPart.APP_RESPONSE)))
+        val e = NetworkFilterEval(NetworkFilter(bodyContains = "patched"), "r2-1", { null }) { entry, part ->
+            if (entry.id == scripted.id && part == BodyPart.APP_RESPONSE) "patched!" else null
+        }
+        assertEquals(listOf(MatchLocation.RESPONSE_BODY), e.matches(scripted))
+    }
 }

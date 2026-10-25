@@ -7,6 +7,9 @@ import io.yamsergey.dta.protocol.network.Direction
 import io.yamsergey.dta.protocol.network.EntryChange
 import io.yamsergey.dta.protocol.network.Header
 import io.yamsergey.dta.protocol.network.HttpEntry
+import io.yamsergey.dta.protocol.network.HttpRequestSnapshot
+import io.yamsergey.dta.protocol.network.HttpResponseSnapshot
+import io.yamsergey.dta.protocol.network.InterventionRecord
 import io.yamsergey.dta.protocol.network.HttpState
 import io.yamsergey.dta.protocol.network.Initiator
 import io.yamsergey.dta.protocol.network.MessageOpcode
@@ -16,6 +19,7 @@ import io.yamsergey.dta.protocol.network.WsConnectionEntry
 import io.yamsergey.dta.protocol.network.WsMessageEntry
 import io.yamsergey.dta.protocol.network.WsState
 import io.yamsergey.dta.protocol.rpc.DtaJson
+import io.yamsergey.dta.sidekick.network.script.InterventionDiff
 import io.yamsergey.dta.sidekick.network.store.NetworkStore
 import kotlinx.serialization.json.JsonElement
 import java.util.concurrent.atomic.AtomicLong
@@ -142,6 +146,94 @@ class NetworkRecorder(
 
     /** The library a connection id belongs to, for adapters that map sockets to ids. */
     fun connection(id: String): WsConnectionEntry? = store.get(id) as? WsConnectionEntry
+
+    // ---- interventions (feature 005) ----------------------------------------------------
+
+    /** Merges what the script did into an entry of any kind. */
+    fun recordIntervention(id: String, record: InterventionRecord) = guard {
+        synchronized(lock) {
+            val current = store.get(id) ?: return@guard
+            val merged = InterventionDiff.merge(current.intervention, record)
+            put(
+                when (current) {
+                    is HttpEntry -> current.copy(intervention = merged)
+                    is WsConnectionEntry -> current.copy(intervention = merged)
+                    is WsMessageEntry -> current.copy(intervention = merged)
+                },
+            )
+        }
+    }
+
+    /** The request as the app built it, kept when the script changed it (FR-017). */
+    fun httpAppRequest(id: String, url: String, method: String, headers: List<Header>, body: ByteArray?, contentType: String?) = guard {
+        val info = body?.let { storeBytes(id, BodyPart.APP_REQUEST, it, contentType, encoding = null) }
+        updateHttp(id) { it.copy(appRequest = HttpRequestSnapshot(url, method, headers, info)) }
+    }
+
+    /** The response as delivered to the app, kept when the script changed it (FR-017). */
+    fun httpAppResponse(id: String, status: Int, headers: List<Header>, body: ByteArray?, contentType: String?) = guard {
+        val info = body?.let { storeBytes(id, BodyPart.APP_RESPONSE, it, contentType, encoding = null) }
+        updateHttp(id) { it.copy(appResponse = HttpResponseSnapshot(status, headers, info)) }
+    }
+
+    fun wsAppPayload(id: String, payload: ByteArray) = guard {
+        val info = storeBytes(id, BodyPart.APP_MESSAGE, payload, contentType = null, encoding = null)
+        synchronized(lock) {
+            val current = store.get(id) as? WsMessageEntry ?: return@guard
+            put(current.copy(appPayload = info))
+        }
+    }
+
+    /** A request the script answered itself: nothing went on the wire. */
+    fun httpMocked(
+        library: String, method: String, url: String, headers: List<Header>, initiator: Initiator?,
+        status: Int, responseHeaders: List<Header>, body: ByteArray, record: InterventionRecord,
+    ): String {
+        val id = store.nextId()
+        guard {
+            val contentType = responseHeaders.firstOrNull { it.name.equals("Content-Type", ignoreCase = true) }?.value
+            val info = storeBytes(id, BodyPart.RESPONSE, body, contentType, encoding = null)
+            put(
+                HttpEntry(
+                    id, store.runId, clock(), library, initiator, method, url, HttpState.COMPLETE, status = status, durationMs = 0,
+                    requestHeaders = headers, responseHeaders = responseHeaders, responseBody = info, intervention = record,
+                ),
+            )
+        }
+        return id
+    }
+
+    /** A request the script dropped: the app saw a failure, nothing went on the wire. */
+    fun httpDropped(
+        library: String, method: String, url: String, headers: List<Header>, initiator: Initiator?,
+        failure: String, record: InterventionRecord,
+    ): String {
+        val id = store.nextId()
+        guard {
+            put(
+                HttpEntry(
+                    id, store.runId, clock(), library, initiator, method, url, HttpState.FAILED, failure = failure, durationMs = 0,
+                    requestHeaders = headers, intervention = record,
+                ),
+            )
+        }
+        return id
+    }
+
+    private fun storeBytes(id: String, part: BodyPart, bytes: ByteArray, contentType: String?, encoding: String?): BodyInfo {
+        var info: BodyInfo? = null
+        BodyRecorder(store.openBodySink(id, part), bodyBound) { capture ->
+            val head = bytes.copyOf(minOf(bytes.size, PREVIEW_HEAD_BYTES)).takeIf { it.isNotEmpty() }
+            info = bodyInfo(part, capture, contentType, encoding, bytes.size.toLong()).copy(
+                binary = BodyCodec.isBinary(contentType, head ?: ByteArray(0)),
+                preview = head?.let { BodyCodec.preview(it, contentType) },
+            )
+        }.apply {
+            accept(bytes, 0, bytes.size)
+            finish(endOfStream = true)
+        }
+        return info!!
+    }
 
     // ---- internals --------------------------------------------------------------------
 

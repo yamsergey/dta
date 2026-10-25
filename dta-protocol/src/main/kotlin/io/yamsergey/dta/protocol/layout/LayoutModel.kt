@@ -34,6 +34,10 @@ object DegradationCodes {
     const val NETWORK_INITIATOR_MISSING = "network-initiator-missing"
     const val NETWORK_BODY_INCOMPLETE = "network-body-incomplete"
     const val NETWORK_REDACTION_WITHHELD = "network-redaction-withheld"
+
+    // Feature 005.
+    const val NETWORK_SCRIPT_UNAVAILABLE = "network-script-unavailable"
+    const val NETWORK_SCRIPT_NOT_PERSISTED = "network-script-not-persisted"
 }
 
 /** How much of the composition a Compose host contributes, ordered by
