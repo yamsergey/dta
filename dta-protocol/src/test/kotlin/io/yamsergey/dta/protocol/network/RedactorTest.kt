@@ -110,4 +110,40 @@ class RedactorTest {
         assertFalse("SECRET-S" in preview)
         assertTrue("\"event\":\"x\"" in preview)
     }
+
+    @Test
+    fun `key value pairs are masked by the key they name`() {
+        val otlp = """{"attributes":[
+            {"key":"user.email","value":{"stringValue":"alice@example.com"}},
+            {"key":"order.id","value":{"stringValue":"ord-42"}},
+            {"key":"session.token","value":{"stringValue":"sk-secret-123"}}]}"""
+        val r = Redactor.body(otlp, "application/json", "entry e request body")
+        val text = r.text!!
+        assertFalse("alice@example.com" in text || "sk-secret-123" in text, text)
+        assertTrue("\"key\":\"user.email\"" in text && "ord-42" in text, "keys and harmless values stay: $text")
+        assertEquals(
+            listOf(
+                "entry e request body $.attributes[0].value (key user.email)",
+                "entry e request body $.attributes[2].value (key session.token)",
+            ),
+            r.masked,
+        )
+    }
+
+    @Test
+    fun `key value pairs are found at any depth, in arrays of arrays too`() {
+        val nested = """{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"attributes":[{"key":"auth.password","value":{"stringValue":"hunter2"}}]}]}]}]}"""
+        val text = Redactor.body(nested, "application/json", "x").text!!
+        assertFalse("hunter2" in text, text)
+        val arrays = """[[{"key":"api_key","value":"K-1"}]]"""
+        assertFalse("K-1" in Redactor.body(arrays, "application/json", "x").text!!)
+    }
+
+    @Test
+    fun `objects that only look like pairs are ordinary JSON`() {
+        val numberKey = """{"key":7,"value":"stays"}"""
+        assertTrue("stays" in Redactor.body(numberKey, "application/json", "x").text!!)
+        val noValue = """{"key":"password","other":"stays"}"""
+        assertTrue("stays" in Redactor.body(noValue, "application/json", "x").text!!)
+    }
 }

@@ -112,10 +112,10 @@ class NetworkService(
         val degraded = if (info.completeness == Completeness.COMPLETE) null
         else listOf(DegradationMarker("network", DegradationCodes.NETWORK_BODY_INCOMPLETE))
 
-        if (redact && !allowUnredacted) return redactedBody(id, part, info, wire, output, degraded)
-        val overridden = if (redact) RedactionInfo(applied = false) else null
         val structured = structured(id, part, info, wire)
         val decoding = structured.info
+        if (redact && !allowUnredacted) return redactedBody(id, part, info, wire, structured, output, degraded)
+        val overridden = if (redact) RedactionInfo(applied = false) else null
 
         return when (output) {
             BodyOutput.Text -> when (decoding.outcome) {
@@ -178,34 +178,46 @@ class NetworkService(
         }
     }
 
-    /** Binary and uninspectable bodies are withheld (FR-032); inspectable ones come back masked. */
+    /**
+     * Decoded protobuf is redacted as JSON (FR-016, the same decoding as text output);
+     * other binary and uninspectable bodies are withheld (FR-032, FR-018); inspectable
+     * text comes back masked.
+     */
     private fun redactedBody(
         id: String,
         part: BodyPart,
         info: BodyInfo,
         wire: ByteArray,
+        structured: Decoded,
         output: BodyOutput,
         degraded: List<DegradationMarker>?,
     ): BodyResult {
         val location = "entry $id ${part.name.lowercase()} body"
+        val decoding = structured.info
         fun withheld(why: String) = BodyResult(
             info, bytes = 0,
             redaction = RedactionInfo(withheld = listOf(why)),
             degraded = degraded.orEmpty() + DegradationMarker("network", DegradationCodes.NETWORK_REDACTION_WITHHELD),
             note = "withheld: it cannot be redacted; pass allowUnredacted = true to get it as is",
+            decoding = decoding,
         )
-        if (info.binary) return withheld("$location (binary)")
-        val decoded = BodyCodec.decode(wire, info.encoding)
-        if (!decoded.decoded) return withheld("$location (${info.encoding} not decoded)")
-        val r = Redactor.body(String(decoded.bytes, Charsets.UTF_8), info.contentType, location)
+        val r = when {
+            structured.json != null -> Redactor.body(structured.json, "application/json", location)
+            info.binary -> return withheld("$location (binary${decoding.reason?.let { ", not decoded: $it" } ?: ""})")
+            else -> {
+                val decoded = BodyCodec.decode(wire, info.encoding)
+                if (!decoded.decoded) return withheld("$location (${info.encoding} not decoded)")
+                Redactor.body(String(decoded.bytes, Charsets.UTF_8), info.contentType, location)
+            }
+        }
         val text = r.text ?: return withheld(r.withheld!!)
         val redaction = RedactionInfo(masked = r.masked)
         return when (output) {
-            BodyOutput.Text -> BodyResult(info, text = text, bytes = text.length.toLong(), degraded = degraded, redaction = redaction)
+            BodyOutput.Text -> BodyResult(info, text = text, bytes = text.length.toLong(), degraded = degraded, redaction = redaction, decoding = decoding)
             is BodyOutput.File -> {
                 val bytes = text.toByteArray(Charsets.UTF_8)
                 val file = File(output.path).also { it.absoluteFile.parentFile?.mkdirs(); it.writeBytes(bytes) }
-                BodyResult(info, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), degraded = degraded, redaction = redaction)
+                BodyResult(info, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), degraded = degraded, redaction = redaction, decoding = decoding)
             }
         }
     }

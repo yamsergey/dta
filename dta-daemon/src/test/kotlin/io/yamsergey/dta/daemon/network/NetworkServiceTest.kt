@@ -73,6 +73,22 @@ class NetworkServiceTest {
         ),
     )
 
+    /** A protobuf Struct prints as a plain JSON object — a stand-in for any decoded body with secrets in it. */
+    private val struct = com.google.protobuf.Struct.newBuilder()
+        .putFields("password", com.google.protobuf.Value.newBuilder().setStringValue("SECRET-P").build())
+        .putFields("name", com.google.protobuf.Value.newBuilder().setStringValue("visible").build())
+        .build().toByteArray()
+
+    private val structDecoding = io.yamsergey.dta.daemon.network.proto.BodyDecoding(
+        listOf(
+            io.yamsergey.dta.daemon.network.proto.DecodingRule { t ->
+                if (t.part == io.yamsergey.dta.daemon.network.proto.MappingPart.REQUEST) {
+                    io.yamsergey.dta.daemon.network.proto.Selection(com.google.protobuf.Struct.getDescriptor(), "protobuf", "s", "m3")
+                } else null
+            },
+        ),
+    )
+
     private val bodies = mapOf(
         "text" to (BodyInfo(BodyPart.RESPONSE, json.size.toLong(), contentType = "application/json", completeness = Completeness.COMPLETE) to json),
         "gzip" to (BodyInfo(BodyPart.RESPONSE, zipped.size.toLong(), contentType = "application/json", encoding = "gzip", completeness = Completeness.COMPLETE) to zipped),
@@ -81,6 +97,7 @@ class NetworkServiceTest {
         "secret" to (BodyInfo(BodyPart.REQUEST, 0, contentType = "application/json", completeness = Completeness.COMPLETE) to """{"password":"SECRET-P","name":"ok"}""".toByteArray()),
         "ts" to (BodyInfo(BodyPart.REQUEST, ts.size.toLong(), contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to ts),
         "tsbad" to (BodyInfo(BodyPart.REQUEST, 3, contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to byteArrayOf(0x0A, 0x7F, 0x41)),
+        "struct" to (BodyInfo(BodyPart.REQUEST, struct.size.toLong(), contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to struct),
         "chat" to (BodyInfo(BodyPart.MESSAGE, ts.size.toLong(), binary = true, completeness = Completeness.COMPLETE) to ts),
         "cut" to (BodyInfo(BodyPart.RESPONSE, 2, contentType = "text/plain", completeness = Completeness.TRUNCATED, completenessReason = "bound") to "ab".toByteArray()),
     )
@@ -214,6 +231,29 @@ class NetworkServiceTest {
             assertEquals("m7", result.decoding!!.rule)
             assertEquals("\"2023-11-14T22:13:20Z\"", result.text)
         }
+    }
+
+    @Test
+    fun `redaction redacts a decoded binary body instead of withholding it`() = withService(structDecoding) { service, _ ->
+        val result = service.body("struct", BodyPart.REQUEST, redact = true)
+        val text = result.text!!
+        assertTrue("SECRET-P" !in text && "visible" in text, text)
+        assertEquals(listOf("entry struct request body $.password"), result.redaction!!.masked)
+        assertEquals(DecodingOutcome.DECODED, result.decoding!!.outcome)
+        assertEquals(service.body("struct", BodyPart.REQUEST).decoding, result.decoding, "the same decoding as plain text output")
+        val file = java.io.File(tmp, "struct.json")
+        service.body("struct", BodyPart.REQUEST, BodyOutput.File(file.path, structured = true), redact = true)
+        assertTrue("SECRET-P" !in file.readText() && "visible" in file.readText())
+    }
+
+    @Test
+    fun `under redaction a binary body that does not decode is still withheld`() = withService(structDecoding) { service, _ ->
+        val result = service.body("tsbad", BodyPart.REQUEST, redact = true)
+        assertEquals(null, result.text)
+        assertTrue(result.redaction!!.withheld.single().contains("binary"), "${result.redaction}")
+        assertEquals(DecodingOutcome.NOT_DECODED, result.decoding!!.outcome)
+        val text = service.body("secret", BodyPart.REQUEST, redact = true)
+        assertTrue("SECRET-P" !in text.text!!, "text bodies unchanged")
     }
 
     @Test

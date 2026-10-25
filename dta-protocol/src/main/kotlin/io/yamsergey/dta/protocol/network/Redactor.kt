@@ -10,7 +10,9 @@ import kotlinx.serialization.json.JsonPrimitive
  * The one redactor (constitution VI), applied by the daemon when output is requested
  * with `redact = true` (US6, FR-030..032). Masks credential headers, and fields whose
  * names look like secrets or personal data in URLs, JSON and form bodies (a sensitive
- * JSON key masks its whole value, nested objects included). Formats it
+ * JSON key masks its whole value, nested objects included; a key/value pair object —
+ * `{"key": "user.email", "value": …}`, as in OTLP attributes — is the field its key names,
+ * feature 006). Formats it
  * cannot inspect are withheld rather than passed through, and every masked or withheld
  * location is listed, so redacted output is safe to share and says what it hid.
  */
@@ -121,7 +123,10 @@ object Redactor {
     }
 
     private fun redactJson(element: JsonElement, path: String, location: String, masked: MutableList<String>): JsonElement = when (element) {
-        is JsonObject -> JsonObject(
+        is JsonObject -> pairKey(element)?.takeIf { isSensitive(it) }?.let { key ->
+            masked += "$location $path.value (key $key)"
+            JsonObject(element + ("value" to JsonPrimitive(MASK)))
+        } ?: JsonObject(
             element.mapValues { (key, value) ->
                 val childPath = "$path.$key"
                 if (isSensitive(key)) {
@@ -132,5 +137,11 @@ object Redactor {
         )
         is JsonArray -> JsonArray(element.mapIndexed { i, value -> redactJson(value, "$path[$i]", location, masked) })
         else -> element
+    }
+
+    /** The named field of a key/value pair object: a string `key` next to a `value`. */
+    private fun pairKey(element: JsonObject): String? {
+        val key = element["key"] as? JsonPrimitive ?: return null
+        return if (key.isString && "value" in element) key.content else null
     }
 }
