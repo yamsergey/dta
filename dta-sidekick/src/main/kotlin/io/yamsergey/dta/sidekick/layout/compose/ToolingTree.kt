@@ -31,6 +31,8 @@ data class LayoutRecord(
     val bounds: Rect,
     val placed: Boolean,
     val interopViewId: Long? = null,
+    /** false when clipping to the window leaves nothing of the node. */
+    val onScreen: Boolean = true,
 )
 
 /** Pure assembly over the [ToolingGroup] forest. */

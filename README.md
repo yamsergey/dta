@@ -17,6 +17,27 @@ prototype lives on the `pre-refined` branch.
 
 - **channel** (feature 001): the duplex link — discovery, connect, version handshake, requests/events/binary, churn survival.
 - **layout** (feature 002): `layout_tree` — merged Views + Compose tree across windows; two-tier Compose (semantics tier always, tooling-enrichment tier best-effort with visible degradation); labeled uiautomator fallback; on-device AND-combined filters. All degradations enumerable and surfaced, never silent.
+- **layout detail levels** (feature 003): `layout_tree` takes `params.detail`:
+  - `semantic` (default): the feature-002 tree.
+  - `layout`: adds layout-only composables (Row/Column/Box/…) as `ComposeNode`s
+    with `provenance:"tooling"`, placed under their actual layout parent with
+    bounds, name and call-site source. Zero-area or unplaced ones are kept with
+    `visible:false`.
+  - `composition`: adds a root→node `callChain` of user composables on every
+    Compose node, spanning subcompositions. `frameworkFrames:true` adds
+    framework frames marked `library`.
+
+  Every capture states `detail {requested, delivered}`. Levels degrade per
+  Compose host, never silently:
+  - `compose-detail-reduced` (with `compose-enrichment-failed` when that host's
+    tooling read threw);
+  - `compose-source-info-missing`;
+  - `filter-needs-richer-detail` for a type filter that finds nothing below
+    `layout`.
+
+  The `layout` capability lists the servable `levels`. Tooling is read with
+  ui-tooling-data `mapTree` (reflective); framework vs. user frames are told
+  apart by call-site package hash.
 
 ## Protocol
 

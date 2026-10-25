@@ -82,6 +82,12 @@ class ContainerAssemblyTest {
     }
 
     @Test
+    fun `a container clipped off screen is present but not visible`() {
+        val recs = records + LayoutRecord(6, 2, Rect(0, 3000, 100, 3100), placed = true, onScreen = false)
+        assertEquals(false, ContainerAssembly.insertContainers(semantic, recs, labels).find(6)!!.visible)
+    }
+
+    @Test
     fun `a wrapper with the same bounds as its child stays its own node`() {
         val recs = listOf(rec(1, null), rec(2, 1, Rect(0, 0, 5, 5)), rec(3, 2, Rect(0, 0, 5, 5)))
         val tree = ContainerAssembly.insertContainers(sem(1), recs, emptyMap())

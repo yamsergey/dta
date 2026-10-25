@@ -81,7 +81,7 @@ object ContainerAssembly {
             lineNumber = label?.lineNumber,
             library = label?.library,
             provenance = Provenance.TOOLING,
-            visible = if (!record.placed || record.bounds.area == 0) false else null,
+            visible = if (!record.placed || !record.onScreen || record.bounds.area == 0) false else null,
             children = children,
         )
 
