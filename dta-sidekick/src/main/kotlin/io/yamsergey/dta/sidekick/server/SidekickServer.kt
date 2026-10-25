@@ -15,6 +15,7 @@ import io.yamsergey.dta.protocol.layout.LayoutTreeParams
 import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.wire.WebSocketConnection
 import io.yamsergey.dta.sidekick.capability.CapabilityRegistry
+import io.yamsergey.dta.sidekick.hooks.HookSelfTest
 import io.yamsergey.dta.sidekick.layout.LayoutCapability
 import io.yamsergey.dta.sidekick.layout.LayoutCaptureMethod
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
@@ -69,6 +70,8 @@ object SidekickServer {
                 DtaJson.encodeToJsonElement(LayoutCapture.serializer(), layoutMethod.capture(params))
             }
             DiagnosticMethods.install(this)
+            // Diagnostic: proves JVMTI entry/exit hooks on app and boot classes (feature 004).
+            register("hook_selftest") { HookSelfTest.run() }
         }
         val identity = SessionIdentity(packageName = packageName, serverVersion = sidekickVersion)
         val socketName = "dta_sidekick_$packageName"

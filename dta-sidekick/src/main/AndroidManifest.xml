@@ -3,6 +3,13 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <application>
+        <!-- Attaches the network-capture hook agent before AndroidX Startup and the
+             app's own initializers (initOrder: higher runs first). -->
+        <provider
+            android:name="io.yamsergey.dta.sidekick.hooks.HooksProvider"
+            android:authorities="${applicationId}.dta-hooks"
+            android:exported="false"
+            android:initOrder="1000" />
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"

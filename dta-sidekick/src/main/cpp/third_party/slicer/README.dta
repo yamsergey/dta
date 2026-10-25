@@ -1,0 +1,13 @@
+Vendored AOSP dexter/slicer (Apache License 2.0, Copyright The Android Open Source Project).
+
+Source: platform/external/dexter, directory slicer/, commit
+861a1b26fc155344d9746afec6f8b6cf4ea3e2d8 (2023-11-06).
+
+Contents: slicer/*.cc and slicer/export/slicer/*.h, unmodified except:
+- common.cc / export/slicer/common.h: SLICER_CHECK* and SLICER_FATAL throw
+  slicer::CheckFailure instead of calling abort(). The agent catches it and
+  returns the class bytes unchanged, so a failed transform never kills the
+  host app (DTA constitution I).
+
+Upstream tests (slicer/tests, dexter/) are not vendored and not executed;
+transforms are verified on device by the hook_selftest harness scenario.

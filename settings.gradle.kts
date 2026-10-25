@@ -18,3 +18,4 @@ rootProject.name = "dta"
 include(":dta-protocol")
 include(":dta-daemon")
 include(":dta-sidekick")
+include(":dta-sidekick-shim")

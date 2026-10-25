@@ -1,0 +1,208 @@
+// JVMTI agent for the DTA sidekick: attaches to the running app (Debug.attachJvmtiAgent),
+// puts the hook shim on the bootstrap class path and installs entry/exit hooks by
+// retransforming already-loaded classes through slicer (see transform.h).
+//
+// Constitution I: nothing here may take the app down. Every JVMTI error is returned to
+// Kotlin as a reason string, slicer failures arrive as exceptions caught in Transform(),
+// and a failed transform leaves the class bytes untouched.
+
+#include <android/log.h>
+#include <jni.h>
+
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "include/jvmti.h"
+#include "transform.h"
+
+#define LOG_TAG "DtaAgent"
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+
+namespace {
+
+jvmtiEnv* g_jvmti = nullptr;
+std::mutex g_attach_mutex;
+
+// class descriptor ("Ljava/net/URL;") -> every hook on that class. ART hands the
+// original (untransformed) image on each retransform, so all targets of a class
+// are re-applied every time.
+std::mutex g_targets_mutex;
+std::unordered_map<std::string, std::vector<dta::HookTarget>> g_targets;
+
+// Set by the load hook while this thread runs RetransformClasses for nativeHook.
+thread_local std::string* t_transform_error = nullptr;
+
+std::string JvmtiErrorName(jvmtiError error) {
+  char* name = nullptr;
+  if (g_jvmti != nullptr && g_jvmti->GetErrorName(error, &name) == JVMTI_ERROR_NONE &&
+      name != nullptr) {
+    std::string result(name);
+    g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(name));
+    return result;
+  }
+  return "JVMTI error " + std::to_string(error);
+}
+
+void JNICALL OnClassFileLoad(jvmtiEnv* jvmti, JNIEnv*, jclass, jobject, const char* name,
+                             jobject, jint class_data_len, const unsigned char* class_data,
+                             jint* new_class_data_len, unsigned char** new_class_data) {
+  if (name == nullptr) return;
+  std::string descriptor = "L" + std::string(name) + ";";
+  std::vector<dta::HookTarget> targets;
+  {
+    std::lock_guard<std::mutex> lock(g_targets_mutex);
+    auto it = g_targets.find(descriptor);
+    if (it == g_targets.end()) return;
+    targets = it->second;
+  }
+
+  unsigned char* image = nullptr;
+  size_t image_len = 0;
+  std::string error = dta::Transform(
+      descriptor, targets, class_data, static_cast<size_t>(class_data_len),
+      [jvmti](size_t size) -> void* {
+        unsigned char* mem = nullptr;
+        return jvmti->Allocate(static_cast<jlong>(size), &mem) == JVMTI_ERROR_NONE ? mem
+                                                                                  : nullptr;
+      },
+      [jvmti](void* ptr) { jvmti->Deallocate(static_cast<unsigned char*>(ptr)); },
+      &image, &image_len);
+
+  if (!error.empty()) {
+    LOGW("transform of %s skipped: %s", name, error.c_str());
+    if (t_transform_error != nullptr) *t_transform_error = error;
+    return;
+  }
+  *new_class_data = image;
+  *new_class_data_len = static_cast<jint>(image_len);
+}
+
+std::string Attach(JavaVM* vm) {
+  std::lock_guard<std::mutex> lock(g_attach_mutex);
+  if (g_jvmti != nullptr) return "";
+
+  jvmtiEnv* jvmti = nullptr;
+  if (vm->GetEnv(reinterpret_cast<void**>(&jvmti), JVMTI_VERSION_1_2) != JNI_OK) {
+    return "GetEnv(JVMTI_VERSION_1_2) failed";
+  }
+
+  jvmtiCapabilities potential;
+  memset(&potential, 0, sizeof(potential));
+  if (jvmti->GetPotentialCapabilities(&potential) != JVMTI_ERROR_NONE) {
+    return "GetPotentialCapabilities failed";
+  }
+  if (!potential.can_retransform_classes) return "runtime cannot retransform classes";
+
+  jvmtiCapabilities caps;
+  memset(&caps, 0, sizeof(caps));
+  caps.can_retransform_classes = 1;
+  caps.can_retransform_any_class = potential.can_retransform_any_class;
+  jvmtiError error = jvmti->AddCapabilities(&caps);
+  if (error != JVMTI_ERROR_NONE) return "AddCapabilities: " + std::to_string(error);
+
+  jvmtiEventCallbacks callbacks;
+  memset(&callbacks, 0, sizeof(callbacks));
+  callbacks.ClassFileLoadHook = OnClassFileLoad;
+  error = jvmti->SetEventCallbacks(&callbacks, sizeof(callbacks));
+  if (error != JVMTI_ERROR_NONE) return "SetEventCallbacks: " + std::to_string(error);
+
+  // Kept enabled (as Android Studio does on P+) so a retransform by another agent
+  // re-applies our hooks instead of silently dropping them.
+  error = jvmti->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK,
+                                          nullptr);
+  if (error != JVMTI_ERROR_NONE) return "enable ClassFileLoadHook: " + std::to_string(error);
+
+  g_jvmti = jvmti;
+  return "";
+}
+
+std::string ToString(JNIEnv* env, jstring value) {
+  if (value == nullptr) return "";
+  const char* chars = env->GetStringUTFChars(value, nullptr);
+  if (chars == nullptr) return "";
+  std::string result(chars);
+  env->ReleaseStringUTFChars(value, chars);
+  return result;
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char*, void*) {
+  std::string error = Attach(vm);
+  if (!error.empty()) {
+    LOGW("attach failed: %s", error.c_str());
+    return JNI_ERR;
+  }
+  return JNI_OK;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeIsAttached(JNIEnv*, jclass) {
+  return g_jvmti != nullptr ? JNI_TRUE : JNI_FALSE;
+}
+
+// Returns null on success, otherwise the reason.
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeAddToBootstrap(JNIEnv* env, jclass,
+                                                                      jstring jar_path) {
+  if (g_jvmti == nullptr) return env->NewStringUTF("agent not attached");
+  std::string path = ToString(env, jar_path);
+  jvmtiError error = g_jvmti->AddToBootstrapClassLoaderSearch(path.c_str());
+  if (error != JVMTI_ERROR_NONE) {
+    return env->NewStringUTF(("AddToBootstrapClassLoaderSearch: " + JvmtiErrorName(error)).c_str());
+  }
+  return nullptr;
+}
+
+// Registers one hook on an already-loaded class and retransforms it. Returns null on
+// success, otherwise the reason; on failure the hook is unregistered again so the class
+// keeps (or regains) its previous, working form.
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
+                                                            jclass target, jstring method,
+                                                            jstring signature, jboolean entry) {
+  if (g_jvmti == nullptr) return env->NewStringUTF("agent not attached");
+
+  char* class_sig = nullptr;
+  jvmtiError error = g_jvmti->GetClassSignature(target, &class_sig, nullptr);
+  if (error != JVMTI_ERROR_NONE || class_sig == nullptr) {
+    return env->NewStringUTF(("GetClassSignature: " + JvmtiErrorName(error)).c_str());
+  }
+  std::string descriptor(class_sig);
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(class_sig));
+
+  dta::HookTarget hook{ToString(env, method), ToString(env, signature), entry == JNI_TRUE};
+  {
+    std::lock_guard<std::mutex> lock(g_targets_mutex);
+    g_targets[descriptor].push_back(hook);
+  }
+
+  std::string transform_error;
+  t_transform_error = &transform_error;
+  error = g_jvmti->RetransformClasses(1, &target);
+  t_transform_error = nullptr;
+
+  std::string reason;
+  if (error != JVMTI_ERROR_NONE) {
+    reason = "RetransformClasses: " + JvmtiErrorName(error);
+  } else if (!transform_error.empty()) {
+    reason = transform_error;
+  }
+  if (reason.empty()) return nullptr;
+
+  {
+    std::lock_guard<std::mutex> lock(g_targets_mutex);
+    auto& list = g_targets[descriptor];
+    if (!list.empty()) list.pop_back();
+    if (list.empty()) g_targets.erase(descriptor);
+  }
+  if (!transform_error.empty()) {
+    // The failed transform kept the original bytes; re-apply the class's remaining
+    // hooks so they stay installed.
+    g_jvmti->RetransformClasses(1, &target);
+  }
+  return env->NewStringUTF(reason.c_str());
+}

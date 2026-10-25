@@ -8,3 +8,8 @@ local.properties
 *.log
 .env*
 out/
+.cxx/
+bin/
+.project
+.classpath
+.settings/
