@@ -47,7 +47,9 @@ prototype lives on the `pre-refined` branch.
   - Captured libraries: OkHttp 3/4/5 (network interceptor, plus failures before
     a connection such as refused/DNS/TLS), `HttpURLConnection`, OkHttp
     WebSocket, nv-websocket-client, Java-WebSocket. The capability lists each
-    library's status.
+    library's status, gRPC included: detected, not captured (it has its own
+    transport), which degrades the capability so an empty list is not mistaken
+    for no traffic.
   - Every request, connection and outgoing message carries an **initiator**
     stack, app frames marked, `firstAppFrame` set; async OkHttp calls show the
     `enqueue` site, not the dispatcher thread.
@@ -57,14 +59,17 @@ prototype lives on the `pre-refined` branch.
     deflate; br/zstd stated as not decoded) and writes files with sha256.
   - On-device filters across all kinds: `url`, `method`, `status`
     (`404`/`4xx`/`failed`/`pending`), `kinds`, time range, `bodyContains`
-    (with match locations), `runs`.
+    (with match locations; binary bodies are searched as bytes for the needle's
+    UTF-8 and marked `*-binary`), `runs`.
   - History persists across process restarts (100 MB, oldest evicted first);
     entries are labeled by process run; in-flight entries of a dead process read
     `process-ended`. Capture starts before `Application.onCreate` and runs
     without a client (observation, constitution v1.3.0).
   - Opt-in redaction (`redact`), applied by the daemon: credential headers,
-    secret/personal JSON/form/query fields; formats it cannot inspect, binary
-    included, are withheld unless `allowUnredacted`.
+    secret/personal JSON/form/query fields, key/value pairs by their key (OTLP
+    attributes); decoded protobuf is redacted as JSON; formats it cannot inspect,
+    undecodable binary included, are withheld unless `allowUnredacted`. Off by
+    default.
   - Requirements: API 28+ and a debuggable app; otherwise the capability says
     why. Reductions use eight `network-*` degradation codes.
 
@@ -95,6 +100,30 @@ prototype lives on the `pre-refined` branch.
     call once, while each network attempt is captured and marked.
   - Known limitation (also of capture): a shaded or separately loaded copy of a
     supported library is neither captured nor scripted.
+
+- **protobuf bodies** (feature 006): binary protobuf bodies read as JSON. All
+  decoding is in the daemon (host); nothing is added to the app.
+  - Built in: OpenTelemetry exports over OTLP/HTTP (`POST …/v1/traces|metrics|logs`
+    with a protobuf content type, gzip undone) come back as the official
+    OTLP/JSON — hex trace/span ids, enums as integers.
+  - Your own protobuf: `networkSchemaAdd(pkg, name, SchemaInput.ProtoSources(…))`
+    (`.proto` sources, compiled on the JVM — no `protoc`) or
+    `SchemaInput.DescriptorSet(bytes)` (`protoc --include_imports
+    --descriptor_set_out`), then `networkMappingAdd(pkg, BodyMappingSpec(urlPattern,
+    part, schema, type, method?, direction?))`. Globs match the full URL; OkHttp
+    records WebSocket URLs as `http(s)`, so write socket patterns as `*/path`.
+    User mappings win over OTLP; the most literal pattern wins, then the most
+    recent. Stored per app under `~/.dta/schemas/<package>/` (`DtaDaemon(dataDir)`).
+    `networkSchemas`, `networkSchemaRemove` (returns the mappings now broken),
+    `networkMappings` (built-in rules included), `networkMappingRemove`.
+  - Every body result carries `decoding`: `decoded`, `decoded-with-warnings`
+    (unknown fields with their paths, implausible ids), `not-decoded` with the
+    reason (does not parse, body incomplete, mapping broken), or
+    `not-applicable`. Decoding is never claimed when it did not happen; raw bytes
+    stay available through `BodyOutput.File`; `File(structured = true)` writes
+    the JSON. Text, file and redaction share one decoding.
+  - Not supported: `extend` and proto2 groups in `.proto` sources (rejected with
+    their location), schemaless decoding, gRPC traffic.
 
 ## Protocol
 
@@ -129,4 +158,6 @@ dexter/slicer (Apache 2.0), vendored with one patch (checks throw instead of
 aborting); see its `README.dta`. `dta-sidekick-rhino` repackages Mozilla Rhino
 (MPL 2.0, license kept as `META-INF/rhino-LICENSE.txt`). The control entry hook
 (`cpp/control_entry_hook.cc`) follows Android Studio's `ArrayParamsEntryHook`
-(Apache 2.0).
+(Apache 2.0). The daemon uses protobuf-java (BSD-3-Clause), the OpenTelemetry
+protocol descriptors `opentelemetry-proto` (Apache 2.0) and Square Wire's `.proto`
+parser `wire-schema` (Apache 2.0); none of them ship in the app.
