@@ -23,8 +23,8 @@ class ToolingEnrichment {
      * keyed by semanticsId (read later for container geometry). */
     class Read(val groups: List<ToolingGroup>, val layoutNodes: Map<Long, LayoutInfo>)
 
-    /** Reads the host's tooling forest, or throws (caller wraps in
-     * EnrichmentOverlay.buildOrNull for all-or-none). */
+    /** Reads the host's tooling forest, or throws (the caller discards all
+     * tooling data for the host: all-or-none). */
     fun read(host: View): Read {
         val tables = compositionDataSet(host) ?: error("no CompositionData on host")
         val api = Api.get()

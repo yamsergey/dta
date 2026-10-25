@@ -2,11 +2,11 @@ package io.yamsergey.dta.sidekick.layout
 
 import io.yamsergey.dta.protocol.layout.ComposeNode
 import io.yamsergey.dta.protocol.layout.DegradationCodes
+import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.layout.Rect
 import io.yamsergey.dta.protocol.layout.ViewNode
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
-import io.yamsergey.dta.sidekick.layout.compose.EnrichmentOverlay
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -33,10 +33,24 @@ class DegradationVocabularyAuditTest {
         assertTrue(skew.tier2Skip == DegradationCodes.COMPOSE_TOOLING_VERSION_SKEW)
     }
 
+    private val semanticHost = ComposeWalkResult(9, ComposeNode(id = 1, bounds = Rect(0, 0, 1, 1)))
+
+    private fun ComposeWalkResult.codes() = tree.degraded.orEmpty().map { it.reason }
+
     @Test
-    fun `enrichment-failed is produced when a tier-2 build throws`() {
-        val overlay = EnrichmentOverlay.buildOrNull { throw RuntimeException("boom") }
-        assertTrue(overlay == null, "null overlay is the signal the caller turns into the code")
+    fun `enrichment-failed and detail-reduced are produced when a host's tooling read throws`() {
+        val host = LevelResolution.resolveHost(DetailLevel.LAYOUT, semanticHost, Result.failure(RuntimeException("boom")))
+        assertTrue(DegradationCodes.COMPOSE_ENRICHMENT_FAILED in host.walk.codes())
+        assertTrue(DegradationCodes.COMPOSE_DETAIL_REDUCED in host.walk.codes())
+    }
+
+    @Test
+    fun `source-info-missing is produced when tooling carries no locations`() {
+        val host = LevelResolution.resolveHost(
+            DetailLevel.LAYOUT, semanticHost,
+            Result.success(ToolingOutcome(semanticHost, DetailLevel.LAYOUT, sourceInfoPresent = false)),
+        )
+        assertTrue(DegradationCodes.COMPOSE_SOURCE_INFO_MISSING in host.walk.codes())
     }
 
     @Test
@@ -86,13 +100,11 @@ class DegradationVocabularyAuditTest {
         assertTrue(all.all { it.isNotBlank() } && all.toSet().size == all.size)
     }
 
-    /** Feature 003 codes: each must have a producing path. Disabled (not
-     * deleted) until the producers land: detail-reduced and
-     * source-info-missing in LevelResolution (T027), filter-needs-richer-detail
-     * in the filter hint (T036). Enabling it is part of those tasks. */
-    @org.junit.jupiter.api.Disabled("red until T027 and T036 add producers")
+    /** filter-needs-richer-detail must have a producing path. Disabled (not
+     * deleted) until the filter hint lands (T036); enabling it is part of it. */
+    @org.junit.jupiter.api.Disabled("red until T036 adds the producer")
     @Test
-    fun `feature 003 codes are produced`() {
-        error("no producer yet for compose-detail-reduced, compose-source-info-missing, filter-needs-richer-detail")
+    fun `filter-needs-richer-detail is produced`() {
+        error("no producer yet for filter-needs-richer-detail")
     }
 }

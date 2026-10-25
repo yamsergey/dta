@@ -43,17 +43,4 @@ class EnrichmentOverlayTest {
         assertNull(n3.name)
         assertNull(n3.sourceFile)
     }
-
-    @Test
-    fun `all-or-none - a thrown overlay build discards enrichment entirely`() {
-        // Simulate a Tier-2 failure: the producer throws while building the overlay.
-        val result = EnrichmentOverlay.buildOrNull { throw RuntimeException("mapTree exploded on version skew") }
-        assertNull(result, "any Tier-2 error must yield no overlay (caller attaches compose-enrichment-failed)")
-    }
-
-    @Test
-    fun `successful overlay build returns the map`() {
-        val result = EnrichmentOverlay.buildOrNull { mapOf(1L to EnrichmentEntry("A", "A.kt", 1, emptyList(), false)) }
-        assertTrue(result!!.containsKey(1L))
-    }
 }

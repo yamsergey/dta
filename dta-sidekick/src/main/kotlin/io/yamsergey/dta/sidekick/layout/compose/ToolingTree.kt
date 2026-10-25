@@ -74,4 +74,11 @@ object ToolingTree {
         roots.forEach { walk(it, null, null) }
         return out
     }
+
+    /** True when any group carries a source location; false means the app
+     * was built without source information (names may still be present). */
+    fun hasSourceInfo(roots: List<ToolingGroup>): Boolean {
+        fun any(g: ToolingGroup): Boolean = g.sourceFile != null || g.children.any(::any)
+        return roots.any(::any)
+    }
 }

@@ -1,6 +1,7 @@
 package io.yamsergey.dta.sidekick.layout
 
 import io.yamsergey.dta.protocol.layout.DegradationCodes
+import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.rpc.CapabilityStatus
 import io.yamsergey.dta.sidekick.layout.compose.CapabilityOutcome
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
@@ -55,5 +56,25 @@ class CapabilityCouplingTest {
     @Test
     fun `outcome enum maps to capability status consistently`() {
         assertEquals(CapabilityOutcome.FULL, ComposePresence({ false }, { null }).capabilityOutcome())
+    }
+
+    // ---- feature 003: servable detail levels, from the same probes ----
+
+    private val all = listOf(DetailLevel.SEMANTIC, DetailLevel.LAYOUT, DetailLevel.COMPOSITION)
+
+    @Test
+    fun `no compose means only the semantic level is meaningful`() {
+        assertEquals(listOf(DetailLevel.SEMANTIC), status(emptySet(), null, null).levels)
+    }
+
+    @Test
+    fun `tooling absent or skewed serves only the semantic level`() {
+        assertEquals(listOf(DetailLevel.SEMANTIC), status(setOf(composeUi), "1.7.6", null).levels)
+        assertEquals(listOf(DetailLevel.SEMANTIC), status(setOf(composeUi, toolingData), "1.7.6", "1.6.0").levels)
+    }
+
+    @Test
+    fun `working tooling serves all three levels`() {
+        assertEquals(all, status(setOf(composeUi, toolingData), "1.7.6", "1.7.6").levels)
     }
 }

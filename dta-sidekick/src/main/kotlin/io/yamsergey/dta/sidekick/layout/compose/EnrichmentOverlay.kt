@@ -15,19 +15,10 @@ data class EnrichmentEntry(
 
 /**
  * Overlays Tier-2 enrichment onto a Tier-1 semantics tree by semantics id.
- * All-or-none (FR-005): the overlay is built inside a guard; any failure means
- * NO overlay, and the caller attaches `compose-enrichment-failed`. No
- * partially-applied enrichment is ever presented as truth.
+ * All-or-none (FR-005) is enforced by the caller: the whole tooling read runs
+ * guarded, and LevelResolution discards it on any failure.
  */
 object EnrichmentOverlay {
-
-    /** Runs [producer] guarded; returns its result, or null on any failure. */
-    inline fun <T : Any> buildOrNull(producer: () -> T): T? =
-        try {
-            producer()
-        } catch (_: Throwable) {
-            null
-        }
 
     /** Applies [overlay] onto [tree] by node id. Returns null iff overlay is
      * null (nothing to apply — caller keeps the Tier-1 tree + degradation). */
