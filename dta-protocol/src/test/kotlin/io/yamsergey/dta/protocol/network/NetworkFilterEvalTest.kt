@@ -30,12 +30,16 @@ class NetworkFilterEvalTest {
         (message.id to BodyPart.MESSAGE) to """{"event":"switch","account_id":"A-2"}""",
     )
 
-    private fun eval(filter: NetworkFilter) = NetworkFilterEval(
-        filter = filter,
-        liveRunId = "r2-1",
-        connectionUrl = { id -> (all.single { it.id == id } as WsConnectionEntry).url },
-        bodyText = { entry, part -> texts[entry.id to part] },
-    )
+    /** The OTLP upload: a span name inside protobuf bytes (field 5, length 8). */
+    private val uploadBytes = byteArrayOf(0x0A, 0x02, 0x01, 0x02, 0x2A, 0x08) + "checkout".toByteArray() + byteArrayOf(0x00, 0xFF.toByte())
+
+    private fun eval(filter: NetworkFilter, binary: Map<Pair<String, BodyPart>, NetworkFilterEval.BodyBytes> = mapOf((upload.id to BodyPart.REQUEST) to NetworkFilterEval.BodyBytes(uploadBytes, decoded = true))) =
+        NetworkFilterEval(
+            filter = filter,
+            liveRunId = "r2-1",
+            connectionUrl = { id -> (all.single { it.id == id } as WsConnectionEntry).url },
+            bodyBytes = { entry, part -> texts[entry.id to part]?.let { NetworkFilterEval.BodyBytes(it.toByteArray(), decoded = true) } ?: binary[entry.id to part] },
+        )
 
     private fun ids(filter: NetworkFilter): List<String> {
         val e = eval(filter)
@@ -85,9 +89,41 @@ class NetworkFilterEvalTest {
     }
 
     @Test
-    fun `body contains is case-sensitive and never searches binary bodies, which are counted`() {
+    fun `body contains is case-sensitive`() {
         val e = eval(NetworkFilter(bodyContains = "ACCOUNT_ID"))
         assertEquals(emptyList(), all.filter { e.matches(it) != null })
+        assertEquals(0, e.binaryNotSearched, "binary bodies are searched now")
+    }
+
+    @Test
+    fun `body contains finds strings inside binary bodies and says the body is binary`() {
+        val e = eval(NetworkFilter(bodyContains = "checkout"))
+        assertEquals(listOf(upload.id), all.filter { e.matches(it) != null }.map { it.id })
+        assertEquals(listOf(MatchLocation.REQUEST_BODY_BINARY), e.matches(upload))
+        assertNull(eval(NetworkFilter(bodyContains = "checkouts")).matches(upload), "a needle running past the end")
+        assertNull(eval(NetworkFilter(bodyContains = "Checkout")).matches(upload), "case-sensitive like text")
+    }
+
+    @Test
+    fun `binary search uses UTF-8 needles and covers responses and payloads`() {
+        val utf8 = byteArrayOf(0x12, 0x07) + "zürich".toByteArray(Charsets.UTF_8)
+        val binaryResponse = ok.copy(id = "r2-1:8", responseBody = body(BodyPart.RESPONSE, binary = true))
+        val binaryMessage = message.copy(id = "r2-1:9", opcode = MessageOpcode.BINARY, payload = body(BodyPart.MESSAGE, binary = true))
+        val e = eval(
+            NetworkFilter(bodyContains = "zürich"),
+            mapOf(
+                (binaryResponse.id to BodyPart.RESPONSE) to NetworkFilterEval.BodyBytes(utf8, decoded = true),
+                (binaryMessage.id to BodyPart.MESSAGE) to NetworkFilterEval.BodyBytes(utf8, decoded = true),
+            ),
+        )
+        assertEquals(listOf(MatchLocation.RESPONSE_BODY_BINARY), e.matches(binaryResponse))
+        assertEquals(listOf(MatchLocation.PAYLOAD_BINARY), e.matches(binaryMessage))
+    }
+
+    @Test
+    fun `binary bodies whose encoding cannot be undone are not searched, and counted`() {
+        val e = eval(NetworkFilter(bodyContains = "checkout"), mapOf((upload.id to BodyPart.REQUEST) to NetworkFilterEval.BodyBytes(uploadBytes, decoded = false)))
+        assertNull(e.matches(upload))
         assertEquals(1, e.binaryNotSearched)
     }
 
@@ -112,8 +148,25 @@ class NetworkFilterEvalTest {
     fun `body contains also searches the app-side body of a scripted entry`() {
         val scripted = ok.copy(id = "r2-1:8", appResponse = HttpResponseSnapshot(200, emptyList(), body(BodyPart.APP_RESPONSE)))
         val e = NetworkFilterEval(NetworkFilter(bodyContains = "patched"), "r2-1", { null }) { entry, part ->
-            if (entry.id == scripted.id && part == BodyPart.APP_RESPONSE) "patched!" else null
+            if (entry.id == scripted.id && part == BodyPart.APP_RESPONSE) NetworkFilterEval.BodyBytes("patched!".toByteArray(), decoded = true) else null
         }
         assertEquals(listOf(MatchLocation.RESPONSE_BODY), e.matches(scripted))
+    }
+
+    @Test
+    fun `binary search over 1000 bodies of 64 KB stays well under a second`() {
+        val random = java.util.Random(7)
+        val entries = (1..1000).map { i ->
+            upload.copy(id = "r2-1:p$i", requestBody = BodyInfo(BodyPart.REQUEST, 65_536, binary = true, completeness = Completeness.COMPLETE))
+        }
+        val bytes = entries.associate { it.id to ByteArray(65_536).also(random::nextBytes) }
+        val e = NetworkFilterEval(NetworkFilter(bodyContains = "span-name-not-there"), "r2-1", { null }) { entry, _ ->
+            NetworkFilterEval.BodyBytes(bytes.getValue(entry.id), decoded = true)
+        }
+        val start = System.nanoTime()
+        assertEquals(0, entries.count { e.matches(it) != null })
+        val ms = (System.nanoTime() - start) / 1_000_000
+        println("SC-004 deviceless: 1000 x 64 KB binary bodies searched in $ms ms")
+        kotlin.test.assertTrue(ms < 1000, "$ms ms")
     }
 }

@@ -54,7 +54,7 @@ class NetworkMethods(
                 filter = filter,
                 liveRunId = store.runId,
                 connectionUrl = { id -> (store.get(id) as? WsConnectionEntry)?.url },
-                bodyText = ::bodyText,
+                bodyBytes = ::bodyBytes,
             )
         }
         val locations = HashMap<String, List<MatchLocation>>()
@@ -64,7 +64,7 @@ class NetworkMethods(
             if (matched.isNotEmpty()) locations[entry.id] = matched
             true
         }
-        val notSearched = eval?.binaryNotSearched?.takeIf { it > 0 }?.let { listOf("binary bodies ($it)") }
+        val notSearched = eval?.binaryNotSearched?.takeIf { it > 0 }?.let { listOf("binary bodies whose encoding cannot be undone ($it)") }
         val coverage = store.coverage().copy(searched = page.searched, notSearched = notSearched)
         return NetworkPage(
             entries = page.entries.map { it.summary() },
@@ -162,11 +162,12 @@ class NetworkMethods(
 
     private fun wireName(part: BodyPart): String = DtaJson.encodeToJsonElement(BodyPart.serializer(), part).let { (it as JsonPrimitive).content }
 
-    /** Decoded text of a stored body for `bodyContains`; raw bytes when the encoding cannot be undone. */
-    private fun bodyText(entry: NetworkEntry, part: BodyPart): String? {
+    /** A stored body for `bodyContains`, Content-Encoding undone; raw bytes (decoded = false) when it cannot be. */
+    private fun bodyBytes(entry: NetworkEntry, part: BodyPart): NetworkFilterEval.BodyBytes? {
         val info = bodyOf(entry, part) ?: return null
         val raw = store.openBody(entry.id, part)?.use { it.readBytes() } ?: return null
-        return String(BodyCodec.decode(raw, info.encoding).bytes, Charsets.UTF_8)
+        val decoded = BodyCodec.decode(raw, info.encoding)
+        return NetworkFilterEval.BodyBytes(decoded.bytes, decoded.decoded)
     }
 
     companion object {

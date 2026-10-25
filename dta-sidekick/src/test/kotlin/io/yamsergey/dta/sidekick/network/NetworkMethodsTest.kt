@@ -198,17 +198,26 @@ class NetworkMethodsTest {
         val msg = recorder.wsMessage(conn, Direction.IN, MessageOpcode.TEXT, """{"account_id":"A-2"}""".toByteArray(), null)!!
 
         val page = methods.list(params("""{"filter":{"bodyContains":"account_id"},"order":"oldest-first"}"""))
-        assertEquals(listOf(auth, msg), page.entries.map { it.id })
-        assertEquals(2, page.total)
+        assertEquals(listOf(auth, other, msg), page.entries.map { it.id })
+        assertEquals(3, page.total)
         assertEquals(4, page.coverage.searched)
         assertEquals(listOf(MatchLocation.REQUEST_BODY), page.matches!![auth])
+        assertEquals(listOf(MatchLocation.REQUEST_BODY_BINARY), page.matches!![other], "found inside the protobuf body")
         assertEquals(listOf(MatchLocation.PAYLOAD), page.matches!![msg])
-        assertEquals(listOf("binary bodies (1)"), page.coverage.notSearched)
+        assertNull(page.coverage.notSearched, "binary bodies are searched")
+
+        val brotli = recorder.httpStarted("okhttp3", "POST", "http://h/br", emptyList(), initiator)
+        recorder.httpRequestBody(brotli, "application/x-protobuf", null, encoding = "br").apply {
+            val b = "account_id".toByteArray(); accept(b, 0, b.size); finish(endOfStream = true)
+        }
+        val withBrotli = methods.list(params("""{"filter":{"bodyContains":"account_id"}}"""))
+        assertTrue(brotli !in withBrotli.entries.map { it.id })
+        assertEquals(listOf("binary bodies whose encoding cannot be undone (1)"), withBrotli.coverage.notSearched)
 
         val none = methods.list(params("""{"filter":{"url":"nothing-here"}}"""))
         assertTrue(none.entries.isEmpty())
         assertEquals(0, none.total)
-        assertEquals(4, none.coverage.searched)
+        assertEquals(5, none.coverage.searched)
         assertNull(none.matches)
     }
 

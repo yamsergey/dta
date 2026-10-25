@@ -256,6 +256,10 @@ enum class ChangedField {
     @SerialName("body") BODY,
     @SerialName("status") STATUS,
     @SerialName("payload") PAYLOAD,
+    /** Feature 006: the needle's UTF-8 bytes were found inside a binary body. */
+    @SerialName("request-body-binary") REQUEST_BODY_BINARY,
+    @SerialName("response-body-binary") RESPONSE_BODY_BINARY,
+    @SerialName("payload-binary") PAYLOAD_BINARY,
 }
 
 /** What the network script did to one entry (FR-016): never a silent intervention. */
@@ -340,6 +344,10 @@ enum class MatchLocation {
     @SerialName("request-body") REQUEST_BODY,
     @SerialName("response-body") RESPONSE_BODY,
     @SerialName("payload") PAYLOAD,
+    /** Feature 006: the needle's UTF-8 bytes were found inside a binary body. */
+    @SerialName("request-body-binary") REQUEST_BODY_BINARY,
+    @SerialName("response-body-binary") RESPONSE_BODY_BINARY,
+    @SerialName("payload-binary") PAYLOAD_BINARY,
 }
 
 /** Result of `network_list`. */
