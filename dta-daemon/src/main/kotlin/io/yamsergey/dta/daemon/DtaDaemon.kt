@@ -15,7 +15,11 @@ import io.yamsergey.dta.daemon.network.BodyResult
 import io.yamsergey.dta.daemon.network.NetworkScriptService
 import io.yamsergey.dta.daemon.network.NetworkService
 import io.yamsergey.dta.daemon.network.proto.BodyDecoding
-import io.yamsergey.dta.daemon.network.proto.Otlp
+import io.yamsergey.dta.daemon.network.proto.BodyMapping
+import io.yamsergey.dta.daemon.network.proto.BodyMappingSpec
+import io.yamsergey.dta.daemon.network.proto.SchemaInput
+import io.yamsergey.dta.daemon.network.proto.SchemaRegistry
+import io.yamsergey.dta.daemon.network.proto.SchemaSet
 import io.yamsergey.dta.protocol.network.ScriptLogPage
 import io.yamsergey.dta.protocol.network.ScriptStatus
 import io.yamsergey.dta.protocol.network.BodyPart
@@ -43,7 +47,11 @@ import kotlin.time.Duration.Companion.seconds
 class DtaDaemon(
     adb: AdbExec = AdbExec(),
     requestTimeout: Duration = 10.seconds,
+    /** Daemon state on the developer's machine: protobuf schemas and mappings (feature 006). */
+    dataDir: java.io.File = java.io.File(System.getProperty("user.home"), ".dta"),
 ) {
+    private val schemas = SchemaRegistry(dataDir)
+
     private val runAdb: (List<String>) -> AdbExec.Result = { args -> adb.run(*args.toTypedArray()) }
     private val forwards = PortForwards(runAdb)
 
@@ -138,6 +146,26 @@ class DtaDaemon(
     fun networkEvents(serial: String, pkg: String): Flow<NetworkEntryEvent> =
         networkService(serial, pkg).events()
 
+    /**
+     * Adds (or replaces) a protobuf schema set for [pkg]: a compiled descriptor set or
+     * `.proto` sources (no protoc needed). Throws [io.yamsergey.dta.daemon.network.proto.SchemaException]
+     * naming the problem. Schemas and mappings persist under the daemon's data directory.
+     */
+    fun networkSchemaAdd(pkg: String, name: String, input: SchemaInput): SchemaSet = schemas.addSchema(pkg, name, input)
+
+    fun networkSchemas(pkg: String): List<SchemaSet> = schemas.schemas(pkg)
+
+    /** Removes a schema set; returns the mappings that used it, now broken. */
+    fun networkSchemaRemove(pkg: String, name: String): List<BodyMapping> = schemas.removeSchema(pkg, name)
+
+    /** Maps a message type to bodies: URL glob, part, and optionally method (HTTP) or direction (WebSocket). */
+    fun networkMappingAdd(pkg: String, mapping: BodyMappingSpec): BodyMapping = schemas.addMapping(pkg, mapping)
+
+    /** User mappings (with `broken` when unusable), then the built-in OTLP rules. */
+    fun networkMappings(pkg: String): List<BodyMapping> = schemas.mappings(pkg)
+
+    fun networkMappingRemove(pkg: String, id: String): Boolean = schemas.removeMapping(pkg, id)
+
     /** Installs (replaces) the app's network script; it persists until [networkScriptClear]. */
     suspend fun networkScriptSet(serial: String, pkg: String, source: String): ScriptStatus =
         scriptService(serial, pkg).set(source)
@@ -153,7 +181,7 @@ class DtaDaemon(
         NetworkScriptService { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun networkService(serial: String, pkg: String) =
-        NetworkService(BodyDecoding(Otlp.rules)) { connections.connect(ConnectionKey(serial, pkg)) }
+        NetworkService(BodyDecoding(schemas.rules(pkg))) { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun screenOf(serial: String): Screen {
         // wm size / density via adb, best-effort.

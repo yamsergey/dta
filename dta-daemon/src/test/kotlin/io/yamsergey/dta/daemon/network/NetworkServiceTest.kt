@@ -62,6 +62,17 @@ class NetworkServiceTest {
         ),
     )
 
+    private val sockets = mapOf(
+        "c1" to io.yamsergey.dta.protocol.network.WsConnectionEntry(
+            id = "c1", runId = "r1-2", timeMs = 1, library = "okhttp3-ws", url = "ws://h/ws", state = io.yamsergey.dta.protocol.network.WsState.OPEN,
+        ),
+        "chat" to io.yamsergey.dta.protocol.network.WsMessageEntry(
+            id = "chat", runId = "r1-2", timeMs = 2, library = "okhttp3-ws", connectionId = "c1",
+            direction = io.yamsergey.dta.protocol.network.Direction.OUT, opcode = io.yamsergey.dta.protocol.network.MessageOpcode.BINARY,
+            payload = BodyInfo(BodyPart.MESSAGE, 6, binary = true, completeness = Completeness.COMPLETE),
+        ),
+    )
+
     private val bodies = mapOf(
         "text" to (BodyInfo(BodyPart.RESPONSE, json.size.toLong(), contentType = "application/json", completeness = Completeness.COMPLETE) to json),
         "gzip" to (BodyInfo(BodyPart.RESPONSE, zipped.size.toLong(), contentType = "application/json", encoding = "gzip", completeness = Completeness.COMPLETE) to zipped),
@@ -70,6 +81,7 @@ class NetworkServiceTest {
         "secret" to (BodyInfo(BodyPart.REQUEST, 0, contentType = "application/json", completeness = Completeness.COMPLETE) to """{"password":"SECRET-P","name":"ok"}""".toByteArray()),
         "ts" to (BodyInfo(BodyPart.REQUEST, ts.size.toLong(), contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to ts),
         "tsbad" to (BodyInfo(BodyPart.REQUEST, 3, contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to byteArrayOf(0x0A, 0x7F, 0x41)),
+        "chat" to (BodyInfo(BodyPart.MESSAGE, ts.size.toLong(), binary = true, completeness = Completeness.COMPLETE) to ts),
         "cut" to (BodyInfo(BodyPart.RESPONSE, 2, contentType = "text/plain", completeness = Completeness.TRUNCATED, completenessReason = "bound") to "ab".toByteArray()),
     )
 
@@ -83,7 +95,8 @@ class NetworkServiceTest {
         }
         register("network_entry") { ctx ->
             lastParams = ctx.params
-            DtaJson.encodeToJsonElement(NetworkEntryDetail.serializer(), NetworkEntryDetail(entry))
+            val id = ctx.params!!["id"]!!.jsonPrimitive.content
+            DtaJson.encodeToJsonElement(NetworkEntryDetail.serializer(), NetworkEntryDetail(sockets[id] ?: entry))
         }
         register("network_body") { ctx ->
             lastParams = ctx.params
@@ -183,6 +196,24 @@ class NetworkServiceTest {
         assertTrue("google.protobuf.Timestamp" in result.decoding!!.reason!!, result.decoding!!.reason)
         val raw = service.body("tsbad", BodyPart.REQUEST, BodyOutput.File(java.io.File(tmp, "bad.bin").path))
         assertContentEquals(byteArrayOf(0x0A, 0x7F, 0x41), java.io.File(raw.file!!).readBytes())
+    }
+
+    @Test
+    fun `a WebSocket message is matched by its socket's URL and direction`() {
+        val ws = io.yamsergey.dta.daemon.network.proto.BodyDecoding(
+            listOf(
+                io.yamsergey.dta.daemon.network.proto.DecodingRule { t ->
+                    if (t.url == "ws://h/ws" && t.part == io.yamsergey.dta.daemon.network.proto.MappingPart.MESSAGE && t.direction == io.yamsergey.dta.protocol.network.Direction.OUT) {
+                        io.yamsergey.dta.daemon.network.proto.Selection(com.google.protobuf.Timestamp.getDescriptor(), "protobuf", "s", "m7")
+                    } else null
+                },
+            ),
+        )
+        withService(ws) { service, _ ->
+            val result = service.body("chat", BodyPart.MESSAGE)
+            assertEquals("m7", result.decoding!!.rule)
+            assertEquals("\"2023-11-14T22:13:20Z\"", result.text)
+        }
     }
 
     @Test
