@@ -4,6 +4,7 @@ package io.yamsergey.dta.protocol.layout
  * views/compose + daemon fallback), spoken by both sides and future clients. */
 
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonClassDiscriminator
@@ -18,6 +19,48 @@ object DegradationCodes {
     const val DEPTH_CAP_REACHED = "depth-cap-reached"
     const val WINDOW_LOST_MID_CAPTURE = "window-lost-mid-capture"
     const val LEGACY_ROOT_DISCOVERY = "legacy-root-discovery"
+
+    // Feature 003 (research R5).
+    const val COMPOSE_DETAIL_REDUCED = "compose-detail-reduced"
+    const val COMPOSE_SOURCE_INFO_MISSING = "compose-source-info-missing"
+    const val FILTER_NEEDS_RICHER_DETAIL = "filter-needs-richer-detail"
+}
+
+/** How much of the composition a Compose host contributes, ordered by
+ * richness (declaration order = comparison order). */
+@Serializable
+enum class DetailLevel {
+    /** Semantics tree only (feature 002). */
+    @SerialName("semantic") SEMANTIC,
+    /** Plus layout-only composables (containers) from tooling data. */
+    @SerialName("layout") LAYOUT,
+    /** Plus a root-to-node call chain on every Compose node. */
+    @SerialName("composition") COMPOSITION,
+}
+
+/** delivered is the minimum level actually served across Compose hosts. */
+@Serializable
+data class DetailInfo(val requested: DetailLevel, val delivered: DetailLevel)
+
+/** Where a Compose node came from: the semantics tree, or tooling data only
+ * (a layout-only container). */
+@Serializable
+enum class Provenance {
+    @SerialName("semantics") SEMANTICS,
+    @SerialName("tooling") TOOLING,
+}
+
+/** One composable in a call chain, ordered root → node. library is set only
+ * on framework frames (present only when frameworkFrames was requested). */
+@Serializable
+data class Frame(
+    val name: String,
+    val sourceFile: String? = null,
+    val lineNumber: Int? = null,
+    val library: Boolean? = null,
+) {
+    constructor(name: String, sourceFile: String?, lineNumber: Int?, library: Boolean) :
+        this(name, sourceFile, lineNumber, library.takeIf { it })
 }
 
 @Serializable
@@ -109,9 +152,12 @@ data class ViewNode(
     override val degraded: List<DegradationMarker>? = null,
 ) : Node
 
-/** id source: SemanticsNode id. name/sourceFile/lineNumber/parameters/library
- * are Tier-2 enrichment — all-or-none, null when enrichment absent. */
+/** id source: SemanticsNode id, or for tooling containers the layout node's
+ * semanticsId (same id space). name/sourceFile/lineNumber/parameters/library
+ * are Tier-2 enrichment — all-or-none, null when enrichment absent.
+ * visible null = visible; callChain only at composition level. */
 @Serializable
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @SerialName("compose")
 data class ComposeNode(
     override val id: Long? = null,
@@ -127,6 +173,9 @@ data class ComposeNode(
     val lineNumber: Int? = null,
     val library: Boolean? = null,
     val parameters: List<Parameter>? = null,
+    @EncodeDefault val provenance: Provenance = Provenance.SEMANTICS,
+    val visible: Boolean? = null,
+    val callChain: List<Frame>? = null,
     override val children: List<Node> = emptyList(),
     override val degraded: List<DegradationMarker>? = null,
 ) : Node
@@ -182,4 +231,5 @@ data class LayoutCapture(
     val degraded: List<DegradationMarker>? = null,
     val filtersApplied: Boolean = false,
     val matches: List<Match>? = null,
+    val detail: DetailInfo? = null,
 )

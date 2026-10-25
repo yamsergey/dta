@@ -5,6 +5,7 @@ package io.yamsergey.dta.protocol.layout
  * constitution VI). Set fields AND-combine (clarification #4); a match yields
  * the node plus its light ancestor chain. Pure — deviceless-tested.
  */
+@kotlinx.serialization.Serializable
 data class LayoutFilter(
     val text: String? = null,
     val type: String? = null,

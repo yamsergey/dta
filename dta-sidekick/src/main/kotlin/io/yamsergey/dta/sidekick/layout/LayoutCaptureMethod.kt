@@ -5,8 +5,10 @@ import android.os.Looper
 import android.view.View
 import io.yamsergey.dta.protocol.layout.CaptureSource
 import io.yamsergey.dta.protocol.layout.DegradationCodes
+import io.yamsergey.dta.protocol.layout.DetailInfo
+import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.layout.LayoutCapture
-import io.yamsergey.dta.protocol.layout.LayoutFilter
+import io.yamsergey.dta.protocol.layout.LayoutTreeParams
 import io.yamsergey.dta.protocol.layout.Node
 import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.layout.Window
@@ -32,13 +34,16 @@ class LayoutCaptureMethod(
     private val mainHandler: Handler = Handler(Looper.getMainLooper()),
     private val screenProvider: () -> Screen,
 ) {
-    fun capture(filter: LayoutFilter?): LayoutCapture {
+    fun capture(params: LayoutTreeParams = LayoutTreeParams()): LayoutCapture {
+        val filter = params.filter
         val result = runOnMainThread { captureOnMain() }
         val degraded = mutableListOf<DegradationMarker>()
         degraded += result.degraded
 
+        // Levels above semantic are not served yet: delivered is semantic.
+        val detail = DetailInfo(requested = params.detail, delivered = DetailLevel.SEMANTIC)
         val windows = result.windows
-        if (filter != null && !filter.isEmpty) {
+        if (filter != null) {
             val matches = windows.flatMapIndexed { i, w -> filter.apply(w.root, i) }
             return LayoutCapture(
                 screen = result.screen,
@@ -47,6 +52,7 @@ class LayoutCaptureMethod(
                 filtersApplied = true,
                 matches = matches,
                 degraded = degraded.ifEmpty { null },
+                detail = detail,
             )
         }
         return LayoutCapture(
@@ -54,6 +60,7 @@ class LayoutCaptureMethod(
             source = CaptureSource.SIDEKICK,
             windows = windows,
             degraded = degraded.ifEmpty { null },
+            detail = detail,
         )
     }
 

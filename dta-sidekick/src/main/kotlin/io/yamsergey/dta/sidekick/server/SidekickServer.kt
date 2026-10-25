@@ -11,18 +11,15 @@ import io.yamsergey.dta.protocol.rpc.MethodRegistry
 import io.yamsergey.dta.protocol.rpc.ServerSessionConnectionListener
 import io.yamsergey.dta.protocol.rpc.SessionIdentity
 import io.yamsergey.dta.protocol.layout.LayoutCapture
-import io.yamsergey.dta.protocol.layout.LayoutFilter
+import io.yamsergey.dta.protocol.layout.LayoutTreeParams
 import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.wire.WebSocketConnection
 import io.yamsergey.dta.sidekick.capability.CapabilityRegistry
 import io.yamsergey.dta.sidekick.layout.LayoutCapability
 import io.yamsergey.dta.sidekick.layout.LayoutCaptureMethod
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlin.concurrent.thread
 
@@ -68,8 +65,8 @@ object SidekickServer {
                 )
             }
             register("layout_tree") { ctx ->
-                val filter = ctx.params?.let { parseFilter(it) }
-                DtaJson.encodeToJsonElement(LayoutCapture.serializer(), layoutMethod.capture(filter))
+                val params = LayoutTreeParams.parse(ctx.params)
+                DtaJson.encodeToJsonElement(LayoutCapture.serializer(), layoutMethod.capture(params))
             }
             DiagnosticMethods.install(this)
         }
@@ -121,20 +118,6 @@ object SidekickServer {
             runCatching { client.close() }
         }
     }
-
-    private fun parseFilter(params: JsonObject): LayoutFilter? {
-        fun str(key: String) = (params[key]?.jsonPrimitive?.contentOrNullSafe())
-        val filter = LayoutFilter(
-            text = str("text"),
-            type = str("type"),
-            resourceId = str("resource_id") ?: str("resourceId"),
-            rootId = params["root_id"]?.jsonPrimitive?.longOrNull ?: params["rootId"]?.jsonPrimitive?.longOrNull,
-        )
-        return filter.takeUnless { it.isEmpty }
-    }
-
-    private fun kotlinx.serialization.json.JsonPrimitive.contentOrNullSafe(): String? =
-        if (this is kotlinx.serialization.json.JsonNull) null else content.ifEmpty { null }
 
     /** Screen metadata for the foreground display. */
     private fun screenMetadata(packageName: String): Screen {

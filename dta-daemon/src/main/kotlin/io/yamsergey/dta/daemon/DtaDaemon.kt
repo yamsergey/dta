@@ -11,8 +11,10 @@ import io.yamsergey.dta.daemon.layout.ForegroundDetector
 import io.yamsergey.dta.daemon.layout.LayoutService
 import io.yamsergey.dta.daemon.layout.UiAutomatorFallback
 import io.yamsergey.dta.protocol.rpc.DtaJson
+import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.layout.LayoutCapture
 import io.yamsergey.dta.protocol.layout.LayoutFilter
+import io.yamsergey.dta.protocol.layout.LayoutTreeParams
 import io.yamsergey.dta.protocol.layout.Screen
 import java.net.URI
 import kotlin.time.Duration
@@ -66,14 +68,19 @@ class DtaDaemon(
      * fallback decision ladder with honest labeling (contract §4). [pkg] null
      * means "whatever is foreground" (fallback only).
      */
-    suspend fun layout(serial: String, pkg: String?, filters: Map<String, Any?>? = null): LayoutCapture {
+    suspend fun layout(
+        serial: String,
+        pkg: String?,
+        filters: LayoutFilter? = null,
+        detail: DetailLevel = DetailLevel.SEMANTIC,
+        frameworkFrames: Boolean = false,
+    ): LayoutCapture {
         val service = LayoutService(
             foregroundPackage = { foregroundDetector.foregroundPackage(it) },
             sidekickCapture = pkg?.let { p ->
                 { params ->
                     val conn = connections.connect(ConnectionKey(serial, p))
-                    val filterJson = (params["filters"] as? Map<*, *>)?.let { filtersToParams(it) }
-                    val result = conn.request("layout_tree", filterJson)
+                    val result = conn.request("layout_tree", params.toJson())
                     DtaJson.decodeFromJsonElement(LayoutCapture.serializer(), result)
                 }
             },
@@ -83,7 +90,7 @@ class DtaDaemon(
             },
             screenOf = { screenOf(it) },
         )
-        return service.capture(serial, pkg, filters)
+        return service.capture(serial, pkg, LayoutTreeParams(filters, detail, frameworkFrames))
     }
 
     private fun screenOf(serial: String): Screen {
@@ -95,13 +102,6 @@ class DtaDaemon(
             .let { Regex("""(\d+)""").find(it)?.value?.toFloat()?.div(160f) ?: 1f }
         return Screen(w, h, density)
     }
-
-    private fun filtersToParams(filters: Map<*, *>): kotlinx.serialization.json.JsonObject =
-        kotlinx.serialization.json.buildJsonObject {
-            filters.forEach { (k, v) ->
-                if (v != null) put(k.toString(), kotlinx.serialization.json.JsonPrimitive(v.toString()))
-            }
-        }
 
     suspend fun shutdown() = connections.shutdown()
 }

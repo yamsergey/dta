@@ -148,4 +148,69 @@ class LayoutModelTest {
         )
         assertEquals(capture, roundTrip(capture))
     }
+
+    // ---- feature 003: detail levels ----
+
+    @Test
+    fun `detail levels serialize as lowercase names and are ordered by richness`() {
+        assertEquals("\"semantic\"", DtaJson.encodeToString(DetailLevel.SEMANTIC))
+        assertEquals("\"layout\"", DtaJson.encodeToString(DetailLevel.LAYOUT))
+        assertEquals("\"composition\"", DtaJson.encodeToString(DetailLevel.COMPOSITION))
+        assertTrue(DetailLevel.SEMANTIC < DetailLevel.LAYOUT && DetailLevel.LAYOUT < DetailLevel.COMPOSITION)
+    }
+
+    @Test
+    fun `capture carries detail requested and delivered`() {
+        val capture = LayoutCapture(
+            screen = Screen(1080, 2400, 2.75f),
+            source = CaptureSource.SIDEKICK,
+            windows = emptyList(),
+            detail = DetailInfo(requested = DetailLevel.COMPOSITION, delivered = DetailLevel.SEMANTIC),
+        )
+        val json = DtaJson.encodeToString(capture)
+        assertTrue(""""detail":{"requested":"composition","delivered":"semantic"}""" in json, json)
+        assertEquals(capture, roundTrip(capture))
+        // Fallback captures have no level concept: the field is omitted.
+        assertTrue("detail" !in DtaJson.encodeToString(capture.copy(detail = null)))
+    }
+
+    @Test
+    fun `compose node provenance is always present and new optional fields are omitted when null`() {
+        val semantic = ComposeNode(id = 4, bounds = Rect(0, 0, 10, 10), role = "Text")
+        val json = DtaJson.encodeToString<Node>(semantic)
+        assertTrue(""""provenance":"semantics"""" in json, json)
+        assertTrue("visible" !in json && "callChain" !in json, json)
+        // A feature-002 payload (no provenance) still decodes, as semantics.
+        val legacy = """{"kind":"compose","id":4,"bounds":{"left":0,"top":0,"right":10,"bottom":10}}"""
+        assertEquals(Provenance.SEMANTICS, (DtaJson.decodeFromString<Node>(legacy) as ComposeNode).provenance)
+    }
+
+    @Test
+    fun `container node with visibility and call chain round-trips`() {
+        val container = ComposeNode(
+            id = 9,
+            bounds = Rect(0, 0, 0, 0),
+            name = "Box",
+            sourceFile = "Screen.kt",
+            lineNumber = 12,
+            provenance = Provenance.TOOLING,
+            visible = false,
+            callChain = listOf(
+                Frame("Screen", "Screen.kt", 5),
+                Frame("Box", "Box.kt", 70, library = true),
+            ),
+        )
+        val json = DtaJson.encodeToString<Node>(container)
+        assertTrue(""""provenance":"tooling"""" in json && """"visible":false""" in json, json)
+        assertEquals(container, roundTrip<Node>(container))
+        // User frames omit the library flag.
+        assertTrue("library" !in DtaJson.encodeToString(Frame("Screen", "Screen.kt", 5)))
+    }
+
+    @Test
+    fun `feature 003 degradation codes are stable constants`() {
+        assertEquals("compose-detail-reduced", DegradationCodes.COMPOSE_DETAIL_REDUCED)
+        assertEquals("compose-source-info-missing", DegradationCodes.COMPOSE_SOURCE_INFO_MISSING)
+        assertEquals("filter-needs-richer-detail", DegradationCodes.FILTER_NEEDS_RICHER_DETAIL)
+    }
 }

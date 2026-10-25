@@ -1,104 +1,89 @@
 package io.yamsergey.dta.sidekick.layout.compose
 
 import android.view.View
+import androidx.compose.runtime.tooling.CompositionGroup
+import androidx.compose.ui.layout.LayoutInfo
 import io.yamsergey.dta.protocol.layout.Parameter
+import java.lang.reflect.Method
 
 /**
- * Tier 2 Compose enrichment (research D1/D2): composable names + source
- * location via ui-tooling-data's `asTree()`. Reached entirely by REFLECTION —
- * not compile-time tooling types — so the version-coupled surface can't break
- * compilation, and any runtime shape difference throws → the caller degrades
- * to Tier 1 (`compose-enrichment-failed`, all-or-none). Loaded only behind
- * ComposePresence's Tier-2 gate.
+ * Tier 2 Compose enrichment (research D1/D2, feature 003 R1): one traversal
+ * per CompositionData via ui-tooling-data's `mapTree`, whose factory builds the
+ * pure [ToolingGroup] intermediate. The tooling surface is reached entirely by
+ * REFLECTION — not compile-time tooling types — so the version-coupled surface
+ * can't break compilation, and any runtime shape difference throws → the
+ * caller degrades to Tier 1 (`compose-enrichment-failed`, all-or-none). Loaded
+ * only behind ComposePresence's Tier-2 gate.
  *
  * The join key to the Tier-1 semantics tree is the layout node's semanticsId.
  */
 class ToolingEnrichment {
 
+    /** The tooling forest of one host plus the layout nodes its groups own,
+     * keyed by semanticsId (read later for container geometry). */
+    class Read(val groups: List<ToolingGroup>, val layoutNodes: Map<Long, LayoutInfo>)
+
     /** Builds the overlay keyed by semantics id, or throws (caller wraps in
      * EnrichmentOverlay.buildOrNull for all-or-none). */
     fun buildOverlay(host: View): Map<Long, EnrichmentEntry> {
+        val overlay = ToolingTree.label(read(host).groups)
+        if (overlay.isEmpty()) error("tooling produced no groups")
+        return overlay
+    }
+
+    fun read(host: View): Read {
         val tables = compositionDataSet(host) ?: error("no CompositionData on host")
-        val asTree = Class.forName("androidx.compose.ui.tooling.data.SlotTreeKt")
-            .methods.first { it.name == "asTree" }
-
-        val out = HashMap<Long, EnrichmentEntry>()
-        for (data in tables) {
-            val group = asTree.invoke(null, data) ?: continue
-            collect(group, Context(null, null, null, emptyList(), true), null, out)
+        val api = Api.get()
+        val cache = api.newCache()
+        val layoutNodes = HashMap<Long, LayoutInfo>()
+        val factory: (Any?, Any?, List<Any?>) -> Any? = { group, context, children ->
+            buildGroup(api, group as CompositionGroup, context!!, children, layoutNodes)
         }
-        if (out.isEmpty()) error("tooling produced no groups")
-        return out
+        val groups = tables.mapNotNull { data -> api.mapTree.invoke(null, data, factory, cache) as ToolingGroup? }
+        return Read(groups, layoutNodes)
     }
 
-    /** The nearest enclosing named composable while descending — a NodeGroup's
-     * semantics id is labeled with this. */
-    private class Context(
-        val name: String?,
-        val sourceFile: String?,
-        val lineNumber: Int?,
-        val parameters: List<Parameter>,
-        val library: Boolean,
-    )
+    /** mapTree factory body. Never returns null (null drops the subtree). */
+    private fun buildGroup(
+        api: Api,
+        group: CompositionGroup,
+        context: Any,
+        children: List<Any?>,
+        layoutNodes: MutableMap<Long, LayoutInfo>,
+    ): ToolingGroup {
+        val name = api.name.invoke(context) as String?
+        val location = api.location.invoke(context)
+        val sourceFile = location?.let { api.sourceFile.invoke(it) } as String?
+        // Documented as 0-based, but measured 1-based on device (Compose 1.11,
+        // research T015 note): used as-is; 0 means unknown.
+        val line = (location?.let { api.lineNumber.invoke(it) } as Int?)?.takeIf { it > 0 }
 
-    private fun collect(
-        group: Any,
-        inherited: Context,
-        inheritedUser: Context?,
-        out: MutableMap<Long, EnrichmentEntry>,
-    ) {
-        val rawName = group.call("getName") as? String
-        val name = rawName?.let(::normalize)
-        val location = group.call("getLocation")
-        val sourceFile = location?.call("getSourceFile") as? String
-        val line = (location?.call("getLineNumber") as? Int)?.takeIf { it > 0 }
+        val userFrame = ComposableClassifier.isMeaningful(name) && !ComposableClassifier.isLibrary(sourceFile)
+        val parameters = if (userFrame) parametersOf(api, context) else emptyList()
 
-        val meaningful = name != null && rawName !in SKIP_NAMES
-        // Nearest meaningful composable (may be a library internal).
-        val context = if (meaningful) {
-            Context(name!!, sourceFile, line, parametersOf(group), isLibraryFile(sourceFile))
-        } else {
-            inherited
+        val layoutId = (group.node as? LayoutInfo)?.let { node ->
+            semanticsIdOf(node)?.also { layoutNodes.putIfAbsent(it, node) }
         }
-        // Nearest USER composable (source file not a known framework file) —
-        // this is what a developer wants to see labeling the node.
-        val userContext = if (meaningful && !isLibraryFile(sourceFile)) context else inheritedUser
-
-        val semanticsId = semanticsIdOf(group)
-        if (semanticsId != null && !out.containsKey(semanticsId)) {
-            val chosen = userContext ?: context
-            if (chosen.name != null) {
-                out[semanticsId] = EnrichmentEntry(
-                    name = chosen.name,
-                    sourceFile = chosen.sourceFile,
-                    lineNumber = chosen.lineNumber,
-                    parameters = chosen.parameters,
-                    library = chosen.library,
-                )
-            }
-        }
-        @Suppress("UNCHECKED_CAST")
-        (group.call("getChildren") as? Iterable<Any>)?.forEach { collect(it, context, userContext, out) }
+        return ToolingGroup(
+            name = name,
+            sourceFile = sourceFile,
+            line = line,
+            parameters = parameters,
+            layoutId = layoutId,
+            children = children.map { it as ToolingGroup },
+        )
     }
 
-    /** A composable's source file is a framework file when it lives in a known
-     * Compose/AndroidX file — user composables live elsewhere (the app). */
-    private fun isLibraryFile(sourceFile: String?): Boolean {
-        if (sourceFile == null) return true
-        return sourceFile in LIBRARY_FILES
-    }
-
-    private fun semanticsIdOf(group: Any): Long? = try {
-        // NodeGroup.node is the LayoutInfo; its getSemanticsId matches SemanticsNode.id.
-        val node = group.javaClass.methods.firstOrNull { it.name == "getNode" && it.parameterCount == 0 }?.invoke(group)
-        (node?.call("getSemanticsId") as? Int)?.toLong()
+    private fun semanticsIdOf(node: LayoutInfo): Long? = try {
+        (node.javaClass.methods.firstOrNull { it.name == "getSemanticsId" && it.parameterCount == 0 }
+            ?.invoke(node) as? Int)?.toLong()
     } catch (_: Throwable) {
         null
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun parametersOf(group: Any): List<Parameter> = try {
-        (group.call("getParameters") as? Iterable<Any>)?.mapNotNull { p ->
+    private fun parametersOf(api: Api, context: Any): List<Parameter> = try {
+        (api.parameters.invoke(context) as? Iterable<Any>)?.mapNotNull { p ->
             val n = p.call("getName") as? String ?: return@mapNotNull null
             val v = p.call("getValue")
             Parameter(n, v?.toString() ?: "null", v?.let { it::class.simpleName } ?: "null")
@@ -125,28 +110,47 @@ class ToolingEnrichment {
     private fun Any.call(method: String): Any? =
         javaClass.methods.firstOrNull { it.name == method && it.parameterCount == 0 }?.invoke(this)
 
-    private fun normalize(name: String): String = when (name) {
-        "BasicText" -> "Text"
-        "BasicTextField" -> "TextField"
-        else -> name
-    }
+    /** Reflective handles on ui-tooling-data, resolved once. Methods are taken
+     * from the public interface/data classes: the SourceContext implementation
+     * is a private class whose own Method objects are not invokable. */
+    private class Api(
+        val mapTree: Method,
+        private val cacheClass: Class<*>,
+        val name: Method,
+        val location: Method,
+        val parameters: Method,
+        val sourceFile: Method,
+        val lineNumber: Method,
+    ) {
+        fun newCache(): Any = cacheClass.getDeclaredConstructor().newInstance()
 
-    private companion object {
-        // Node-emitting / layout primitives that must not become a node's label.
-        val SKIP_NAMES = setOf(
-            "ReusableComposeNode", "ComposeNode", "Layout", "LayoutNode",
-            "SubcomposeLayout", "ReusableContentHost", "ReusableContent",
-        )
+        companion object {
+            private const val PKG = "androidx.compose.ui.tooling.data"
 
-        // Common Compose/Material/Foundation source files — composables from
-        // these are framework internals, not the developer's own code.
-        val LIBRARY_FILES = setOf(
-            "Text.kt", "BasicText.kt", "BasicTextField.kt", "TextField.kt",
-            "Surface.kt", "Box.kt", "Row.kt", "Column.kt", "Layout.kt",
-            "Button.kt", "Card.kt", "Scaffold.kt", "AppBar.kt", "Icon.kt",
-            "Image.kt", "Spacer.kt", "SelectionContainer.kt", "CoreText.kt",
-            "AndroidView.kt", "ComposeView.android.kt", "Wrapper.android.kt",
-            "SnackbarHost.kt", "ProvideTextStyle.kt", "TextStyle.kt",
-        )
+            @Volatile private var instance: Api? = null
+
+            fun get(): Api = instance ?: create().also { instance = it }
+
+            private fun create(): Api {
+                val slotTree = Class.forName("$PKG.SlotTreeKt")
+                val cache = Class.forName("$PKG.ContextCache")
+                val context = Class.forName("$PKG.SourceContext")
+                val location = Class.forName("$PKG.SourceLocation")
+                return Api(
+                    mapTree = slotTree.getMethod(
+                        "mapTree",
+                        Class.forName("androidx.compose.runtime.tooling.CompositionData"),
+                        Function3::class.java,
+                        cache,
+                    ),
+                    cacheClass = cache,
+                    name = context.getMethod("getName"),
+                    location = context.getMethod("getLocation"),
+                    parameters = context.getMethod("getParameters"),
+                    sourceFile = location.getMethod("getSourceFile"),
+                    lineNumber = location.getMethod("getLineNumber"),
+                )
+            }
+        }
     }
 }

@@ -82,6 +82,8 @@ data class CapabilityStatus(
     val name: String,
     val status: Status,
     val reason: String? = null,
+    /** layout capability only: detail levels currently servable (feature 003). */
+    val levels: List<io.yamsergey.dta.protocol.layout.DetailLevel>? = null,
 ) {
     @Serializable
     enum class Status {

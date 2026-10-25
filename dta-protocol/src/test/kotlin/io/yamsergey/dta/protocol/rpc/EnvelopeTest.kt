@@ -143,4 +143,16 @@ class EnvelopeTest {
             DtaJson.decodeFromString<Message>("""{"type":"nope","id":1}""")
         }
     }
+
+    @Test
+    fun `layout capability lists servable detail levels and omits them when null`() {
+        val withLevels = CapabilityStatus(
+            "layout", CapabilityStatus.Status.DEGRADED, "compose-tooling-absent",
+            levels = listOf(io.yamsergey.dta.protocol.layout.DetailLevel.SEMANTIC),
+        )
+        val json = DtaJson.encodeToString(withLevels)
+        assertTrue(""""levels":["semantic"]""" in json, json)
+        assertEquals(withLevels, DtaJson.decodeFromString<CapabilityStatus>(json))
+        assertTrue("levels" !in DtaJson.encodeToString(CapabilityStatus("channel", CapabilityStatus.Status.AVAILABLE)))
+    }
 }

@@ -79,7 +79,20 @@ class DegradationVocabularyAuditTest {
             DegradationCodes.DEPTH_CAP_REACHED,
             DegradationCodes.WINDOW_LOST_MID_CAPTURE, // produced in LayoutCaptureMethod (device)
             DegradationCodes.LEGACY_ROOT_DISCOVERY,
+            DegradationCodes.COMPOSE_DETAIL_REDUCED,
+            DegradationCodes.COMPOSE_SOURCE_INFO_MISSING,
+            DegradationCodes.FILTER_NEEDS_RICHER_DETAIL,
         )
         assertTrue(all.all { it.isNotBlank() } && all.toSet().size == all.size)
+    }
+
+    /** Feature 003 codes: each must have a producing path. Disabled (not
+     * deleted) until the producers land: detail-reduced and
+     * source-info-missing in LevelResolution (T027), filter-needs-richer-detail
+     * in the filter hint (T036). Enabling it is part of those tasks. */
+    @org.junit.jupiter.api.Disabled("red until T027 and T036 add producers")
+    @Test
+    fun `feature 003 codes are produced`() {
+        error("no producer yet for compose-detail-reduced, compose-source-info-missing, filter-needs-richer-detail")
     }
 }

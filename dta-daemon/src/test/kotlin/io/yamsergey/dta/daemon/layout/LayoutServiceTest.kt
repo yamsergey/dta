@@ -3,7 +3,10 @@ package io.yamsergey.dta.daemon.layout
 import io.yamsergey.dta.protocol.layout.CaptureSource
 import io.yamsergey.dta.protocol.layout.DegradationCodes
 import io.yamsergey.dta.protocol.layout.FallbackNode
+import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.layout.LayoutCapture
+import io.yamsergey.dta.protocol.layout.LayoutFilter
+import io.yamsergey.dta.protocol.layout.LayoutTreeParams
 import io.yamsergey.dta.protocol.layout.Rect
 import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.layout.Window
@@ -24,7 +27,7 @@ class LayoutServiceTest {
 
     private fun service(
         foreground: String? = "com.x",
-        sidekick: (suspend (Map<String, Any?>) -> LayoutCapture)? = { sidekickCapture },
+        sidekick: (suspend (LayoutTreeParams) -> LayoutCapture)? = { sidekickCapture },
     ) = LayoutService(
         foregroundPackage = { foreground },
         sidekickCapture = sidekick,
@@ -36,7 +39,7 @@ class LayoutServiceTest {
 
     @Test
     fun `healthy foreground app passes the sidekick capture through untouched`() = runBlocking {
-        val out = service().capture(serial = "emu", pkg = "com.x", filters = null)
+        val out = service().capture(serial = "emu", pkg = "com.x")
         assertEquals(CaptureSource.SIDEKICK, out.source)
         assertNull(out.fallbackReason)
         assertNull(out.foregroundMismatch)
@@ -45,21 +48,21 @@ class LayoutServiceTest {
     @Test
     fun `sidekick failure falls back with the failure reason`() = runBlocking {
         val out = service(sidekick = { throw RuntimeException("capture timed out after 5s") })
-            .capture(serial = "emu", pkg = "com.x", filters = null)
+            .capture(serial = "emu", pkg = "com.x")
         assertEquals(CaptureSource.UIAUTOMATOR, out.source)
         assertTrue("timed out" in out.fallbackReason!!, out.fallbackReason!!)
     }
 
     @Test
     fun `not-foreground app returns fallback of the actual screen with a mismatch note`() = runBlocking {
-        val out = service(foreground = "com.launcher").capture(serial = "emu", pkg = "com.x", filters = null)
+        val out = service(foreground = "com.launcher").capture(serial = "emu", pkg = "com.x")
         assertEquals(CaptureSource.UIAUTOMATOR, out.source)
         assertTrue("com.x" in out.foregroundMismatch!! && "com.launcher" in out.foregroundMismatch!!)
     }
 
     @Test
     fun `no sidekick available yields fallback with no fallbackReason`() = runBlocking {
-        val out = service(sidekick = null).capture(serial = "emu", pkg = null, filters = null)
+        val out = service(sidekick = null).capture(serial = "emu", pkg = null)
         assertEquals(CaptureSource.UIAUTOMATOR, out.source)
         assertNull(out.fallbackReason, "nothing better was expected, so no failure reason")
     }
@@ -67,11 +70,19 @@ class LayoutServiceTest {
     @Test
     fun `filters on the fallback path are refused explicitly, never silently unfiltered`() = runBlocking {
         val out = service(foreground = "com.launcher")
-            .capture(serial = "emu", pkg = "com.x", filters = mapOf("text" to "Submit"))
+            .capture(serial = "emu", pkg = "com.x", params = LayoutTreeParams(filters = LayoutFilter(text = "Submit")))
         assertEquals(false, out.filtersApplied)
         assertTrue(
             out.degraded!!.any { it.reason.contains("filter") },
             "fallback filter refusal must be a visible degradation: ${out.degraded}",
         )
+    }
+
+    @Test
+    fun `request params reach the sidekick unchanged`() = runBlocking {
+        var seen: LayoutTreeParams? = null
+        val params = LayoutTreeParams(LayoutFilter(type = "Row"), DetailLevel.COMPOSITION, frameworkFrames = true)
+        service(sidekick = { seen = it; sidekickCapture }).capture(serial = "emu", pkg = "com.x", params = params)
+        assertEquals(params, seen)
     }
 }
