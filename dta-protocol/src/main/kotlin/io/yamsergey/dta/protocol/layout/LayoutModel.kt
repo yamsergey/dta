@@ -24,6 +24,16 @@ object DegradationCodes {
     const val COMPOSE_DETAIL_REDUCED = "compose-detail-reduced"
     const val COMPOSE_SOURCE_INFO_MISSING = "compose-source-info-missing"
     const val FILTER_NEEDS_RICHER_DETAIL = "filter-needs-richer-detail"
+
+    // Feature 004 (data-model §Degradation codes).
+    const val NETWORK_HOOKS_UNAVAILABLE = "network-hooks-unavailable"
+    const val NETWORK_LIBRARY_UNAVAILABLE = "network-library-unavailable"
+    const val NETWORK_HISTORY_EVICTED = "network-history-evicted"
+    const val NETWORK_HISTORY_NOT_PERSISTED = "network-history-not-persisted"
+    const val NETWORK_EVENTS_DROPPED = "network-events-dropped"
+    const val NETWORK_INITIATOR_MISSING = "network-initiator-missing"
+    const val NETWORK_BODY_INCOMPLETE = "network-body-incomplete"
+    const val NETWORK_REDACTION_WITHHELD = "network-redaction-withheld"
 }
 
 /** How much of the composition a Compose host contributes, ordered by

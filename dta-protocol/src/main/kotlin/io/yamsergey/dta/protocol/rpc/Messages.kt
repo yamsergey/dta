@@ -84,6 +84,10 @@ data class CapabilityStatus(
     val reason: String? = null,
     /** layout capability only: detail levels currently servable (feature 003). */
     val levels: List<io.yamsergey.dta.protocol.layout.DetailLevel>? = null,
+    /** network capability only: per-library capture status (feature 004). */
+    val libraries: List<io.yamsergey.dta.protocol.network.LibraryStatus>? = null,
+    /** network capability only: storage bounds (feature 004). */
+    val bounds: io.yamsergey.dta.protocol.network.NetworkBounds? = null,
 ) {
     @Serializable
     enum class Status {

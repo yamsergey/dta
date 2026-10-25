@@ -38,6 +38,9 @@ object SidekickServer {
 
     val capabilities = CapabilityRegistry()
 
+    /** Pushes events (network.entry) to every connected session. */
+    val sessions = SessionHub()
+
     @Synchronized
     fun start(packageName: String, sidekickVersion: String) {
         if (started) return
@@ -109,15 +112,24 @@ object SidekickServer {
     }
 
     private fun serve(client: LocalSocket, identity: SessionIdentity, registry: MethodRegistry) {
+        var hubHandle: SessionHub.Handle? = null
         try {
             WebSocketConnection(
                 client.inputStream,
                 client.outputStream,
-                ServerSessionConnectionListener(identity, registry),
+                ServerSessionConnectionListener(identity, registry) { session ->
+                    hubHandle = sessions.add(object : SessionHub.Sink {
+                        override val helloCompleted: Boolean get() = session.helloCompleted
+                        override fun send(name: String, data: kotlinx.serialization.json.JsonElement?) {
+                            session.sendEvent(name, data)
+                        }
+                    })
+                },
             ).run()
         } catch (e: Exception) {
             Log.w(TAG, "connection ended with ${e.javaClass.simpleName}: ${e.message}")
         } finally {
+            hubHandle?.close()
             runCatching { client.close() }
         }
     }
