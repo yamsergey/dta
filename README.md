@@ -12,6 +12,7 @@ prototype lives on the `pre-refined` branch.
 | `dta-protocol` | Pure-JVM wire core: hand-rolled RFC 6455 server half, JSON message envelope, hello-gated RPC sessions, diagnostic methods, and the shared layout tree model + filter. No Android, no third-party transport deps. |
 | `dta-daemon` | Host side (library): ADB discovery (`/proc/net/unix` scan), port-forward ownership with startup sweep, `SidekickConnectionManager` (the single connection-lifecycle owner), `SidekickConnection` (JDK WebSocket client), and `LayoutService` (sidekick-vs-uiautomator-fallback decision ladder with honest labeling). |
 | `dta-sidekick` | Android AAR embedded in debug builds: `LocalServerSocket` accept loop, AndroidX Startup init, capability registry with live statuses, layout capture (View walk + two-tier Compose: semantics always, ui-tooling-data enrichment when present), and network capture through a JVMTI agent (`libdta-agent.so`, dex rewriting on vendored AOSP slicer). Zero third-party runtime deps — Compose and OkHttp are `compileOnly` (constitution I). |
+| `dta-sidekick-rhino` | Rhino 1.7.15 (MPL 2.0) relocated to `io.yamsergey.dta.vendor.rhino` — the network-script engine; consumers never see `org.mozilla`. |
 | `dta-sidekick-shim` | Pure-Java hook dispatcher, dexed into the AAR's assets and put on the bootstrap class path by the agent, so boot classes (`java.net.URL`) can call it. Its `onEntry`/`onExit` signatures are a frozen ABI. |
 
 ## Capabilities
@@ -67,6 +68,34 @@ prototype lives on the `pre-refined` branch.
   - Requirements: API 28+ and a debuggable app; otherwise the capability says
     why. Reductions use eight `network-*` degradation codes.
 
+- **network script** (feature 005): one JavaScript script per app intervenes in
+  the traffic network capture sees — delay, rewrite, mock, drop, throttle, for
+  HTTP (OkHttp, `HttpURLConnection`) and WebSocket (all three libraries).
+  - Methods: `network_script_set` (replace; rejected with line/column if it
+    does not compile), `network_script_clear`, `network_script_status`,
+    `network_script_logs` (`since`); daemon `networkScriptSet/Clear/Status/Logs`.
+  - Handlers `onRequest(req)`, `onResponse(res, req)`, `onWsSend(msg, conn)`,
+    `onWsReceive(msg, conn)`; helpers `respond({...})` (mock), `drop()`,
+    `sleep(ms)`, `throttle(bytesPerSecond)`, `state`, `log`. Return the mutated
+    object to change it; `null` is an error, never a silent drop. Bodies are read
+    only when the script calls `text()`/`bytes()`/`json()`. Snippets for the
+    common cases: `../specs/005-network-scripting/contracts/network-script.md` §8.
+  - The script runs on the device, persists across restarts until cleared, and
+    applies from the first request of a new process, before any client connects
+    (constitution v1.4.0). It is always visible: the `network` capability's
+    `script`, an `intervention` record on every entry it touched (handlers,
+    changed fields, delay, throttle, mocked/dropped, errors), the app-side request
+    / response / message next to the wire view (`app-request`, `app-response`,
+    `app-message` body parts), the `intervened` filter, and a device-log line at
+    every app start.
+  - A script error never breaks traffic: the original passes and the error is
+    logged with the entry. Limits: one script per app; handlers run synchronously
+    on the calling thread; while a script defines `onRequest`, `HttpURLConnection`
+    request bodies are buffered (no streaming); for OkHttp the script handles each
+    call once, while each network attempt is captured and marked.
+  - Known limitation (also of capture): a shaded or separately loaded copy of a
+    supported library is neither captured nor scripted.
+
 ## Protocol
 
 One duplex WebSocket per (device, app) over
@@ -97,4 +126,7 @@ sources as prior art for framework internals.
 
 Third-party code: `dta-sidekick/src/main/cpp/third_party/slicer` is AOSP
 dexter/slicer (Apache 2.0), vendored with one patch (checks throw instead of
-aborting); see its `README.dta`.
+aborting); see its `README.dta`. `dta-sidekick-rhino` repackages Mozilla Rhino
+(MPL 2.0, license kept as `META-INF/rhino-LICENSE.txt`). The control entry hook
+(`cpp/control_entry_hook.cc`) follows Android Studio's `ArrayParamsEntryHook`
+(Apache 2.0).

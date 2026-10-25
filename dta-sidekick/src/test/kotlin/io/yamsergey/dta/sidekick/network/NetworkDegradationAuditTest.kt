@@ -17,8 +17,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * SC-008 "no silent degradation" for network: each of the eight network codes is
- * produced by real logic, and none appears on a healthy page. `network-redaction-withheld`
+ * SC-008 "no silent degradation" for network: each of the ten network codes (eight from
+ * feature 004, two from 005) is produced by real logic, and none appears on a healthy page. `network-redaction-withheld`
  * is produced in the daemon (NetworkServiceTest, binary body under redaction).
  */
 class NetworkDegradationAuditTest {
@@ -103,5 +103,35 @@ class NetworkDegradationAuditTest {
         val methods = NetworkMethods(store) { available }
         assertTrue(DegradationCodes.NETWORK_BODY_INCOMPLETE in codes(methods.list(null)))
         assertTrue(DegradationCodes.NETWORK_BODY_INCOMPLETE in methods.entry(Json.parseToJsonElement("""{"id":"$id"}""").jsonObject).degraded!!.map { it.reason })
+    }
+
+    // ---- feature 005 ----
+
+    private fun withScripts(runtime: io.yamsergey.dta.sidekick.network.script.ScriptRuntime) = withStore { store, recorder ->
+        completeGet(recorder)
+        codes(NetworkMethods(store, { runtime.degradations() }) { available }.list(null))
+    }
+
+    @Test
+    fun `a persisted active script raises no script code`() {
+        val runtime = io.yamsergey.dta.sidekick.network.script.ScriptRuntime()
+        runtime.install("function onRequest(r) {}")
+        runtime.markPersisted(true)
+        assertEquals(emptyList(), withScripts(runtime))
+    }
+
+    @Test
+    fun `script-not-persisted comes from a script storage could not keep`() {
+        val runtime = io.yamsergey.dta.sidekick.network.script.ScriptRuntime()
+        runtime.install("function onRequest(r) {}")
+        runtime.markPersisted(false)
+        assertTrue(DegradationCodes.NETWORK_SCRIPT_NOT_PERSISTED in withScripts(runtime))
+    }
+
+    @Test
+    fun `script-unavailable comes from a persisted script that cannot apply`() {
+        val runtime = io.yamsergey.dta.sidekick.network.script.ScriptRuntime()
+        runtime.restore(io.yamsergey.dta.sidekick.network.script.StoredScript("function (", 1), hooksUnavailable = null)
+        assertTrue(DegradationCodes.NETWORK_SCRIPT_UNAVAILABLE in withScripts(runtime))
     }
 }
