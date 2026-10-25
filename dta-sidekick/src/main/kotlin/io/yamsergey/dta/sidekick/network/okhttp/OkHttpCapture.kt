@@ -11,8 +11,12 @@ import io.yamsergey.dta.sidekick.network.NetworkRecorder
 
 /**
  * OkHttp 3/4/5 HTTP capture: an exit hook on `OkHttpClient#networkInterceptors()` returns
- * the list with [DtaInterceptor] first (Android Studio's NetworkInspector does the same);
- * one on `OkHttpClient#interceptors()` adds [FailureInterceptor] for calls that fail
+ * the list with [DtaInterceptor] **last**, right before OkHttp's own CallServerInterceptor,
+ * so capture records the request as sent — after the app's network interceptors changed
+ * it — and the response as the server sent it, before they change it. (Android Studio puts
+ * its interceptor first; we deliberately differ: debugging the network needs what was on
+ * the wire, or the server gets blamed for client-side changes.) A hook on
+ * `OkHttpClient#interceptors()` adds [FailureInterceptor] first, for calls that fail
  * before reaching the network layer. Entry hooks on `RealCall#enqueue`/`#execute` (both
  * the 4.x+ and 3.x class names) remember where the app issued each call, so async
  * requests carry the enqueue site rather than dispatcher frames (FR-010).
@@ -38,10 +42,10 @@ internal object OkHttpCapture {
         }
         val failure = (callSites + listOf(
             Hooks.exit(client, "networkInterceptors", "()Ljava/util/List;", object : ExitHandler {
-                override fun onExit(result: Any?): Any? = withInterceptor(result, network)
+                override fun onExit(result: Any?): Any? = withInterceptor(result, network, last = true)
             }),
             Hooks.exit(client, "interceptors", "()Ljava/util/List;", object : ExitHandler {
-                override fun onExit(result: Any?): Any? = withInterceptor(result, failures)
+                override fun onExit(result: Any?): Any? = withInterceptor(result, failures, last = false)
             }),
         )).filterIsInstance<Hooks.Install.Failed>().firstOrNull()?.reason
         return LibraryState(NetworkLibraries.OKHTTP3, present = true, installFailure = failure)
@@ -56,15 +60,20 @@ internal object OkHttpCapture {
     }
 
     /**
-     * Prepends ours once. `newBuilder()` copies the list through this same getter, so a
-     * derived client's list may already hold it — adding again would capture twice.
+     * Ours exactly once, at the given end. `newBuilder()` copies the list through this
+     * same getter, so a derived client may already hold ours — possibly no longer at the
+     * end once the app added its own interceptors — hence remove, then place.
      */
-    private fun withInterceptor(result: Any?, interceptor: Any): Any? {
+    private fun withInterceptor(result: Any?, interceptor: Any, last: Boolean): Any? {
         val list = result as? List<*> ?: return result
-        if (list.any { it != null && it.javaClass == interceptor.javaClass }) return result
-        return ArrayList<Any?>(list.size + 1).apply {
-            add(interceptor)
-            addAll(list)
+        val ours = interceptor.javaClass
+        val others = list.filter { it?.javaClass != ours }
+        val inPlace = others.size == list.size - 1 && (if (last) list.lastOrNull() else list.firstOrNull())?.javaClass == ours
+        if (inPlace) return result
+        return ArrayList<Any?>(others.size + 1).apply {
+            if (!last) add(interceptor)
+            addAll(others)
+            if (last) add(interceptor)
         }
     }
 
