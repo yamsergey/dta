@@ -63,7 +63,40 @@ class ScriptRuntime(
         val had = active != null
         active = null
         unavailable = null
+        unappliedId = null
         return had
+    }
+
+    /** Id of a persisted script that could not be applied (see [unavailable]). */
+    @Volatile
+    private var unappliedId: String? = null
+
+    /**
+     * Process start (FR-004): re-activates the persisted script before any traffic. A script
+     * that cannot apply — no hooks, or it no longer compiles — is reported (FR-023).
+     */
+    @Synchronized
+    fun restore(stored: StoredScript, hooksUnavailable: String?) {
+        if (hooksUnavailable != null) {
+            unappliedId = idOf(stored.source)
+            unavailable = "hooks unavailable: $hooksUnavailable"
+            return
+        }
+        try {
+            install(stored.source, stored.installedAtMs)
+            markPersisted(true)
+            unappliedId = null
+        } catch (e: ScriptCompileException) {
+            unappliedId = idOf(stored.source)
+            unavailable = "persisted script does not compile: ${e.message}"
+        }
+    }
+
+    /** The capability's `script`: the active one, or a persisted one that could not apply. */
+    fun summary(): io.yamsergey.dta.protocol.network.ScriptSummary? {
+        active?.let { return io.yamsergey.dta.protocol.network.ScriptSummary(it.id, it.installedAtMs, unavailable) }
+        val id = unappliedId ?: return null
+        return io.yamsergey.dta.protocol.network.ScriptSummary(id, 0, unavailable)
     }
 
     fun markPersisted(persisted: Boolean) {

@@ -11,7 +11,6 @@ import io.yamsergey.dta.sidekick.network.nv.NvWebSocketCapture
 import io.yamsergey.dta.sidekick.network.okhttp.OkHttpCapture
 import io.yamsergey.dta.sidekick.network.script.ScriptRuntime
 import io.yamsergey.dta.sidekick.network.script.ScriptStore
-import io.yamsergey.dta.protocol.network.ScriptSummary
 import io.yamsergey.dta.sidekick.network.okhttp.OkHttpWebSocketCapture
 import io.yamsergey.dta.sidekick.network.store.NetworkStore
 import io.yamsergey.dta.sidekick.network.store.StorageDir
@@ -52,6 +51,7 @@ object NetworkRuntime {
         val created = NetworkStore(StorageDir(root), pid = Process.myPid())
         val recorder = NetworkRecorder(created) { name, data -> SidekickServer.sessions.publish(name, data) }
         store = created
+        restoreScript()
         if (!HookAttach.attached) return
         val loader = context.classLoader
         val initiators = Initiators()
@@ -72,9 +72,24 @@ object NetworkRuntime {
         libraries.filter { it.installFailure != null }.forEach { Log.w(TAG, "${it.name} not captured: ${it.installFailure}") }
     }
 
+    /**
+     * Re-activates the persisted network script before any library hook exists, so the
+     * first request of this process is already scripted (feature 005 FR-004), and says so
+     * in the device log at every start (constitution v1.4.0, FR-019).
+     */
+    private fun restoreScript() {
+        val stored = scriptStore.load() ?: return
+        scripts.restore(stored, hooksUnavailable = if (HookAttach.attached) null else HookAttach.reason)
+        val summary = scripts.summary() ?: return
+        if (summary.unavailable == null) {
+            Log.w(TAG, "network script ${summary.id} active since ${java.time.Instant.ofEpochMilli(summary.installedAtMs)}; it changes this app's network traffic; remove it with network_script_clear")
+        } else {
+            Log.w(TAG, "network script ${summary.id} is installed but NOT applied: ${summary.unavailable}")
+        }
+    }
+
     fun capability(): CapabilityStatus {
         val bounds = store?.bounds ?: io.yamsergey.dta.sidekick.network.store.StoreBounds()
-        val script = scripts.current()?.let { ScriptSummary(it.id, it.installedAtMs, scripts.unavailable) }
-        return NetworkCapability.status(HookAttach.reason, libraries, bounds, script)
+        return NetworkCapability.status(HookAttach.reason, libraries, bounds, scripts.summary())
     }
 }

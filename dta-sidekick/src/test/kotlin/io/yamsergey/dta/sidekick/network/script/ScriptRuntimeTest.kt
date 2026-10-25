@@ -108,4 +108,30 @@ class ScriptRuntimeTest {
         runtime.install("function onRequest(r) {}")
         assertEquals("function onRequest(r) {}", runtime.status().source)
     }
+
+    @Test
+    fun `restoring a persisted script activates it with its original install time`() {
+        runtime.restore(StoredScript("function onRequest(r) {}", installedAtMs = 7), hooksUnavailable = null)
+        val active = runtime.current()!!
+        assertEquals(7, active.installedAtMs)
+        assertEquals(true, active.persisted)
+        assertEquals(active.id, runtime.summary()!!.id)
+        assertNull(runtime.summary()!!.unavailable)
+    }
+
+    @Test
+    fun `a persisted script that no longer compiles is reported, not dropped silently`() {
+        runtime.restore(StoredScript("function (", installedAtMs = 7), hooksUnavailable = null)
+        assertNull(runtime.current())
+        val summary = runtime.summary()!!
+        assertEquals(ScriptRuntime.idOf("function ("), summary.id)
+        assertTrue("does not compile" in summary.unavailable!!, summary.unavailable)
+        assertEquals(listOf(io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SCRIPT_UNAVAILABLE), runtime.degradations())
+    }
+
+    @Test
+    fun `a persisted script cannot apply without hooks, and says why`() {
+        runtime.restore(StoredScript("function onRequest(r) {}", 7), hooksUnavailable = "requires API 28+")
+        assertTrue("API 28" in runtime.summary()!!.unavailable!!)
+    }
 }
