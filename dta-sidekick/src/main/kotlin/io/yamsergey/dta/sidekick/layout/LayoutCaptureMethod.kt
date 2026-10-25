@@ -14,6 +14,9 @@ import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.layout.Window
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
+import io.yamsergey.dta.sidekick.layout.compose.ContainerAssembly
+import io.yamsergey.dta.sidekick.layout.compose.LayoutRecords
+import io.yamsergey.dta.sidekick.layout.compose.ToolingTree
 import io.yamsergey.dta.sidekick.layout.compose.EnrichmentOverlay
 import io.yamsergey.dta.sidekick.layout.compose.SemanticsCapture
 import io.yamsergey.dta.sidekick.layout.compose.ToolingEnrichment
@@ -36,12 +39,13 @@ class LayoutCaptureMethod(
 ) {
     fun capture(params: LayoutTreeParams = LayoutTreeParams()): LayoutCapture {
         val filter = params.filter
-        val result = runOnMainThread { captureOnMain() }
+        val result = runOnMainThread { captureOnMain(params.detail) }
         val degraded = mutableListOf<DegradationMarker>()
         degraded += result.degraded
 
-        // Levels above semantic are not served yet: delivered is semantic.
-        val detail = DetailInfo(requested = params.detail, delivered = DetailLevel.SEMANTIC)
+        // delivered = the minimum level actually served across Compose hosts.
+        val delivered = result.hostLevels.minOrNull() ?: params.detail
+        val detail = DetailInfo(requested = params.detail, delivered = delivered)
         val windows = result.windows
         if (filter != null) {
             val matches = windows.flatMapIndexed { i, w -> filter.apply(w.root, i) }
@@ -68,42 +72,66 @@ class LayoutCaptureMethod(
         val screen: Screen,
         val windows: List<Window>,
         val degraded: List<DegradationMarker>,
+        val hostLevels: List<DetailLevel>,
     )
 
-    private fun captureOnMain(): MainResult {
+    private fun captureOnMain(level: DetailLevel): MainResult {
         val degraded = mutableListOf<DegradationMarker>()
         val captured = viewCapture.captureWindows()
         val tier2 = presence.tier2Available
         presence.tier2Skip?.let { degraded += DegradationMarker(LayoutCapability.NAME, it) }
 
+        val hostLevels = mutableListOf<DetailLevel>()
         val windows = captured.map { window ->
             val composeWalks = window.composeHosts.mapNotNull { (hostId, hostView) ->
-                captureComposeHost(hostId, hostView, tier2, degraded)
+                captureComposeHost(hostId, hostView, tier2, level, degraded)?.also { hostLevels += it.second }?.first
             }
             Window(window.title, window.type, window.zOrder, TreeMerger.merge(window.walk, composeWalks))
         }
-        return MainResult(screenProvider(), windows, degraded)
+        return MainResult(screenProvider(), windows, degraded, hostLevels)
     }
 
+    /** One Compose host at the requested level, or lower when tooling cannot
+     * serve it. Tooling data for a host is used all-or-none: any failure
+     * keeps the plain semantics tree. Returns the walk and the level served. */
     private fun captureComposeHost(
         hostId: Long,
         hostView: View,
         tier2: Boolean,
+        level: DetailLevel,
         degraded: MutableList<DegradationMarker>,
-    ): ComposeWalkResult? {
+    ): Pair<ComposeWalkResult, DetailLevel>? {
         if (!presence.composePresent) return null
         val host = SemanticsCapture().capture(hostView) ?: return null
-        var tree: Node = host.tree
+        val semantic = ComposeWalkResult(hostId, host.tree, host.embeddedHosts)
+        if (!tier2) return semantic to DetailLevel.SEMANTIC
 
-        if (tier2) {
-            val overlay = EnrichmentOverlay.buildOrNull { ToolingEnrichment().buildOverlay(hostView) }
-            if (overlay == null) {
-                degraded += DegradationMarker(LayoutCapability.NAME, DegradationCodes.COMPOSE_ENRICHMENT_FAILED)
-            } else {
-                tree = EnrichmentOverlay.applyOrNull(host.tree, overlay) ?: host.tree
-            }
+        val enriched = EnrichmentOverlay.buildOrNull { enrich(hostId, hostView, host, level) }
+        if (enriched == null) {
+            degraded += DegradationMarker(LayoutCapability.NAME, DegradationCodes.COMPOSE_ENRICHMENT_FAILED)
+            return semantic to DetailLevel.SEMANTIC
         }
-        return ComposeWalkResult(hostId, tree, host.embeddedHosts)
+        return enriched.walk to enriched.level
+    }
+
+    private class Enriched(val walk: ComposeWalkResult, val level: DetailLevel)
+
+    /** Throws on any tooling failure (caller discards everything). */
+    private fun enrich(hostId: Long, hostView: View, host: SemanticsCapture.HostCapture, level: DetailLevel): Enriched {
+        val read = ToolingEnrichment().read(hostView)
+        val labels = ToolingTree.label(read.groups)
+        if (labels.isEmpty()) error("tooling produced no groups")
+        val labeled = EnrichmentOverlay.applyOrNull(host.tree, labels)!!
+        if (level == DetailLevel.SEMANTIC) {
+            return Enriched(ComposeWalkResult(hostId, labeled, host.embeddedHosts), DetailLevel.SEMANTIC)
+        }
+        val records = LayoutRecords.from(read.layoutNodes)
+        val tree = ContainerAssembly.insertContainers(labeled, records, labels)
+        val semanticEmbeds = host.embeddedHosts.map { it.composeNodeId }.toSet()
+        val containerEmbeds = records.mapNotNull { r ->
+            r.interopViewId?.takeIf { r.id !in semanticEmbeds }?.let { EmbeddedHost(r.id, it) }
+        }
+        return Enriched(ComposeWalkResult(hostId, tree, host.embeddedHosts + containerEmbeds), DetailLevel.LAYOUT)
     }
 
     private fun <T> runOnMainThread(block: () -> T): T {

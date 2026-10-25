@@ -23,14 +23,8 @@ class ToolingEnrichment {
      * keyed by semanticsId (read later for container geometry). */
     class Read(val groups: List<ToolingGroup>, val layoutNodes: Map<Long, LayoutInfo>)
 
-    /** Builds the overlay keyed by semantics id, or throws (caller wraps in
+    /** Reads the host's tooling forest, or throws (caller wraps in
      * EnrichmentOverlay.buildOrNull for all-or-none). */
-    fun buildOverlay(host: View): Map<Long, EnrichmentEntry> {
-        val overlay = ToolingTree.label(read(host).groups)
-        if (overlay.isEmpty()) error("tooling produced no groups")
-        return overlay
-    }
-
     fun read(host: View): Read {
         val tables = compositionDataSet(host) ?: error("no CompositionData on host")
         val api = Api.get()
@@ -62,7 +56,7 @@ class ToolingEnrichment {
         val parameters = if (userFrame) parametersOf(api, context) else emptyList()
 
         val layoutId = (group.node as? LayoutInfo)?.let { node ->
-            semanticsIdOf(node)?.also { layoutNodes.putIfAbsent(it, node) }
+            LayoutNodeProbes.semanticsId(node)?.also { layoutNodes.putIfAbsent(it, node) }
         }
         return ToolingGroup(
             name = name,
@@ -72,13 +66,6 @@ class ToolingEnrichment {
             layoutId = layoutId,
             children = children.map { it as ToolingGroup },
         )
-    }
-
-    private fun semanticsIdOf(node: LayoutInfo): Long? = try {
-        (node.javaClass.methods.firstOrNull { it.name == "getSemanticsId" && it.parameterCount == 0 }
-            ?.invoke(node) as? Int)?.toLong()
-    } catch (_: Throwable) {
-        null
     }
 
     @Suppress("UNCHECKED_CAST")

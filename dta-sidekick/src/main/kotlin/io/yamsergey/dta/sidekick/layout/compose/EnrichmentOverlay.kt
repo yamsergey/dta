@@ -21,8 +21,8 @@ data class EnrichmentEntry(
  */
 object EnrichmentOverlay {
 
-    /** Runs [producer] guarded; returns its overlay, or null on any failure. */
-    inline fun buildOrNull(producer: () -> Map<Long, EnrichmentEntry>): Map<Long, EnrichmentEntry>? =
+    /** Runs [producer] guarded; returns its result, or null on any failure. */
+    inline fun <T : Any> buildOrNull(producer: () -> T): T? =
         try {
             producer()
         } catch (_: Throwable) {

@@ -74,19 +74,8 @@ class SemanticsCapture(private val maxDepth: Int = 50) {
         )
     }
 
-    /** Reflectively probe for an embedded AndroidView hosted by this node —
-     * absence is normal, never an error. */
-    private fun embeddedViewDrawingId(node: SemanticsNode): Long? = try {
-        val layoutInfo = node.layoutInfo
-        val holder = layoutInfo.javaClass.methods
-            .firstOrNull { it.name == "getInteropView" }
-            ?.invoke(layoutInfo) as? View
-        holder?.let {
-            if (android.os.Build.VERSION.SDK_INT >= 29) it.uniqueDrawingId else System.identityHashCode(it).toLong()
-        }
-    } catch (_: Throwable) {
-        null
-    }
+    private fun embeddedViewDrawingId(node: SemanticsNode): Long? =
+        LayoutNodeProbes.interopViewDrawingId(node.layoutInfo)
 
     companion object {
         const val COMPOSE_VIEW = "androidx.compose.ui.platform.AndroidComposeView"
