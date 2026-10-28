@@ -17,6 +17,8 @@ rootProject.name = "dta"
 
 include(":dta-protocol")
 include(":dta-daemon")
+include(":dta-client")
+include(":dta-cli")
 include(":dta-sidekick")
 include(":dta-sidekick-shim")
 include(":dta-sidekick-rhino")

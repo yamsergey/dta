@@ -19,6 +19,9 @@ shadow = "9.0.2"
 protobuf = "4.36.2"
 opentelemetry-proto = "1.11.1-alpha"
 wire = "6.4.7"  # 7.x pulls kotlin-stdlib 2.3
+# CLI only (feature 008). Clikt 5.1 pulls kotlin-stdlib 2.3; the MCP Kotlin SDK pulls 2.4.
+clikt = "5.0.3"
+mcp = "2.0.1"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -35,6 +38,8 @@ protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "p
 protobuf-java-util = { module = "com.google.protobuf:protobuf-java-util", version.ref = "protobuf" }
 opentelemetry-proto = { module = "io.opentelemetry.proto:opentelemetry-proto", version.ref = "opentelemetry-proto" }
 wire-schema = { module = "com.squareup.wire:wire-schema-jvm", version.ref = "wire" }
+clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
+mcp = { module = "io.modelcontextprotocol.sdk:mcp", version.ref = "mcp" }
 compose-ui-tooling-data = { module = "androidx.compose.ui:ui-tooling-data", version.ref = "compose" }
 
 [plugins]
