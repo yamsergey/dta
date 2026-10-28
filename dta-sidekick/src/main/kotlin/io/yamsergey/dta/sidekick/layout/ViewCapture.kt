@@ -51,6 +51,7 @@ class ViewCapture(private val maxDepth: Int = 100) {
         }
     }
 
+    @android.annotation.SuppressLint("NewApi") // WINDOW_INSPECTOR is selected only on API 29+ (RootProviderSelector)
     private fun discoverRoots(): List<View> {
         val selection = RootProviderSelector.select(Build.VERSION.SDK_INT)
         val views = when (selection.kind) {
@@ -177,6 +178,9 @@ class ViewCapture(private val maxDepth: Int = 100) {
     }
 
     private fun renderOutline(view: View, loc: IntArray): Quad? {
+        // transformMatrixToGlobal is API 29+; below it the rendered outline is not reported
+        // (bounds still are).
+        if (Build.VERSION.SDK_INT < 29) return null
         val m = Matrix()
         view.transformMatrixToGlobal(m)
         // transformMatrixToGlobal always carries the screen translation, so

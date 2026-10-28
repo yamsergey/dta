@@ -25,7 +25,6 @@ import io.yamsergey.dta.protocol.rpc.MethodRegistry
 import io.yamsergey.dta.sidekick.network.store.NetworkStore
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import java.time.Instant
 
 /**
  * `network_list`, `network_entry`, `network_clear` (contract §2, §3, §5). Results are
@@ -174,7 +173,7 @@ class NetworkMethods(
         const val CHUNK_BYTES = 256 * 1024
     }
 
-    private fun earliest(): String = store.coverage().earliestMs?.let { Instant.ofEpochMilli(it).toString() } ?: "nothing stored"
+    private fun earliest(): String = store.coverage().earliestMs?.let { io.yamsergey.dta.sidekick.util.IsoTime.format(it) } ?: "nothing stored"
 
     private fun degradations(dropped: Int, entries: List<NetworkEntry>): List<DegradationMarker>? {
         val codes = buildList {

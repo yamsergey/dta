@@ -83,7 +83,7 @@ object NetworkRuntime {
         scripts.restore(stored, hooksUnavailable = if (HookAttach.attached) null else HookAttach.reason)
         val summary = scripts.summary() ?: return
         if (summary.unavailable == null) {
-            Log.w(TAG, "network script ${summary.id} active since ${java.time.Instant.ofEpochMilli(summary.installedAtMs)}; it changes this app's network traffic; remove it with network_script_clear")
+            Log.w(TAG, "network script ${summary.id} active since ${io.yamsergey.dta.sidekick.util.IsoTime.format(summary.installedAtMs)}; it changes this app's network traffic; remove it with network_script_clear")
         } else {
             Log.w(TAG, "network script ${summary.id} is installed but NOT applied: ${summary.unavailable}")
         }

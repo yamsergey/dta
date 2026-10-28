@@ -45,6 +45,7 @@ object HookAttach {
                 is AttachPreconditions.Result.Unavailable -> return fail(pre.reason)
                 is AttachPreconditions.Result.Attempt -> {
                     System.load(pre.agentPath)
+                    @Suppress("NewApi") // AttachPreconditions returns Attempt only on API 28+
                     Debug.attachJvmtiAgent(pre.agentPath, null, HookAttach::class.java.classLoader)
                     if (!NativeAgent.nativeIsAttached()) return fail("JVMTI agent did not attach (see logcat DtaAgent)")
                     val shim = extractShim(context)

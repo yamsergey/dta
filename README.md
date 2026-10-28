@@ -13,7 +13,40 @@ prototype lives on the `pre-refined` branch.
 | `dta-daemon` | Host side (library): ADB discovery (`/proc/net/unix` scan), port-forward ownership with startup sweep, `SidekickConnectionManager` (the single connection-lifecycle owner), `SidekickConnection` (JDK WebSocket client), and `LayoutService` (sidekick-vs-uiautomator-fallback decision ladder with honest labeling). |
 | `dta-sidekick` | Android AAR embedded in debug builds: `LocalServerSocket` accept loop, AndroidX Startup init, capability registry with live statuses, layout capture (View walk + two-tier Compose: semantics always, ui-tooling-data enrichment when present), and network capture through a JVMTI agent (`libdta-agent.so`, dex rewriting on vendored AOSP slicer). Zero third-party runtime deps — Compose and OkHttp are `compileOnly` (constitution I). |
 | `dta-sidekick-rhino` | Rhino 1.7.15 (MPL 2.0) relocated to `io.yamsergey.dta.vendor.rhino` — the network-script engine; consumers never see `org.mozilla`. |
+| `dta-client` | Client of the daemon process (feature 008): `DaemonLauncher` (find, start, replace or refuse the daemon by version; recover stale state) and `DaemonClient` (JDK WebSocket, same JSON-RPC envelope as the sidekick channel, live events). Shared by the CLI, `dta mcp` and the coming Android Studio plugin. |
+| `dta-cli` | The `dta` command (Clikt) and `dta mcp` (MCP Java SDK, stdio), both generated from the operation catalog in `dta-protocol` (`ops/`). Ships as a distribution (`installDist`); the daemon process runs from the same `lib/`. |
 | `dta-sidekick-shim` | Pure-Java hook dispatcher, dexed into the AAR's assets and put on the bootstrap class path by the agent, so boot classes (`java.net.URL`) can call it. Its `onEntry`/`onExit` signatures are a frozen ABI. |
+
+## Install and use (feature 008)
+
+Prerequisites: Java 21+, adb (found through `DTA_ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` or `PATH`), an app built with `dta-sidekick` in its debug build.
+
+```
+scripts/install-local.sh          # builds and links ~/.local/bin/dta (or $DTA_BIN_DIR)
+# or: brew install yamsergey/packages/dta-cli      (stable)
+#     brew install yamsergey/packages/dta-cli-dev  (development builds)
+```
+
+```
+dta devices                       # connected devices
+dta apps                          # running apps with DTA inside, and the foreground app
+dta layout --text Pay             # screen tree (View + Compose), filtered
+dta network list --status 4xx     # captured HTTP + WebSocket traffic
+dta network entry <id>            # headers, timing, initiator
+dta network body <id> -o body.bin # a body as text or to a file
+dta network watch                 # follow traffic live (Ctrl-C ends the watch, not the daemon)
+dta network script set delay.js   # network script (status, logs, clear)
+dta network schema add shop protos/ && dta network mapping add --url-pattern '*/api/order' --part request --schema shop --type shop.v1.Order
+dta daemon status | stop
+```
+
+- One device is chosen automatically; with several, pass `-d <serial>`. Omit `-a` to use the foreground app. Every automatic choice is printed on stderr.
+- `--json` prints the full result (`{selection, result}`) and nothing else on stdout.
+- Exit codes: 0 ok, 2 usage, 3 not found / not available (no device, no DTA in the app, unknown entry), 4 version conflict, 1 internal.
+
+**Agents.** `dta mcp` serves the same operations as MCP tools over stdio (results are the `--json` documents, bounded at 64 KB by default — `DTA_MCP_MAX_BYTES` — with what was cut stated). In Claude Code, install the plugin from this repository: `/plugin marketplace add <path to sources>` then `/plugin install dta@dta` (see `plugins/dta/README.md`).
+
+**The daemon.** Every command and the MCP server talk to one background daemon per user, started on demand from the installed distribution and shared by all clients. It listens on loopback only and requires the owner-only token in `$DTA_HOME/daemon/token` (`DTA_HOME` defaults to `~/.dta`). A newer `dta` replaces an older daemon and says so; an older `dta` refuses a newer daemon (exit 4) instead of replacing it back. It ignores Ctrl-C and terminal hang-ups, has no idle shutdown, and stops with `dta daemon stop`, `SIGTERM`, or replacement. Logs: `$DTA_HOME/daemon/daemon.log`, `$DTA_HOME/mcp.log`.
 
 ## Capabilities
 
