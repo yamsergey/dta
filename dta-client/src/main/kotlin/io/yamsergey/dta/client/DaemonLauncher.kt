@@ -87,6 +87,17 @@ class DaemonLauncher(
         throw DaemonStartException("Could not reach a DTA daemon after three attempts; see ${logFile.path}")
     }
 
+    /**
+     * The running daemon whatever its version, without starting, replacing or refusing —
+     * for `dta daemon stop` (which must work against any version). Null when none runs.
+     */
+    suspend fun existing(kind: ClientKind): DaemonClient? {
+        val state = readState() ?: return null
+        if (!isAlive(state.pid)) return null
+        val token = readToken() ?: return null
+        return runCatching { DaemonClient.connect(state.port, token, kind, identity) }.getOrNull()
+    }
+
     private sealed interface Attempt {
         data class Ready(val client: DaemonClient) : Attempt
         data class Stale(val statement: String?) : Attempt

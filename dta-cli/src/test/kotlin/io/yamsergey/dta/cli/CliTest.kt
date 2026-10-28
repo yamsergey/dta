@@ -27,11 +27,29 @@ class CliTest {
     private val stdout get() = outBytes.toString()
     private val stderr get() = errBytes.toString()
 
+    private var existing: (suspend () -> io.yamsergey.dta.client.DaemonClient?)? = null
+
     @AfterTest
     fun close() = daemon.close()
 
+    // --- daemon status / stop (T045)
+
+    @Test
+    fun `stop with no daemon says so and starts nothing`() {
+        existing = { null }
+        assertEquals(0, dta("daemon", "stop"))
+        assertEquals("No DTA daemon is running.", stdout.trim())
+    }
+
+    @Test
+    fun `stop reaches the running daemon whatever its version`() {
+        existing = { daemon.connect().client }
+        assertEquals(0, dta("daemon", "stop"))
+        assertTrue("is stopping" in stdout, stdout)
+    }
+
     private fun dta(vararg args: String, cwd: File = File("/work")): Int {
-        val runner = Runner(connect = { daemon.connect() }, out = out, err = err, formatters = { Formatters(Style.PLAIN) })
+        val runner = Runner(connect = { daemon.connect() }, existing = { existing?.invoke() }, out = out, err = err, formatters = { Formatters(Style.PLAIN) })
         return Cli(runner = runner::run, mcp = { 0 }, out = out, err = err, cwd = cwd).run(arrayOf(*args))
     }
 

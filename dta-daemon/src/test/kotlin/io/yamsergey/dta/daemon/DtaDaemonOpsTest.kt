@@ -52,4 +52,13 @@ class DtaDaemonOpsTest {
         assertFailsWith<AdbUnavailableException> { d.devices() }
         runBlocking { d.shutdown() }
     }
+
+    @Test
+    fun `DTA_ADB wins and a wrong one is named`() {
+        assertEquals("/x/adb", AdbExec.resolveAdb(env = mapOf("DTA_ADB" to "/x/adb", "PATH" to "/usr/bin"), fileExists = { it == "/x/adb" || it == "/usr/bin/adb" }))
+        val e = kotlin.runCatching { AdbExec.resolveAdb(env = mapOf("DTA_ADB" to "/nope/adb"), fileExists = { false }) }.exceptionOrNull()!!
+        kotlin.test.assertTrue("DTA_ADB=/nope/adb" in e.message!!, e.message)
+        val none = kotlin.runCatching { AdbExec.resolveAdb(env = emptyMap(), fileExists = { false }) }.exceptionOrNull()!!
+        kotlin.test.assertTrue("looked in DTA_ADB, ANDROID_HOME, ANDROID_SDK_ROOT and PATH" in none.message!!, none.message)
+    }
 }

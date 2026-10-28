@@ -50,6 +50,10 @@ class AdbExec(
             env: Map<String, String> = System.getenv(),
             fileExists: (String) -> Boolean = { File(it).canExecute() },
         ): String {
+            env["DTA_ADB"]?.takeIf { it.isNotBlank() }?.let { explicit ->
+                if (fileExists(explicit)) return explicit
+                error("DTA_ADB=$explicit is not an executable adb — fix or unset DTA_ADB")
+            }
             for (variable in listOf("ANDROID_HOME", "ANDROID_SDK_ROOT")) {
                 val home = env[variable] ?: continue
                 val candidate = "$home/platform-tools/adb"
@@ -60,8 +64,8 @@ class AdbExec(
                 if (fileExists(candidate)) return candidate
             }
             error(
-                "adb not found — set ANDROID_HOME (or ANDROID_SDK_ROOT) to your Android SDK, " +
-                    "or add platform-tools to PATH",
+                "adb not found (looked in DTA_ADB, ANDROID_HOME, ANDROID_SDK_ROOT and PATH) — set ANDROID_HOME " +
+                    "(or ANDROID_SDK_ROOT) to your Android SDK, or add platform-tools to PATH",
             )
         }
     }

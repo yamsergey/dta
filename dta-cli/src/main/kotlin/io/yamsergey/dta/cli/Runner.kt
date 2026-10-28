@@ -46,6 +46,8 @@ object ExitCodes {
  */
 class Runner(
     private val connect: suspend () -> DaemonLauncher.Connected = { DaemonLauncher().ensure(ClientKind.CLI) },
+    /** The running daemon, any version, never started (for `daemon stop`). */
+    private val existing: suspend () -> DaemonClient? = { DaemonLauncher().existing(ClientKind.CLI) },
     private val out: PrintStream = System.out,
     private val err: PrintStream = System.err,
     private val formatters: (Globals) -> Formatters = Cli::formatters,
@@ -54,6 +56,16 @@ class Runner(
         val full = JsonObject(params + listOfNotNull(globals.device?.let { "device" to JsonPrimitive(it) }, globals.app?.let { "app" to JsonPrimitive(it) }))
         var client: DaemonClient? = null
         try {
+            if (spec.name == "daemon.stop") {
+                val running = existing() ?: run {
+                    out.println("No DTA daemon is running.")
+                    return@runBlocking ExitCodes.OK
+                }
+                client = running
+                running.call(spec.name, full)
+                out.println(if (globals.json) """{"result":{"stopping":true}}""" else "The DTA daemon ${running.daemon.identity.display} is stopping.")
+                return@runBlocking ExitCodes.OK
+            }
             val connected = connect()
             client = connected.client
             connected.statements.forEach { err.println(it) }
