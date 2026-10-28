@@ -42,6 +42,8 @@ data class ParamSpec(
     val positional: Boolean = false,
     /** A path on this machine: the CLI makes it absolute before sending (the daemon's cwd differs). */
     val path: Boolean = false,
+    /** Short CLI alias (`-o`). */
+    val cliShort: String? = null,
 )
 
 data class OperationSpec(
@@ -222,7 +224,7 @@ object Catalog {
             listOf(
                 ParamSpec("id", ParamType.STRING, "Entry id from network.list.", required = true, positional = true),
                 PART,
-                ParamSpec("output", ParamType.STRING, "Write the body to this file instead of returning text; the result gives path, size and sha256.", path = true),
+                ParamSpec("output", ParamType.STRING, "Write the body to this file instead of returning text; the result gives path, size and sha256.", path = true, cliShort = "-o"),
                 ParamSpec("raw", ParamType.BOOLEAN, "With output: keep the bytes as sent on the wire (compressed), instead of decoded."),
                 ParamSpec("structured", ParamType.BOOLEAN, "With output: write the decoded JSON of a protobuf body instead of its bytes."),
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets inside the body (decoded protobuf included); bodies that cannot be redacted are withheld."),

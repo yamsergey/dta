@@ -242,6 +242,11 @@ class OperationDispatcher(
             unavailable("decoding", e.decoding.reason ?: "not decoded"),
         )
         is BinaryBodyException -> ClientException(ClientErrorCodes.NOT_AVAILABLE, e.message ?: "binary body", unavailable("text", "binary body"))
+        is io.yamsergey.dta.daemon.adb.AppNotRunningException -> ClientException(
+            ClientErrorCodes.NOT_AVAILABLE,
+            "${e.message}; DTA works only in apps built with DTA inside.",
+            unavailable("connection", e.message ?: "app not running"),
+        )
         is ConnectException -> ClientException(
             ClientErrorCodes.NOT_AVAILABLE,
             "Cannot reach DTA inside ${pkg ?: "the app"}: ${e.message}. Is the app running and built with DTA?",

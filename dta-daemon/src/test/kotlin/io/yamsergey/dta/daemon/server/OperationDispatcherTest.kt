@@ -134,6 +134,9 @@ class OperationDispatcherTest {
         val notDecoded = assertFailsWith<ClientException> { call("network.body", buildJsonObject { put("id", "r1-1:1"); put("part", "response") }) }
         assertEquals(ClientErrorCodes.NOT_AVAILABLE, notDecoded.code)
 
+        fake.bodyFailure = io.yamsergey.dta.daemon.adb.AppNotRunningException("com.android.settings is not running on emulator-5554 — launch it first")
+        assertEquals(ClientErrorCodes.NOT_AVAILABLE, assertFailsWith<ClientException> { call("network.body", buildJsonObject { put("id", "r1-1:1"); put("part", "response") }) }.code)
+
         fake.bodyFailure = ConnectException("cannot reach sidekick")
         val noDta = assertFailsWith<ClientException> { call("network.body", buildJsonObject { put("id", "r1-1:1"); put("part", "response") }) }
         assertEquals(ClientErrorCodes.NOT_AVAILABLE, noDta.code)
