@@ -1,0 +1,89 @@
+name: Publish SNAPSHOT
+
+# Development channel (feature 008, US5): libraries as Maven snapshots, the CLI with a
+# unique version per run as the Homebrew formula dta-cli-dev. Started by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'SNAPSHOT version (e.g. 0.2.0-SNAPSHOT)'
+        required: true
+        default: '0.1.0-SNAPSHOT'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version
+        run: |
+          if [[ ! "${{ inputs.version }}" =~ -SNAPSHOT$ ]]; then
+            echo "Error: version must end with -SNAPSHOT"; exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Derive versions
+        id: versions
+        run: |
+          # Libraries: X-SNAPSHOT (mutable). CLI: X-SNAPSHOT.<run> (unique per run).
+          echo "maven=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          echo "unique=${{ inputs.version }}.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Publish libraries to the snapshot repository
+        run: ./gradlew publishAllPublicationsToMavenCentral -PdtaVersion=${{ steps.versions.outputs.maven }} --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Build the CLI
+        run: |
+          VERSION=${{ steps.versions.outputs.unique }}
+          ./gradlew :dta-cli:installDist -PdtaVersion=${VERSION} --no-configuration-cache
+          tar -C dta-cli/build/install -czf dta-cli-${VERSION}.tar.gz dta
+          dta-cli/build/install/dta/bin/dta --version
+
+      - name: Update the Homebrew dev formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION=${{ steps.versions.outputs.unique }}
+          SHA256=$(shasum -a 256 dta-cli-${VERSION}.tar.gz | awk '{print $1}')
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/yamsergey/homebrew-packages.git
+          gh release delete "dta-cli-dev-${VERSION}" --repo yamsergey/homebrew-packages --yes 2>/dev/null || true
+          gh release create "dta-cli-dev-${VERSION}" dta-cli-${VERSION}.tar.gz --repo yamsergey/homebrew-packages \
+            --title "dta-cli-dev ${VERSION}" --notes "Development build ${VERSION}"
+          scripts/homebrew-formula.sh dta-cli-dev "${VERSION}" \
+            "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-dev-${VERSION}/dta-cli-${VERSION}.tar.gz" \
+            "${SHA256}" " (development channel)" > homebrew-packages/Formula/dta-cli-dev.rb
+          cd homebrew-packages
+          git add Formula/dta-cli-dev.rb
+          git commit -m "Update dta-cli-dev to ${VERSION}"
+          git push
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dta-snapshot-${{ steps.versions.outputs.unique }}
+          path: dta-cli-*.tar.gz
+
+      - name: Summary
+        run: |
+          {
+            echo "## SNAPSHOT published"
+            echo "- Libraries \`io.github.yamsergey:dta-{protocol,sidekick,sidekick-rhino,daemon,client}:${{ steps.versions.outputs.maven }}\` (snapshot repository)"
+            echo "- CLI \`${{ steps.versions.outputs.unique }}\`: \`brew install yamsergey/packages/dta-cli-dev\`"
+          } >> $GITHUB_STEP_SUMMARY

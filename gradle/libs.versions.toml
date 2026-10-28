@@ -22,6 +22,8 @@ wire = "6.4.7"  # 7.x pulls kotlin-stdlib 2.3
 # CLI only (feature 008). Clikt 5.1 pulls kotlin-stdlib 2.3; the MCP Kotlin SDK pulls 2.4.
 clikt = "5.0.3"
 mcp = "2.0.1"
+# Publishing (as in the original).
+maven-publish = "0.36.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -48,3 +50,4 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }

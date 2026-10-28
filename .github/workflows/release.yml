@@ -1,0 +1,70 @@
+name: Release
+
+# Stable channel (feature 008, US5): on a version tag, release the libraries to Maven
+# Central and the CLI as a GitHub release and the Homebrew formula dta-cli.
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Check
+        run: ./gradlew check -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
+
+      - name: Build the CLI
+        run: |
+          ./gradlew :dta-cli:installDist -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
+          tar -C dta-cli/build/install -czf dta-cli-${{ github.ref_name }}.tar.gz dta
+          (cd dta-cli/build/install && zip -qr ../../../dta-cli-${{ github.ref_name }}.zip dta)
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dta-cli-${{ github.ref_name }}.tar.gz
+            dta-cli-${{ github.ref_name }}.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish libraries to Maven Central
+        run: ./gradlew publishAllPublicationsToMavenCentral -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Update the Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION=${{ github.ref_name }}
+          SHA256=$(shasum -a 256 dta-cli-${VERSION}.tar.gz | awk '{print $1}')
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/yamsergey/homebrew-packages.git
+          gh release delete "dta-cli-${VERSION}" --repo yamsergey/homebrew-packages --yes 2>/dev/null || true
+          gh release create "dta-cli-${VERSION}" dta-cli-${VERSION}.tar.gz dta-cli-${VERSION}.zip --repo yamsergey/homebrew-packages \
+            --title "dta-cli ${VERSION}" --notes "Release ${VERSION}"
+          scripts/homebrew-formula.sh dta-cli "${VERSION}" \
+            "https://github.com/yamsergey/homebrew-packages/releases/download/dta-cli-${VERSION}/dta-cli-${VERSION}.tar.gz" \
+            "${SHA256}" > homebrew-packages/Formula/dta-cli.rb
+          cd homebrew-packages
+          git add Formula/dta-cli.rb
+          git commit -m "Update dta-cli to ${VERSION}"
+          git push

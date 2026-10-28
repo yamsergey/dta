@@ -1,0 +1,28 @@
+name: CI
+
+# Deviceless checks of every module on each pull request and push (feature 008).
+# The emulator harness runs locally; it needs an emulator and the fixture app.
+on:
+  pull_request:
+  push:
+    branches: [ main, dta-refined ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - name: Check (compile, tests, lint, plugin version)
+        run: ./gradlew check --no-configuration-cache
