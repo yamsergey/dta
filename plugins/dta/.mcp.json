@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dta": {
+      "command": "dta",
+      "args": ["mcp"]
+    }
+  }
+}

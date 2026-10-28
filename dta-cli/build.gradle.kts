@@ -74,3 +74,17 @@ sourceSets.main {
 tasks.test {
     useJUnitPlatform()
 }
+
+/** The Claude Code plugin ships with the CLI it starts: its version must be the build's (T050). */
+val pluginManifest = rootProject.layout.projectDirectory.file("plugins/dta/.claude-plugin/plugin.json")
+val checkPluginVersion = tasks.register("checkPluginVersion") {
+    val manifest = providers.fileContents(pluginManifest).asText
+    val expected = project.version.toString()
+    inputs.property("expected", expected)
+    doLast {
+        val actual = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(manifest.get())?.groupValues?.get(1)
+        // Development builds (0.1.0-SNAPSHOT.<n>) ship the plugin of their release line.
+        check(actual == expected.substringBefore('-')) { "plugins/dta/.claude-plugin/plugin.json version is $actual, dtaVersion is $expected — update the plugin manifest" }
+    }
+}
+tasks.named("check") { dependsOn(checkPluginVersion) }

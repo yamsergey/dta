@@ -1,0 +1,16 @@
+{
+  "name": "dta",
+  "owner": {
+    "name": "DTA"
+  },
+  "metadata": {
+    "description": "DTA: Android runtime inspection tools for coding agents."
+  },
+  "plugins": [
+    {
+      "name": "dta",
+      "source": "./plugins/dta",
+      "description": "Android runtime inspection for agents: layout tree, network traffic, network scripts, protobuf decoding."
+    }
+  ]
+}
