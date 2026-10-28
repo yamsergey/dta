@@ -20,6 +20,7 @@ sealed interface BodyOutput {
     data class File(val path: String, val decoded: Boolean = true, val structured: Boolean = false) : BodyOutput
 }
 
+@kotlinx.serialization.Serializable
 data class BodyResult(
     val body: BodyInfo,
     /** [BodyOutput.Text] only. */

@@ -21,9 +21,14 @@ object WebSocketHandshake {
      * Reads one HTTP request from [input] byte-by-byte (never past the header
      * terminator — frame bytes may already be buffered behind it). On a valid
      * upgrade writes the 101 response and returns true; otherwise writes 400
-     * and returns false.
+     * and returns false. [authorize] sees the request headers (lower-cased
+     * names); false answers 401 (the daemon's client endpoint, feature 008).
      */
-    fun perform(input: InputStream, output: OutputStream): Boolean {
+    fun perform(
+        input: InputStream,
+        output: OutputStream,
+        authorize: (Map<String, String>) -> Boolean = { true },
+    ): Boolean {
         val head = readHead(input) ?: return reject(output)
         val lines = head.split("\r\n").filter { it.isNotEmpty() }
         if (lines.isEmpty()) return reject(output)
@@ -46,6 +51,7 @@ object WebSocketHandshake {
             connection.split(',').any { it.trim().equals("upgrade", ignoreCase = true) } &&
             version == "13"
         if (!valid) return reject(output)
+        if (!authorize(headers)) return reject(output, "401 Unauthorized")
 
         val response = "HTTP/1.1 101 Switching Protocols\r\n" +
             "Upgrade: websocket\r\n" +
@@ -75,9 +81,9 @@ object WebSocketHandshake {
         return null
     }
 
-    private fun reject(output: OutputStream): Boolean {
+    private fun reject(output: OutputStream, status: String = "400 Bad Request"): Boolean {
         output.write(
-            "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+            "HTTP/1.1 $status\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
                 .toByteArray(Charsets.ISO_8859_1),
         )
         output.flush()

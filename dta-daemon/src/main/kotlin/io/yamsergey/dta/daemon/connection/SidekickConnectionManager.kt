@@ -70,6 +70,9 @@ class SidekickConnectionManager(
         Unit
     }
 
+    /** Keys of the connections currently held open. */
+    fun openKeys(): List<ConnectionKey> = entries.filterValues { it.connection.isOpen }.keys.toList()
+
     suspend fun shutdown() {
         entries.keys.toList().forEach { close(it) }
     }

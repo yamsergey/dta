@@ -143,4 +143,34 @@ class HandshakeTest {
         assertTrue(ok)
         assertEquals(frameByte.toInt() and 0xFF, input.read(), "first frame byte must remain unread")
     }
+
+    private fun withAuth(value: String?): Map<String, String> = buildMap {
+        put("Host", "localhost"); put("Upgrade", "websocket"); put("Connection", "Upgrade")
+        put("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="); put("Sec-WebSocket-Version", "13")
+        value?.let { put("Authorization", it) }
+    }
+
+    private fun performAuthorized(raw: String): Pair<Boolean, String> {
+        val input = ByteArrayInputStream(raw.toByteArray(Charsets.ISO_8859_1))
+        val output = ByteArrayOutputStream()
+        val ok = WebSocketHandshake.perform(input, output) { headers -> headers["authorization"] == "Bearer s3cret" }
+        return ok to output.toString(Charsets.ISO_8859_1)
+    }
+
+    @Test
+    fun `an authorizer refuses a missing or wrong bearer with 401`() {
+        val (missing, missingOut) = performAuthorized(request(headers = withAuth(null)))
+        assertFalse(missing)
+        assertTrue(missingOut.startsWith("HTTP/1.1 401"), missingOut)
+        val (wrong, wrongOut) = performAuthorized(request(headers = withAuth("Bearer nope")))
+        assertFalse(wrong)
+        assertTrue(wrongOut.startsWith("HTTP/1.1 401"), wrongOut)
+    }
+
+    @Test
+    fun `an authorizer admits the right bearer`() {
+        val (ok, out) = performAuthorized(request(headers = withAuth("Bearer s3cret")))
+        assertTrue(ok)
+        assertTrue(out.startsWith("HTTP/1.1 101"), out)
+    }
 }

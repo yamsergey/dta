@@ -6,6 +6,12 @@ import io.yamsergey.dta.daemon.connection.ForwardOps
 import io.yamsergey.dta.daemon.connection.SidekickConnection
 import io.yamsergey.dta.daemon.connection.SidekickConnectionManager
 import io.yamsergey.dta.daemon.discovery.ConnectionKey
+import io.yamsergey.dta.daemon.discovery.Device
+import io.yamsergey.dta.protocol.ops.AdbInfo
+import io.yamsergey.dta.protocol.ops.AppInfo
+import io.yamsergey.dta.protocol.ops.AppList
+import io.yamsergey.dta.protocol.ops.DeviceInfo
+import io.yamsergey.dta.protocol.rpc.IdentityReport
 import io.yamsergey.dta.daemon.discovery.SidekickDiscovery
 import io.yamsergey.dta.daemon.layout.ForegroundDetector
 import io.yamsergey.dta.daemon.layout.LayoutService
@@ -45,20 +51,27 @@ import kotlin.time.Duration.Companion.seconds
  * production wiring of discovery + forwards + the connection manager.
  */
 class DtaDaemon(
-    adb: AdbExec = AdbExec(),
+    private val runAdb: (List<String>) -> AdbExec.Result,
+    /** Resolved adb binary, or null with [adbUnavailableReason] (feature 008: the daemon runs without adb). */
+    private val adbPath: String?,
     requestTimeout: Duration = 10.seconds,
     /** Daemon state on the developer's machine: protobuf schemas and mappings (feature 006). */
     dataDir: java.io.File = java.io.File(System.getProperty("user.home"), ".dta"),
+    private val adbUnavailableReason: String? = null,
 ) {
-    private val schemas = SchemaRegistry(dataDir)
+    constructor(
+        adb: AdbExec = AdbExec(),
+        requestTimeout: Duration = 10.seconds,
+        dataDir: java.io.File = java.io.File(System.getProperty("user.home"), ".dta"),
+    ) : this({ args -> adb.run(*args.toTypedArray()) }, adb.binaryPath, requestTimeout, dataDir)
 
-    private val runAdb: (List<String>) -> AdbExec.Result = { args -> adb.run(*args.toTypedArray()) }
+    private val schemas = SchemaRegistry(dataDir)
     private val forwards = PortForwards(runAdb)
 
     init {
         // FR-011: forwards leaked by a previous run are cleaned at startup.
         // Never fatal — no adb/no devices just means nothing to sweep.
-        runCatching { forwards.startupSweep() }
+        if (adbPath != null) runCatching { forwards.startupSweep() }
     }
 
     /** Re-runs the leaked-forward cleanup; returns how many were removed. */
@@ -194,4 +207,50 @@ class DtaDaemon(
     }
 
     suspend fun shutdown() = connections.shutdown()
+
+    // --- Feature 008: what the daemon process serves besides the per-app operations.
+
+    fun adbInfo(): AdbInfo = AdbInfo(path = adbPath, available = adbPath != null, reason = adbUnavailableReason)
+
+    /** Connected devices with their state; the model for online ones. */
+    fun devices(): List<DeviceInfo> = discovery.listDevices().map { device ->
+        val online = device.state == Device.State.ONLINE
+        DeviceInfo(
+            serial = device.serial,
+            state = device.state.name.lowercase(),
+            model = if (online) {
+                runAdb(listOf("-s", device.serial, "shell", "getprop", "ro.product.model")).stdout.trim().ifEmpty { null }
+            } else {
+                null
+            },
+        )
+    }
+
+    /** Apps on [serial] with a running sidekick, and the foreground app. */
+    fun apps(serial: String): AppList {
+        val foreground = foregroundDetector.foregroundPackage(serial)
+        val withDta = discovery.listInstances().filter { it.serial == serial }.map { it.packageName }.distinct()
+        return AppList(serial, foreground, withDta.map { AppInfo(it, it == foreground) })
+    }
+
+    fun foregroundPackage(serial: String): String? = foregroundDetector.foregroundPackage(serial)
+
+    /** What the app's sidekick reports about its capabilities and libraries. */
+    suspend fun capabilityReport(serial: String, pkg: String): IdentityReport =
+        DtaJson.decodeFromJsonElement(
+            IdentityReport.serializer(),
+            connections.connect(ConnectionKey(serial, pkg)).request("identity"),
+        )
+
+    /** Open app connections (for `daemon.status`). */
+    fun openConnections(): List<ConnectionKey> = connections.openKeys()
+
+    companion object {
+        /** A daemon whose device operations fail with [reason] (adb not found); everything else works. */
+        fun withoutAdb(reason: String, dataDir: java.io.File): DtaDaemon =
+            DtaDaemon({ throw AdbUnavailableException(reason) }, null, dataDir = dataDir, adbUnavailableReason = reason)
+    }
 }
+
+/** adb could not be found or run; the message says where DTA looked and how to fix it. */
+class AdbUnavailableException(message: String) : Exception(message)

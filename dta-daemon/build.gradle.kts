@@ -22,6 +22,7 @@ dependencies {
     implementation(libs.opentelemetry.proto)
     implementation(libs.wire.schema)
 
+    testImplementation(project(":dta-client"))
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlinx.coroutines.test)

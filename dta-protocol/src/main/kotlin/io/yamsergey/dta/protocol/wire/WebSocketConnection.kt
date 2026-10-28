@@ -16,6 +16,7 @@ class WebSocketConnection(
     private val output: OutputStream,
     private val listener: Listener,
     private val maxPayloadBytes: Long = MAX_FRAME_PAYLOAD_BYTES,
+    private val authorize: (Map<String, String>) -> Boolean = { true },
 ) {
     interface Listener {
         fun onOpen(connection: WebSocketConnection) {}
@@ -34,7 +35,7 @@ class WebSocketConnection(
      * Run on the thread that owns this connection. */
     fun run() {
         try {
-            if (!WebSocketHandshake.perform(input, output)) return
+            if (!WebSocketHandshake.perform(input, output, authorize)) return
         } catch (e: IOException) {
             listener.onFailure(this, e)
             return
