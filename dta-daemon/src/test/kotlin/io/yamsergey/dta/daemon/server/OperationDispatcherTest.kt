@@ -179,7 +179,7 @@ class OperationDispatcherTest {
 
     @Test
     fun `every catalog operation except the server's own has a handler`() {
-        val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch")
+        val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch", "apps.watch")
         assertEquals(Catalog.all.map { it.name }.toSet() - serverOwned, dispatcher.handled)
     }
 }

@@ -96,6 +96,15 @@ class DtaDaemon(
         },
     )
 
+    /** Keeps watched apps connected and says when that changes (feature 009, FR-017). */
+    private val watcher = io.yamsergey.dta.daemon.connection.AppConnectionWatcher(
+        instances = { serial -> discovery.listInstances().filter { serial == null || it.serial == serial }.map { ConnectionKey(it.serial, it.packageName) } },
+        manager = connections,
+    )
+
+    /** App connection state changes on [serial] (every device when null), for as long as collected. */
+    fun appEvents(serial: String?): Flow<io.yamsergey.dta.protocol.ops.AppConnectionEvent> = watcher.events(serial)
+
     private val foregroundDetector = ForegroundDetector(runAdb)
     private val fallback = UiAutomatorFallback(runAdb)
 

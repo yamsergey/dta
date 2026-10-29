@@ -129,4 +129,6 @@ object DaemonMethods {
     const val REPLACE = "daemon.replace"
     const val NETWORK_SUBSCRIBE = "network.subscribe"
     const val NETWORK_UNSUBSCRIBE = "network.unsubscribe"
+    const val APPS_SUBSCRIBE = "apps.subscribe"
+    const val APPS_UNSUBSCRIBE = "apps.unsubscribe"
 }

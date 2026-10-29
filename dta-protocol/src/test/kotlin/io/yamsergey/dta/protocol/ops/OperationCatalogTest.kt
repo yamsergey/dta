@@ -28,10 +28,10 @@ class OperationCatalogTest {
     }
 
     @Test
-    fun `the 008 operation set`() {
+    fun `the 008 operation set plus apps watch (009)`() {
         assertEquals(
             setOf(
-                "devices.list", "apps.list", "capability.report", "layout.tree",
+                "devices.list", "apps.list", "apps.watch", "capability.report", "layout.tree",
                 "network.list", "network.entry", "network.body", "network.clear", "network.watch",
                 "network.script.set", "network.script.clear", "network.script.status", "network.script.logs",
                 "network.schema.add", "network.schema.list", "network.schema.remove",
@@ -53,10 +53,10 @@ class OperationCatalogTest {
     }
 
     @Test
-    fun `agent tools exclude stop and watch`() {
+    fun `agent tools exclude stop and the watches`() {
         val tools = Catalog.agentTools.map { it.name }
-        assertTrue("daemon.stop" !in tools && "network.watch" !in tools)
-        assertEquals(Catalog.all.size - 2, tools.size)
+        assertTrue("daemon.stop" !in tools && "network.watch" !in tools && "apps.watch" !in tools)
+        assertEquals(Catalog.all.size - 3, tools.size)
     }
 
     @Test

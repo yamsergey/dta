@@ -70,7 +70,11 @@ class FakeOperations : DaemonOperations {
     var entryFailure: Exception? = null
     var entryKind: EntryKind = EntryKind.HTTP
 
-    override fun devices() = listOf(DeviceInfo("emulator-5554", "online", "Pixel 8"))
+    var deviceList = listOf(DeviceInfo("emulator-5554", "online", "Pixel 8"))
+    val appEventFlow = kotlinx.coroutines.flow.MutableSharedFlow<io.yamsergey.dta.protocol.ops.AppConnectionEvent>(extraBufferCapacity = 100)
+    override fun devices() = deviceList
+    /** Every device's events, unfiltered: the server must filter by what the client watches. */
+    override fun appEvents(serial: String?): Flow<io.yamsergey.dta.protocol.ops.AppConnectionEvent> = appEventFlow
     override fun apps(serial: String) = AppList(serial, "com.example.shop", listOf(AppInfo("com.example.shop", true)))
     override suspend fun capabilityReport(serial: String, pkg: String) = IdentityReport(1, "0.1.0", pkg, emptyList()).also { calls += "capability" }
     override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean): LayoutCapture {

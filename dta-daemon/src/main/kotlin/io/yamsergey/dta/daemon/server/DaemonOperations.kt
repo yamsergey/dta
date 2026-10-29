@@ -18,6 +18,7 @@ import io.yamsergey.dta.protocol.network.NetworkPage
 import io.yamsergey.dta.protocol.network.NetworkQuery
 import io.yamsergey.dta.protocol.network.ScriptLogPage
 import io.yamsergey.dta.protocol.network.ScriptStatus
+import io.yamsergey.dta.protocol.ops.AppConnectionEvent
 import io.yamsergey.dta.protocol.ops.AppList
 import io.yamsergey.dta.protocol.ops.DeviceInfo
 import io.yamsergey.dta.protocol.rpc.IdentityReport
@@ -31,6 +32,8 @@ import kotlinx.coroutines.flow.Flow
 interface DaemonOperations {
     fun devices(): List<DeviceInfo>
     fun apps(serial: String): AppList
+    /** App connection state changes on [serial], or every device when null (feature 009). */
+    fun appEvents(serial: String?): Flow<AppConnectionEvent>
     suspend fun capabilityReport(serial: String, pkg: String): IdentityReport
     suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean): LayoutCapture
     suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage
@@ -54,6 +57,7 @@ interface DaemonOperations {
 class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun devices() = daemon.devices()
     override fun apps(serial: String) = daemon.apps(serial)
+    override fun appEvents(serial: String?) = daemon.appEvents(serial)
     override suspend fun capabilityReport(serial: String, pkg: String) = daemon.capabilityReport(serial, pkg)
     override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean) =
         daemon.layout(serial, pkg, filters, detail, frameworkFrames)

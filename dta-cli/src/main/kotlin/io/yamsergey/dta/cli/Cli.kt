@@ -77,7 +77,8 @@ class Cli(
     fun leafPaths(): List<List<String>> {
         fun walk(cmd: CoreCliktCommand, path: List<String>): List<List<String>> {
             val subs = cmd.registeredSubcommands()
-            return if (subs.isEmpty()) listOf(path) else subs.flatMap { walk(it as CoreCliktCommand, path + it.commandName) }
+            val own = if (subs.isEmpty() || cmd is Leaf) listOf(path) else emptyList()
+            return own + subs.flatMap { walk(it as CoreCliktCommand, path + it.commandName) }
         }
         return walk(buildTree(), emptyList())
     }
@@ -102,7 +103,10 @@ class Cli(
                     groups[prefix] = group
                 }
             }
-            groups.getValue(path.dropLast(1)).subcommands(Leaf(spec))
+            // A leaf may also hold further commands (`dta apps` and `dta apps watch`).
+            val leaf = Leaf(spec)
+            groups.getValue(path.dropLast(1)).subcommands(leaf)
+            groups[path] = leaf
         }
         root.subcommands(McpCommand())
         return root
@@ -163,6 +167,7 @@ class Cli(
         }
 
         override fun help(context: Context) = spec.description
+        override val invokeWithoutSubcommand = true
 
         private fun <T> holder(delegate: ReadOnlyProperty<CoreCliktCommand, T>): () -> T = { delegate.getValue(this, ::dummy) }
 
@@ -202,6 +207,7 @@ class Cli(
         }
 
         override fun run() {
+            if (currentContext.invokedSubcommand != null) return
             val params = JsonObject(readers.mapNotNull { (name, read) -> read()?.let { name to it } }.toMap())
             (currentContext.findRoot().command as Root).exit = runner(spec, params, globals)
         }

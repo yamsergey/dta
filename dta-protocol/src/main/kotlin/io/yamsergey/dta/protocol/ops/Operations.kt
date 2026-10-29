@@ -177,6 +177,11 @@ object Catalog {
             Scope.DEVICE, cliPathOverride = listOf("apps"),
         ),
         OperationSpec(
+            "apps.watch",
+            "Follow apps with DTA connecting, losing their link, being refused or ending, until interrupted. Every device when none is given; the app option narrows it to one app.",
+            Scope.DEVICE, streaming = true, cliOnly = true, cliPathOverride = listOf("apps", "watch"),
+        ),
+        OperationSpec(
             "capability.report", "What DTA can see in the app: layout, network and script capabilities and each network library, with the reason when unavailable.",
             Scope.APP, cliPathOverride = listOf("capability"),
         ),

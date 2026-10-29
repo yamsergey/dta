@@ -3,6 +3,8 @@ package io.yamsergey.dta.daemon.server
 import io.yamsergey.dta.protocol.network.NetworkFilter
 import io.yamsergey.dta.protocol.network.NetworkFilterEval
 import io.yamsergey.dta.protocol.network.WsConnectionEntry
+import io.yamsergey.dta.protocol.ops.AppConnectionEvent
+import io.yamsergey.dta.protocol.ops.AppList
 import io.yamsergey.dta.protocol.ops.ClientInfo
 import io.yamsergey.dta.protocol.ops.DaemonEvents
 import io.yamsergey.dta.protocol.ops.DaemonHello
@@ -33,6 +35,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -140,7 +143,8 @@ class DaemonServer(
                 DaemonMethods.HELLO -> hello(request)
                 DaemonMethods.REPLACE -> replace(request)
                 DaemonMethods.NETWORK_SUBSCRIBE -> scope.launch { subscribe(request) }
-                DaemonMethods.NETWORK_UNSUBSCRIBE -> {
+                DaemonMethods.APPS_SUBSCRIBE -> scope.launch { subscribeApps(request) }
+                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
                     respond(request.id, buildJsonObject { put("unsubscribed", id != null) })
@@ -252,6 +256,39 @@ class DaemonServer(
                 error(request.id, e.code, e.message ?: "failed", e.data)
             } catch (e: Exception) {
                 error(request.id, ErrorCodes.INVALID_PARAMS, e.message ?: "invalid subscription")
+            }
+        }
+
+        /**
+         * `apps.watch` (feature 009): the current apps of the watched devices first, then every
+         * `app.connection` change on them, narrowed to one app when `app` is given.
+         */
+        private suspend fun subscribeApps(request: Request) {
+            val params = request.params ?: JsonObject(emptyMap())
+            try {
+                val device = (params["device"] as? JsonPrimitive)?.content
+                val app = (params["app"] as? JsonPrimitive)?.content
+                val serials = device?.let { listOf(it) } ?: ops.devices().filter { it.state == "online" }.map { it.serial }
+                val apps = serials.map { DtaJson.encodeToJsonElement(AppList.serializer(), ops.apps(it)) }
+                val id = "s${subscriptionIds.incrementAndGet()}"
+                val events = ops.appEvents(device)
+                val job = scope.launch {
+                    events.collect { e ->
+                        if ((device == null || e.device == device) && (app == null || e.app == app)) {
+                            val data = DtaJson.encodeToJsonElement(AppConnectionEvent.serializer(), e) as JsonObject
+                            send(Event(name = DaemonEvents.APP_CONNECTION, seq = seq.incrementAndGet(), data = JsonObject(data + ("subscription" to JsonPrimitive(id)))))
+                        }
+                    }
+                }
+                subscriptions[id] = job
+                respond(
+                    request.id,
+                    DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("subscription", id); put("apps", JsonArray(apps)) })),
+                )
+            } catch (e: ClientException) {
+                error(request.id, e.code, e.message ?: "failed", e.data)
+            } catch (e: Exception) {
+                error(request.id, ErrorCodes.INTERNAL, "${e.javaClass.simpleName}: ${e.message}")
             }
         }
 

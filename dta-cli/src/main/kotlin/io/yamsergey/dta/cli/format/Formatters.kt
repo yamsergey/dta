@@ -56,6 +56,23 @@ class Formatters(private val style: Style) {
 
     // --- Devices and apps
 
+    /** The apps running when `apps watch` starts, one line each. */
+    fun appsSnapshot(result: JsonElement): String = result.obj.arr("apps").flatMap { list ->
+        val device = list.obj.str("device")
+        list.obj.arr("apps").map { a -> "$device  ${a.obj.str("packageName")}  running" + if (a.obj.bool("foreground")) " (foreground)" else "" }
+    }.joinToString("\n")
+
+    /** One `app.connection` event: device, app, state and its reason. */
+    fun appEventLine(event: JsonObject): String {
+        val state = event.str("state") ?: "?"
+        val shown = when (state) {
+            "lost", "refused" -> style.paint(state, Token.CAVEAT)
+            "ended" -> style.paint(state, Token.INK_MUTED)
+            else -> state
+        }
+        return "${event.str("device")}  ${event.str("app")}  $shown" + (event.str("reason")?.let { ": $it" } ?: "")
+    }
+
     private fun devices(list: JsonArray): String {
         if (list.isEmpty()) return "No devices connected."
         return list.joinToString("\n") { d ->

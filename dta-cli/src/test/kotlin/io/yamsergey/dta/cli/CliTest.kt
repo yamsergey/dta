@@ -142,4 +142,49 @@ class CliTest {
         assertEquals(0, dta("--version"))
         assertTrue(stdout.startsWith("dta "), stdout)
     }
+
+    // --- apps watch (feature 009, T015)
+
+    @Test
+    fun `apps still lists the apps, apps watch follows their connections`() {
+        assertEquals(0, dta("apps"))
+        assertTrue("com.example.shop" in stdout, stdout)
+        outBytes.reset()
+
+        val exit = java.util.concurrent.atomic.AtomicInteger(-1)
+        val watch = kotlin.concurrent.thread { exit.set(dta("-d", "emulator-5554", "apps", "watch")) }
+        waitFor { "Watching app connections" in stderr }
+        daemon.ops.appEventFlow.tryEmit(io.yamsergey.dta.protocol.ops.AppConnectionEvent("emulator-5554", "com.example.shop", "connected"))
+        daemon.ops.appEventFlow.tryEmit(io.yamsergey.dta.protocol.ops.AppConnectionEvent("emulator-5554", "com.example.shop", "lost", "the app's sidekick stopped answering"))
+        waitFor { "lost" in stdout }
+        daemon.close()
+        watch.join(5_000)
+
+        val lines = stdout.lines().filter { it.isNotBlank() }
+        assertTrue(lines[0].endsWith("emulator-5554  com.example.shop  running (foreground)"), lines[0])
+        assertTrue(lines[1].endsWith("emulator-5554  com.example.shop  connected"), lines[1])
+        assertTrue(lines[2].endsWith("emulator-5554  com.example.shop  lost: the app's sidekick stopped answering"), lines[2])
+        assertEquals(ExitCodes.NOT_AVAILABLE, exit.get())
+    }
+
+    @Test
+    fun `apps watch json prints each event as one JSON line`() {
+        val watch = kotlin.concurrent.thread { dta("--json", "apps", "watch") }
+        waitFor { stdout.lines().any { it.startsWith("{") } }
+        daemon.ops.appEventFlow.tryEmit(io.yamsergey.dta.protocol.ops.AppConnectionEvent("emulator-5554", "com.example.shop", "ended"))
+        waitFor { "ended" in stdout }
+        daemon.close()
+        watch.join(5_000)
+        val event = DtaJson.parseToJsonElement(stdout.lines().first { "ended" in it }).jsonObject
+        assertEquals("ended", event["state"]!!.jsonPrimitive.content)
+        assertEquals("com.example.shop", event["app"]!!.jsonPrimitive.content)
+    }
+
+    private fun waitFor(check: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (!check()) {
+            check(System.currentTimeMillis() < deadline) { "timed out; stdout=$stdout stderr=$stderr" }
+            Thread.sleep(20)
+        }
+    }
 }

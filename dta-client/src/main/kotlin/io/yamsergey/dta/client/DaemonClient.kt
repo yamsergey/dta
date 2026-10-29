@@ -17,6 +17,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
@@ -52,6 +55,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<Response>>()
     private val ids = AtomicLong(0)
     private val events = MutableSharedFlow<Event>(extraBufferCapacity = 1024)
+    private val gone = MutableStateFlow<String?>(null)
 
     @Volatile
     var goneReason: String? = null
@@ -85,22 +89,35 @@ class DaemonClient private constructor(private val timeout: Duration) {
      * (`subscription`, `device`, `app`, `event`, optional `degraded`). The flow ends with
      * [DaemonGoneException] when the daemon is replaced or stops, or the stream ends.
      */
-    fun networkEvents(params: JsonObject): Flow<JsonObject> = callbackFlow {
-        val subscribed = DtaJson.decodeFromJsonElement(Selected.serializer(), request(DaemonMethods.NETWORK_SUBSCRIBE, params))
+    fun networkEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.NETWORK_SUBSCRIBE, DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonEvents.NETWORK_ENTRY, params)
+
+    /**
+     * App connection changes (`apps.watch`, feature 009). The first element is
+     * `{"selection": Selected}` whose result holds the current `apps` per watched device; then
+     * each `app.connection` event's data (`device`, `app`, `state`, `reason`, `subscription`).
+     * Ends with [DaemonGoneException] when the daemon is replaced or stops.
+     */
+    fun appEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.APPS_SUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonEvents.APP_CONNECTION, params)
+
+    private fun subscription(subscribe: String, unsubscribe: String, eventName: String, params: JsonObject): Flow<JsonObject> = callbackFlow {
+        val subscribed = DtaJson.decodeFromJsonElement(Selected.serializer(), request(subscribe, params))
         val id = (subscribed.result.jsonObject["subscription"] as JsonPrimitive).content
         send(buildJsonObject { put("selection", DtaJson.encodeToJsonElement(Selected.serializer(), subscribed)) })
         val job = launch {
             events.collect { event ->
                 val data = event.data as? JsonObject
                 when (event.name) {
-                    DaemonEvents.NETWORK_ENTRY -> if ((data?.get("subscription") as? JsonPrimitive)?.content == id) send(data)
+                    eventName -> if ((data?.get("subscription") as? JsonPrimitive)?.content == id) send(data)
                     DaemonEvents.REPLACED, DaemonEvents.STOPPING -> close(DaemonGoneException(describe(event)))
                 }
             }
         }
+        // A connection that drops without a lifecycle event (the daemon was killed) ends the stream too.
+        val dropped = launch { close(DaemonGoneException(gone.filterNotNull().first())) }
         awaitClose {
             job.cancel()
-            runCatching { socket.sendText(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), DaemonMethods.NETWORK_UNSUBSCRIBE, buildJsonObject { put("subscription", id) })), true) }
+            dropped.cancel()
+            runCatching { socket.sendText(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), unsubscribe, buildJsonObject { put("subscription", id) })), true) }
         }
     }
 
@@ -126,6 +143,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
     private fun lost(reason: String) {
         if (goneReason != null) return
         goneReason = reason
+        gone.value = reason
         pending.values.forEach { it.completeExceptionally(DaemonGoneException(reason)) }
         pending.clear()
     }

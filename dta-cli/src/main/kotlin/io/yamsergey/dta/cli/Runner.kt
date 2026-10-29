@@ -69,7 +69,7 @@ class Runner(
             val connected = connect()
             client = connected.client
             connected.statements.forEach { err.println(it) }
-            if (spec.streaming) return@runBlocking watch(connected.client, full, globals)
+            if (spec.streaming) return@runBlocking watch(spec, connected.client, full, globals)
             val selected = connected.client.call(spec.name, full)
             if (globals.json) {
                 out.println(DtaJson.encodeToString(Selected.serializer(), selected))
@@ -95,18 +95,28 @@ class Runner(
         }
     }
 
-    private suspend fun watch(client: DaemonClient, params: JsonObject, globals: Globals): Int {
+    private suspend fun watch(spec: OperationSpec, client: DaemonClient, params: JsonObject, globals: Globals): Int {
         val formatters = formatters(globals)
+        val apps = spec.name == "apps.watch"
+        val events = if (apps) client.appEvents(params) else client.networkEvents(params)
         return try {
-            client.networkEvents(params).collect { data ->
+            events.collect { data ->
                 val selection = data["selection"]
                 when {
+                    // The apps running at the start are data: JSON mode prints them as the first line.
+                    selection != null && globals.json && apps -> out.println(LINE.encodeToString(JsonElement.serializer(), selection))
                     selection != null -> if (!globals.json) {
                         val selected = DtaJson.decodeFromJsonElement(Selected.serializer(), selection)
                         selection(selected.selection)?.let(err::println)
-                        err.println("Watching network traffic; Ctrl-C to stop.")
+                        if (apps) {
+                            err.println("Watching app connections; Ctrl-C to stop.")
+                            formatters.appsSnapshot(selected.result).takeIf { it.isNotEmpty() }?.let(out::println)
+                        } else {
+                            err.println("Watching network traffic; Ctrl-C to stop.")
+                        }
                     }
                     globals.json -> out.println(LINE.encodeToString(JsonElement.serializer(), data))
+                    apps -> out.println(formatters.appEventLine(data))
                     else -> out.println(formatters.watchLine(data))
                 }
                 out.flush()
