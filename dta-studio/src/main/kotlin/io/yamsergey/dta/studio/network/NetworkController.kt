@@ -131,6 +131,10 @@ class NetworkController(private val context: ContextController, private val scop
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
                         mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false, watching = true) }
                         seenRun()
+                    } else if (Statements.forCleared(data) != null) {
+                        // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
+                        val cleared = Statements.forCleared(data)!!
+                        mutable.update { it.copy(list = it.list.reduce(LiveEvent.Cleared), statements = it.statements.filter { s -> s.word != "cleared" } + cleared) }
                     } else {
                         val event = data["event"]?.jsonObject ?: return@collect
                         val entry = event["entry"]?.jsonObject ?: return@collect

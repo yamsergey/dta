@@ -122,6 +122,20 @@ class DaemonServerTest {
     }
 
     @Test
+    fun `a clear by any client reaches every watch of that app`() = runBlocking<Unit> {
+        val watcher = connect()
+        val clearer = connect(ClientKind.MCP)
+        val got = async { withTimeout(5_000) { watcher.networkEvents(JsonObject(emptyMap())).take(2).toList() } }
+        delay(300)
+        clearer.call("network.clear")
+        val cleared = got.await()[1]
+        assertEquals("emulator-5554", cleared["device"]!!.jsonPrimitive.content)
+        assertEquals("3", cleared["cleared"]!!.jsonObject["clearedEntries"]!!.jsonPrimitive.content)
+        assertEquals("mcp", cleared["by"]!!.jsonPrimitive.content)
+        watcher.close(); clearer.close()
+    }
+
+    @Test
     fun `stop tells clients why and removes the state file`() = runBlocking<Unit> {
         val watcher = connect()
         val stopper = connect()

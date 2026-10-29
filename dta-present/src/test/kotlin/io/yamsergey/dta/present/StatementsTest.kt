@@ -132,4 +132,14 @@ class StatementsTest {
         assertEquals(0, Statements.marks(many.take(2)).more)
         assertEquals(null, Statements.marks(many.take(2)).moreLabel)
     }
+
+    @Test
+    fun `a history cleared by another client is stated with who and how much`() {
+        val data = kotlinx.serialization.json.Json.parseToJsonElement("""{"subscription":"s1","device":"emulator-5554","app":"com.example.shop","cleared":{"clearedEntries":3,"clearedAtMs":1},"by":"mcp"}""") as kotlinx.serialization.json.JsonObject
+        val st = Statements.forCleared(data)!!
+        assertEquals(StatementKind.EVICTED, st.kind)
+        assertEquals("cleared", st.word)
+        assertEquals("History cleared by mcp: 3 entries removed.", st.detail)
+        assertEquals(null, Statements.forCleared(kotlinx.serialization.json.JsonObject(emptyMap())))
+    }
 }

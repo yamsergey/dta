@@ -11,11 +11,11 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** What a row is, with its glyph and kind token (information.md: kind glyph). */
-enum class EntryKind(val glyph: String, val ascii: String, val token: String) {
-    HTTP("⇄", "<>", "kind-http"),
-    WS_CONNECTION("⇌", "ws", "kind-ws"),
-    WS_OUT("↑", "^", "kind-ws"),
-    WS_IN("↓", "v", "kind-ws"),
+enum class EntryKind(val glyph: String, val ascii: String, val token: String, val label: String, val description: String) {
+    HTTP("⇄", "<>", "kind-http", "HTTP", "HTTP exchange"),
+    WS_CONNECTION("⇌", "ws", "kind-ws", "WS", "WebSocket connection"),
+    WS_OUT("↑", "^", "kind-ws", "WS ↑", "WebSocket message sent"),
+    WS_IN("↓", "v", "kind-ws", "WS ↓", "WebSocket message received"),
 }
 
 /** The outcome column: a status code in its colour (4xx, 5xx; success is not coloured), or a statement. */

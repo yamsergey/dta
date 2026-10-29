@@ -39,7 +39,7 @@ import javax.swing.SwingConstants
 class EntryDetailPane(private val project: Project, private val scope: CoroutineScope) : JPanel(BorderLayout()) {
     private val header = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); border = JBUI.Borders.empty(8, 12, 4, 12) }
     private val tabs = JBTabbedPane()
-    private val placeholder = JBLabel("", SwingConstants.CENTER).apply { foreground = JBColor.GRAY }
+    private val placeholder = JBLabel("", SwingConstants.CENTER).apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(12) }
     private var loading: Job? = null
     private var shown: String? = null
     private var shownGone = false
@@ -68,7 +68,7 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
             val result = runCatching { c.call("network.entry", params).result.jsonObject }
             withContext(Dispatchers.Main) {
                 raw = result.getOrNull()
-                if (raw == null) empty("Entry $id is not available: ${result.exceptionOrNull()?.message}") else render(gone)
+                if (raw == null) unavailable(result.exceptionOrNull()) else render(gone)
             }
         }
     }
@@ -158,8 +158,20 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
         end()
     }
 
-    private fun empty(text: String) {
-        placeholder.text = text
+    /** Why the entry could not be loaded; an entry that is no longer stored says so plainly (patterns.md). */
+    private fun unavailable(e: Throwable?) {
+        val gone = (e as? io.yamsergey.dta.client.DaemonCallException)?.code == io.yamsergey.dta.protocol.ops.ClientErrorCodes.NOT_FOUND
+        empty(
+            if (gone) "▲ This entry is no longer stored in the app: its history was cleared, or newer traffic evicted it."
+            else "This entry could not be loaded: ${e?.message ?: "no reason given"}",
+            detail = e?.message,
+        )
+    }
+
+    private fun empty(text: String, detail: String? = null) {
+        // Wraps instead of cutting the sentence off; the daemon's own words stay in the tooltip.
+        placeholder.text = "<html><div style='text-align:center'>${text.replace("&", "&amp;").replace("<", "&lt;")}</div></html>"
+        placeholder.toolTipText = detail
         removeAll()
         add(placeholder, BorderLayout.CENTER)
         revalidate()

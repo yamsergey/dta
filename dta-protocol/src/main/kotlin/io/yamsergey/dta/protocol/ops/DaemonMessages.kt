@@ -109,6 +109,8 @@ data class DaemonStatus(
 /** Events the daemon pushes to its clients. */
 object DaemonEvents {
     const val NETWORK_ENTRY = "network.entry"
+    /** An app's captured history was cleared, by any client: data `subscription`, `device`, `app`, `cleared` (ClearResult), `by` (client kind). */
+    const val NETWORK_CLEARED = "network.cleared"
     const val APP_CONNECTION = "app.connection"
     const val REPLACED = "daemon.replaced"
     const val STOPPING = "daemon.stopping"

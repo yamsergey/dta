@@ -166,6 +166,14 @@ object Statements {
         }
     }.ordered()
 
+    /** A `network.cleared` event (any client cleared the app's history); null for other events. */
+    fun forCleared(data: JsonObject): Statement? {
+        val cleared = data.obj("cleared") ?: return null
+        val n = cleared.long("clearedEntries") ?: 0
+        val text = "History cleared by ${data.str("by") ?: "a client"}: $n ${if (n == 1L) "entry" else "entries"} removed."
+        return Statement(StatementKind.EVICTED, word = "cleared", detail = text, explanation = text)
+    }
+
     /** Degradation markers (`[{capability, reason}]`): the reason is the protocol code. */
     fun markers(element: JsonElement?): List<Statement> = (element as? JsonArray).orEmpty().map { m ->
         val marker = m.asObj()

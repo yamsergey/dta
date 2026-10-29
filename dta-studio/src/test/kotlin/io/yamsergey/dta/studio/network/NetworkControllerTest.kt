@@ -78,6 +78,17 @@ class NetworkControllerTest {
     }
 
     @Test
+    fun `a clear by another client empties the list and says who cleared it`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        daemon.connect(ClientKind.CLI).client.call("network.clear", kotlinx.serialization.json.JsonObject(mapOf(
+            "device" to JsonPrimitive("emulator-5554"), "app" to JsonPrimitive("com.example.shop"),
+        )))
+        val cleared = await { it.list.rows.isEmpty() }
+        assertTrue(cleared.statements.any { it.detail == "History cleared by cli: 3 entries removed." }, "${cleared.statements}")
+    }
+
+    @Test
     fun `clear empties the app's history and the list`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 }

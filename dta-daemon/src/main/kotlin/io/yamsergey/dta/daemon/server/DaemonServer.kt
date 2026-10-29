@@ -128,6 +128,8 @@ class DaemonServer(
         private var hello: DaemonHello? = null
         private var connectedAt = 0L
         private val subscriptions = ConcurrentHashMap<String, Job>()
+        /** Device and app of each network subscription, for `network.cleared`. */
+        private val networkTargets = ConcurrentHashMap<String, Pair<String, String>>()
         private val seq = AtomicLong(0)
         private val subscriptionIds = AtomicLong(0)
 
@@ -147,6 +149,7 @@ class DaemonServer(
                 DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
+                    id?.let { networkTargets.remove(it) }
                     respond(request.id, buildJsonObject { put("unsubscribed", id != null) })
                 }
                 "daemon.status" -> respond(
@@ -161,6 +164,14 @@ class DaemonServer(
                     try {
                         val selected = dispatcher.dispatch(request.method, request.params)
                         respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), selected))
+                        if (request.method == "network.clear") {
+                            val device = selected.selection?.device
+                            val app = selected.selection?.app
+                            if (device != null && app != null) {
+                                val by = hello?.client?.name?.lowercase() ?: "a client"
+                                sessions.forEach { it.cleared(device, app, selected.result, by) }
+                            }
+                        }
                     } catch (e: ClientException) {
                         error(request.id, e.code, e.message ?: "failed", e.data)
                     } catch (e: Exception) {
@@ -248,6 +259,8 @@ class DaemonServer(
                     }
                 }
                 subscriptions[id] = job
+                networkTargets[id] = serial to pkg
+                job.invokeOnCompletion { networkTargets.remove(id) }
                 respond(
                     request.id,
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })),
@@ -289,6 +302,19 @@ class DaemonServer(
                 error(request.id, e.code, e.message ?: "failed", e.data)
             } catch (e: Exception) {
                 error(request.id, ErrorCodes.INTERNAL, "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+
+        /** Tells this client's watches of [app] on [device] that its history is gone, so their lists empty too. */
+        fun cleared(device: String, app: String, result: JsonElement, by: String) {
+            networkTargets.filterValues { it == device to app }.keys.forEach { id ->
+                send(Event(name = DaemonEvents.NETWORK_CLEARED, seq = seq.incrementAndGet(), data = buildJsonObject {
+                    put("subscription", id)
+                    put("device", device)
+                    put("app", app)
+                    put("cleared", result)
+                    put("by", by)
+                }))
             }
         }
 

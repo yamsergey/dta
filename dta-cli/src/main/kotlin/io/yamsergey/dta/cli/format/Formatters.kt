@@ -50,6 +50,7 @@ class Formatters(private val style: Style) {
 
     /** One live entry line for `network watch` (same columns as the list). */
     fun watchLine(event: JsonObject): String {
+        Statements.forCleared(event)?.let { return style.mark(it) }
         val entry = event.obj("event")?.obj("entry") ?: return ""
         val line = entryRow(entry, absolute = true)
         val dropped = event["degraded"]?.let { "\n" + style.mark(StatementKind.DEGRADED, "events dropped: this terminal fell behind") }

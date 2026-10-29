@@ -86,10 +86,11 @@ class DaemonClient private constructor(private val timeout: Duration) {
 
     /**
      * Network entries of one app as they happen. Each element is the event's data
-     * (`subscription`, `device`, `app`, `event`, optional `degraded`). The flow ends with
+     * (`subscription`, `device`, `app`, `event`, optional `degraded`), or, when any client
+     * cleared the app's history, `cleared` and `by` instead of `event`. The flow ends with
      * [DaemonGoneException] when the daemon is replaced or stops, or the stream ends.
      */
-    fun networkEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.NETWORK_SUBSCRIBE, DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonEvents.NETWORK_ENTRY, params)
+    fun networkEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.NETWORK_SUBSCRIBE, DaemonMethods.NETWORK_UNSUBSCRIBE, setOf(DaemonEvents.NETWORK_ENTRY, DaemonEvents.NETWORK_CLEARED), params)
 
     /**
      * App connection changes (`apps.watch`, feature 009). The first element is
@@ -97,9 +98,9 @@ class DaemonClient private constructor(private val timeout: Duration) {
      * each `app.connection` event's data (`device`, `app`, `state`, `reason`, `subscription`).
      * Ends with [DaemonGoneException] when the daemon is replaced or stops.
      */
-    fun appEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.APPS_SUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonEvents.APP_CONNECTION, params)
+    fun appEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.APPS_SUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, setOf(DaemonEvents.APP_CONNECTION), params)
 
-    private fun subscription(subscribe: String, unsubscribe: String, eventName: String, params: JsonObject): Flow<JsonObject> = callbackFlow {
+    private fun subscription(subscribe: String, unsubscribe: String, eventNames: Set<String>, params: JsonObject): Flow<JsonObject> = callbackFlow {
         val subscribed = DtaJson.decodeFromJsonElement(Selected.serializer(), request(subscribe, params))
         val id = (subscribed.result.jsonObject["subscription"] as JsonPrimitive).content
         send(buildJsonObject { put("selection", DtaJson.encodeToJsonElement(Selected.serializer(), subscribed)) })
@@ -107,7 +108,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
             events.collect { event ->
                 val data = event.data as? JsonObject
                 when (event.name) {
-                    eventName -> if ((data?.get("subscription") as? JsonPrimitive)?.content == id) send(data)
+                    in eventNames -> if ((data?.get("subscription") as? JsonPrimitive)?.content == id) send(data)
                     DaemonEvents.REPLACED, DaemonEvents.STOPPING -> close(DaemonGoneException(describe(event)))
                 }
             }

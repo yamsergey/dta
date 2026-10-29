@@ -180,6 +180,19 @@ class CliTest {
         assertEquals("com.example.shop", event["app"]!!.jsonPrimitive.content)
     }
 
+    @Test
+    fun `network watch says when another client cleared the history`() {
+        val watch = kotlin.concurrent.thread { dta("-d", "emulator-5554", "-a", "com.example.shop", "network", "watch") }
+        waitFor { "Watching network traffic" in stderr }
+        kotlinx.coroutines.runBlocking { daemon.connect(io.yamsergey.dta.protocol.ops.ClientKind.MCP).client.call("network.clear", kotlinx.serialization.json.buildJsonObject {
+            put("device", kotlinx.serialization.json.JsonPrimitive("emulator-5554")); put("app", kotlinx.serialization.json.JsonPrimitive("com.example.shop"))
+        }) }
+        waitFor { "cleared" in stdout }
+        daemon.close()
+        watch.join(5_000)
+        assertTrue("History cleared by mcp: 3 entries removed." in stdout, stdout)
+    }
+
     private fun waitFor(check: () -> Boolean) {
         val deadline = System.currentTimeMillis() + 5_000
         while (!check()) {

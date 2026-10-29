@@ -53,6 +53,13 @@ class EntryViewsTest {
     }
 
     @Test
+    fun `each kind has a word, so HTTP and WebSocket rows read apart`() {
+        assertEquals(listOf("HTTP", "WS", "WS ↑", "WS ↓"), EntryKind.entries.map { it.label })
+        assertEquals("WebSocket message received", EntryKind.WS_IN.description)
+        assertEquals("WebSocket connection", EntryKind.WS_CONNECTION.description)
+    }
+
+    @Test
     fun `detail sections follow information md, with the first app frame marked`() {
         val d = EntryDetail.of(canned("entry-scripted"))
         assertEquals(listOf("Summary", "Script", "Request", "Response", "Initiator"), d.sections)
