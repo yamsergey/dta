@@ -153,6 +153,8 @@ class DaemonServerTest {
         assertNotNull(gone.await())
         withTimeout(3_000) { while (stopped.get() == null) delay(50) }
         assertTrue("replaced" in stopped.get()!!)
+        // onStop records the reason before stop() finishes removing the state file.
+        withTimeout(3_000) { while (state.stateFile.exists()) delay(50) }
         assertFalse(state.stateFile.exists())
     }
 
