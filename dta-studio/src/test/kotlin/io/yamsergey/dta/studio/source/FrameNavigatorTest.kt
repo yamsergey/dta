@@ -52,4 +52,16 @@ class FrameNavigatorTest : BasePlatformTestCase() {
         assertNull(resolve("com.example.gone.Nowhere", "x", "Nowhere.kt", 1))
         assertNull(resolve("com.example.shop.Cart\$\$ExternalSyntheticLambda0", "run", "D8\$\$SyntheticClass", null))
     }
+
+    fun `test opening runs off the UI thread and reports a frame found nowhere`() {
+        project()
+        var missing = false
+        var opened = false
+        FrameNavigator(project).open("com.example.gone.Nowhere", "x", "Nowhere.kt", 1, onMissing = { missing = true }, onOpened = { opened = true })
+        com.intellij.testFramework.PlatformTestUtil.waitWithEventsDispatching("not reported", { missing }, 10)
+        assertFalse(opened)
+        FrameNavigator(project).open("com.example.shop.Cart", "checkout", "Cart.java", 3, onMissing = { missing = false }, onOpened = { opened = true })
+        com.intellij.testFramework.PlatformTestUtil.waitWithEventsDispatching("not opened", { opened }, 10)
+        assertTrue(com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedFiles.single().path.endsWith("com/example/shop/Cart.java"))
+    }
 }

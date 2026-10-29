@@ -1,13 +1,16 @@
 package io.yamsergey.dta.studio.source
 
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiCompiledElement
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.util.concurrency.AppExecutorUtil
 import io.yamsergey.dta.protocol.network.FrameClassifier
 
 /**
@@ -33,14 +36,26 @@ class FrameNavigator(private val project: Project) {
         }
     }
 
-    /** Opens the frame; false when it is in neither the project nor its libraries. */
-    fun open(className: String, method: String, file: String?, line: Int?): Boolean {
-        val at = resolve(className, method, file, line) ?: return false
-        val descriptor = if (at.line != null) OpenFileDescriptor(project, at.file, (at.line - 1).coerceAtLeast(0), 0)
-        else OpenFileDescriptor(project, at.file, at.offset ?: 0)
-        descriptor.navigate(true)
-        return true
+    /**
+     * Opens the frame. The lookup runs off the UI thread and waits for indexing to end (classes
+     * are unknown until then); [onOpened] or [onMissing] runs on the UI thread afterwards.
+     */
+    fun open(className: String, method: String, file: String?, line: Int?, onMissing: () -> Unit, onOpened: () -> Unit = {}) {
+        ReadAction.nonBlocking<Location?> { resolve(className, method, file, line) }
+            .inSmartMode(project)
+            .expireWith(project)
+            .finishOnUiThread(ModalityState.defaultModalityState()) { at ->
+                if (at == null) return@finishOnUiThread onMissing()
+                val descriptor = if (at.line != null) OpenFileDescriptor(project, at.file, (at.line - 1).coerceAtLeast(0), 0)
+                else OpenFileDescriptor(project, at.file, at.offset ?: 0)
+                descriptor.navigate(true)
+                onOpened()
+            }
+            .submit(AppExecutorUtil.getAppExecutorService())
     }
+
+    /** True while the IDE is indexing: a lookup started now opens when it ends. */
+    fun indexing(): Boolean = DumbService.isDumb(project)
 
     /** `a.B$C` is `a.B.C`; `a.B$1` and `a.B$run$1` (anonymous, lambdas) fall back to the enclosing class. */
     private fun findClass(binaryName: String): PsiClass? {
