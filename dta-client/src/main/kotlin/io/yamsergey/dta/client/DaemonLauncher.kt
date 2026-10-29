@@ -28,21 +28,39 @@ fun interface DaemonSpawner {
     fun spawn(home: File, identity: VersionIdentity, log: File): Long
 }
 
-/** Starts `DaemonMain` with this process's own Java and classpath (research R3). */
-object ProcessSpawner : DaemonSpawner {
-    const val MAIN = "io.yamsergey.dta.daemon.server.DaemonMain"
+/**
+ * How to start `DaemonMain`: which Java, which classpath, which extra environment (feature 009,
+ * research R4). The CLI starts it from its own process; a host whose classpath is not DTA's (the
+ * IDE) passes the Java it runs on and a directory of the daemon's jars.
+ */
+data class DaemonLaunch(val java: File, val classpath: String, val env: Map<String, String> = emptyMap()) {
+    companion object {
+        fun currentProcess() = DaemonLaunch(File(System.getProperty("java.home"), "bin/java"), System.getProperty("java.class.path"))
 
+        fun fromDirectory(java: File, dir: File, env: Map<String, String> = emptyMap()): DaemonLaunch {
+            val jars = dir.listFiles { f -> f.isFile && f.name.endsWith(".jar") }.orEmpty().sortedBy { it.name }
+            return DaemonLaunch(java, jars.joinToString(File.pathSeparator) { it.path }, env)
+        }
+    }
+}
+
+/** Starts `DaemonMain` detached as [launch] describes. */
+class ClasspathSpawner(private val launch: DaemonLaunch = DaemonLaunch.currentProcess()) : DaemonSpawner {
     override fun spawn(home: File, identity: VersionIdentity, log: File): Long {
-        val java = File(System.getProperty("java.home"), "bin/java").path
         val process = ProcessBuilder(
-            java, "-cp", System.getProperty("java.class.path"), MAIN,
+            launch.java.path, "-cp", launch.classpath, MAIN,
             "--home", home.absolutePath, "--version", identity.version, "--build", identity.build,
         )
+            .apply { environment().putAll(launch.env) }
             .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
             .redirectErrorStream(true)
             .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
             .start()
         return process.pid()
+    }
+
+    companion object {
+        const val MAIN = "io.yamsergey.dta.daemon.server.DaemonMain"
     }
 }
 
@@ -55,7 +73,7 @@ object ProcessSpawner : DaemonSpawner {
 class DaemonLauncher(
     private val home: DtaHome = DtaHome.resolve(),
     private val version: VersionInfo = VersionInfo.current(),
-    private val spawner: DaemonSpawner = ProcessSpawner,
+    private val spawner: DaemonSpawner = ClasspathSpawner(),
     private val startTimeout: Duration = 20.seconds,
     private val isAlive: (Long) -> Boolean = { pid -> ProcessHandle.of(pid).map { it.isAlive }.orElse(false) },
 ) {

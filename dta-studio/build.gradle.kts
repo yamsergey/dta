@@ -1,4 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -64,6 +66,27 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
+/**
+ * The daemon's full runtime classpath, its own kotlin-stdlib and coroutines included, shipped
+ * in the plugin's `daemon/` directory (research R4): the plugin starts the shared daemon as a
+ * separate process from these jars, so it works without the CLI installed.
+ */
+val daemonRuntime: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage.JAVA_RUNTIME))
+        attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category.LIBRARY))
+        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements.JAR))
+        attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling.EXTERNAL))
+        attribute(TargetJvmEnvironment.TARGET_JVM_ENVIRONMENT_ATTRIBUTE, objects.named(TargetJvmEnvironment.STANDARD_JVM))
+    }
+}
+
+dependencies {
+    daemonRuntime(project(":dta-daemon"))
+}
+
 // The IDE supplies kotlin-stdlib and kotlinx-coroutines; bundling our own breaks the plugin.
 configurations.named("runtimeClasspath") {
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
@@ -97,6 +120,34 @@ intellijPlatform {
     // Requires launching the full IDE, which fails with local() installs.
     buildSearchableOptions = false
 }
+
+tasks.named<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask>("prepareSandbox") {
+    from(daemonRuntime) { into(intellijPlatform.projectName.map { "$it/daemon" }) }
+}
+
+/** Fails the build when the plugin ZIP cannot start the daemon: `daemon/` must hold DaemonMain's jar. */
+abstract class VerifyDaemonBundle : DefaultTask() {
+    @get:InputFile abstract val pluginZip: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        ZipFile(pluginZip.get().asFile).use { zip ->
+            val daemonJars = zip.entries().asSequence().filter { Regex("[^/]+/daemon/[^/]+\\.jar").matches(it.name) }.toList()
+            val main = daemonJars.firstOrNull { it.name.substringAfterLast('/').startsWith("dta-daemon-") }
+                ?: throw GradleException("${pluginZip.get().asFile.name}: daemon/ has no dta-daemon jar (found ${daemonJars.map { it.name }})")
+            ZipInputStream(zip.getInputStream(main)).use { jar ->
+                val entries = generateSequence { jar.nextEntry }.map { it.name }.toSet()
+                if ("io/yamsergey/dta/daemon/server/DaemonMain.class" !in entries) throw GradleException("${main.name} has no DaemonMain")
+            }
+        }
+    }
+}
+
+val verifyDaemonBundle = tasks.register<VerifyDaemonBundle>("verifyDaemonBundle") {
+    pluginZip = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+}
+tasks.named("buildPlugin") { finalizedBy(verifyDaemonBundle) }
+tasks.named("check") { dependsOn(verifyDaemonBundle) }
 
 intellijPlatformTesting {
     runIde {

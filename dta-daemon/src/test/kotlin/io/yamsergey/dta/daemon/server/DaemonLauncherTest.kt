@@ -1,10 +1,15 @@
 package io.yamsergey.dta.daemon.server
 
+import io.yamsergey.dta.client.ClasspathSpawner
+import io.yamsergey.dta.client.DaemonLaunch
 import io.yamsergey.dta.client.DaemonLauncher
 import io.yamsergey.dta.client.DtaHome
 import io.yamsergey.dta.client.VersionConflictException
 import io.yamsergey.dta.client.VersionInfo
+import io.yamsergey.dta.daemon.adb.AdbExec
 import io.yamsergey.dta.protocol.ops.ClientKind
+import io.yamsergey.dta.protocol.ops.DaemonStatus
+import io.yamsergey.dta.protocol.rpc.DtaJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -95,5 +100,37 @@ class DaemonLauncherTest {
         assertEquals(1, connected.map { it.client.daemon.pid }.toSet().size)
         assertEquals(1, connected.count { c -> c.statements.any { it.startsWith("started") } })
         connected.forEach { it.client.close() }
+    }
+
+    // --- Starting from any host (feature 009, research R4)
+
+    @Test
+    fun `the current process launch is this JVM's java and classpath`() {
+        val launch = DaemonLaunch.currentProcess()
+        assertEquals(File(System.getProperty("java.home"), "bin/java"), launch.java)
+        assertEquals(System.getProperty("java.class.path"), launch.classpath)
+        assertEquals(emptyMap(), launch.env)
+    }
+
+    @Test
+    fun `a launch from a directory puts every jar in it on the classpath, in a stable order`() {
+        val dir = Files.createTempDirectory("dta-daemon-lib").toFile()
+        listOf("b.jar", "a.jar", "notes.txt").forEach { File(dir, it).writeText("") }
+        val launch = DaemonLaunch.fromDirectory(File("/jbr/bin/java"), dir, mapOf("DTA_ADB" to "/sdk/adb"))
+        assertEquals(listOf(File(dir, "a.jar").path, File(dir, "b.jar").path).joinToString(File.pathSeparator), launch.classpath)
+        assertEquals(mapOf("DTA_ADB" to "/sdk/adb"), launch.env)
+    }
+
+    @Test
+    fun `an explicit launch starts a real daemon and its environment reaches it`() = runBlocking<Unit> {
+        // A path to adb no other lookup would find: the daemon reports it only if DTA_ADB arrived.
+        val adb = File(Files.createTempDirectory("dta-adb").toFile(), "adb")
+        Files.createSymbolicLink(adb.toPath(), File(AdbExec.resolveAdb()).toPath())
+        val java = File(System.getProperty("java.home"), "bin/java")
+        val launch = DaemonLaunch(java, System.getProperty("java.class.path"), mapOf("DTA_ADB" to adb.path))
+        val connected = DaemonLauncher(home, VersionInfo("0.1.0", "2026-10-28T10:00:00Z", "test"), ClasspathSpawner(launch)).ensure(ClientKind.CLI)
+        val status = DtaJson.decodeFromJsonElement(DaemonStatus.serializer(), connected.client.call("daemon.status").result)
+        assertEquals(adb.path, status.adb.path)
+        connected.client.close()
     }
 }
