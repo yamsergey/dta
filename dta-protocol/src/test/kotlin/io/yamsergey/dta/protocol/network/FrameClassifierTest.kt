@@ -66,4 +66,27 @@ class FrameClassifierTest {
         assertNull(f.file)
         assertNull(f.line)
     }
+
+    @Test
+    fun `compiler-generated lambda glue is not app code, and the real lambda body is`() {
+        val initiator = FrameClassifier.initiator("t", InitiatorSite.CONNECT, listOf(
+            StackTraceElement("io.yamsergey.dta.fixture.channel.NetworkScreen", "protoWs", "NetworkScreen.kt", 422),
+            StackTraceElement("io.yamsergey.dta.fixture.channel.NetworkScreen", "run\$lambda\$0", "NetworkScreen.kt", 91),
+            StackTraceElement("io.yamsergey.dta.fixture.channel.NetworkScreen", "\$r8\$lambda\$Kr0ca", null, 0),
+            StackTraceElement("io.yamsergey.dta.fixture.channel.NetworkScreen\$\$ExternalSyntheticLambda0", "run", "D8\$\$SyntheticClass", 0),
+            StackTraceElement("com.example.Old\$\$Lambda\$1", "run", null, -1),
+        ))
+        assertEquals(listOf(true, true, false, false, false), initiator.frames!!.map { it.app })
+        assertEquals(0, initiator.firstAppFrame)
+    }
+
+    @Test
+    fun `a line without a file or a zero line is no line - the hooked method and synthetic frames`() {
+        val initiator = FrameClassifier.initiator("t", InitiatorSite.CONNECT, listOf(
+            StackTraceElement("okhttp3.internal.ws.RealWebSocket", "connect", null, 22),
+            StackTraceElement("com.example.A\$\$ExternalSyntheticLambda0", "run", "D8\$\$SyntheticClass", 0),
+        ))
+        assertEquals(listOf<Int?>(null, null), initiator.frames!!.map { it.line })
+        assertEquals("D8\$\$SyntheticClass", initiator.frames!![1].file)
+    }
 }

@@ -34,7 +34,7 @@ import javax.swing.SwingConstants
 /**
  * The detail of one entry (information.md "Network entry"). A fixed header — the request line,
  * statements, the script and its wire / app-side switch — over tabs: Headers, Payload, Response,
- * Initiator, Messages. Each tab scrolls on its own; nothing scrolls inside another scroll.
+ * Messages, Initiator (last). Each tab scrolls on its own; nothing scrolls inside another scroll.
  */
 class EntryDetailPane(private val project: Project, private val scope: CoroutineScope) : JPanel(BorderLayout()) {
     private val header = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); border = JBUI.Borders.empty(8, 12, 4, 12) }
@@ -87,8 +87,8 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
             detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, target, id, it, scope)) }
             detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, target, id, it, scope)) }
         }
-        detail.initiator?.let { tabs.addTab("Initiator", scroll(initiatorPage(detail))) }
         if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab("Messages", scroll(messagesPage(detail)))
+        detail.initiator?.let { tabs.addTab("Initiator", scroll(initiatorPage(detail))) }
         // The same tab stays open from entry to entry when the new one has it.
         (0 until tabs.tabCount).firstOrNull { tabs.getTitleAt(it) == selected }?.let { tabs.selectedIndex = it }
 

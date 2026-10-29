@@ -16,6 +16,12 @@ data class BodyRef(val part: String, val info: JsonObject)
 
 data class Section(val title: String, val headers: List<Pair<String, String>>, val body: BodyRef?)
 
+/** One stack frame as a JVM stack prints it: `(File.kt:12)`, `(File.kt)`, or `(Unknown Source)`. */
+object FrameText {
+    fun of(className: String?, method: String?, file: String?, line: Int?): String =
+        "$className.$method(${file?.let { f -> line?.let { "$f:$it" } ?: f } ?: "Unknown Source"})"
+}
+
 data class FrameLine(val text: String, val app: Boolean, val first: Boolean)
 
 data class InitiatorView(val header: String, val frames: List<FrameLine>, val missing: String?, val truncated: Int?)
@@ -88,7 +94,7 @@ data class EntryDetail(
                     header = "${init.str("thread")} · ${init.str("site")}",
                     frames = init.arr("frames").mapIndexed { index, f ->
                         val frame = f.o
-                        FrameLine("${frame.str("className")}.${frame.str("method")}(${frame.str("file") ?: "?"}:${frame.long("line") ?: "?"})", frame.bool("app"), index == first)
+                        FrameLine(FrameText.of(frame.str("className"), frame.str("method"), frame.str("file"), frame.long("line")?.toInt()), frame.bool("app"), index == first)
                     },
                     missing = init.str("missing"),
                     truncated = init.long("truncatedFrames")?.toInt(),

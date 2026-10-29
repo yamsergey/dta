@@ -20,6 +20,13 @@ object FrameClassifier {
 
     fun isApp(className: String): Boolean = LIBRARY_PACKAGES.none { className.startsWith(it) }
 
+    /**
+     * Glue the compiler generates for lambdas (D8/R8 desugaring, debug builds included): it sits
+     * in the app's package but is nobody's code. The lambda's own body (`run$lambda$0`) is app code.
+     */
+    private fun generated(className: String, method: String) =
+        "\$\$ExternalSynthetic" in className || "\$\$Lambda" in className || method.startsWith("\$r8\$lambda\$")
+
     fun initiator(thread: String, site: InitiatorSite, stack: List<StackTraceElement>): Initiator {
         val trimmed = stack.dropWhile { e ->
             CAPTURE_PACKAGES.any { e.className.startsWith(it) } || (e.className == THREAD_STACK.first && e.methodName == THREAD_STACK.second)
@@ -29,8 +36,10 @@ object FrameClassifier {
                 className = e.className,
                 method = e.methodName,
                 file = e.fileName,
-                line = e.lineNumber.takeIf { it >= 0 },
-                app = isApp(e.className),
+                // Without a file the number is not a source line (a hooked method reports one);
+                // line 0 is a synthetic frame's placeholder.
+                line = e.lineNumber.takeIf { it > 0 && e.fileName != null },
+                app = isApp(e.className) && !generated(e.className, e.methodName),
             )
         }
         return Initiator(

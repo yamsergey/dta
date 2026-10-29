@@ -228,7 +228,7 @@ class Formatters(private val style: Style) {
             appendLine(section("Initiator") + "  thread ${i.str("thread")}  ${i.str("site")}")
             val first = i.long("firstAppFrame")?.toInt()
             i.arr("frames").forEachIndexed { index, f ->
-                val frame = "  ${f.obj.str("className")}.${f.obj.str("method")}(${f.obj.str("file") ?: "?"}:${f.obj.long("line") ?: "?"})"
+                val frame = "  " + io.yamsergey.dta.present.network.FrameText.of(f.obj.str("className"), f.obj.str("method"), f.obj.str("file"), f.obj.long("line")?.toInt())
                 appendLine(if (index == first) style.paint(frame, Token.STRONG) else style.paint(frame, Token.INK_MUTED))
             }
         }

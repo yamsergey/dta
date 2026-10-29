@@ -76,6 +76,13 @@ class EntryViewsTest {
     }
 
     @Test
+    fun `a frame without a line or a file says so the way a JVM stack does`() {
+        assertEquals("a.B.c(B.kt:3)", FrameText.of("a.B", "c", "B.kt", 3))
+        assertEquals("a.B.c(B.kt)", FrameText.of("a.B", "c", "B.kt", null))
+        assertEquals("a.B.c(Unknown Source)", FrameText.of("a.B", "c", null, null))
+    }
+
+    @Test
     fun `a scripted entry switches between the wire and what the app saw`() {
         val wire = EntryDetail.of(canned("entry-scripted"))
         assertEquals("changed status, body · delayed 2000 ms", wire.intervention!!.summary)
