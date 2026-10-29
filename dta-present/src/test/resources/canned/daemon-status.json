@@ -1,0 +1,5 @@
+{"identity":{"version":"0.10.0","build":"2026-10-29T10:00:00Z","protocolVersion":1},"pid":4242,"uptimeMs":65000,"home":"/Users/dev/.dta",
+ "adb":{"path":"/sdk/platform-tools/adb","available":true},
+ "clients":[{"kind":"ide","version":"0.10.0","connectedAtMs":1},{"kind":"cli","version":"0.10.0","connectedAtMs":2}],
+ "devices":[{"serial":"emulator-5554","state":"online","model":"Pixel 8"}],
+ "connections":[{"device":"emulator-5554","app":"com.example.shop"}]}
