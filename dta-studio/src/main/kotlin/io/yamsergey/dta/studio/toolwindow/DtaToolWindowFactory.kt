@@ -26,12 +26,16 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         val bar = ContextBar(controller)
         val banner = BannerPanel().apply { onAction { DtaApplicationService.get().session.retry() } }
         val daemonPanel = DaemonPanel(controller, service.scope)
+        val layoutPanel = LayoutPanel(project, service.layout, service.scope)
         val tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
-            listOf("Layout", "Script", "Schemas").forEach { addTab(it, placeholder(it)) }
+            addTab("Layout", layoutPanel)
+            listOf("Script", "Schemas").forEach { addTab(it, placeholder(it)) }
             addTab("Daemon", daemonPanel)
             addTab("Agents", placeholder("Agents"))
         }
+        // A layout is a snapshot: captured only while its tab is the one shown.
+        tabs.addChangeListener { service.layout.setActive(tabs.selectedComponent === layoutPanel) }
         val top = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             add(bar)

@@ -65,12 +65,15 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     val appEventFlow = MutableSharedFlow<io.yamsergey.dta.protocol.ops.AppConnectionEvent>(extraBufferCapacity = 100)
     override fun appEvents(serial: String?): Flow<io.yamsergey.dta.protocol.ops.AppConnectionEvent> = appEventFlow
     override suspend fun capabilityReport(serial: String, pkg: String) = IdentityReport(1, "0.1.0", pkg, emptyList())
+    /** The capture `layout.tree` returns; tests swap it to change the screen. */
+    @Volatile var capture: LayoutCapture = LayoutCapture(
+        Screen(1080, 2400, 2.6f, "MainActivity"), CaptureSource.SIDEKICK,
+        listOf(Window(type = WindowType.APPLICATION, zOrder = 0, root = ViewNode(1, Rect(0, 0, 1080, 2400), "android.widget.FrameLayout", resourceId = "android:id/content",
+            children = listOf(ViewNode(2, Rect(0, 0, 100, 50), "android.widget.Button", text = "Pay"))))),
+    )
+    val layoutRequests = java.util.concurrent.CopyOnWriteArrayList<Pair<String?, DetailLevel>>()
     override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean) =
-        LayoutCapture(
-            Screen(1080, 2400, 2.6f, "MainActivity"), CaptureSource.SIDEKICK,
-            listOf(Window(type = WindowType.APPLICATION, zOrder = 0, root = ViewNode(1, Rect(0, 0, 1080, 2400), "android.widget.FrameLayout", resourceId = "android:id/content",
-                children = listOf(ViewNode(2, Rect(0, 0, 100, 50), "android.widget.Button", text = "Pay"))))),
-        )
+        capture.also { layoutRequests += pkg to detail }
     val queries = java.util.concurrent.CopyOnWriteArrayList<Pair<String, NetworkQuery>>()
     var cleared = 0
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) =
