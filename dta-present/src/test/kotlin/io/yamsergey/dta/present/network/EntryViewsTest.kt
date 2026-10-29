@@ -43,16 +43,17 @@ class EntryViewsTest {
     }
 
     @Test
-    fun `a WebSocket message names its socket by path, its payload muted after it, no method`() {
+    fun `a WebSocket message says Sent or Received and names its socket's URL, its payload muted after it`() {
         val m = row(5)
         assertEquals(EntryKind.WS_IN, m.kind)
-        assertEquals("", m.verb)
-        assertNull(m.host)
+        assertEquals("Received", m.verb)
+        assertEquals("chat.example.com", m.host)
         assertEquals("/chat", m.path)
         assertEquals("{\"hello\":1}", m.preview)
         assertEquals("20 B", m.timing)
         val binary = row(8)
         assertEquals(EntryKind.WS_OUT, binary.kind)
+        assertEquals("Sent", binary.verb)
         assertEquals("/chat?room=1", binary.path)
         assertEquals("binary 16 B", binary.preview)
     }

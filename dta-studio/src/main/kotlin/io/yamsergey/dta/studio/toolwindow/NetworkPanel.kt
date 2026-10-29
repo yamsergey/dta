@@ -297,7 +297,7 @@ class NetworkPanel(
 
     private companion object {
         val COLUMNS = listOf(
-            Column("Time", 90), Column("Type", 52), Column("Method", 64), Column("Name", 436),
+            Column("Time", 90), Column("Type", 52), Column("Method", 76), Column("Name", 424),
             Column("Status", 80), Column("Time · Size", 110), Column("Run", 50), Column("Statements", 200),
         )
     }

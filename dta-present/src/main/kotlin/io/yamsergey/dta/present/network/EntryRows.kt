@@ -27,9 +27,9 @@ data class EntryRow(
     val time: String,
     val kind: EntryKind,
     val verb: String,
-    /** Muted host; null for messages. */
+    /** Muted host; a message shows its socket's. */
     val host: String?,
-    /** Path and query; for a message, its socket's. */
+    /** Path and query; a message shows its socket's. */
     val path: String,
     val outcome: Outcome,
     val timing: String,
@@ -81,9 +81,9 @@ object EntryRows {
                 "http" -> entry.str("method") ?: "?"
                 // The handshake is a GET answered by 101.
                 "ws-connection" -> "GET"
-                else -> ""
+                else -> if (kind == EntryKind.WS_OUT) "Sent" else "Received"
             },
-            host = if (message) null else host,
+            host = host,
             path = path,
             preview = preview,
             outcome = outcome(entry, type, ending),
