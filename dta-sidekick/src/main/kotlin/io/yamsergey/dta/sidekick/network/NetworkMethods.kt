@@ -66,7 +66,7 @@ class NetworkMethods(
         val notSearched = eval?.binaryNotSearched?.takeIf { it > 0 }?.let { listOf("binary bodies whose encoding cannot be undone ($it)") }
         val coverage = store.coverage().copy(searched = page.searched, notSearched = notSearched)
         return NetworkPage(
-            entries = page.entries.map { it.summary() },
+            entries = page.entries.map { it.withSocketUrl().summary() },
             matches = page.entries.mapNotNull { e -> locations[e.id]?.let { e.id to it } }.toMap().ifEmpty { null },
             total = page.total,
             next = page.next,
@@ -75,6 +75,10 @@ class NetworkMethods(
                 .plusHistory(coverage, reachesEvicted = coverage.evicted > 0 && page.entries.any { it.id == store.earliestId() }),
         )
     }
+
+    /** A message stored before messages carried their socket's URL takes its connection's, while that is stored. */
+    private fun NetworkEntry.withSocketUrl(): NetworkEntry =
+        if (this is WsMessageEntry && url == null) copy(url = (store.get(connectionId) as? WsConnectionEntry)?.url) else this
 
     /** Eviction (FR-026) and lost persistence (FR-029) as markers on the page. */
     private fun List<DegradationMarker>?.plusHistory(coverage: Coverage, reachesEvicted: Boolean): List<DegradationMarker>? {
@@ -92,9 +96,9 @@ class NetworkMethods(
             "unknown entry id $id; it may have been evicted (earliest stored: ${earliest()})",
         )
         if (entry !is WsConnectionEntry) {
-            return NetworkEntryDetail(entry = entry, degraded = degradations(dropped = store.coverage().dropped, entries = listOf(entry)))
+            return NetworkEntryDetail(entry = entry.withSocketUrl(), degraded = degradations(dropped = store.coverage().dropped, entries = listOf(entry)))
         }
-        val messages = store.snapshot().filter { it is WsMessageEntry && it.connectionId == id }.map { it as WsMessageEntry }
+        val messages = store.snapshot().filter { it is WsMessageEntry && it.connectionId == id }.map { (it as WsMessageEntry).copy(url = it.url ?: entry.url) }
         return NetworkEntryDetail(
             entry = entry,
             messages = messages.take(NetworkEntryDetail.MAX_MESSAGES),

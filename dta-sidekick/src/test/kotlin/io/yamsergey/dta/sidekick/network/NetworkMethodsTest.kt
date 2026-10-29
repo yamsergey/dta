@@ -9,6 +9,7 @@ import io.yamsergey.dta.protocol.network.Initiator
 import io.yamsergey.dta.protocol.network.InitiatorSite
 import io.yamsergey.dta.protocol.network.MessageOpcode
 import io.yamsergey.dta.protocol.network.WsConnectionEntry
+import io.yamsergey.dta.protocol.network.WsMessageEntry
 import io.yamsergey.dta.protocol.network.Header
 import io.yamsergey.dta.protocol.rpc.CapabilityStatus
 import io.yamsergey.dta.protocol.rpc.InvalidParamsException
@@ -87,6 +88,17 @@ class NetworkMethodsTest {
         assertTrue("unknown entry id r0-0:1" in e.message!!, e.message)
         assertTrue("earliest stored" in e.message!!, e.message)
         assertFailsWith<InvalidParamsException> { methods.entry(null) }
+    }
+
+    @Test
+    fun `a message recorded before messages carried their URL gets its connection's, in list and detail`() {
+        val conn = recorder.wsStarted("okhttp3-ws", "ws://h/chat", emptyList(), initiator)
+        val m = recorder.wsMessage(conn, Direction.OUT, MessageOpcode.TEXT, "a".toByteArray(), initiator)!!
+        // As an older sidekick stored it: no url on the message.
+        store.upsert((store.get(m) as WsMessageEntry).copy(url = null))
+        assertEquals("ws://h/chat", (methods.list(null).entries.single { it.id == m } as WsMessageEntry).url)
+        assertEquals("ws://h/chat", (methods.entry(params("""{"id":"$m"}""")).entry as WsMessageEntry).url)
+        assertEquals("ws://h/chat", methods.entry(params("""{"id":"$conn"}""")).messages!!.single().url)
     }
 
     @Test
