@@ -3,6 +3,7 @@ package io.yamsergey.dta.daemon.server
 import io.yamsergey.dta.client.ClasspathSpawner
 import io.yamsergey.dta.client.DaemonLaunch
 import io.yamsergey.dta.client.DaemonLauncher
+import io.yamsergey.dta.client.DaemonStartException
 import io.yamsergey.dta.client.DtaHome
 import io.yamsergey.dta.client.VersionConflictException
 import io.yamsergey.dta.client.VersionInfo
@@ -119,6 +120,23 @@ class DaemonLauncherTest {
         val launch = DaemonLaunch.fromDirectory(File("/jbr/bin/java"), dir, mapOf("DTA_ADB" to "/sdk/adb"))
         assertEquals(listOf(File(dir, "a.jar").path, File(dir, "b.jar").path).joinToString(File.pathSeparator), launch.classpath)
         assertEquals(mapOf("DTA_ADB" to "/sdk/adb"), launch.env)
+    }
+
+    @Test
+    fun `a launch from a directory without jars says so instead of starting a daemon that cannot load`() {
+        val dir = Files.createTempDirectory("dta-daemon-empty").toFile()
+        val e = assertFailsWith<DaemonStartException> { DaemonLaunch.fromDirectory(File("/jbr/bin/java"), File(dir, "daemon")) }
+        assertTrue("${File(dir, "daemon").path}" in e.message!! && "no daemon jars" in e.message!!, e.message)
+    }
+
+    @Test
+    fun `a daemon that exits at start is stated with the last line of its log`() = runBlocking<Unit> {
+        val java = File(System.getProperty("java.home"), "bin/java")
+        val launch = DaemonLaunch(java, Files.createTempDirectory("dta-no-classes").toString())
+        val e = assertFailsWith<DaemonStartException> {
+            DaemonLauncher(home, VersionInfo("0.1.0", "2026-10-28T10:00:00Z", "test"), ClasspathSpawner(launch)).ensure(ClientKind.CLI)
+        }
+        assertTrue("(it exited)" in e.message!! && "ClassNotFoundException" in e.message!!, e.message)
     }
 
     @Test

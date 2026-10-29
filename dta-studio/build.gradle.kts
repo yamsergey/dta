@@ -127,7 +127,8 @@ intellijPlatform {
     buildSearchableOptions = false
 }
 
-tasks.named<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask>("prepareSandbox") {
+// Every sandbox: the one the ZIP is built from and the ones runStudio and the tests run in.
+tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask>().configureEach {
     from(daemonRuntime) { into(intellijPlatform.projectName.map { "$it/daemon" }) }
 }
 

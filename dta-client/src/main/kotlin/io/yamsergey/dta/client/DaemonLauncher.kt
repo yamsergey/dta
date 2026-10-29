@@ -39,6 +39,7 @@ data class DaemonLaunch(val java: File, val classpath: String, val env: Map<Stri
 
         fun fromDirectory(java: File, dir: File, env: Map<String, String> = emptyMap()): DaemonLaunch {
             val jars = dir.listFiles { f -> f.isFile && f.name.endsWith(".jar") }.orEmpty().sortedBy { it.name }
+            if (jars.isEmpty()) throw DaemonStartException("${dir.path} has no daemon jars; the DTA daemon cannot start from it")
             return DaemonLaunch(java, jars.joinToString(File.pathSeparator) { it.path }, env)
         }
     }
@@ -168,7 +169,7 @@ class DaemonLauncher(
                 if (!up || readState()?.pid != pid) {
                     throw DaemonStartException(
                         "The DTA daemon did not start" + (if (!isAlive(pid)) " (it exited)" else " within $startTimeout") +
-                            "; see ${logFile.path}",
+                            lastLogLine().let { if (it == null) "" else ": $it" } + "; see ${logFile.path}",
                     )
                 }
                 val state = readState()!!
@@ -177,6 +178,10 @@ class DaemonLauncher(
         }
         }
     }
+
+    /** The daemon's own last word, so a failed start is stated with its cause. */
+    private fun lastLogLine(): String? =
+        runCatching { logFile.readLines().lastOrNull { it.isNotBlank() }?.trim() }.getOrNull()
 
     private suspend fun attachQuietly(kind: ClientKind): DaemonClient? {
         val state = readState() ?: return null
