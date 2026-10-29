@@ -1,0 +1,6 @@
+{"protocolVersion":1,"sidekickVersion":"0.10.0","packageName":"com.example.shop","capabilities":[
+ {"name":"layout","status":"available","libraries":[]},
+ {"name":"network","status":"available","libraries":[
+   {"name":"okhttp3","status":"available"},
+   {"name":"grpc","status":"unavailable","reason":"gRPC traffic is not captured"},
+   {"name":"java-websocket","status":"degraded","reason":"hook failed: NoSuchMethodError"}]}]}

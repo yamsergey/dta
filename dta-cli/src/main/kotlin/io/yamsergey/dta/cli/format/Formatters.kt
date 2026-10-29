@@ -1,7 +1,8 @@
 package io.yamsergey.dta.cli.format
 
-import io.yamsergey.dta.cli.format.Style.Statement
 import io.yamsergey.dta.cli.format.Style.Token
+import io.yamsergey.dta.present.StatementKind
+import io.yamsergey.dta.present.Statements
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -17,7 +18,8 @@ import java.time.format.DateTimeFormatter
 /**
  * Human-readable output per operation (design system: information.md, statements.md).
  * Works on the operation's JSON result, the same document `--json` prints, so the two can
- * never disagree on content. Unknown operations print indented JSON.
+ * never disagree on content; statements come from dta-present, shared with the plugin.
+ * Unknown operations print indented JSON.
  */
 class Formatters(private val style: Style) {
 
@@ -48,7 +50,7 @@ class Formatters(private val style: Style) {
     fun watchLine(event: JsonObject): String {
         val entry = event.obj("event")?.obj("entry") ?: return ""
         val line = entryRow(entry, absolute = true)
-        val dropped = event["degraded"]?.let { "\n" + style.mark(Statement.DEGRADED, "events dropped: this terminal fell behind") }
+        val dropped = event["degraded"]?.let { "\n" + style.mark(StatementKind.DEGRADED, "events dropped: this terminal fell behind") }
         return line + (dropped ?: "")
     }
 
@@ -78,6 +80,11 @@ class Formatters(private val style: Style) {
     }
 
     private fun capability(o: JsonObject): String = buildString {
+        val gaps = Statements.forCapability(o).associateBy { it.subject }
+        fun capLine(name: String, status: String, reason: String?): String {
+            val state = gaps[name]?.let { style.mark(it.kind, it.word) } ?: status
+            return listOfNotNull(name.padEnd(16), state, reason?.let { style.paint(it, Token.INK_MUTED) }).joinToString("  ")
+        }
         appendLine("${o.str("packageName")}  sidekick ${o.str("sidekickVersion")}")
         o.arr("capabilities").forEach { c ->
             val cap = c.obj
@@ -89,15 +96,6 @@ class Formatters(private val style: Style) {
         }
     }.trimEnd()
 
-    private fun capLine(name: String, status: String, reason: String?): String {
-        val state = when {
-            status == "available" -> status
-            name == "grpc" -> style.mark(Statement.NOT_CAPTURED, "not captured")
-            else -> style.mark(Statement.DEGRADED, status)
-        }
-        return listOfNotNull(name.padEnd(16), state, reason?.let { style.paint(it, Token.INK_MUTED) }).joinToString("  ")
-    }
-
     // --- Layout
 
     private fun layout(o: JsonObject): String = buildString {
@@ -107,10 +105,7 @@ class Formatters(private val style: Style) {
                 (screen?.str("activity")?.let { "  $it" } ?: "") +
                 "  source ${o.str("source")}" + (o.obj("detail")?.let { "  detail ${it.str("delivered")}" } ?: ""),
         )
-        o.str("fallbackReason")?.let { appendLine(style.mark(Statement.FALLBACK, "fallback: $it")) }
-        o.str("foregroundMismatch")?.let { appendLine(style.mark(Statement.DEGRADED, it)) }
-        o.obj("detail")?.let { d -> if (d.str("requested") != d.str("delivered")) appendLine(style.mark(Statement.DEGRADED, "detail ${d.str("requested")} reduced to ${d.str("delivered")}")) }
-        markers(o["degraded"]).forEach { appendLine(it) }
+        Statements.forCapture(o).forEach { appendLine(style.mark(it)) }
         val matches = o["matches"]
         if (matches is JsonArray) {
             appendLine("${matches.size} match${if (matches.size == 1) "" else "es"}")
@@ -161,12 +156,9 @@ class Formatters(private val style: Style) {
         val entries = o.arr("entries")
         entries.forEach { appendLine(entryRow(it.obj, absolute = false)) }
         if (entries.isEmpty()) appendLine("No entries.")
-        val coverage = o.obj("coverage")
         append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
-        coverage?.long("evicted")?.takeIf { it > 0 }?.let { append("\n" + style.mark(Statement.EVICTED, "$it older entries evicted")) }
-        coverage?.arr("notSearched")?.takeIf { it.isNotEmpty() }?.let { append("\n" + style.mark(Statement.DEGRADED, "not searched: ${it.joinToString { e -> e.jsonContent }}")) }
-        markers(o["degraded"]).forEach { append("\n$it") }
+        Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
     }
 
     private fun entryRow(e: JsonObject, absolute: Boolean): String {
@@ -181,11 +173,11 @@ class Formatters(private val style: Style) {
                 "conn ${e.str("connectionId")}",
             )
         }
+        val statements = Statements.forEntry(e)
+        val ending = statements.firstOrNull { it.kind in OUTCOMES }
         val outcome = when (type) {
-            "http" -> when (e.str("state")) {
-                "pending" -> style.mark(Statement.PENDING, "pending")
-                "failed" -> style.mark(Statement.FAILED, "failed")
-                "process-ended" -> style.mark(Statement.PROCESS_ENDED, "process ended")
+            "http" -> when {
+                ending != null -> style.mark(ending.kind, ending.word)
                 else -> e.long("status")?.let { s ->
                     when (s / 100) {
                         4L -> style.paint("$s", Token.STATUS_CLIENT)
@@ -200,11 +192,8 @@ class Formatters(private val style: Style) {
         val duration = e.long("durationMs")?.let { if (it >= 1000) "%.1f s".format(it / 1000.0) else "$it ms" }
         val bodies = listOfNotNull(e.obj("requestBody"), e.obj("responseBody"), e.obj("payload"))
         val size = bodies.lastOrNull()?.long("storedBytes")?.let(::bytes)
-        val marks = buildList {
-            if (e["intervention"] != null) add(style.mark(Statement.SCRIPTED, "scripted"))
-            bodies.firstOrNull { it.str("completeness") != "complete" }?.let { add(style.mark(Statement.INCOMPLETE, it.str("completeness")!!)) }
-            if (bodies.any { it.bool("binary") }) add(style.mark(Statement.BINARY, "binary"))
-        }
+        val rowMarks = Statements.marks(statements.filter { it.kind !in OUTCOMES })
+        val marks = rowMarks.shown.map { style.mark(it.kind, it.word) } + listOfNotNull(rowMarks.moreLabel)
         val host = url?.substringAfter("://")?.substringBefore('/')
         val shownUrl = if (host != null && url.contains("://")) style.paint(host, Token.INK_MUTED) + url.substringAfter("://").removePrefix(host) else url ?: ""
         return listOf(
@@ -216,10 +205,8 @@ class Formatters(private val style: Style) {
     private fun networkEntry(o: JsonObject): String = buildString {
         val e = o.obj("entry")!!
         appendLine(entryRow(e, absolute = true))
-        e.str("failure")?.let { appendLine(style.mark(Statement.FAILED, it)) }
-        e.obj("intervention")?.let { i ->
-            appendLine(style.mark(Statement.SCRIPTED, "script ${i.str("scriptId")} changed ${i.arr("changed").joinToString(",") { it.jsonContent }.ifEmpty { "nothing" }}" + (i.long("delayMs")?.let { ", delayed $it ms" } ?: "")))
-        }
+        val statements = Statements.forEntryDetail(o)
+        statements.filter { it.kind == StatementKind.FAILED || it.kind == StatementKind.SCRIPTED }.forEach { appendLine(style.mark(it)) }
         e.str("library")?.let { appendLine(style.paint("library $it  run ${e.str("runId")}", Token.INK_MUTED)) }
         headers("Request headers", e.arr("requestHeaders"))
         e.obj("requestBody")?.let { appendLine(bodyLine("Request body", it)) }
@@ -238,8 +225,7 @@ class Formatters(private val style: Style) {
             appendLine(section("Messages"))
             messages.forEach { appendLine("  " + entryRow(it.obj, absolute = true)) }
         }
-        o["redaction"]?.let { appendLine(redaction(it.obj)) }
-        markers(o["degraded"]).forEach { appendLine(it) }
+        statements.filter { it.kind == StatementKind.REDACTED || it.kind == StatementKind.DEGRADED }.forEach { appendLine(style.mark(it)) }
     }.trimEnd()
 
     private fun StringBuilder.headers(title: String, list: JsonArray) {
@@ -250,10 +236,7 @@ class Formatters(private val style: Style) {
 
     private fun bodyLine(title: String, b: JsonObject): String {
         val facts = listOfNotNull(b.str("contentType"), b.str("encoding"), b.long("storedBytes")?.let(::bytes))
-        val marks = listOfNotNull(
-            b.str("completeness")?.takeIf { it != "complete" }?.let { style.mark(Statement.INCOMPLETE, "$it: ${b.str("completenessReason")}") },
-            if (b.bool("binary")) style.mark(Statement.BINARY, "binary") else null,
-        )
+        val marks = Statements.forBody(JsonObject(mapOf("body" to b))).map { style.mark(it) }
         val preview = b.str("preview")?.let { "\n  " + it.replace("\n", "\n  ") } ?: ""
         return section(title) + "  " + style.paint(facts.joinToString(" · "), Token.INK_MUTED) + marks.joinToString("") { "  $it" } + preview
     }
@@ -261,38 +244,20 @@ class Formatters(private val style: Style) {
     private fun body(o: JsonObject): String = buildString {
         val info = o.obj("body")
         appendLine(bodyLine("Body (${info?.str("part")})", info ?: JsonObject(emptyMap())).lineSequence().first())
-        o.obj("decoding")?.let { d ->
-            when (d.str("outcome")) {
-                "decoded" -> appendLine(style.mark(Statement.DECODED, "decoded as ${d.str("format")}${d.str("type")?.let { " $it" } ?: ""}${d.str("schema")?.let { " (schema $it)" } ?: ""}"))
-                "decoded-with-warnings" -> appendLine(style.mark(Statement.DEGRADED, "decoded as ${d.str("type")} with warnings: ${d.arr("warnings").joinToString("; ") { it.jsonContent }}"))
-                "not-decoded" -> appendLine(style.mark(Statement.DEGRADED, "not decoded: ${d.str("reason")}"))
-                else -> Unit
-            }
-        }
-        o.str("note")?.let { appendLine(style.mark(Statement.DEGRADED, it)) }
-        o["redaction"]?.let { appendLine(redaction(it.obj)) }
-        markers(o["degraded"]).forEach { appendLine(it) }
+        // Completeness and binary are on the header line; the rest follow it.
+        Statements.forBody(o).filter { it.kind != StatementKind.INCOMPLETE && it.kind != StatementKind.BINARY }.forEach { appendLine(style.mark(it)) }
         o.str("file")?.let { appendLine("Wrote ${bytes(o.long("bytes") ?: 0)} to $it  sha256 ${o.str("sha256")}") }
         o.str("text")?.let { append(it) }
     }.trimEnd()
-
-    private fun redaction(r: JsonObject): String = when {
-        !r.bool("applied", default = true) -> style.mark(Statement.DEGRADED, "redaction requested but overridden")
-        else -> style.mark(
-            Statement.REDACTED,
-            "redacted: " + r.arr("masked").joinToString(", ") { it.jsonContent }.ifEmpty { "nothing to mask" } +
-                (r.arr("withheld").takeIf { it.isNotEmpty() }?.let { "; withheld: " + it.joinToString(", ") { w -> w.jsonContent } } ?: ""),
-        )
-    }
 
     private fun scriptStatus(o: JsonObject): String = buildString {
         if (!o.bool("active")) append("No network script active.") else {
             append("Network script ${o.str("id")} active" + (o.long("installedAtMs")?.let { " since ${TIME.format(Instant.ofEpochMilli(it))}" } ?: ""))
             o.arr("handlers").takeIf { it.isNotEmpty() }?.let { append("\nhandlers: ${it.joinToString(", ") { h -> h.jsonContent }}") }
             append(style.paint("\ninvocations ${o.long("invocations") ?: 0}  changes ${o.long("changes") ?: 0}  errors ${o.long("errors") ?: 0}", Token.INK_MUTED))
-            if (o.bool("persisted", default = true).not()) append("\n" + style.mark(Statement.DEGRADED, "not persisted: lost on app restart"))
+            if (o.bool("persisted", default = true).not()) append("\n" + style.mark(StatementKind.DEGRADED, "not persisted: lost on app restart"))
         }
-        o.str("unavailable")?.let { append("\n" + style.mark(Statement.DEGRADED, it)) }
+        o.str("unavailable")?.let { append("\n" + style.mark(StatementKind.DEGRADED, it)) }
     }
 
     private fun scriptLogs(o: JsonObject): String = buildString {
@@ -301,7 +266,7 @@ class Formatters(private val style: Style) {
             val text = "${TIME.format(Instant.ofEpochMilli(line.long("timeMs") ?: 0))}  ${line.str("handler") ?: "-"}  ${line.str("entryId") ?: ""}  ${line.str("message")}"
             appendLine(if (line.str("level") == "error") style.paint(text, Token.DANGER) else text)
         }
-        o.long("skipped")?.takeIf { it > 0 }?.let { appendLine(style.mark(Statement.EVICTED, "$it lines lost to the log buffer")) }
+        o.long("skipped")?.takeIf { it > 0 }?.let { appendLine(style.mark(StatementKind.EVICTED, "$it lines lost to the log buffer")) }
         append(style.paint("next: --since ${o.long("next")}", Token.INK_MUTED))
     }
 
@@ -312,14 +277,14 @@ class Formatters(private val style: Style) {
     private fun schemaRemoved(o: JsonObject): String {
         val broken = o.arr("brokenMappings")
         return "Removed schema set ${o.str("removed")}." + if (broken.isEmpty()) "" else "\n" +
-            style.mark(Statement.DEGRADED, "now broken: ${broken.joinToString(", ") { it.obj.str("id") ?: "" }}")
+            style.mark(StatementKind.DEGRADED, "now broken: ${broken.joinToString(", ") { it.obj.str("id") ?: "" }}")
     }
 
     private fun mappingRow(m: JsonObject): String = listOfNotNull(
         style.paint(m.str("id") ?: "", Token.INK_MUTED), m.str("urlPattern"), m.str("part"), m.str("method"), m.str("direction"),
         "→ ${m.str("type")}", style.paint("(${m.str("schema")})", Token.INK_MUTED),
         if (m.bool("builtin")) style.paint("built-in", Token.INK_MUTED) else null,
-        m.str("broken")?.let { style.mark(Statement.DEGRADED, "broken: $it") },
+        m.str("broken")?.let { style.mark(StatementKind.DEGRADED, "broken: $it") },
     ).joinToString("  ")
 
     // --- Daemon
@@ -329,7 +294,7 @@ class Formatters(private val style: Style) {
         appendLine("DTA daemon ${identity?.str("version")} (build ${identity?.str("build")})  pid ${o.long("pid")}  up ${duration(o.long("uptimeMs") ?: 0)}")
         appendLine(style.paint("home ${o.str("home")}", Token.INK_MUTED))
         val adb = o.obj("adb")
-        appendLine(if (adb?.bool("available") == true) "adb ${adb.str("path")}" else style.mark(Statement.DEGRADED, "adb unavailable: ${adb?.str("reason")}"))
+        appendLine(if (adb?.bool("available") == true) "adb ${adb.str("path")}" else style.mark(StatementKind.DEGRADED, "adb unavailable: ${adb?.str("reason")}"))
         val clients = o.arr("clients")
         appendLine("clients ${clients.size}" + clients.joinToString("") { c -> "\n  ${c.obj.str("kind")} ${c.obj.str("version")}" })
         val devices = o.arr("devices")
@@ -341,13 +306,15 @@ class Formatters(private val style: Style) {
     // --- Shared
 
     /** Degradation markers (`[{capability, reason}]`) as caveat marks. */
-    fun markers(element: JsonElement?): List<String> =
-        (element as? JsonArray).orEmpty().map { m -> style.mark(Statement.DEGRADED, "${m.obj.str("capability")}: ${m.obj.str("reason")}") }
+    private fun markers(element: JsonElement?): List<String> = Statements.markers(element).map { style.mark(it) }
 
     private fun section(title: String) = style.paint(title, Token.STRONG)
 
     companion object {
         private val PRETTY = Json { prettyPrint = true }
+
+        /** How an exchange ended: shown in the status column, not among the row's marks. */
+        private val OUTCOMES = setOf(StatementKind.FAILED, StatementKind.PENDING, StatementKind.PROCESS_ENDED)
         private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
 
         fun bytes(n: Long): String = when {

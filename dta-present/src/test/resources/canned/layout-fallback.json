@@ -1,0 +1,4 @@
+{"screen":{"widthPx":1080,"heightPx":2400,"density":2.6},"source":"uiautomator",
+ "fallbackReason":"no DTA in com.example.plain","detail":{"requested":"full","delivered":"basic"},
+ "degraded":[{"capability":"layout","reason":"compose-tooling-absent"}],
+ "windows":[{"type":"application","zOrder":0,"root":{"kind":"view","id":1,"className":"android.widget.FrameLayout","children":[]}}]}

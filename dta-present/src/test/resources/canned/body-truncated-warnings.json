@@ -1,0 +1,4 @@
+{"body":{"part":"response","storedBytes":65536,"contentType":"application/x-protobuf","binary":true,"completeness":"truncated","completenessReason":"body bound 64 KB"},
+ "decoding":{"outcome":"decoded-with-warnings","format":"protobuf","type":"fixture.v1.Order","warnings":["unknown field 9"]},
+ "redaction":{"applied":false,"masked":[],"withheld":[]},
+ "degraded":[{"capability":"network","reason":"body-store-unavailable"}]}

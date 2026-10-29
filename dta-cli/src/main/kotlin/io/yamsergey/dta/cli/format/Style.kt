@@ -1,8 +1,11 @@
 package io.yamsergey.dta.cli.format
 
+import io.yamsergey.dta.present.Statement
+import io.yamsergey.dta.present.StatementKind
+
 /**
  * The design system's terminal realization (surfaces.md): 16-colour ANSI mapping of the
- * semantic tokens, and statement glyphs with their ASCII forms (statements.md).
+ * semantic tokens; statement glyphs and ASCII forms come from dta-present (statements.md).
  */
 class Style(val color: Boolean, val unicode: Boolean) {
     enum class Token(val ansi: String) {
@@ -21,28 +24,24 @@ class Style(val color: Boolean, val unicode: Boolean) {
         STRONG("1"),
     }
 
-    enum class Statement(val glyph: String, val ascii: String, val token: Token?) {
-        FALLBACK("▲", "!", Token.CAVEAT),
-        DEGRADED("▲", "!", Token.CAVEAT),
-        INCOMPLETE("◐", "~", Token.CAVEAT),
-        EVICTED("▲", "!", Token.CAVEAT),
-        AUTO("◌", "?", Token.INFERRED),
-        SCRIPTED("✎", "*", Token.INTERVENED),
-        REDACTED("▒", "#", Token.INK_MUTED),
-        DECODED("⇢", ">", Token.INK_MUTED),
-        BINARY("⧉", "b", Token.INK_MUTED),
-        FAILED("✕", "x", Token.STATUS_SERVER),
-        PENDING("…", "..", Token.INK_MUTED),
-        PROCESS_ENDED("◼", "[]", Token.INK_MUTED),
-        NOT_CAPTURED("○", "o", Token.INK_MUTED),
-    }
-
     fun paint(text: String, token: Token?): String =
         if (!color || token == null || text.isEmpty()) text else "\u001b[${token.ansi}m$text\u001b[0m"
 
     /** A statement mark: glyph + word, in the statement's colour. */
-    fun mark(statement: Statement, word: String): String =
-        paint("${if (unicode) statement.glyph else statement.ascii} $word", statement.token)
+    fun mark(kind: StatementKind, word: String): String =
+        paint("${if (unicode) kind.glyph else kind.ascii} $word", tokenOf(kind))
+
+    /** A statement as a line: glyph + its detail. */
+    fun mark(statement: Statement): String = mark(statement.kind, statement.detail)
+
+    private fun tokenOf(kind: StatementKind): Token? = when (kind.token) {
+        "caveat" -> Token.CAVEAT
+        "inferred" -> Token.INFERRED
+        "intervened" -> Token.INTERVENED
+        "status-server" -> Token.STATUS_SERVER
+        "ink-muted" -> Token.INK_MUTED
+        else -> null
+    }
 
     companion object {
         /** Colour and Unicode only on a terminal without NO_COLOR (and `--no-color` off). */

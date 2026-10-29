@@ -1,0 +1,4 @@
+{"body":{"part":"request","storedBytes":12,"contentType":"application/x-protobuf","binary":true,"completeness":"complete"},
+ "decoding":{"outcome":"decoded","format":"protobuf","schema":"fixture","type":"fixture.v1.Order"},
+ "redaction":{"applied":true,"masked":["authorization"],"withheld":[]},
+ "text":"{\"id\":\"42\"}","bytes":11}

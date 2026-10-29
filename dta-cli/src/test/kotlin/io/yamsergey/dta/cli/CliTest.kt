@@ -133,7 +133,7 @@ class CliTest {
     fun `colour uses the 16-colour mapping only when asked`() {
         val plain = Formatters(Style.PLAIN).format("network.clear", JsonObject(mapOf("clearedEntries" to kotlinx.serialization.json.JsonPrimitive(1))))
         assertFalse('\u001b' in plain)
-        val coloured = Style(color = true, unicode = true).mark(Style.Statement.SCRIPTED, "scripted")
+        val coloured = Style(color = true, unicode = true).mark(io.yamsergey.dta.present.StatementKind.SCRIPTED, "scripted")
         assertEquals("\u001b[95m✎ scripted\u001b[0m", coloured)
     }
 

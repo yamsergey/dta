@@ -28,6 +28,7 @@ dependencies {
     // The daemon process is started from this distribution's own lib/ (research R3).
     implementation(project(":dta-daemon"))
     implementation(project(":dta-mcp"))
+    implementation(project(":dta-present"))
     implementation(libs.clikt)
 
     testImplementation(testFixtures(project(":dta-mcp")))
