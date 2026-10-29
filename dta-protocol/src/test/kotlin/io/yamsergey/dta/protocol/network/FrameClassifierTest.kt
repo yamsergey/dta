@@ -36,9 +36,10 @@ class FrameClassifierTest {
                 frame("android.os.Looper", "loop"),
             ),
         )
-        assertEquals(listOf("okhttp3.internal.connection.RealCall", "com.example.Repo", "android.os.Looper"), initiator.frames!!.map { it.className })
-        assertEquals(listOf(false, true, false), initiator.frames!!.map { it.app })
-        assertEquals(1, initiator.firstAppFrame)
+        // RealCall.enqueue called into the shim: it is the hooked method, dropped with the capture.
+        assertEquals(listOf("com.example.Repo", "android.os.Looper"), initiator.frames!!.map { it.className })
+        assertEquals(listOf(true, false), initiator.frames!!.map { it.app })
+        assertEquals(0, initiator.firstAppFrame)
         assertEquals("main", initiator.thread)
         assertEquals(InitiatorSite.ENQUEUE, initiator.site)
         assertNull(initiator.truncatedFrames)
@@ -88,5 +89,30 @@ class FrameClassifierTest {
         ))
         assertEquals(listOf<Int?>(null, null), initiator.frames!!.map { it.line })
         assertEquals("D8\$\$SyntheticClass", initiator.frames!![1].file)
+    }
+
+    @Test
+    fun `the hooked method's own frame - the one that called into the shim - is dropped with the capture`() {
+        val initiator = FrameClassifier.initiator("t", InitiatorSite.CONNECT, listOf(
+            frame("dalvik.system.VMStack", "getThreadStackTrace"),
+            frame("java.lang.Thread", "getStackTrace"),
+            frame("io.yamsergey.dta.sidekick.network.Initiators", "capture"),
+            frame("io.yamsergey.dta.shim.HookDispatcher", "onEntry"),
+            StackTraceElement("okhttp3.internal.ws.RealWebSocket", "connect", null, 22),
+            StackTraceElement("okhttp3.OkHttpClient", "newWebSocket", "OkHttpClient.kt", 281),
+            frame("com.example.Repo", "open"),
+        ))
+        assertEquals(listOf("okhttp3.OkHttpClient", "com.example.Repo"), initiator.frames!!.map { it.className })
+        assertEquals(1, initiator.firstAppFrame)
+    }
+
+    @Test
+    fun `a capture without a hook keeps the first frame - a wrapper calls the sidekick directly`() {
+        val initiator = FrameClassifier.initiator("t", InitiatorSite.CALL, listOf(
+            frame("java.lang.Thread", "getStackTrace"),
+            frame("io.yamsergey.dta.sidekick.network.urlconnection.TrackedHttpURLConnection", "connect"),
+            frame("com.example.Repo", "load"),
+        ))
+        assertEquals(listOf("com.example.Repo"), initiator.frames!!.map { it.className })
     }
 }

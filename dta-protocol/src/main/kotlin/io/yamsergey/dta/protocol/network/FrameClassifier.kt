@@ -17,6 +17,7 @@ object FrameClassifier {
     /** The capture machinery itself: never part of what the app did. */
     private val CAPTURE_PACKAGES = listOf("io.yamsergey.dta.sidekick.", "io.yamsergey.dta.shim.", "dalvik.system.VMStack")
     private val THREAD_STACK = "java.lang.Thread" to "getStackTrace"
+    private const val SHIM = "io.yamsergey.dta.shim."
 
     fun isApp(className: String): Boolean = LIBRARY_PACKAGES.none { className.startsWith(it) }
 
@@ -28,9 +29,13 @@ object FrameClassifier {
         "\$\$ExternalSynthetic" in className || "\$\$Lambda" in className || method.startsWith("\$r8\$lambda\$")
 
     fun initiator(thread: String, site: InitiatorSite, stack: List<StackTraceElement>): Initiator {
-        val trimmed = stack.dropWhile { e ->
+        val capture = stack.takeWhile { e ->
             CAPTURE_PACKAGES.any { e.className.startsWith(it) } || (e.className == THREAD_STACK.first && e.methodName == THREAD_STACK.second)
         }
+        // The frame that called into the shim is the hooked method as the agent rewrote it
+        // (no source file, a meaningless line): part of the capture, not of what the app did.
+        val hooked = if (capture.lastOrNull()?.className?.startsWith(SHIM) == true) 1 else 0
+        val trimmed = stack.drop(capture.size + hooked)
         val kept = trimmed.take(Initiator.MAX_FRAMES).map { e ->
             StackFrame(
                 className = e.className,
