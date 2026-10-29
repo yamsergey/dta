@@ -25,7 +25,7 @@ object FrameClassifier {
      * Glue the compiler generates for lambdas (D8/R8 desugaring, debug builds included): it sits
      * in the app's package but is nobody's code. The lambda's own body (`run$lambda$0`) is app code.
      */
-    private fun generated(className: String, method: String) =
+    fun generated(className: String, method: String) =
         "\$\$ExternalSynthetic" in className || "\$\$Lambda" in className || method.startsWith("\$r8\$lambda\$")
 
     fun initiator(thread: String, site: InitiatorSite, stack: List<StackTraceElement>): Initiator {

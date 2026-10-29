@@ -53,6 +53,7 @@ dependencies {
         androidStudio(androidStudioVersion)
         bundledPlugin("org.jetbrains.android")
         bundledPlugin("com.intellij.gradle")
+        bundledPlugin("com.intellij.java")
         pluginVerifier()
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
     }

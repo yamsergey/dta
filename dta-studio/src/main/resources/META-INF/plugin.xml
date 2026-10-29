@@ -11,6 +11,7 @@ network scripts, and give coding agents the same tools over a local MCP server.<
     <depends>com.intellij.modules.androidstudio</depends>
     <depends>org.jetbrains.android</depends>
     <depends>com.intellij.gradle</depends>
+    <depends>com.intellij.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="DTA"

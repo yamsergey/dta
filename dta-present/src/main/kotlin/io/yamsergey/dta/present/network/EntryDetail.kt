@@ -22,7 +22,16 @@ object FrameText {
         "$className.$method(${file?.let { f -> line?.let { "$f:$it" } ?: f } ?: "Unknown Source"})"
 }
 
-data class FrameLine(val text: String, val app: Boolean, val first: Boolean)
+/** A frame of the initiator: its printed [text] and where it points, for navigation. */
+data class FrameLine(
+    val text: String,
+    val app: Boolean,
+    val first: Boolean,
+    val className: String = "",
+    val method: String = "",
+    val file: String? = null,
+    val line: Int? = null,
+)
 
 data class InitiatorView(val header: String, val frames: List<FrameLine>, val missing: String?, val truncated: Int?)
 
@@ -94,7 +103,10 @@ data class EntryDetail(
                     header = "${init.str("thread")} · ${init.str("site")}",
                     frames = init.arr("frames").mapIndexed { index, f ->
                         val frame = f.o
-                        FrameLine(FrameText.of(frame.str("className"), frame.str("method"), frame.str("file"), frame.long("line")?.toInt()), frame.bool("app"), index == first)
+                        FrameLine(
+                            FrameText.of(frame.str("className"), frame.str("method"), frame.str("file"), frame.long("line")?.toInt()), frame.bool("app"), index == first,
+                            className = frame.str("className") ?: "", method = frame.str("method") ?: "", file = frame.str("file"), line = frame.long("line")?.toInt(),
+                        )
                     },
                     missing = init.str("missing"),
                     truncated = init.long("truncatedFrames")?.toInt(),

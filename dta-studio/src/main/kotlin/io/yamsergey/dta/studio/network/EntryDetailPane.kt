@@ -3,6 +3,7 @@ package io.yamsergey.dta.studio.network
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
@@ -11,8 +12,11 @@ import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.StatementKind
 import io.yamsergey.dta.present.network.EntryDetail
+import io.yamsergey.dta.present.network.FrameLine
+import io.yamsergey.dta.protocol.network.FrameClassifier
 import io.yamsergey.dta.present.network.Section
 import io.yamsergey.dta.present.network.Side
+import io.yamsergey.dta.studio.source.FrameNavigator
 import io.yamsergey.dta.studio.ui.DtaColors
 import io.yamsergey.dta.studio.ui.Page
 import io.yamsergey.dta.studio.ui.StatementMark
@@ -47,6 +51,7 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
     private var client: DaemonClient? = null
     private var target: JsonObject = JsonObject(emptyMap())
     private var side = Side.WIRE
+    private val navigator = FrameNavigator(project)
 
     init {
         empty(SELECT)
@@ -139,15 +144,32 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
         val init = detail.initiator!!
         line(JBLabel(init.header).apply { foreground = JBColor.GRAY })
         init.missing?.let { line(JBLabel("No stack: $it").apply { foreground = DtaColors.of("caveat") }, top = 4) }
-        init.frames.forEach { f ->
-            line(JBLabel(f.text).apply {
-                font = com.intellij.util.ui.UIUtil.getFontWithFallback(editorFont(), if (f.first) Font.BOLD else Font.PLAIN, font.size)
-                foreground = if (f.app) JBColor.foreground() else JBColor.GRAY
-                setCopyable(true)
-            }, top = 2)
-        }
+        init.frames.forEach { f -> line(frame(f), top = 2) }
         init.truncated?.let { line(JBLabel("$it more frames not captured").apply { foreground = JBColor.GRAY }, top = 4) }
         end()
+    }
+
+    /**
+     * A frame that opens its source on click or Enter; compiler-generated glue has none and
+     * stays plain text. A frame in neither the project nor its libraries says so in place.
+     */
+    private fun frame(f: FrameLine): JComponent {
+        fun JComponent.styled() = apply {
+            font = com.intellij.util.ui.UIUtil.getFontWithFallback(editorFont(), if (f.first) Font.BOLD else Font.PLAIN, font.size)
+            foreground = if (f.app) JBColor.foreground() else JBColor.GRAY
+        }
+        if (FrameClassifier.generated(f.className, f.method)) return JBLabel(f.text).apply { setCopyable(true) }.styled()
+        val holder = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)).apply { isOpaque = false }
+        val link = ActionLink(f.text).apply { styled(); toolTipText = "Open in the editor" }
+        link.addActionListener {
+            if (!navigator.open(f.className, f.method, f.file, f.line)) {
+                holder.removeAll()
+                holder.add(JBLabel("${f.text} — not in this project or its libraries").apply { setCopyable(true) }.styled())
+                holder.revalidate()
+            }
+        }
+        holder.add(link)
+        return holder
     }
 
     private fun messagesPage(detail: EntryDetail) = Page().apply {
