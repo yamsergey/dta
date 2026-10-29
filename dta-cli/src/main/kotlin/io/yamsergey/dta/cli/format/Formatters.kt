@@ -3,6 +3,8 @@ package io.yamsergey.dta.cli.format
 import io.yamsergey.dta.cli.format.Style.Token
 import io.yamsergey.dta.present.StatementKind
 import io.yamsergey.dta.present.Statements
+import io.yamsergey.dta.present.layout.NodeKind
+import io.yamsergey.dta.present.layout.NodeRow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -145,25 +147,16 @@ class Formatters(private val style: Style) {
     }
 
     private fun nodeLine(n: JsonObject): String {
-        val kind = n.str("kind") ?: "?"
-        val tag = when (kind) {
-            "view" -> style.paint("view", Token.NODE_VIEW)
-            "compose" -> style.paint("compose", Token.NODE_COMPOSE)
-            else -> style.paint(kind, Token.CAVEAT)
-        }
-        val name = when (kind) {
-            "compose" -> n.str("name") ?: n.str("role")?.let { "role=$it" } ?: "Composable"
-            else -> n.str("className")?.substringAfterLast('.') ?: "?"
-        }
-        val ids = listOfNotNull(n.str("resourceId"), n.str("testTag")?.let { "testTag=$it" }, n.long("id")?.let { "#$it" })
-        val text = (n.str("text") ?: n.str("contentDescription"))?.let { "\"${it.take(60)}\"" }
-        val interactions = n.arr("interactions").map { it.jsonContent }
-        val source = n.str("sourceFile")?.let { "$it:${n.long("lineNumber") ?: "?"}" }
-        val disabled = if (n.bool("enabled", default = true)) null else "disabled"
+        val row = NodeRow.of(n)
+        val tag = style.paint(row.kind.tag, when (row.kind) {
+            NodeKind.VIEW -> Token.NODE_VIEW
+            NodeKind.COMPOSE -> Token.NODE_COMPOSE
+            NodeKind.FALLBACK -> Token.CAVEAT
+        })
         return listOfNotNull(
-            tag, name, ids.joinToString(" ").ifEmpty { null }?.let { style.paint(it, Token.INK_MUTED) }, text,
-            interactions.joinToString(",").ifEmpty { null }?.let { style.paint(it, Token.INK_MUTED) },
-            source?.let { style.paint(it, Token.INK_MUTED) }, disabled,
+            tag, row.name, row.ids.joinToString(" ").ifEmpty { null }?.let { style.paint(it, Token.INK_MUTED) }, row.text,
+            row.interactions.joinToString(",").ifEmpty { null }?.let { style.paint(it, Token.INK_MUTED) },
+            row.source?.let { style.paint(it, Token.INK_MUTED) }, "disabled".takeIf { row.disabled },
         ).joinToString(" ") + markers(n["degraded"]).joinToString("") { " $it" }
     }
 

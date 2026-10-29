@@ -1,0 +1,346 @@
+{
+ "screen": {
+  "widthPx": 1080,
+  "heightPx": 2400,
+  "density": 2.625,
+  "activity": "io.yamsergey.dta.fixture.channel.MainActivity"
+ },
+ "source": "sidekick",
+ "windows": [
+  {
+   "title": "DecorView",
+   "type": "application",
+   "zOrder": 0,
+   "root": {
+    "kind": "view",
+    "id": 4,
+    "bounds": {
+     "left": 0,
+     "top": 0,
+     "right": 1080,
+     "bottom": 2400
+    },
+    "className": "com.android.internal.policy.DecorView",
+    "children": [
+     {
+      "kind": "view",
+      "id": 5,
+      "bounds": {
+       "left": 0,
+       "top": 0,
+       "right": 1080,
+       "bottom": 2337
+      },
+      "className": "com.android.internal.widget.ActionBarOverlayLayout",
+      "resourceId": "android:id/decor_content_parent",
+      "children": [
+       {
+        "kind": "view",
+        "id": 6,
+        "bounds": {
+         "left": 0,
+         "top": 210,
+         "right": 1080,
+         "bottom": 2337
+        },
+        "className": "android.widget.FrameLayout",
+        "resourceId": "android:id/content",
+        "children": [
+         {
+          "kind": "view",
+          "id": 1,
+          "bounds": {
+           "left": 0,
+           "top": 210,
+           "right": 1080,
+           "bottom": 2337
+          },
+          "className": "android.widget.LinearLayout",
+          "resourceId": "io.yamsergey.dta.fixture.channel:id/fixture_root",
+          "children": [
+           {
+            "kind": "view",
+            "id": 2,
+            "bounds": {
+             "left": 0,
+             "top": 210,
+             "right": 1080,
+             "bottom": 261
+            },
+            "className": "android.widget.TextView",
+            "resourceId": "io.yamsergey.dta.fixture.channel:id/disturbance_counter",
+            "text": "disturbances=1"
+           },
+           {
+            "kind": "view",
+            "id": 3,
+            "bounds": {
+             "left": 0,
+             "top": 261,
+             "right": 1080,
+             "bottom": 514
+            },
+            "className": "androidx.compose.ui.platform.ComposeView",
+            "children": [
+             {
+              "kind": "view",
+              "id": 13,
+              "bounds": {
+               "left": 0,
+               "top": 261,
+               "right": 1080,
+               "bottom": 514
+              },
+              "className": "androidx.compose.ui.platform.AndroidComposeView",
+              "interactions": [
+               "focusable"
+              ],
+              "children": [
+               {
+                "kind": "compose",
+                "id": 1,
+                "bounds": {
+                 "left": 0,
+                 "top": 261,
+                 "right": 1080,
+                 "bottom": 514
+                },
+                "provenance": "semantics",
+                "children": [
+                 {
+                  "kind": "compose",
+                  "id": 2,
+                  "bounds": {
+                   "left": 42,
+                   "top": 303,
+                   "right": 1038,
+                   "bottom": 472
+                  },
+                  "name": "Column",
+                  "sourceFile": "ComposeScreens.kt",
+                  "lineNumber": 28,
+                  "library": false,
+                  "provenance": "tooling",
+                  "children": [
+                   {
+                    "kind": "compose",
+                    "id": 3,
+                    "bounds": {
+                     "left": 42,
+                     "top": 303,
+                     "right": 316,
+                     "bottom": 346
+                    },
+                    "name": "Text",
+                    "testTag": "compose_heading",
+                    "text": "Compose Screen",
+                    "sourceFile": "ComposeScreens.kt",
+                    "lineNumber": 29,
+                    "library": false,
+                    "parameters": [
+                     {
+                      "name": "text",
+                      "value": "Compose Screen",
+                      "type": "String"
+                     },
+                     {
+                      "name": "modifier",
+                      "value": "androidx.compose.ui.semantics.AppendedSemanticsElement@437d7f9",
+                      "type": "AppendedSemanticsElement"
+                     },
+                     {
+                      "name": "color",
+                      "value": "16",
+                      "type": "Long"
+                     }
+                    ],
+                    "provenance": "semantics"
+                   },
+                   {
+                    "kind": "compose",
+                    "id": 4,
+                    "bounds": {
+                     "left": 42,
+                     "top": 357,
+                     "right": 285,
+                     "bottom": 462
+                    },
+                    "name": "Button",
+                    "role": "Button",
+                    "testTag": "compose_submit",
+                    "interactions": [
+                     "clickable",
+                     "focusable"
+                    ],
+                    "sourceFile": "ComposeScreens.kt",
+                    "lineNumber": 37,
+                    "library": false,
+                    "parameters": [
+                     {
+                      "name": "onClick",
+                      "value": "io.yamsergey.dta.fixture.channel.ComposeScreens$$ExternalSyntheticLambda3@a89d11d",
+                      "type": "ComposeScreens$$ExternalSyntheticLambda3"
+                     },
+                     {
+                      "name": "modifier",
+                      "value": "androidx.compose.ui.semantics.AppendedSemanticsElement@3d3a55d",
+                      "type": "AppendedSemanticsElement"
+                     },
+                     {
+                      "name": "enabled",
+                      "value": "true",
+                      "type": "Boolean"
+                     }
+                    ],
+                    "provenance": "semantics",
+                    "children": [
+                     {
+                      "kind": "compose",
+                      "id": 5,
+                      "bounds": {
+                       "left": 105,
+                       "top": 378,
+                       "right": 222,
+                       "bottom": 441
+                      },
+                      "name": "CompositionLocalProvider",
+                      "sourceFile": "ProvideContentColorTextStyle.kt",
+                      "lineNumber": 41,
+                      "library": false,
+                      "provenance": "tooling",
+                      "children": [
+                       {
+                        "kind": "compose",
+                        "id": 6,
+                        "bounds": {
+                         "left": 105,
+                         "top": 383,
+                         "right": 222,
+                         "bottom": 436
+                        },
+                        "name": "Text",
+                        "text": "Submit",
+                        "sourceFile": "ComposeScreens.kt",
+                        "lineNumber": 38,
+                        "library": false,
+                        "parameters": [
+                         {
+                          "name": "text",
+                          "value": "Submit",
+                          "type": "String"
+                         },
+                         {
+                          "name": "modifier",
+                          "value": "Modifier",
+                          "type": "Companion"
+                         },
+                         {
+                          "name": "color",
+                          "value": "16",
+                          "type": "Long"
+                         }
+                        ],
+                        "provenance": "semantics"
+                       }
+                      ]
+                     }
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "kind": "view",
+        "id": 7,
+        "bounds": {
+         "left": 0,
+         "top": 63,
+         "right": 1080,
+         "bottom": 210
+        },
+        "className": "com.android.internal.widget.ActionBarContainer",
+        "resourceId": "android:id/action_bar_container",
+        "children": [
+         {
+          "kind": "view",
+          "id": 8,
+          "bounds": {
+           "left": 0,
+           "top": 63,
+           "right": 1080,
+           "bottom": 210
+          },
+          "className": "android.widget.Toolbar",
+          "resourceId": "android:id/action_bar",
+          "children": [
+           {
+            "kind": "view",
+            "id": 11,
+            "bounds": {
+             "left": 42,
+             "top": 101,
+             "right": 414,
+             "bottom": 172
+            },
+            "className": "android.widget.TextView",
+            "text": "Channel Fixture"
+           },
+           {
+            "kind": "view",
+            "id": 23,
+            "bounds": {
+             "left": 1080,
+             "top": 63,
+             "right": 1080,
+             "bottom": 210
+            },
+            "className": "android.widget.ActionMenuView"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "view",
+      "id": 15,
+      "bounds": {
+       "left": 0,
+       "top": 2337,
+       "right": 1080,
+       "bottom": 2400
+      },
+      "className": "android.view.View",
+      "resourceId": "android:id/navigationBarBackground"
+     },
+     {
+      "kind": "view",
+      "id": 16,
+      "bounds": {
+       "left": 0,
+       "top": 0,
+       "right": 1080,
+       "bottom": 63
+      },
+      "className": "android.view.View",
+      "resourceId": "android:id/statusBarBackground"
+     }
+    ]
+   }
+  }
+ ],
+ "detail": {
+  "requested": "layout",
+  "delivered": "layout"
+ }
+}

@@ -1,0 +1,375 @@
+{
+ "screen": {
+  "widthPx": 1080,
+  "heightPx": 2400,
+  "density": 2.625,
+  "activity": "io.yamsergey.dta.fixture.channel.MainActivity"
+ },
+ "source": "sidekick",
+ "windows": [
+  {
+   "title": "DecorView",
+   "type": "application",
+   "zOrder": 0,
+   "root": {
+    "kind": "view",
+    "id": 5,
+    "bounds": {
+     "left": 0,
+     "top": 0,
+     "right": 1080,
+     "bottom": 2400
+    },
+    "className": "com.android.internal.policy.DecorView",
+    "children": [
+     {
+      "kind": "view",
+      "id": 6,
+      "bounds": {
+       "left": 0,
+       "top": 0,
+       "right": 1080,
+       "bottom": 2337
+      },
+      "className": "com.android.internal.widget.ActionBarOverlayLayout",
+      "resourceId": "android:id/decor_content_parent",
+      "children": [
+       {
+        "kind": "view",
+        "id": 7,
+        "bounds": {
+         "left": 0,
+         "top": 210,
+         "right": 1080,
+         "bottom": 2337
+        },
+        "className": "android.widget.FrameLayout",
+        "resourceId": "android:id/content",
+        "children": [
+         {
+          "kind": "view",
+          "id": 1,
+          "bounds": {
+           "left": 0,
+           "top": 210,
+           "right": 1080,
+           "bottom": 2337
+          },
+          "className": "android.widget.LinearLayout",
+          "resourceId": "io.yamsergey.dta.fixture.channel:id/fixture_root",
+          "children": [
+           {
+            "kind": "view",
+            "id": 2,
+            "bounds": {
+             "left": 0,
+             "top": 210,
+             "right": 1080,
+             "bottom": 261
+            },
+            "className": "android.widget.TextView",
+            "resourceId": "io.yamsergey.dta.fixture.channel:id/disturbance_counter",
+            "text": "disturbances=1"
+           },
+           {
+            "kind": "view",
+            "id": 3,
+            "bounds": {
+             "left": 0,
+             "top": 261,
+             "right": 1080,
+             "bottom": 439
+            },
+            "className": "android.widget.FrameLayout",
+            "children": [
+             {
+              "kind": "view",
+              "id": 4,
+              "bounds": {
+               "left": 0,
+               "top": 261,
+               "right": 1080,
+               "bottom": 439
+              },
+              "className": "androidx.compose.ui.platform.ComposeView",
+              "children": [
+               {
+                "kind": "view",
+                "id": 14,
+                "bounds": {
+                 "left": 0,
+                 "top": 261,
+                 "right": 1080,
+                 "bottom": 439
+                },
+                "className": "androidx.compose.ui.platform.AndroidComposeView",
+                "interactions": [
+                 "focusable"
+                ],
+                "children": [
+                 {
+                  "kind": "compose",
+                  "id": 1,
+                  "bounds": {
+                   "left": 0,
+                   "top": 261,
+                   "right": 1080,
+                   "bottom": 439
+                  },
+                  "provenance": "semantics",
+                  "children": [
+                   {
+                    "kind": "compose",
+                    "id": 2,
+                    "bounds": {
+                     "left": 42,
+                     "top": 303,
+                     "right": 1038,
+                     "bottom": 397
+                    },
+                    "name": "Column",
+                    "sourceFile": "ComposeScreens.kt",
+                    "lineNumber": 45,
+                    "library": false,
+                    "provenance": "tooling",
+                    "callChain": [
+                     {
+                      "name": "MixedContent",
+                      "sourceFile": "MainActivity.kt",
+                      "lineNumber": 115
+                     },
+                     {
+                      "name": "Column",
+                      "sourceFile": "ComposeScreens.kt",
+                      "lineNumber": 45
+                     }
+                    ],
+                    "children": [
+                     {
+                      "kind": "compose",
+                      "id": 3,
+                      "bounds": {
+                       "left": 42,
+                       "top": 303,
+                       "right": 317,
+                       "bottom": 346
+                      },
+                      "name": "Text",
+                      "testTag": "mixed_compose_label",
+                      "text": "Compose in XML",
+                      "sourceFile": "ComposeScreens.kt",
+                      "lineNumber": 46,
+                      "library": false,
+                      "parameters": [
+                       {
+                        "name": "text",
+                        "value": "Compose in XML",
+                        "type": "String"
+                       },
+                       {
+                        "name": "modifier",
+                        "value": "androidx.compose.ui.semantics.AppendedSemanticsElement@8aa5aff",
+                        "type": "AppendedSemanticsElement"
+                       },
+                       {
+                        "name": "color",
+                        "value": "16",
+                        "type": "Long"
+                       }
+                      ],
+                      "provenance": "semantics",
+                      "callChain": [
+                       {
+                        "name": "MixedContent",
+                        "sourceFile": "MainActivity.kt",
+                        "lineNumber": 115
+                       },
+                       {
+                        "name": "Column",
+                        "sourceFile": "ComposeScreens.kt",
+                        "lineNumber": 45
+                       },
+                       {
+                        "name": "Text",
+                        "sourceFile": "ComposeScreens.kt",
+                        "lineNumber": 46
+                       }
+                      ]
+                     },
+                     {
+                      "kind": "compose",
+                      "id": 4,
+                      "bounds": {
+                       "left": 42,
+                       "top": 346,
+                       "right": 438,
+                       "bottom": 397
+                      },
+                      "name": "AndroidView",
+                      "sourceFile": "ComposeScreens.kt",
+                      "lineNumber": 47,
+                      "library": false,
+                      "parameters": [
+                       {
+                        "name": "factory",
+                        "value": "io.yamsergey.dta.fixture.channel.ComposeScreens$$ExternalSyntheticLambda1@9b800a0",
+                        "type": "ComposeScreens$$ExternalSyntheticLambda1"
+                       },
+                       {
+                        "name": "modifier",
+                        "value": "Modifier",
+                        "type": "Companion"
+                       },
+                       {
+                        "name": "update",
+                        "value": "Function1<android.view.View, kotlin.Unit>",
+                        "type": "null"
+                       }
+                      ],
+                      "provenance": "semantics",
+                      "callChain": [
+                       {
+                        "name": "MixedContent",
+                        "sourceFile": "MainActivity.kt",
+                        "lineNumber": 115
+                       },
+                       {
+                        "name": "Column",
+                        "sourceFile": "ComposeScreens.kt",
+                        "lineNumber": 45
+                       },
+                       {
+                        "name": "AndroidView",
+                        "sourceFile": "ComposeScreens.kt",
+                        "lineNumber": 47
+                       }
+                      ],
+                      "children": [
+                       {
+                        "kind": "view",
+                        "id": 17,
+                        "bounds": {
+                         "left": 42,
+                         "top": 346,
+                         "right": 438,
+                         "bottom": 397
+                        },
+                        "className": "androidx.compose.ui.viewinterop.ViewFactoryHolder",
+                        "children": [
+                         {
+                          "kind": "view",
+                          "id": 16,
+                          "bounds": {
+                           "left": 42,
+                           "top": 346,
+                           "right": 438,
+                           "bottom": 397
+                          },
+                          "className": "android.widget.TextView",
+                          "resourceId": "io.yamsergey.dta.fixture.channel:id/mixed_embedded_view",
+                          "text": "Embedded AndroidView"
+                         }
+                        ]
+                       }
+                      ]
+                     }
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "kind": "view",
+        "id": 8,
+        "bounds": {
+         "left": 0,
+         "top": 63,
+         "right": 1080,
+         "bottom": 210
+        },
+        "className": "com.android.internal.widget.ActionBarContainer",
+        "resourceId": "android:id/action_bar_container",
+        "children": [
+         {
+          "kind": "view",
+          "id": 9,
+          "bounds": {
+           "left": 0,
+           "top": 63,
+           "right": 1080,
+           "bottom": 210
+          },
+          "className": "android.widget.Toolbar",
+          "resourceId": "android:id/action_bar",
+          "children": [
+           {
+            "kind": "view",
+            "id": 12,
+            "bounds": {
+             "left": 42,
+             "top": 101,
+             "right": 414,
+             "bottom": 172
+            },
+            "className": "android.widget.TextView",
+            "text": "Channel Fixture"
+           },
+           {
+            "kind": "view",
+            "id": 26,
+            "bounds": {
+             "left": 1080,
+             "top": 63,
+             "right": 1080,
+             "bottom": 210
+            },
+            "className": "android.widget.ActionMenuView"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "view",
+      "id": 19,
+      "bounds": {
+       "left": 0,
+       "top": 2337,
+       "right": 1080,
+       "bottom": 2400
+      },
+      "className": "android.view.View",
+      "resourceId": "android:id/navigationBarBackground"
+     },
+     {
+      "kind": "view",
+      "id": 20,
+      "bounds": {
+       "left": 0,
+       "top": 0,
+       "right": 1080,
+       "bottom": 63
+      },
+      "className": "android.view.View",
+      "resourceId": "android:id/statusBarBackground"
+     }
+    ]
+   }
+  }
+ ],
+ "detail": {
+  "requested": "composition",
+  "delivered": "composition"
+ }
+}

@@ -1,0 +1,77 @@
+{
+ "screen": {
+  "widthPx": 1080,
+  "heightPx": 2400,
+  "density": 2.625
+ },
+ "source": "uiautomator",
+ "windows": [
+  {
+   "type": "application",
+   "zOrder": 0,
+   "root": {
+    "kind": "fallback",
+    "bounds": {
+     "left": 0,
+     "top": 0,
+     "right": 1080,
+     "bottom": 2337
+    },
+    "className": "ViewGroup",
+    "resourceId": "android:id/decor_content_parent",
+    "children": [
+     {
+      "kind": "fallback",
+      "bounds": {
+       "left": 42,
+       "top": 101,
+       "right": 163,
+       "bottom": 172
+      },
+      "className": "TextView",
+      "text": "Plain"
+     },
+     {
+      "kind": "fallback",
+      "bounds": {
+       "left": 0,
+       "top": 210,
+       "right": 1080,
+       "bottom": 2337
+      },
+      "className": "LinearLayout",
+      "children": [
+       {
+        "kind": "fallback",
+        "bounds": {
+         "left": 0,
+         "top": 210,
+         "right": 1080,
+         "bottom": 261
+        },
+        "className": "TextView",
+        "text": "HTTP 200"
+       },
+       {
+        "kind": "fallback",
+        "bounds": {
+         "left": 0,
+         "top": 261,
+         "right": 1080,
+         "bottom": 387
+        },
+        "className": "Button",
+        "text": "Fetch",
+        "interactions": [
+         "clickable",
+         "focusable"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "fallbackReason": "io.yamsergey.dta.fixture.plain is running on emulator-5554 without DTA \u2014 build it with DTA"
+}
