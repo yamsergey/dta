@@ -1,6 +1,6 @@
 {
   "name": "dta",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "description": "Inspect a running Android app built with DTA: its screen as a View/Compose tree, its HTTP and WebSocket traffic with bodies (protobuf decoded), and scripts that change that traffic.",
   "author": {
     "name": "DTA"

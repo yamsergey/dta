@@ -83,7 +83,7 @@ val checkPluginVersion = tasks.register("checkPluginVersion") {
     inputs.property("expected", expected)
     doLast {
         val actual = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(manifest.get())?.groupValues?.get(1)
-        // Development builds (0.1.0-SNAPSHOT.<n>) ship the plugin of their release line.
+        // Development builds (0.10.0-SNAPSHOT.<n>) ship the plugin of their release line.
         check(actual == expected.substringBefore('-')) { "plugins/dta/.claude-plugin/plugin.json version is $actual, dtaVersion is $expected — update the plugin manifest" }
     }
 }
