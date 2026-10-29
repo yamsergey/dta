@@ -1,6 +1,6 @@
 <idea-plugin>
     <id>io.yamsergey.dta</id>
-    <name>DTA — Development Tools for Android</name>
+    <name>DTA - Development Tools for Android</name>
     <vendor url="https://github.com/yamsergey/dta">Sergey Yamshchikov</vendor>
     <description><![CDATA[
 <p>See what your Android app does while it runs: its screen as one View/Compose tree, and its

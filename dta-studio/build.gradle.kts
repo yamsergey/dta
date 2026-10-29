@@ -26,6 +26,9 @@ java {
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+        // Platform interfaces have JVM default methods: no bridges to them in our classes
+        // (the verifier reports those bridges as uses of internal and deprecated API).
+        jvmDefault = org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode.NO_COMPATIBILITY
     }
 }
 
@@ -59,11 +62,14 @@ dependencies {
     implementation(project(":dta-mcp"))
     implementation(project(":dta-inject"))
 
+    testImplementation(testFixtures(project(":dta-mcp")))
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
+    testImplementation(libs.kotlinx.coroutines.test)
     testRuntimeOnly(libs.junit.platform.launcher)
-    // The platform's test framework still runs on JUnit 4.
+    // The platform's light tests still run on JUnit 4.
     testImplementation("junit:junit:4.13.2")
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine:${libs.versions.junit.jupiter.get()}")
 }
 
 /**
@@ -99,7 +105,7 @@ configurations.named("runtimeClasspath") {
 intellijPlatform {
     pluginConfiguration {
         id = "io.yamsergey.dta"
-        name = "DTA — Development Tools for Android"
+        name = "DTA - Development Tools for Android"
         version = project.version.toString()
         vendor {
             name = "Sergey Yamshchikov"
@@ -148,6 +154,10 @@ val verifyDaemonBundle = tasks.register<VerifyDaemonBundle>("verifyDaemonBundle"
 }
 tasks.named("buildPlugin") { finalizedBy(verifyDaemonBundle) }
 tasks.named("check") { dependsOn(verifyDaemonBundle) }
+
+tasks.test {
+    useJUnitPlatform()
+}
 
 intellijPlatformTesting {
     runIde {
