@@ -42,6 +42,17 @@ data class BodyView(val header: BodyHeader, val content: BodyContent, val defaul
         /** Bodies above the inline limit are fetched to a file and opened in a read-only editor tab (FR-009). */
         fun needsFile(storedBytes: Long) = storedBytes > INLINE_LIMIT
 
+        /**
+         * Fetches a body the way the viewer needs it: large ones to a file; others as text, and a
+         * binary one that did not come back as text (no schema decodes it) to a file for the hex view.
+         */
+        inline fun fetch(storedBytes: Long, binary: Boolean, inline: () -> JsonObject, toFile: () -> JsonObject): JsonObject {
+            if (needsFile(storedBytes)) return toFile()
+            val result = runCatching { inline() }
+            if (binary && result.getOrNull()?.get("text") == null) return toFile()
+            return result.getOrThrow()
+        }
+
         fun of(result: JsonObject): BodyView {
             val info = result.obj("body") ?: JsonObject(emptyMap())
             val size = listOfNotNull(

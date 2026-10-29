@@ -67,4 +67,23 @@ class BodyViewTest {
         assertNull(PrettyJson.format("{not json"))
         assertEquals("[\n  1,\n  2\n]", PrettyJson.format("[1,2]"))
     }
+
+    private val text = JsonObject(mapOf("text" to kotlinx.serialization.json.JsonPrimitive("{}")))
+    private val file = JsonObject(mapOf("path" to kotlinx.serialization.json.JsonPrimitive("/tmp/b")))
+
+    @Test
+    fun `a binary body the daemon refuses as text is fetched to a file for the hex view`() {
+        val calls = mutableListOf<String>()
+        val got = BodyView.fetch(16, binary = true, inline = { calls += "inline"; throw IllegalStateException("binary body") }, toFile = { calls += "file"; file })
+        assertEquals(file, got)
+        assertEquals(listOf("inline", "file"), calls, "inline first: a protobuf schema may decode it to JSON")
+    }
+
+    @Test
+    fun `a decoded binary body stays text, a large body goes straight to a file, other failures are stated`() {
+        assertEquals(text, BodyView.fetch(16, binary = true, inline = { text }, toFile = { error("not needed") }))
+        assertEquals(file, BodyView.fetch(BodyView.INLINE_LIMIT + 1, binary = false, inline = { error("not needed") }, toFile = { file }))
+        val e = kotlin.test.assertFailsWith<IllegalStateException> { BodyView.fetch(16, binary = false, inline = { throw IllegalStateException("gone") }, toFile = { file }) }
+        assertEquals("gone", e.message)
+    }
 }

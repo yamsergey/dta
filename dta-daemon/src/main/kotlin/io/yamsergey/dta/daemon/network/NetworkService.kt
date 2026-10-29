@@ -125,14 +125,14 @@ class NetworkService(
                 }
                 DecodingOutcome.NOT_DECODED -> BodyResult(
                     info, bytes = 0, degraded = degraded, redaction = overridden, decoding = decoding,
-                    note = "not decoded: ${decoding.reason}; fetch the bytes with BodyOutput.File(path)",
+                    note = "not decoded: ${decoding.reason}; fetch the bytes with the output parameter (dta network body --output <file>)",
                 )
                 DecodingOutcome.NOT_APPLICABLE -> {
                     if (info.binary) {
                         throw BinaryBodyException(
                             "binary body (${info.contentType ?: "unknown type"}, ${humanBytes(info.storedBytes)}) — " +
-                                "fetch it with BodyOutput.File(path) to get the bytes, or add its protobuf schema " +
-                                "(networkSchemaAdd + networkMappingAdd) to read it as JSON",
+                                "fetch the bytes with the output parameter (dta network body --output <file>), or add its " +
+                                "protobuf schema (network.schema.add, then network.mapping.add) to read it as JSON",
                         )
                     }
                     val decoded = BodyCodec.decode(wire, info.encoding)

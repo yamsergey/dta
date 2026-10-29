@@ -72,13 +72,11 @@ class BodyPane(
         val binary = (ref.info["binary"] as? JsonPrimitive)?.content == "true"
         val result = runCatching {
             val params = JsonObject(target + mapOf("id" to JsonPrimitive(entryId), "part" to JsonPrimitive(ref.part)))
-            if (BodyView.needsFile(stored)) {
-                client.call("network.body", JsonObject(params + ("output" to JsonPrimitive(tempFile(extension()).path)))).result.jsonObject
-            } else {
-                val inline = client.call("network.body", params).result.jsonObject
-                // A binary body that did not decode comes as a file: the hex view reads its bytes.
-                if (binary && inline["text"] == null) client.call("network.body", JsonObject(params + ("output" to JsonPrimitive(tempFile().path)))).result.jsonObject else inline
-            }
+            BodyView.fetch(
+                stored, binary,
+                inline = { client.call("network.body", params).result.jsonObject },
+                toFile = { client.call("network.body", JsonObject(params + ("output" to JsonPrimitive(tempFile(if (binary) ".bin" else extension()).path)))).result.jsonObject },
+            )
         }
         val loaded = result.getOrNull()?.let(BodyView::of)
         bytes = (loaded?.content as? BodyContent.File)?.takeIf { !loaded.tooLarge }?.let { runCatching { Files.readAllBytes(File(it.path).toPath()) }.getOrNull() }

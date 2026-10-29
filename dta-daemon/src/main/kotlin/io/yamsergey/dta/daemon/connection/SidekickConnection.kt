@@ -79,6 +79,7 @@ class SidekickConnection private constructor(
 
     private val pending = ConcurrentHashMap<Long, PendingRequest>()
     private val ids = AtomicLong(0)
+    private val sends = io.yamsergey.dta.protocol.wire.SendQueue()
     private val _events = MutableSharedFlow<Event>(extraBufferCapacity = 256)
 
     @Volatile
@@ -101,7 +102,7 @@ class SidekickConnection private constructor(
         pending[id] = entry
         try {
             val text = DtaJson.encodeToString(Message.serializer(), Request(id, method, params))
-            webSocket.sendText(text, true).await()
+            sends.enqueue { webSocket.sendText(text, true) }.await()
 
             val effective = timeout ?: defaultRequestTimeout
             val (response, binaries) = try {
@@ -125,7 +126,7 @@ class SidekickConnection private constructor(
 
     override suspend fun close() {
         open = false
-        runCatching { webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "bye").await() }
+        runCatching { sends.enqueue { webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "bye") }.await() }
     }
 
     private fun handleText(text: String) {

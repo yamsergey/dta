@@ -125,7 +125,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
     val allEvents: Flow<Event> get() = events
 
     suspend fun close() {
-        runCatching { socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye").await() }
+        runCatching { sends.enqueue { socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye") }.await() }
         lost("closed")
     }
 
@@ -140,15 +140,9 @@ class DaemonClient private constructor(private val timeout: Duration) {
         }
     }
 
-    private val sendLock = Any()
-    private var lastSend: java.util.concurrent.CompletableFuture<*> = java.util.concurrent.CompletableFuture.completedFuture(null)
+    private val sends = io.yamsergey.dta.protocol.wire.SendQueue()
 
-    /** One send at a time: the JDK WebSocket refuses a send while the previous one is pending. */
-    private fun send(text: String): java.util.concurrent.CompletableFuture<WebSocket> = synchronized(sendLock) {
-        val next = lastSend.handle { _, _ -> null }.thenCompose { socket.sendText(text, true) }
-        lastSend = next
-        next
-    }
+    private fun send(text: String) = sends.enqueue { socket.sendText(text, true) }
 
     private fun lost(reason: String) {
         if (goneReason != null) return

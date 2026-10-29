@@ -45,4 +45,4 @@ class BinaryBodyException(message: String) : Exception(message)
 
 /** Structured output was requested for a body that was not decoded; [decoding] says why. */
 class BodyNotDecodedException(val decoding: DecodingInfo) :
-    Exception("body not decoded: ${decoding.reason ?: "no schema maps it (networkSchemaAdd + networkMappingAdd)"}")
+    Exception("body not decoded: ${decoding.reason ?: "no schema maps it (network.schema.add, then network.mapping.add)"}")

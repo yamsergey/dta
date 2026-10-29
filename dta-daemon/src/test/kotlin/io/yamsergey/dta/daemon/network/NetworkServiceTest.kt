@@ -183,8 +183,10 @@ class NetworkServiceTest {
     @Test
     fun `text output refuses binary bodies with an actionable message`() = withService { service, _ ->
         val e = kotlin.test.assertFailsWith<BinaryBodyException> { service.body("proto", BodyPart.REQUEST) }
-        assertTrue("application/x-protobuf" in e.message!! && "BodyOutput.File" in e.message!!, e.message)
-        assertTrue("networkSchemaAdd" in e.message!!, "says how to make it readable: ${e.message}")
+        // Every client reads this message: it names catalog operations and parameters, never Kotlin types.
+        assertTrue("application/x-protobuf" in e.message!! && "the output parameter" in e.message!!, e.message)
+        assertTrue("network.schema.add" in e.message!! && "network.mapping.add" in e.message!!, "says how to make it readable: ${e.message}")
+        assertTrue("BodyOutput" !in e.message!! && "networkSchemaAdd" !in e.message!!, e.message)
     }
 
     @Test

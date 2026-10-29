@@ -82,6 +82,20 @@ class SidekickConnectionTest {
     }
 
     @Test
+    fun `large requests from many threads at once are all sent - one send at a time`() = runBlocking {
+        TestWsServer(registryWithDiagnostics()).use { server ->
+            val connection = SidekickConnection.connect(URI("ws://127.0.0.1:${server.port}/"))
+            // Big frames keep each send pending long enough for the next one to overlap it.
+            val big = "x".repeat(2 shl 20)
+            val results = (1..16).map { n ->
+                async(kotlinx.coroutines.Dispatchers.IO) { n to connection.request("echo", buildJsonObject { put("n", n); put("pad", big) }, 30.seconds) }
+            }.awaitAll()
+            results.forEach { (n, result) -> assertEquals(n, result.jsonObject["n"]!!.jsonPrimitive.int) }
+            connection.close()
+        }
+    }
+
+    @Test
     fun `incompatible server version fails at connect naming both versions with remedy`() = runBlocking {
         TestWsServer(registryWithDiagnostics(), protocolVersion = 99).use { server ->
             val e = assertFailsWith<VersionIncompatibleException> {
