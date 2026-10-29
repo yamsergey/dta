@@ -67,6 +67,17 @@ class NetworkControllerTest {
     }
 
     @Test
+    fun `the kind switch queries WebSocket connections and messages only, then everything again`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 }
+        network.setKind(io.yamsergey.dta.present.network.KindChoice.WEBSOCKET)
+        withTimeout(5_000) { while (daemon.ops.queries.none { it.second.filter?.kinds?.size == 2 }) kotlinx.coroutines.delay(20) }
+        assertEquals(io.yamsergey.dta.present.network.KindChoice.WEBSOCKET, network.state.value.filters.kind)
+        network.setKind(io.yamsergey.dta.present.network.KindChoice.ALL)
+        withTimeout(5_000) { while (daemon.ops.queries.last().second.filter?.kinds != null) kotlinx.coroutines.delay(20) }
+    }
+
+    @Test
     fun `clear empties the app's history and the list`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 }

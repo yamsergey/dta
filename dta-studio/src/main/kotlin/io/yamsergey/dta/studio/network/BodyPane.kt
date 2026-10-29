@@ -45,18 +45,24 @@ class BodyPane(
     private val scope: CoroutineScope,
 ) : JPanel(BorderLayout()) {
     private val header = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
-    private val modes = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+    private val modes = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0))
     private val area = JBTextArea().apply {
         isEditable = false
         font = com.intellij.openapi.editor.colors.EditorColorsManager.getInstance().globalScheme.getFont(com.intellij.openapi.editor.colors.EditorFontType.PLAIN)
         lineWrap = false
+        margin = JBUI.insets(6, 12)
     }
     private var view: BodyView? = null
     private var bytes: ByteArray? = null
 
     init {
-        add(JPanel(BorderLayout()).apply { add(header, BorderLayout.CENTER); add(modes, BorderLayout.EAST) }, BorderLayout.NORTH)
-        add(JBScrollPane(area).apply { preferredSize = JBUI.size(400, 160) }, BorderLayout.CENTER)
+        // The header stays put above the one scroll of the content; it lines up with the tab's other pages.
+        add(JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.compound(JBUI.Borders.customLineBottom(com.intellij.ui.JBColor.border()), JBUI.Borders.empty(4, 6, 4, 12))
+            add(header, BorderLayout.CENTER)
+            add(modes, BorderLayout.EAST)
+        }, BorderLayout.NORTH)
+        add(JBScrollPane(area).apply { border = JBUI.Borders.empty() }, BorderLayout.CENTER)
         header.add(JBLabel("Loading ${ref.part} body…"))
         load()
     }

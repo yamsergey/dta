@@ -66,6 +66,12 @@ class NetworkController(private val context: ContextController, private val scop
         reload()
     }
 
+    /** The All / HTTP / WebSocket switch: the `kinds` filter. */
+    fun setKind(choice: io.yamsergey.dta.present.network.KindChoice) {
+        mutable.update { it.copy(filters = it.filters.withKind(choice)) }
+        reload()
+    }
+
     fun removeFilter(name: String) {
         mutable.update { it.copy(filters = it.filters.without(name)) }
         reload()

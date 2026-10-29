@@ -62,4 +62,19 @@ class NetworkFiltersTest {
         assertEquals("12 of 40 shown · 2 filters, combined with AND", NetworkFilters().with("url", JsonPrimitive("a")).with("method", JsonPrimitive("GET")).caption(12, 40))
         assertEquals("1 of 1 shown · 1 filter", NetworkFilters().with("url", JsonPrimitive("a")).caption(1, 1))
     }
+
+    @Test
+    fun `the kind switch is the kinds filter - HTTP, WebSocket (connections and messages) or all`() {
+        val ws = NetworkFilters().withKind(KindChoice.WEBSOCKET)
+        assertEquals(JsonArray(listOf(JsonPrimitive("ws-connection"), JsonPrimitive("ws-message"))), ws.params()["kinds"])
+        assertEquals(KindChoice.WEBSOCKET, ws.kind)
+        assertEquals(KindChoice.HTTP, ws.withKind(KindChoice.HTTP).kind)
+        assertEquals(null, ws.withKind(KindChoice.ALL).params()["kinds"])
+        assertEquals(KindChoice.ALL, NetworkFilters().kind)
+        // A kinds filter the switch cannot express (messages only) shows as its own chip, not as a switch position.
+        val messages = NetworkFilters().with("kinds", JsonArray(listOf(JsonPrimitive("ws-message"))))
+        assertEquals(null, messages.kind)
+        assertEquals(listOf("Kinds ws-message"), messages.chips.map { it.label })
+        assertEquals(emptyList(), ws.chips, "the switch shows the kind; no chip repeats it")
+    }
 }

@@ -67,6 +67,7 @@ class NetworkPanel(
     private val chips = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
     private val caption = JBLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
+    private val kinds = io.yamsergey.dta.present.network.KindChoice.entries.associateWith { javax.swing.JToggleButton(it.label) }
     private val pause = JBCheckBox("Pause")
     private val redact = JBCheckBox("Redact")
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEnd() }
@@ -77,7 +78,16 @@ class NetworkPanel(
     private var last = NetworkViewState()
 
     init {
+        val kindGroup = javax.swing.ButtonGroup()
+        val kindSwitch = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+            kinds.forEach { (choice, button) ->
+                kindGroup.add(button)
+                button.addActionListener { if (last.filters.kind != choice) network.setKind(choice) }
+                add(button)
+            }
+        }
         val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
+            add(kindSwitch)
             add(ActionLink("+ Filter") { addFilter() })
             add(chips)
             add(caption)
@@ -136,6 +146,10 @@ class NetworkPanel(
         s.list.selectedId?.let { id -> model.indexOf(id)?.let { i -> if (table.selectedRow != i) { model.updating = true; table.setRowSelectionInterval(i, i); model.updating = false } } }
         if (s.list.following && s.list.selectedId == null) scrollToEnd()
 
+        // A kinds filter the switch cannot express is a chip; then no switch position is lit.
+        val kind = s.filters.kind
+        kinds.forEach { (choice, button) -> button.isSelected = choice == kind }
+        if (kind == null) kinds.values.firstOrNull()?.let { (it.model as? javax.swing.DefaultButtonModel)?.group?.clearSelection() }
         if (s.filters != previous.filters || chips.componentCount == 0) {
             chips.removeAll()
             s.filters.chips.forEach { chip -> chips.add(ActionLink("${chip.label} ×") { network.removeFilter(chip.name) }) }

@@ -11,6 +11,13 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+/** The view's kind switch: one `kinds` filter value each. */
+enum class KindChoice(val label: String, val kinds: List<String>) {
+    ALL("All", emptyList()),
+    HTTP("HTTP", listOf("http")),
+    WEBSOCKET("WebSocket", listOf("ws-connection", "ws-message")),
+}
+
 /** A filter shown as a removable chip. */
 data class Chip(val name: String, val label: String)
 
@@ -33,7 +40,21 @@ data class NetworkFilters(
 
     val isEmpty: Boolean get() = chosen.isEmpty()
 
-    val chips: List<Chip> get() = NAMES.mapNotNull { name -> chosen[name]?.let { Chip(name, label(name, it)) } }
+    /** The switch position for the `kinds` filter; null when the filter is one the switch cannot express. */
+    val kind: KindChoice?
+        get() {
+            val kinds = (chosen["kinds"] as? JsonArray)?.map { (it as JsonPrimitive).content } ?: return KindChoice.ALL
+            return KindChoice.entries.firstOrNull { it != KindChoice.ALL && it.kinds.toSet() == kinds.toSet() }
+        }
+
+    fun withKind(choice: KindChoice): NetworkFilters =
+        if (choice == KindChoice.ALL) without("kinds") else with("kinds", JsonArray(choice.kinds.map { JsonPrimitive(it) }))
+
+    /** Chips for every filter but a `kinds` one the switch already shows. */
+    val chips: List<Chip>
+        get() = NAMES.mapNotNull { name ->
+            chosen[name]?.takeUnless { name == "kinds" && kind != null }?.let { Chip(name, label(name, it)) }
+        }
 
     /** The `network.list` params, in catalog order as the CLI builds them. */
     fun params(limit: Int? = null, before: String? = null): JsonObject = JsonObject(buildMap {
