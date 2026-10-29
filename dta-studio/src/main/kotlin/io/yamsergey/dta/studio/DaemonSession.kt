@@ -37,15 +37,18 @@ class DaemonSession(
     val state: StateFlow<State> = mutable.asStateFlow()
     private var job: Job? = null
 
-    fun start() {
+    fun start() = start(note = null)
+
+    private fun start(note: String?) {
         job?.cancel()
-        mutable.value = State.Starting
-        job = scope.launch { run() }
+        if (note == null) mutable.value = State.Starting
+        job = scope.launch { run(note) }
     }
 
     fun retry() = start()
 
-    private suspend fun run() {
+    /** [note] says why this is a reconnection, so the connected state still tells it. */
+    private suspend fun run(note: String?) {
         val connected = try {
             connect()
         } catch (e: VersionConflictException) {
@@ -59,14 +62,14 @@ class DaemonSession(
             return
         }
         val client = connected.client
-        mutable.value = State.Connected(client, client.daemon.identity.display, connected.statements)
+        mutable.value = State.Connected(client, client.daemon.identity.display, listOfNotNull(note) + connected.statements)
         val gone = scope.launch {
             client.allEvents.collect { event ->
                 when (event.name) {
                     DaemonEvents.REPLACED -> {
                         val by = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), event.data!!).by.display }.getOrDefault("a newer version")
                         mutable.value = State.Replaced(by)
-                        start()
+                        start(note = "the DTA daemon was replaced by $by; reconnected")
                     }
                     DaemonEvents.STOPPING -> {
                         val reason = runCatching { DtaJson.decodeFromJsonElement(DaemonStoppingEvent.serializer(), event.data!!).reason }.getOrDefault("no reason given")

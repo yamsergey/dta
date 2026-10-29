@@ -68,8 +68,8 @@ class DaemonSessionTest {
         session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
         val other: DaemonClient = daemon.connect(ClientKind.CLI).client
         other.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)))
-        session.awaitState<DaemonSession.State.Replaced> { it as? DaemonSession.State.Replaced }
-        session.awaitState<DaemonSession.State.Connected> { (it as? DaemonSession.State.Connected)?.takeIf { connects.get() == 2 } }
+        val again = session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { connects.get() == 2 } }
+        assertTrue(again.statements.any { "replaced by 0.1.0 (build 2026-12-31T00:00:00Z)" in it }, "${again.statements}")
     }
 
     @Test

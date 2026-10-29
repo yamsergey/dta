@@ -155,4 +155,12 @@ class DaemonServerTest {
         assertTrue("replaced" in stopped.get()!!)
         assertFalse(state.stateFile.exists())
     }
+
+    @Test
+    fun `one client may send from many coroutines at once`() = runBlocking<Unit> {
+        val client = connect()
+        val results = (1..50).map { async(kotlinx.coroutines.Dispatchers.IO) { client.call("devices.list") } }.map { it.await() }
+        assertEquals(50, results.size)
+        client.close()
+    }
 }

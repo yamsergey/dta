@@ -75,7 +75,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
         val deferred = CompletableDeferred<Response>()
         pending[id] = deferred
         try {
-            socket.sendText(DtaJson.encodeToString(Message.serializer(), Request(id, method, params)), true).await()
+            send(DtaJson.encodeToString(Message.serializer(), Request(id, method, params))).await()
             val response = withTimeout(timeout) { deferred.await() }
             response.error?.let { throw DaemonCallException(it.code, it.message, it.details) }
             return response.result ?: JsonObject(emptyMap())
@@ -117,7 +117,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
         awaitClose {
             job.cancel()
             dropped.cancel()
-            runCatching { socket.sendText(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), unsubscribe, buildJsonObject { put("subscription", id) })), true) }
+            runCatching { send(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), unsubscribe, buildJsonObject { put("subscription", id) }))) }
         }
     }
 
@@ -138,6 +138,16 @@ class DaemonClient private constructor(private val timeout: Duration) {
             }
             else -> "the DTA daemon stopped: ${(data?.get("reason") as? JsonPrimitive)?.content ?: "no reason given"}"
         }
+    }
+
+    private val sendLock = Any()
+    private var lastSend: java.util.concurrent.CompletableFuture<*> = java.util.concurrent.CompletableFuture.completedFuture(null)
+
+    /** One send at a time: the JDK WebSocket refuses a send while the previous one is pending. */
+    private fun send(text: String): java.util.concurrent.CompletableFuture<WebSocket> = synchronized(sendLock) {
+        val next = lastSend.handle { _, _ -> null }.thenCompose { socket.sendText(text, true) }
+        lastSend = next
+        next
     }
 
     private fun lost(reason: String) {
