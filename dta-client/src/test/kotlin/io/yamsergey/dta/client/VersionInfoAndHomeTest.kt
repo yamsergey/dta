@@ -24,6 +24,14 @@ class VersionInfoAndHomeTest {
     }
 
     @Test
+    fun `the version resource ships in dta-client, so the CLI and the plugin read the same one`() {
+        val info = VersionInfo.current()
+        assertNull(info.missingReason, info.missingReason)
+        assertEquals(System.getProperty("dta.expectedVersion"), info.version)
+        java.time.Instant.parse(info.build)
+    }
+
+    @Test
     fun `missing properties give a dev version with the reason stated`() {
         val info = VersionInfo.from(null)
         assertEquals("dev", info.version)
