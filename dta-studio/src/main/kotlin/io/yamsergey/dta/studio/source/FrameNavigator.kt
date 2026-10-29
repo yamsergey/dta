@@ -3,6 +3,7 @@ package io.yamsergey.dta.studio.source
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.project.DumbModeBlockedFunctionality
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -37,12 +38,17 @@ class FrameNavigator(private val project: Project) {
     }
 
     /**
-     * Opens the frame. The lookup runs off the UI thread and waits for indexing to end (classes
-     * are unknown until then); [onOpened] or [onMissing] runs on the UI thread afterwards.
+     * Opens the frame; the lookup runs off the UI thread and [onOpened] or [onMissing] runs on it
+     * afterwards. While the IDE indexes, classes are unknown: the click is refused with the IDE's
+     * own indexing notice (as Go to Class does) and false is returned; nothing is queued.
      */
-    fun open(className: String, method: String, file: String?, line: Int?, onMissing: () -> Unit, onOpened: () -> Unit = {}) {
+    fun open(className: String, method: String, file: String?, line: Int?, onMissing: () -> Unit, onOpened: () -> Unit = {}): Boolean {
+        val dumb = DumbService.getInstance(project)
+        if (dumb.isDumb) {
+            dumb.showDumbModeNotificationForFunctionality("Opening the frame's source is not available while indexing", DumbModeBlockedFunctionality.GotoClass)
+            return false
+        }
         ReadAction.nonBlocking<Location?> { resolve(className, method, file, line) }
-            .inSmartMode(project)
             .expireWith(project)
             .finishOnUiThread(ModalityState.defaultModalityState()) { at ->
                 if (at == null) return@finishOnUiThread onMissing()
@@ -52,10 +58,8 @@ class FrameNavigator(private val project: Project) {
                 onOpened()
             }
             .submit(AppExecutorUtil.getAppExecutorService())
+        return true
     }
-
-    /** True while the IDE is indexing: a lookup started now opens when it ends. */
-    fun indexing(): Boolean = DumbService.isDumb(project)
 
     /** `a.B$C` is `a.B.C`; `a.B$1` and `a.B$run$1` (anonymous, lambdas) fall back to the enclosing class. */
     private fun findClass(binaryName: String): PsiClass? {

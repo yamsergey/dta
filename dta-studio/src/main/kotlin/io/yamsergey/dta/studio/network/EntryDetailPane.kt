@@ -161,17 +161,14 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
         if (FrameClassifier.generated(f.className, f.method)) return JBLabel(f.text).apply { setCopyable(true) }.styled()
         val holder = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)).apply { isOpaque = false }
         val link = ActionLink(f.text).apply { styled(); toolTipText = "Open in the editor" }
-        val status = JBLabel("").apply { foreground = JBColor.GRAY }
         link.addActionListener {
-            status.text = if (navigator.indexing()) "  — opens when indexing ends" else ""
-            navigator.open(f.className, f.method, f.file, f.line, onOpened = { status.text = "" }, onMissing = {
+            navigator.open(f.className, f.method, f.file, f.line, onMissing = {
                 holder.removeAll()
                 holder.add(JBLabel("${f.text} — not in this project or its libraries").apply { setCopyable(true) }.styled())
                 holder.revalidate()
             })
         }
         holder.add(link)
-        holder.add(status)
         return holder
     }
 

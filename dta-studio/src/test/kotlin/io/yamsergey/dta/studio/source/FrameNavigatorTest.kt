@@ -64,4 +64,16 @@ class FrameNavigatorTest : BasePlatformTestCase() {
         com.intellij.testFramework.PlatformTestUtil.waitWithEventsDispatching("not opened", { opened }, 10)
         assertTrue(com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedFiles.single().path.endsWith("com/example/shop/Cart.java"))
     }
+
+    fun `test while indexing a click is refused with the IDE's indexing notice, nothing queued`() {
+        project()
+        var called = false
+        var started = true
+        com.intellij.testFramework.DumbModeTestUtils.runInDumbModeSynchronously(project) {
+            started = FrameNavigator(project).open("com.example.shop.Cart", "checkout", "Cart.java", 3, onMissing = { called = true }, onOpened = { called = true })
+        }
+        assertFalse(started)
+        com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertFalse("a refused click must not open later", called)
+    }
 }
