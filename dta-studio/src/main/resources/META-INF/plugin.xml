@@ -1,0 +1,21 @@
+<idea-plugin>
+    <id>io.yamsergey.dta</id>
+    <name>DTA — Development Tools for Android</name>
+    <vendor url="https://github.com/yamsergey/dta">Sergey Yamshchikov</vendor>
+    <description><![CDATA[
+<p>See what your Android app does while it runs: its screen as one View/Compose tree, and its
+HTTP and WebSocket traffic in one live list with bodies (protobuf decoded). Change traffic with
+network scripts, and give coding agents the same tools over a local MCP server.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.androidstudio</depends>
+    <depends>org.jetbrains.android</depends>
+    <depends>com.intellij.gradle</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="DTA"
+                    anchor="bottom"
+                    factoryClass="io.yamsergey.dta.studio.toolwindow.DtaToolWindowFactory"
+                    icon="/icons/dta-13.svg"/>
+    </extensions>
+</idea-plugin>

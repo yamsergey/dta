@@ -22,6 +22,8 @@ wire = "6.4.7"  # 7.x pulls kotlin-stdlib 2.3
 # CLI only (feature 008). Clikt 5.1 pulls kotlin-stdlib 2.3; the MCP Kotlin SDK pulls 2.4.
 clikt = "5.0.3"
 mcp = "2.0.1"
+# Android Studio plugin only (feature 009).
+intellij-platform = "2.19.0"
 # Publishing (as in the original).
 maven-publish = "0.36.0"
 
@@ -51,3 +53,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
+intellij-platform = { id = "org.jetbrains.intellij.platform", version.ref = "intellij-platform" }
