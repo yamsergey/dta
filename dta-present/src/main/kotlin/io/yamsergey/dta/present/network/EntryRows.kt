@@ -43,6 +43,15 @@ object EntryRows {
     private val OUTCOMES = setOf(StatementKind.FAILED, StatementKind.PENDING, StatementKind.PROCESS_ENDED)
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 
+    /**
+     * Short labels for the runs in a list, numbered by first appearance; empty when there is one
+     * run (the context line already names it), so a run column says something only when it matters.
+     */
+    fun runLabels(runIds: List<String>): Map<String, String> {
+        val runs = runIds.distinct()
+        return if (runs.size < 2) emptyMap() else runs.withIndex().associate { (i, id) -> id to "${i + 1}" }
+    }
+
     fun of(entry: JsonObject, zone: ZoneId = ZoneId.systemDefault()): EntryRow {
         val statements = Statements.forEntry(entry)
         val ending = statements.firstOrNull { it.kind in OUTCOMES }

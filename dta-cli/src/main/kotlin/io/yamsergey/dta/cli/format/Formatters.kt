@@ -175,12 +175,13 @@ class Formatters(private val style: Style) {
     }
 
     /** One entry as a line; the row model is dta-present's, the same the plugin's list shows. */
-    private fun entryRow(e: JsonObject, absolute: Boolean): String {
+    private fun entryRow(e: JsonObject, absolute: Boolean, withPayload: Boolean = false): String {
         val row = EntryRows.of(e)
         val kind = if (row.kind == EntryKind.HTTP) Token.KIND_HTTP else Token.KIND_WS
+        // The URL column is the URL; a message's payload shows only under its connection.
         val name = listOfNotNull(
             row.host?.let { style.paint(it, Token.INK_MUTED) + row.path } ?: row.path,
-            row.preview?.let { style.paint(it, Token.INK_MUTED) },
+            row.preview?.takeIf { withPayload }?.let { style.paint(it, Token.INK_MUTED) },
         ).filter { it.isNotEmpty() }.joinToString("  ")
         val outcome = row.outcome.statement?.let { style.mark(it.kind, it.word) } ?: when (row.outcome.token) {
             "status-client" -> style.paint(row.outcome.text, Token.STATUS_CLIENT)
@@ -215,7 +216,7 @@ class Formatters(private val style: Style) {
         }
         o.arr("messages").takeIf { it.isNotEmpty() }?.let { messages ->
             appendLine(section("Messages"))
-            messages.forEach { appendLine("  " + entryRow(it.obj, absolute = true)) }
+            messages.forEach { appendLine("  " + entryRow(it.obj, absolute = true, withPayload = true)) }
         }
         statements.filter { it.kind == StatementKind.REDACTED || it.kind == StatementKind.DEGRADED }.forEach { appendLine(style.mark(it)) }
     }.trimEnd()

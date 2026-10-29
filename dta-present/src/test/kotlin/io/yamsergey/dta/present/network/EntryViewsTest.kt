@@ -74,6 +74,12 @@ class EntryViewsTest {
     }
 
     @Test
+    fun `runs get short labels only when the list holds more than one`() {
+        assertEquals(emptyMap<String, String>(), EntryRows.runLabels(listOf("r1-9", "r1-9")))
+        assertEquals(mapOf("r1-9" to "1", "r2-4" to "2"), EntryRows.runLabels(listOf("r1-9", "r2-4", "r1-9")))
+    }
+
+    @Test
     fun `each kind has a word, so HTTP and WebSocket rows read apart`() {
         assertEquals(listOf("HTTP", "WS", "WS ↑", "WS ↓"), EntryKind.entries.map { it.label })
         assertEquals("WebSocket message received", EntryKind.WS_IN.description)

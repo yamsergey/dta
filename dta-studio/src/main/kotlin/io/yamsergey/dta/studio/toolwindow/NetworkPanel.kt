@@ -59,8 +59,14 @@ class NetworkPanel(
     private val table = JBTable(model).apply {
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         setShowGrid(false)
-        autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
-        COLUMNS.forEachIndexed { i, c -> columnModel.getColumn(i).preferredWidth = JBUI.scale(c.width) }
+        autoResizeMode = JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS
+        sizeColumns(this)
+        // A column that needs explaining says so on its header.
+        tableHeader.addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
+            override fun mouseMoved(e: java.awt.event.MouseEvent) {
+                tableHeader.toolTipText = COLUMNS.getOrNull(convertColumnIndexToModel(columnAtPoint(e.point)))?.tooltip
+            }
+        })
         setDefaultRenderer(Any::class.java, RowRenderer())
     }
     private val scroll = JBScrollPane(table)
@@ -73,7 +79,8 @@ class NetworkPanel(
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEnd() }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val detail = EntryDetailPane(project, scope)
-    private val splitter = JBSplitter(false, 0.55f)
+    // The list gets most of the width; the person's own split is remembered.
+    private val splitter = JBSplitter(false, "dta.network.split", 0.68f)
     private var programmaticScroll = false
     private var last = NetworkViewState()
 
@@ -226,7 +233,7 @@ class NetworkPanel(
         else -> "$name (epoch milliseconds):"
     }
 
-    private data class Column(val title: String, val width: Int)
+    private data class Column(val title: String, val sample: String?, val tooltip: String? = null)
 
     private inner class RowsModel : AbstractTableModel() {
         var rows: List<Row> = emptyList()
@@ -235,6 +242,10 @@ class NetworkPanel(
         private val cache = HashMap<Row, EntryRow>()
 
         fun view(row: Row): EntryRow = cache.getOrPut(row) { EntryRows.of(row.entry) }
+
+        /** Short run labels, only when the list holds more than one run. */
+        var runLabels: Map<String, String> = emptyMap()
+            private set
 
         fun indexOf(id: String): Int? = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 }
 
@@ -245,6 +256,9 @@ class NetworkPanel(
             updating = true
             rows = next
             if (cache.size > 20_000) cache.clear()
+            val labels = EntryRows.runLabels(next.map { view(it).run })
+            val relabelled = labels != runLabels
+            runLabels = labels
             when {
                 next.size >= before.size && before.indices.all { before[it].id == next[it].id } -> {
                     val changed = before.indices.filter { before[it] != next[it] }
@@ -253,6 +267,7 @@ class NetworkPanel(
                 }
                 else -> fireTableDataChanged()
             }
+            if (relabelled && next.isNotEmpty()) fireTableRowsUpdated(0, next.size - 1)
             updating = false
         }
 
@@ -271,11 +286,8 @@ class NetworkPanel(
                 0 -> append(r.time, muted)
                 1 -> { append(r.kind.label, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token))); toolTipText = r.kind.description }
                 2 -> append(r.verb, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token)))
-                3 -> {
-                    r.host?.let { append(it, muted) }
-                    append(r.path)
-                    r.preview?.let { append("  $it", muted) }
-                }
+                // The URL, nothing else: a message's payload is under its connection, in Messages.
+                3 -> { r.host?.let { append(it, muted) }; append(r.path) }
                 4 -> {
                     val st = r.outcome.statement
                     when {
@@ -285,7 +297,7 @@ class NetworkPanel(
                     }
                 }
                 5 -> append(r.timing, muted)
-                6 -> append(r.run, muted)
+                6 -> model.runLabels[r.run]?.let { append(it, muted); toolTipText = "Run ${r.run}" }
                 7 -> {
                     r.marks.shown.forEach { append("${it.kind.glyph} ${it.word}  ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.text(it.kind))) }
                     r.marks.moreLabel?.let { append(it, muted) }
@@ -296,9 +308,28 @@ class NetworkPanel(
     }
 
     private companion object {
+        /** [sample] is the widest content the column shows; null = flexible, takes what is left. */
         val COLUMNS = listOf(
-            Column("Time", 90), Column("Type", 52), Column("Method", 76), Column("Name", 424),
-            Column("Status", 80), Column("Time · Size", 110), Column("Run", 50), Column("Statements", 200),
+            Column("Time", "00:00:00.000"), Column("Type", "WS ↓"), Column("Method", "Received"), Column("URL", null),
+            Column("Status", "closed 1000"), Column("Duration · Size", "1.3 s · 18.4 KB"), Column("Run", "99"),
+            Column("Notes", null, "What DTA states about the entry: binary, scripted, redacted, incomplete, decoded…"),
         )
+
+        /** Fixed columns as wide as their widest content (bold, as kinds and methods are drawn); URL and Notes share the rest. */
+        fun sizeColumns(table: JTable) {
+            val bold = table.getFontMetrics(table.font.deriveFont(java.awt.Font.BOLD))
+            val header = table.tableHeader.getFontMetrics(table.tableHeader.font)
+            COLUMNS.forEachIndexed { i, c ->
+                val column = table.columnModel.getColumn(i)
+                if (c.sample == null) {
+                    column.preferredWidth = JBUI.scale(if (c.title == "URL") 420 else 180)
+                } else {
+                    val width = maxOf(bold.stringWidth(c.sample), header.stringWidth(c.title)) + JBUI.scale(16)
+                    column.minWidth = width
+                    column.preferredWidth = width
+                    column.maxWidth = width + JBUI.scale(24)
+                }
+            }
+        }
     }
 }

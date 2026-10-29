@@ -27,10 +27,10 @@ class NetworkRowsTest {
     }
 
     @Test
-    fun `a message names its socket and shows its payload, says Sent or Received, never an internal id`() {
+    fun `a message says Sent or Received and names its socket's URL - no payload in the list, never an internal id`() {
         val (binary, text) = out[1] to out[2]
-        assertTrue("Sent" in binary && "chat.example.com/chat" in binary && "binary 16 B" in binary, binary)
-        assertTrue("Received" in text && "chat.example.com/chat" in text && "hello" in text, text)
+        assertTrue("Sent" in binary && "chat.example.com/chat" in binary && "binary 16 B" !in binary, binary)
+        assertTrue("Received" in text && "chat.example.com/chat" in text && "hello" !in text, text)
         assertFalse(out.any { "conn r1-1" in it }, out.joinToString("\n"))
     }
 }
