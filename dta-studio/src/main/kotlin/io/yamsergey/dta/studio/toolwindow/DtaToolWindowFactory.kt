@@ -27,7 +27,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         val banner = BannerPanel().apply { onAction { DtaApplicationService.get().session.retry() } }
         val daemonPanel = DaemonPanel(controller, service.scope)
         val tabs = JBTabbedPane().apply {
-            listOf("Network", "Layout", "Script", "Schemas").forEach { addTab(it, placeholder(it)) }
+            addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
+            listOf("Layout", "Script", "Schemas").forEach { addTab(it, placeholder(it)) }
             addTab("Daemon", daemonPanel)
             addTab("Agents", placeholder("Agents"))
         }

@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 @Service(Service.Level.PROJECT)
 class DtaProjectService(@Suppress("unused") private val project: Project, scope: CoroutineScope) {
     val context = ContextController(DtaApplicationService.get().session.state, scope)
+    val network = io.yamsergey.dta.studio.network.NetworkController(context, scope)
     val scope: CoroutineScope = scope
 
     init {
