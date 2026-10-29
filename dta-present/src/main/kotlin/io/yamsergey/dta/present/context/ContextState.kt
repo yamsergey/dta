@@ -125,7 +125,7 @@ data class ContextState(
     val banner: Banner?
         get() = when (daemon.phase) {
             DaemonPhase.FAILED -> Banner(StatementKind.FAILED, daemon.message ?: "The DTA daemon did not start.", action = "Retry")
-            DaemonPhase.CONFLICT -> Banner(StatementKind.FAILED, daemon.message ?: "The running DTA daemon is a different version.")
+            DaemonPhase.CONFLICT -> Banner(StatementKind.FAILED, daemon.message ?: "The running DTA daemon is a different version.", action = "Retry")
             DaemonPhase.REPLACED -> Banner(StatementKind.DEGRADED, "The DTA daemon was replaced by ${daemon.message ?: "a newer version"}; reconnecting.")
             DaemonPhase.STARTING -> Banner(StatementKind.PENDING, "Starting the DTA daemon…")
             DaemonPhase.CONNECTED -> contextBanner()

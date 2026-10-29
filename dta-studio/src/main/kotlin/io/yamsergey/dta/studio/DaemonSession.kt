@@ -63,22 +63,21 @@ class DaemonSession(
         }
         val client = connected.client
         mutable.value = State.Connected(client, client.daemon.identity.display, listOfNotNull(note) + connected.statements)
-        val gone = scope.launch {
-            client.allEvents.collect { event ->
-                when (event.name) {
-                    DaemonEvents.REPLACED -> {
-                        val by = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), event.data!!).by.display }.getOrDefault("a newer version")
-                        mutable.value = State.Replaced(by)
-                        start(note = "the DTA daemon was replaced by $by; reconnected")
-                    }
-                    DaemonEvents.STOPPING -> {
-                        val reason = runCatching { DtaJson.decodeFromJsonElement(DaemonStoppingEvent.serializer(), event.data!!).reason }.getOrDefault("no reason given")
-                        mutable.value = State.Failed("The DTA daemon stopped: $reason.", action = "Start")
-                    }
-                }
+        // One place decides what the end of the connection means: replaced, stopped, or lost.
+        client.awaitGone()
+        val ended = client.endedBy
+        when (ended?.name) {
+            DaemonEvents.REPLACED -> {
+                val by = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), ended.data!!).by.display }.getOrDefault("a newer version")
+                mutable.value = State.Replaced(by)
+                start(note = "the DTA daemon was replaced by $by; reconnected")
             }
+            DaemonEvents.STOPPING -> {
+                val reason = runCatching { DtaJson.decodeFromJsonElement(DaemonStoppingEvent.serializer(), ended.data!!).reason }.getOrDefault("no reason given")
+                mutable.value = State.Failed("The DTA daemon stopped: $reason.", action = "Start")
+            }
+            else -> mutable.value = State.Failed("Lost the connection to the DTA daemon: ${client.goneReason}.")
         }
-        gone.join()
     }
 
     /** Closes this IDE's connection; the daemon keeps running for its other clients. */

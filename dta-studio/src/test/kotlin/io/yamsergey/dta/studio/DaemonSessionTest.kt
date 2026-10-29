@@ -85,6 +85,23 @@ class DaemonSessionTest {
     }
 
     @Test
+    fun `a daemon that vanishes without a word is stated as lost, with a retry`() = runBlocking<Unit> {
+        val session = DaemonSession(connect = { daemon.connect(ClientKind.IDE) }, scope = scope).also { it.start() }
+        session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
+        daemon.server.stop(null)
+        val lost = session.awaitState { it as? DaemonSession.State.Failed }
+        assertTrue("connection" in lost.message, lost.message)
+        assertEquals("Retry", lost.action)
+    }
+
+    @Test
+    fun `a conflict names the plugin, not the CLI`() {
+        val message = VersionConflictException(VersionIdentity("0.11.0", "b", 1), VersionIdentity("0.10.0", "a", 1), ClientKind.IDE).message!!
+        assertTrue("this DTA plugin" in message && "Update the DTA plugin" in message, message)
+        assertTrue("dta daemon stop" in message, message)
+    }
+
+    @Test
     fun `dispose closes the connection and leaves the daemon running`() = runBlocking<Unit> {
         val session = DaemonSession(connect = { daemon.connect(ClientKind.IDE) }, scope = scope).also { it.start() }
         val connected = session.awaitState { it as? DaemonSession.State.Connected }

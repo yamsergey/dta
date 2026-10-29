@@ -82,6 +82,7 @@ class ContextStateTest {
         assertEquals(DaemonPhase.CONFLICT, conflict.daemon.phase)
         assertEquals(StatementKind.FAILED, conflict.banner!!.kind)
         assertTrue("Update the plugin" in conflict.banner!!.text)
+        assertEquals("Retry", conflict.banner!!.action, "after 'dta daemon stop' the plugin connects without an IDE restart")
 
         val failed = ContextState().reduce(ContextEvent.DaemonFailed("The DTA daemon did not start; see /home/.dta/daemon/daemon.log"))
         assertTrue("daemon.log" in failed.banner!!.text)

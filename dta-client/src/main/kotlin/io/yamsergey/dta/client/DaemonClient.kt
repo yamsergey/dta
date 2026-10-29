@@ -61,6 +61,14 @@ class DaemonClient private constructor(private val timeout: Duration) {
     var goneReason: String? = null
         private set
 
+    /** The `daemon.replaced` or `daemon.stopping` event that ended the connection; null when it just dropped. */
+    @Volatile
+    var endedBy: Event? = null
+        private set
+
+    /** Suspends until the connection ends, for any reason; returns [goneReason]. */
+    suspend fun awaitGone(): String = gone.filterNotNull().first()
+
     lateinit var daemon: DaemonHelloResult
         private set
 
@@ -167,6 +175,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
                     is Response -> pending[message.id]?.complete(message)
                     is Event -> {
                         if (message.name == DaemonEvents.REPLACED || message.name == DaemonEvents.STOPPING) {
+                            endedBy = message
                             events.tryEmit(message)
                             lost(describe(message))
                         } else {
