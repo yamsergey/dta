@@ -18,11 +18,13 @@ class PortForwardsTest {
         val commands = mutableListOf<List<String>>()
         var procNetUnix: String = PROC_NET_UNIX_WITH_FIXTURE
         var forwardStdout: String = "37543\n"
+        var pidof: String = ""
 
         fun run(args: List<String>): AdbExec.Result {
             commands += args
             return when {
                 args.contains("/proc/net/unix") -> AdbExec.Result(0, procNetUnix, "")
+                args.contains("pidof") -> AdbExec.Result(if (pidof.isBlank()) 1 else 0, pidof, "")
                 args.contains("forward") && !args.contains("--remove") && !args.contains("--list") ->
                     AdbExec.Result(0, forwardStdout, "")
                 else -> AdbExec.Result(0, "", "")
@@ -57,6 +59,18 @@ class PortForwardsTest {
 
         val e = assertFailsWith<AppNotRunningException> { forwards.forward(key) }
         assertTrue("launch it first" in e.message!!, "actionable message expected: ${e.message}")
+        assertTrue(fake.commands.none { it.contains("forward") }, "no forward may be created")
+    }
+
+    @Test
+    fun `a running app without the socket is stated as running without DTA, not as not running`() {
+        val fake = FakeAdb()
+        fake.procNetUnix = "Num RefCount Protocol\n0000: 0002 0000 @some_other_socket\n"
+        fake.pidof = "27080\n"
+        val forwards = PortForwards { fake.run(it) }
+
+        val e = assertFailsWith<AppWithoutDtaException> { forwards.forward(key) }
+        assertEquals("io.yamsergey.dta.fixture.channel is running on emulator-5554 without DTA — build it with DTA", e.message)
         assertTrue(fake.commands.none { it.contains("forward") }, "no forward may be created")
     }
 

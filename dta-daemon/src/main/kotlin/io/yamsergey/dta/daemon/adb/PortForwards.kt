@@ -2,7 +2,10 @@ package io.yamsergey.dta.daemon.adb
 
 import io.yamsergey.dta.daemon.discovery.ConnectionKey
 
-class AppNotRunningException(message: String) : Exception(message)
+open class AppNotRunningException(message: String) : Exception(message)
+
+/** The app runs, but no DTA sidekick listens in it: it was built without DTA. */
+class AppWithoutDtaException(message: String) : AppNotRunningException(message)
 class DeviceGoneException(message: String) : Exception(message)
 class AdbCommandException(message: String) : Exception(message)
 
@@ -22,6 +25,10 @@ class PortForwards(
             throw DeviceGoneException("device ${key.serial} disconnected")
         }
         if ("@$socketName" !in scan.stdout) {
+            val pid = runAdb(listOf("-s", key.serial, "shell", "pidof", key.packageName)).stdout.trim()
+            if (pid.isNotEmpty()) {
+                throw AppWithoutDtaException("${key.packageName} is running on ${key.serial} without DTA — build it with DTA")
+            }
             throw AppNotRunningException(
                 "${key.packageName} is not running on ${key.serial} — launch it first",
             )
