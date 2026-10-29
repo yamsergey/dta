@@ -206,7 +206,7 @@ class Formatters(private val style: Style) {
             "ws-connection" -> e.long("closeCode")?.toString() ?: ""
             else -> ""
         }
-        val duration = e.long("durationMs")?.let { if (it >= 1000) "%.1f s".format(it / 1000.0) else "$it ms" }
+        val duration = e.long("durationMs")?.let(io.yamsergey.dta.present.Units::millis)
         val bodies = listOfNotNull(e.obj("requestBody"), e.obj("responseBody"), e.obj("payload"))
         val size = bodies.lastOrNull()?.long("storedBytes")?.let(::bytes)
         val rowMarks = Statements.marks(statements.filter { it.kind !in OUTCOMES })
@@ -334,11 +334,7 @@ class Formatters(private val style: Style) {
         private val OUTCOMES = setOf(StatementKind.FAILED, StatementKind.PENDING, StatementKind.PROCESS_ENDED)
         private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
 
-        fun bytes(n: Long): String = when {
-            n >= 1024 * 1024 -> "%.1f MB".format(n / 1024.0 / 1024.0)
-            n >= 1024 -> "%.1f KB".format(n / 1024.0)
-            else -> "$n B"
-        }
+        fun bytes(n: Long): String = io.yamsergey.dta.present.Units.bytes(n)
 
         fun duration(ms: Long): String {
             val s = ms / 1000

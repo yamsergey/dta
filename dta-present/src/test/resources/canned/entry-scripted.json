@@ -1,0 +1,12 @@
+{"entry":{"type":"http","id":"r2-1:4","runId":"r2-1","timeMs":1700000004000,"library":"okhttp3","method":"POST","url":"https://api.example.com/v1/cart?x=1","state":"complete","status":503,"durationMs":2150,"protocol":"h2",
+  "requestHeaders":[{"name":"Content-Type","value":"application/json"}],
+  "responseHeaders":[{"name":"Content-Type","value":"application/json"},{"name":"Retry-After","value":"5"}],
+  "requestBody":{"part":"request","storedBytes":42,"contentType":"application/json","completeness":"complete","preview":"{\"sku\":\"A1\"}"},
+  "responseBody":{"part":"response","storedBytes":120,"contentType":"application/json","completeness":"complete","preview":"{\"error\":\"busy\"}"},
+  "intervention":{"scriptId":"abc123","handlers":["response"],"changed":["status","body"],"delayMs":2000,"scriptMs":3},
+  "appResponse":{"status":503,"headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-Scripted","value":"1"}],"body":{"part":"app-response","storedBytes":18,"contentType":"application/json","completeness":"complete","preview":"{\"error\":\"busy\"}"}},
+  "initiator":{"thread":"OkHttp Dispatcher","site":"enqueue","frames":[
+    {"className":"okhttp3.RealCall","method":"enqueue","file":"RealCall.kt","line":140,"app":false},
+    {"className":"com.example.shop.cart.CartRepository","method":"checkout","file":"CartRepository.kt","line":57,"app":true},
+    {"className":"com.example.shop.cart.CartViewModel","method":"pay","file":"CartViewModel.kt","line":31,"app":true}],"firstAppFrame":1}},
+ "redaction":{"applied":true,"masked":["authorization"],"withheld":[]}}
