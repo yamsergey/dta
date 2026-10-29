@@ -2,6 +2,7 @@ package io.yamsergey.dta.cli
 
 import io.yamsergey.dta.cli.format.Formatters
 import io.yamsergey.dta.cli.format.Style
+import io.yamsergey.dta.testing.TestDaemon
 import io.yamsergey.dta.protocol.ops.Catalog
 import io.yamsergey.dta.protocol.ops.DeviceInfo
 import io.yamsergey.dta.protocol.ops.Selected

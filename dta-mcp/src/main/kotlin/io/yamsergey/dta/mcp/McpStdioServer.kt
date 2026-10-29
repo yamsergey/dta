@@ -1,4 +1,4 @@
-package io.yamsergey.dta.cli.mcp
+package io.yamsergey.dta.mcp
 
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper
 import io.modelcontextprotocol.server.McpServer
@@ -28,11 +28,11 @@ import java.io.PrintStream
 import java.util.concurrent.CountDownLatch
 
 /**
- * `dta mcp`: DTA's tools over MCP stdio (feature 008 US2). Standard output carries protocol
+ * DTA's tools over MCP stdio, served by `dta mcp` (feature 008 US2). Standard output carries protocol
  * frames only; everything else goes to `$DTA_HOME/mcp.log` (FR-018). Connects to the shared
  * daemon lazily and reconnects after the daemon was replaced or stopped.
  */
-object McpServerMain {
+object McpStdioServer {
 
     fun run(
         input: InputStream = System.`in`,

@@ -1,4 +1,4 @@
-package io.yamsergey.dta.cli.mcp
+package io.yamsergey.dta.mcp
 
 import io.yamsergey.dta.client.DaemonCallException
 import io.yamsergey.dta.client.DaemonGoneException

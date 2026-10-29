@@ -1,4 +1,4 @@
-package io.yamsergey.dta.cli
+package io.yamsergey.dta.testing
 
 import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.client.DaemonLauncher
@@ -49,7 +49,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import java.io.File
 import java.nio.file.Files
 
-/** Canned library answers for CLI/MCP tests (one device, one app with DTA in front). */
+/** Canned library answers for CLI, MCP and plugin tests (one device, one app with DTA in front). */
 class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emulator-5554", "online", "Pixel 8"))) : DaemonOperations {
     val events = MutableSharedFlow<NetworkEntryEvent>(extraBufferCapacity = 100)
     val entries = listOf(

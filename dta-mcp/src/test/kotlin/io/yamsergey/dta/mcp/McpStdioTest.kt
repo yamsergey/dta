@@ -1,6 +1,6 @@
-package io.yamsergey.dta.cli.mcp
+package io.yamsergey.dta.mcp
 
-import io.yamsergey.dta.cli.TestDaemon
+import io.yamsergey.dta.testing.TestDaemon
 import io.yamsergey.dta.client.DaemonCallException
 import io.yamsergey.dta.protocol.ops.Catalog
 import io.yamsergey.dta.protocol.ops.ClientErrorCodes
@@ -27,7 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class McpTest {
+class McpStdioTest {
 
     // --- Tool catalog (T036)
 
@@ -99,7 +99,7 @@ class McpTest {
             val fromServer = PipedInputStream()
             val serverOut = PipedOutputStream(fromServer)
             val logDir = Files.createTempDirectory("dta-mcp").toFile()
-            val server = thread { McpServerMain.run(serverIn, serverOut, connect = { daemon.connect(ClientKind.MCP) }, logDir = logDir, redirectStd = false) }
+            val server = thread { McpStdioServer.run(serverIn, serverOut, connect = { daemon.connect(ClientKind.MCP) }, logDir = logDir, redirectStd = false) }
             val reader = fromServer.bufferedReader()
             fun send(json: String) { toServer.write((json + "\n").toByteArray()); toServer.flush() }
             fun receive(id: Int): JsonObject {

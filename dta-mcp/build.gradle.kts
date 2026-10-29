@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    `java-test-fixtures`
 }
 
 // The agent tools (feature 009, research R2/R9): one implementation of the catalog's tools,
@@ -19,6 +20,10 @@ kotlin {
 dependencies {
     api(project(":dta-client"))
     api(libs.mcp)
+
+    // An in-process daemon with canned answers, shared by the CLI's and the plugin's tests.
+    testFixturesApi(project(":dta-daemon"))
+    testFixturesApi(project(":dta-client"))
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)

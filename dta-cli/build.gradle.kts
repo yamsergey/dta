@@ -27,9 +27,10 @@ dependencies {
     implementation(project(":dta-client"))
     // The daemon process is started from this distribution's own lib/ (research R3).
     implementation(project(":dta-daemon"))
+    implementation(project(":dta-mcp"))
     implementation(libs.clikt)
-    implementation(libs.mcp)
 
+    testImplementation(testFixtures(project(":dta-mcp")))
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlinx.coroutines.test)
