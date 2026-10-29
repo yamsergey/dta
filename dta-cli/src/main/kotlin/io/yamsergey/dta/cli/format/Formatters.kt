@@ -5,6 +5,8 @@ import io.yamsergey.dta.present.StatementKind
 import io.yamsergey.dta.present.Statements
 import io.yamsergey.dta.present.layout.NodeKind
 import io.yamsergey.dta.present.layout.NodeRow
+import io.yamsergey.dta.present.network.EntryKind
+import io.yamsergey.dta.present.network.EntryRows
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -172,44 +174,23 @@ class Formatters(private val style: Style) {
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
     }
 
+    /** One entry as a line; the row model is dta-present's, the same the plugin's list shows. */
     private fun entryRow(e: JsonObject, absolute: Boolean): String {
-        val time = e.long("timeMs")?.let { TIME.format(Instant.ofEpochMilli(it)) } ?: ""
-        val type = e.str("type")
-        val (glyph, verb, url) = when (type) {
-            "http" -> Triple(style.paint(if (style.unicode) "⇄" else "<>", Token.KIND_HTTP), style.paint(e.str("method") ?: "?", Token.KIND_HTTP), e.str("url"))
-            "ws-connection" -> Triple(style.paint(if (style.unicode) "⇌" else "ws", Token.KIND_WS), style.paint(e.str("state") ?: "?", Token.KIND_WS), e.str("url"))
-            else -> Triple(
-                style.paint(if (e.str("direction") == "out") (if (style.unicode) "↑" else "^") else (if (style.unicode) "↓" else "v"), Token.KIND_WS),
-                style.paint(e.str("opcode") ?: "?", Token.KIND_WS),
-                "conn ${e.str("connectionId")}",
-            )
+        val row = EntryRows.of(e)
+        val kind = if (row.kind == EntryKind.HTTP) Token.KIND_HTTP else Token.KIND_WS
+        val name = listOfNotNull(
+            row.host?.let { style.paint(it, Token.INK_MUTED) + row.path } ?: row.path,
+            row.preview?.let { style.paint(it, Token.INK_MUTED) },
+        ).filter { it.isNotEmpty() }.joinToString("  ")
+        val outcome = row.outcome.statement?.let { style.mark(it.kind, it.word) } ?: when (row.outcome.token) {
+            "status-client" -> style.paint(row.outcome.text, Token.STATUS_CLIENT)
+            "status-server" -> style.paint(row.outcome.text, Token.STATUS_SERVER)
+            else -> row.outcome.text
         }
-        val statements = Statements.forEntry(e)
-        val ending = statements.firstOrNull { it.kind in OUTCOMES }
-        val outcome = when (type) {
-            "http" -> when {
-                ending != null -> style.mark(ending.kind, ending.word)
-                else -> e.long("status")?.let { s ->
-                    when (s / 100) {
-                        4L -> style.paint("$s", Token.STATUS_CLIENT)
-                        5L -> style.paint("$s", Token.STATUS_SERVER)
-                        else -> "$s"
-                    }
-                } ?: ""
-            }
-            "ws-connection" -> e.long("closeCode")?.toString() ?: ""
-            else -> ""
-        }
-        val duration = e.long("durationMs")?.let(io.yamsergey.dta.present.Units::millis)
-        val bodies = listOfNotNull(e.obj("requestBody"), e.obj("responseBody"), e.obj("payload"))
-        val size = bodies.lastOrNull()?.long("storedBytes")?.let(::bytes)
-        val rowMarks = Statements.marks(statements.filter { it.kind !in OUTCOMES })
-        val marks = rowMarks.shown.map { style.mark(it.kind, it.word) } + listOfNotNull(rowMarks.moreLabel)
-        val host = url?.substringAfter("://")?.substringBefore('/')
-        val shownUrl = if (host != null && url.contains("://")) style.paint(host, Token.INK_MUTED) + url.substringAfter("://").removePrefix(host) else url ?: ""
+        val marks = row.marks.shown.map { style.mark(it.kind, it.word) } + listOfNotNull(row.marks.moreLabel)
         return listOf(
-            style.paint(e.str("id") ?: "", Token.INK_MUTED), time, glyph, verb, shownUrl, outcome,
-            style.paint(listOfNotNull(duration, size).joinToString(" "), Token.INK_MUTED), marks.joinToString(" "),
+            style.paint(row.id, Token.INK_MUTED), row.time, style.paint(if (style.unicode) row.kind.glyph else row.kind.ascii, kind),
+            style.paint(row.verb, kind), name, outcome, style.paint(row.timing, Token.INK_MUTED), marks.joinToString(" "),
         ).filter { it.isNotEmpty() }.joinToString("  ") + if (absolute) "" else ""
     }
 
@@ -325,7 +306,6 @@ class Formatters(private val style: Style) {
         private val PRETTY = Json { prettyPrint = true }
 
         /** How an exchange ended: shown in the status column, not among the row's marks. */
-        private val OUTCOMES = setOf(StatementKind.FAILED, StatementKind.PENDING, StatementKind.PROCESS_ENDED)
         private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
 
         fun bytes(n: Long): String = io.yamsergey.dta.present.Units.bytes(n)

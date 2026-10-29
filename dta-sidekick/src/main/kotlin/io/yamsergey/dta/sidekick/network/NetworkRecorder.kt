@@ -125,7 +125,7 @@ class NetworkRecorder(
                 accept(payload, 0, payload.size)
                 finish(endOfStream = true)
             }
-            put(WsMessageEntry(id, store.runId, time, connection.library, initiator, connectionId, direction, opcode, info!!))
+            put(WsMessageEntry(id, store.runId, time, connection.library, initiator, connectionId, direction, opcode, info!!, url = connection.url))
             updateWs(connectionId) { it.copy(messageCount = it.messageCount + 1) }
             id
         }

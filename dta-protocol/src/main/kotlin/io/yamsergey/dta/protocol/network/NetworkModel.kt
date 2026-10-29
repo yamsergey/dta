@@ -234,6 +234,8 @@ data class WsMessageEntry(
     override val intervention: InterventionRecord? = null,
     /** What the app sent or received, when the script changed it. */
     val appPayload: BodyInfo? = null,
+    /** The connection's URL, so a message names its socket without the connection entry. */
+    val url: String? = null,
 ) : NetworkEntry {
     override fun summary() = this
 }

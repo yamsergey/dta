@@ -153,6 +153,7 @@ class NetworkRecorderTest {
 
         val m1 = entry(out) as WsMessageEntry
         assertEquals(id, m1.connectionId)
+        assertEquals("ws://h/ws", m1.url, "a message names its socket without the connection entry")
         assertEquals(Direction.OUT, m1.direction)
         assertEquals(2, m1.payload.storedBytes)
         assertEquals(initiator, m1.initiator)

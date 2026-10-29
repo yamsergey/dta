@@ -174,7 +174,7 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
 
     private fun messagesPage(detail: EntryDetail) = Page().apply {
         detail.messages.forEach { m ->
-            field("${m.time}  ${m.kind.glyph} ${m.verb}", listOfNotNull(m.path, m.timing.ifEmpty { null }).joinToString("   "), mono = true)
+            field("${m.time}  ${m.kind.label}", listOfNotNull(m.preview, m.timing.ifEmpty { null }).joinToString("   "), mono = true)
         }
         detail.messagesMore?.let { line(JBLabel(it).apply { foreground = JBColor.GRAY }, top = 6) }
         end()

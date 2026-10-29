@@ -271,7 +271,11 @@ class NetworkPanel(
                 0 -> append(r.time, muted)
                 1 -> { append(r.kind.label, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token))); toolTipText = r.kind.description }
                 2 -> append(r.verb, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token)))
-                3 -> { r.host?.let { append(it, muted) }; append(r.path) }
+                3 -> {
+                    r.host?.let { append(it, muted) }
+                    append(r.path)
+                    r.preview?.let { append("  $it", muted) }
+                }
                 4 -> {
                     val st = r.outcome.statement
                     when {
@@ -293,7 +297,7 @@ class NetworkPanel(
 
     private companion object {
         val COLUMNS = listOf(
-            Column("Time", 90), Column("Type", 52), Column("Method / Op", 80), Column("URL", 420),
+            Column("Time", 90), Column("Type", 52), Column("Method", 64), Column("Name", 436),
             Column("Status", 80), Column("Time · Size", 110), Column("Run", 50), Column("Statements", 200),
         )
     }

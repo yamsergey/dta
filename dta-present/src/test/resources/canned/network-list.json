@@ -1,14 +1,163 @@
-{"entries":[
- {"type":"http","id":"r1-1:1","runId":"r1-1","timeMs":1700000000000,"library":"okhttp3","method":"GET","url":"https://api.example.com/v1/catalog","state":"complete","status":404,"durationMs":142,
-  "responseBody":{"part":"response","storedBytes":18841,"contentType":"application/json","encoding":"gzip","completeness":"complete"}},
- {"type":"http","id":"r1-1:2","runId":"r1-1","timeMs":1700000001000,"library":"okhttp3","method":"POST","url":"https://api.example.com/v1/cart","state":"complete","status":503,"durationMs":2000,
-  "intervention":{"scriptId":"abc123","changed":["status","delay"],"delayMs":2000},
-  "requestBody":{"part":"request","storedBytes":12,"contentType":"application/x-protobuf","binary":true,"completeness":"complete"},
-  "responseBody":{"part":"response","storedBytes":65536,"declaredBytes":200000,"contentType":"application/json","completeness":"truncated","completenessReason":"body bound 64 KB"}},
- {"type":"http","id":"r1-1:3","runId":"r1-1","timeMs":1700000002000,"library":"okhttp3","method":"GET","url":"https://cdn.example.net/a.png","state":"pending"},
- {"type":"http","id":"r1-1:4","runId":"r1-1","timeMs":1700000003000,"library":"okhttp3","method":"GET","url":"https://api.example.com/v1/slow","state":"process-ended"},
- {"type":"http","id":"r1-1:5","runId":"r1-1","timeMs":1700000004000,"library":"okhttp3","method":"GET","url":"https://down.example.com/","state":"failed","failure":"UnknownHostException: down.example.com"},
- {"type":"ws-message","id":"r1-1:7","runId":"r1-1","timeMs":1700000005000,"library":"okhttp3","connectionId":"r1-1:6","direction":"in","opcode":"text",
-  "payload":{"part":"message","storedBytes":20,"completeness":"complete","preview":"{\"hello\":1}"}}
-],"total":40,"coverage":{"searched":6,"stored":6,"evicted":34,"notSearched":["previous runs"],"persisted":true},
- "degraded":[{"capability":"network","reason":"network-hooks-unavailable"}]}
+{
+  "entries": [
+    {
+      "type": "http",
+      "id": "r1-1:1",
+      "runId": "r1-1",
+      "timeMs": 1700000000000,
+      "library": "okhttp3",
+      "method": "GET",
+      "url": "https://api.example.com/v1/catalog",
+      "state": "complete",
+      "status": 404,
+      "durationMs": 142,
+      "responseBody": {
+        "part": "response",
+        "storedBytes": 18841,
+        "contentType": "application/json",
+        "encoding": "gzip",
+        "completeness": "complete"
+      }
+    },
+    {
+      "type": "http",
+      "id": "r1-1:2",
+      "runId": "r1-1",
+      "timeMs": 1700000001000,
+      "library": "okhttp3",
+      "method": "POST",
+      "url": "https://api.example.com/v1/cart",
+      "state": "complete",
+      "status": 503,
+      "durationMs": 2000,
+      "intervention": {
+        "scriptId": "abc123",
+        "changed": [
+          "status",
+          "delay"
+        ],
+        "delayMs": 2000
+      },
+      "requestBody": {
+        "part": "request",
+        "storedBytes": 12,
+        "contentType": "application/x-protobuf",
+        "binary": true,
+        "completeness": "complete"
+      },
+      "responseBody": {
+        "part": "response",
+        "storedBytes": 65536,
+        "declaredBytes": 200000,
+        "contentType": "application/json",
+        "completeness": "truncated",
+        "completenessReason": "body bound 64 KB"
+      }
+    },
+    {
+      "type": "http",
+      "id": "r1-1:3",
+      "runId": "r1-1",
+      "timeMs": 1700000002000,
+      "library": "okhttp3",
+      "method": "GET",
+      "url": "https://cdn.example.net/a.png",
+      "state": "pending"
+    },
+    {
+      "type": "http",
+      "id": "r1-1:4",
+      "runId": "r1-1",
+      "timeMs": 1700000003000,
+      "library": "okhttp3",
+      "method": "GET",
+      "url": "https://api.example.com/v1/slow",
+      "state": "process-ended"
+    },
+    {
+      "type": "http",
+      "id": "r1-1:5",
+      "runId": "r1-1",
+      "timeMs": 1700000004000,
+      "library": "okhttp3",
+      "method": "GET",
+      "url": "https://down.example.com/",
+      "state": "failed",
+      "failure": "UnknownHostException: down.example.com"
+    },
+    {
+      "type": "ws-message",
+      "id": "r1-1:7",
+      "runId": "r1-1",
+      "timeMs": 1700000005000,
+      "library": "okhttp3",
+      "connectionId": "r1-1:6",
+      "direction": "in",
+      "opcode": "text",
+      "payload": {
+        "part": "message",
+        "storedBytes": 20,
+        "completeness": "complete",
+        "preview": "{\"hello\":1}"
+      },
+      "url": "wss://chat.example.com/chat"
+    },
+    {
+      "type": "ws-connection",
+      "id": "r1-1:6",
+      "runId": "r1-1",
+      "timeMs": 1700000004500,
+      "library": "okhttp3",
+      "url": "wss://chat.example.com/chat",
+      "state": "open",
+      "openedAtMs": 1700000004600,
+      "messageCount": 3
+    },
+    {
+      "type": "ws-connection",
+      "id": "r1-1:8",
+      "runId": "r1-1",
+      "timeMs": 1700000006000,
+      "library": "okhttp3",
+      "url": "wss://chat.example.com/chat?room=1",
+      "state": "closed",
+      "openedAtMs": 1700000006100,
+      "closedAtMs": 1700000007400,
+      "closeCode": 1000,
+      "messageCount": 2
+    },
+    {
+      "type": "ws-message",
+      "id": "r1-1:9",
+      "runId": "r1-1",
+      "timeMs": 1700000006200,
+      "library": "okhttp3",
+      "connectionId": "r1-1:8",
+      "url": "wss://chat.example.com/chat?room=1",
+      "direction": "out",
+      "opcode": "binary",
+      "payload": {
+        "part": "message",
+        "storedBytes": 16,
+        "completeness": "complete",
+        "binary": true
+      }
+    }
+  ],
+  "total": 40,
+  "coverage": {
+    "searched": 6,
+    "stored": 6,
+    "evicted": 34,
+    "notSearched": [
+      "previous runs"
+    ],
+    "persisted": true
+  },
+  "degraded": [
+    {
+      "capability": "network",
+      "reason": "network-hooks-unavailable"
+    }
+  ]
+}

@@ -29,12 +29,14 @@ data class EntryRow(
     val verb: String,
     /** Muted host; null for messages. */
     val host: String?,
-    /** Path and query, or a message's payload preview. */
+    /** Path and query; for a message, its socket's. */
     val path: String,
     val outcome: Outcome,
     val timing: String,
     val run: String,
     val marks: Marks,
+    /** A message's payload, muted after its socket's path: the text's first line, or "binary 16 B". */
+    val preview: String? = null,
 )
 
 object EntryRows {
@@ -50,27 +52,40 @@ object EntryRows {
             "ws-connection" -> EntryKind.WS_CONNECTION
             else -> if (entry.str("direction") == "out") EntryKind.WS_OUT else EntryKind.WS_IN
         }
+        val message = kind == EntryKind.WS_OUT || kind == EntryKind.WS_IN
+        // A message carries its connection's URL: it names the socket the way the connection row does.
         val url = entry.str("url")
-        val host = url?.substringAfter("://", "")?.substringBefore('/')?.takeIf { it.isNotEmpty() }
+        val host = url?.substringAfter("://", "")?.substringBefore('/')?.substringBefore('?')?.takeIf { it.isNotEmpty() }
         val path = when {
-            kind == EntryKind.WS_OUT || kind == EntryKind.WS_IN ->
-                entry.obj("payload")?.str("preview")?.lineSequence()?.firstOrNull()?.take(200) ?: "conn ${entry.str("connectionId")}"
             host != null -> url.substringAfter("://").removePrefix(host).ifEmpty { "/" }
             else -> url ?: ""
         }
-        val bodies = listOfNotNull(entry.obj("requestBody"), entry.obj("responseBody"), entry.obj("payload"))
-        val timing = listOfNotNull(entry.long("durationMs")?.let(Units::millis), bodies.lastOrNull()?.long("storedBytes")?.let(Units::bytes)).joinToString(" · ")
+        val payload = entry.obj("payload")
+        val preview = if (!message) null else when {
+            payload?.bool("binary") == true || entry.str("opcode") == "binary" -> "binary ${Units.bytes(payload?.long("storedBytes") ?: 0)}"
+            else -> payload?.str("preview")?.lineSequence()?.firstOrNull()?.take(200) ?: ""
+        }
+        val bodies = listOfNotNull(entry.obj("requestBody"), entry.obj("responseBody"), payload)
+        val timing = when (kind) {
+            EntryKind.WS_CONNECTION -> listOfNotNull(
+                entry.long("openedAtMs")?.let { o -> entry.long("closedAtMs")?.let { c -> Units.millis(c - o) } },
+                entry.long("messageCount")?.let { "$it msgs" },
+            )
+            else -> listOfNotNull(entry.long("durationMs")?.let(Units::millis), bodies.lastOrNull()?.long("storedBytes")?.let(Units::bytes))
+        }.joinToString(" · ")
         return EntryRow(
             id = entry.str("id") ?: "",
             time = entry.long("timeMs")?.let { TIME.withZone(zone).format(Instant.ofEpochMilli(it)) } ?: "",
             kind = kind,
             verb = when (type) {
                 "http" -> entry.str("method") ?: "?"
-                "ws-connection" -> entry.str("state") ?: "?"
-                else -> entry.str("opcode") ?: "?"
+                // The handshake is a GET answered by 101.
+                "ws-connection" -> "GET"
+                else -> ""
             },
-            host = if (kind == EntryKind.WS_OUT || kind == EntryKind.WS_IN) null else host,
+            host = if (message) null else host,
             path = path,
+            preview = preview,
             outcome = outcome(entry, type, ending),
             timing = timing,
             run = entry.str("runId") ?: "",
@@ -84,7 +99,11 @@ object EntryRows {
             "http" -> entry.long("status")?.let { s ->
                 Outcome("$s", when (s / 100) { 4L -> "status-client"; 5L -> "status-server"; else -> null })
             } ?: Outcome("")
-            "ws-connection" -> Outcome(entry.long("closeCode")?.let { "closed $it" } ?: "")
+            "ws-connection" -> when (entry.str("state")) {
+                "open" -> Outcome("101 · open")
+                "closed" -> Outcome(listOfNotNull("closed", entry.long("closeCode")?.toString()).joinToString(" "))
+                else -> Outcome(entry.str("state") ?: "")
+            }
             else -> Outcome("")
         }
     }

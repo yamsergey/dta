@@ -43,13 +43,33 @@ class EntryViewsTest {
     }
 
     @Test
-    fun `a WebSocket message shows its direction, opcode and payload preview`() {
+    fun `a WebSocket message names its socket by path, its payload muted after it, no method`() {
         val m = row(5)
         assertEquals(EntryKind.WS_IN, m.kind)
-        assertEquals("text", m.verb)
-        assertEquals("{\"hello\":1}", m.path)
+        assertEquals("", m.verb)
         assertNull(m.host)
+        assertEquals("/chat", m.path)
+        assertEquals("{\"hello\":1}", m.preview)
         assertEquals("20 B", m.timing)
+        val binary = row(8)
+        assertEquals(EntryKind.WS_OUT, binary.kind)
+        assertEquals("/chat?room=1", binary.path)
+        assertEquals("binary 16 B", binary.preview)
+    }
+
+    @Test
+    fun `a WebSocket connection reads like its handshake - GET, host and path, 101 while open, then the close`() {
+        val open = row(6)
+        assertEquals(EntryKind.WS_CONNECTION, open.kind)
+        assertEquals("GET", open.verb)
+        assertEquals("chat.example.com", open.host)
+        assertEquals("/chat", open.path)
+        assertNull(open.preview)
+        assertEquals("101 · open", open.outcome.text)
+        assertEquals("3 msgs", open.timing)
+        val closed = row(7)
+        assertEquals("closed 1000", closed.outcome.text)
+        assertEquals("1.3 s · 2 msgs", closed.timing)
     }
 
     @Test
