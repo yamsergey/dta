@@ -1,7 +1,9 @@
 name: Publish SNAPSHOT
 
-# Development channel (feature 008, US5): libraries as Maven snapshots, the CLI with a
-# unique version per run as the Homebrew formula dta-cli-dev. Started by hand.
+# Development channel (feature 008 US5, 009 US6): libraries as Maven snapshots; the CLI and
+# the Android Studio plugin with one unique version per run — the CLI as the Homebrew formula
+# dta-cli-dev, the plugin on the JetBrains Marketplace EAP channel (the Marketplace rejects a
+# version twice). Started by hand.
 on:
   workflow_dispatch:
     inputs:
@@ -30,10 +32,14 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
+      - name: Build time
+        # One identity for every part of this run: the CLI and the plugin's daemon then never replace each other.
+        run: echo "DTA_BUILD_TIME=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
       - name: Derive versions
         id: versions
         run: |
-          # Libraries: X-SNAPSHOT (mutable). CLI: X-SNAPSHOT.<run> (unique per run).
+          # Libraries: X-SNAPSHOT (mutable). CLI and plugin: X-SNAPSHOT.<run> (unique per run).
           echo "maven=${{ inputs.version }}" >> $GITHUB_OUTPUT
           echo "unique=${{ inputs.version }}.${{ github.run_number }}" >> $GITHUB_OUTPUT
 
@@ -45,10 +51,10 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
 
-      - name: Build the CLI
+      - name: Build the CLI and the plugin
         run: |
           VERSION=${{ steps.versions.outputs.unique }}
-          ./gradlew :dta-cli:installDist -PdtaVersion=${VERSION} --no-configuration-cache
+          ./gradlew :dta-cli:installDist :dta-studio:buildPlugin :dta-studio:verifyPlugin -PdtaVersion=${VERSION} --no-configuration-cache
           tar -C dta-cli/build/install -czf dta-cli-${VERSION}.tar.gz dta
           dta-cli/build/install/dta/bin/dta --version
 
@@ -73,12 +79,20 @@ jobs:
           git commit -m "Update dta-cli-dev to ${VERSION}"
           git push
 
+      - name: Publish the plugin to the JetBrains Marketplace (EAP)
+        run: ./gradlew :dta-studio:publishPlugin -PdtaVersion=${{ steps.versions.outputs.unique }} --no-configuration-cache
+        env:
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          PUBLISH_CHANNEL: eap
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dta-snapshot-${{ steps.versions.outputs.unique }}
-          path: dta-cli-*.tar.gz
+          path: |
+            dta-cli-*.tar.gz
+            dta-studio/build/distributions/*.zip
 
       - name: Summary
         run: |
@@ -86,4 +100,5 @@ jobs:
             echo "## SNAPSHOT published"
             echo "- Libraries \`io.github.yamsergey:dta-{protocol,sidekick,sidekick-rhino,daemon,client}:${{ steps.versions.outputs.maven }}\` (snapshot repository)"
             echo "- CLI \`${{ steps.versions.outputs.unique }}\`: \`brew install yamsergey/packages/dta-cli-dev\`"
+            echo "- Android Studio plugin \`${{ steps.versions.outputs.unique }}\`: JetBrains Marketplace, EAP channel"
           } >> $GITHUB_STEP_SUMMARY

@@ -1,7 +1,8 @@
 name: Release
 
-# Stable channel (feature 008, US5): on a version tag, release the libraries to Maven
-# Central and the CLI as a GitHub release and the Homebrew formula dta-cli.
+# Stable channel (feature 008 US5, 009 US6): on a version tag, release the libraries to Maven
+# Central, the CLI as a GitHub release and the Homebrew formula dta-cli, and the Android Studio
+# plugin on the JetBrains Marketplace stable channel — all with the tag's version.
 on:
   push:
     tags:
@@ -21,12 +22,16 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
+      - name: Build time
+        # One identity for every part of the release: the CLI and the plugin's daemon then never replace each other.
+        run: echo "DTA_BUILD_TIME=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
       - name: Check
         run: ./gradlew check -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
 
-      - name: Build the CLI
+      - name: Build the CLI and the plugin
         run: |
-          ./gradlew :dta-cli:installDist -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
+          ./gradlew :dta-cli:installDist :dta-studio:buildPlugin :dta-studio:verifyPlugin -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
           tar -C dta-cli/build/install -czf dta-cli-${{ github.ref_name }}.tar.gz dta
           (cd dta-cli/build/install && zip -qr ../../../dta-cli-${{ github.ref_name }}.zip dta)
 
@@ -36,6 +41,7 @@ jobs:
           files: |
             dta-cli-${{ github.ref_name }}.tar.gz
             dta-cli-${{ github.ref_name }}.zip
+            dta-studio/build/distributions/dta-studio-${{ github.ref_name }}.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -68,3 +74,9 @@ jobs:
           git add Formula/dta-cli.rb
           git commit -m "Update dta-cli to ${VERSION}"
           git push
+
+      - name: Publish the plugin to the JetBrains Marketplace (stable)
+        run: ./gradlew :dta-studio:publishPlugin -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
+        env:
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          PUBLISH_CHANNEL: stable
