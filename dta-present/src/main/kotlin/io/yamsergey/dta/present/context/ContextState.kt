@@ -18,8 +18,11 @@ data class ConnectionLine(val text: String, val token: String, val reason: Strin
 
 data class DaemonInfo(val phase: DaemonPhase = DaemonPhase.STARTING, val version: String? = null, val message: String? = null)
 
-/** What injection did for the app's module in the last IDE build (contracts/injection.md); OFF when turned off. */
-enum class InjectionOutcome { OFF, INJECTED, PROJECT_PROVIDED, UNRESOLVED, UNSUPPORTED }
+/**
+ * What injection did for the app's module in the last IDE build (contracts/injection.md); OFF
+ * when turned off, NOT_RUN when a build ran without the init script's report.
+ */
+enum class InjectionOutcome { OFF, INJECTED, PROJECT_PROVIDED, UNRESOLVED, UNSUPPORTED, NOT_RUN }
 
 /** A whole-view statement: cause and next step, in the statement's colours, with an optional action. */
 data class Banner(val kind: StatementKind, val text: String, val action: String? = null)
@@ -37,7 +40,8 @@ sealed interface ContextEvent {
     /** The selection an operation result reported. */
     data class Selected(val selection: SelectionStatement) : ContextEvent
     data class AppConnection(val event: AppConnectionEvent) : ContextEvent
-    data class Injection(val outcome: InjectionOutcome, val reason: String?) : ContextEvent
+    /** [outcome] null: injection is on and no build has reported yet. */
+    data class Injection(val outcome: InjectionOutcome?, val reason: String?) : ContextEvent
 }
 
 /**
@@ -117,6 +121,15 @@ data class ContextState(
         connection = Connection.UNKNOWN, connectionReason = null, generation = generation + 1,
     )
 
+    /** Injection in one line (Daemon tab): on or off, and what the last build did. */
+    val injectionLine: String
+        get() = when (injection) {
+            InjectionOutcome.OFF -> "off"
+            null -> "on — the last build has not been reported yet"
+            InjectionOutcome.NOT_RUN -> "on — the last build did not run the DTA init script"
+            else -> "on — " + injection.name.lowercase().replace('_', '-') + (injectionReason?.let { ": $it" } ?: "")
+        }
+
     /** The app's connection at a glance; null until the daemon reports one. */
     val connectionLine: ConnectionLine?
         get() {
@@ -166,6 +179,7 @@ data class ContextState(
         InjectionOutcome.OFF -> "Injection is off: turn it on in Settings › Tools › DTA and run the debug build again."
         InjectionOutcome.UNRESOLVED -> "Injection could not add DTA: ${injectionReason ?: "the library did not resolve"}. The build ran without it."
         InjectionOutcome.UNSUPPORTED -> "Injection could not handle this project: ${injectionReason ?: "no reason given"}. Add io.github.yamsergey:dta-sidekick to debugImplementation."
+        InjectionOutcome.NOT_RUN -> "The last build did not run the DTA init script, so it could not add DTA. Run the debug build from Android Studio, or add io.github.yamsergey:dta-sidekick to debugImplementation."
         InjectionOutcome.PROJECT_PROVIDED, InjectionOutcome.INJECTED -> "The last debug build had DTA; run that build on this device."
         null -> "Run the app's debug build from Android Studio to add DTA, or add io.github.yamsergey:dta-sidekick to debugImplementation."
     }

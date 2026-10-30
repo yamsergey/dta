@@ -70,6 +70,16 @@ class ContextStateTest {
         state = state.reduce(ContextEvent.Injection(InjectionOutcome.UNRESOLVED, "Could not find io.github.yamsergey:dta-sidekick:0.10.0"))
         assertTrue("Could not find" in state.banner!!.text, state.banner!!.text)
         assertEquals(StatementKind.DEGRADED, state.banner!!.kind)
+        state = state.reduce(ContextEvent.Injection(InjectionOutcome.NOT_RUN, null))
+        assertTrue("did not run the DTA init script" in state.banner!!.text, state.banner!!.text)
+    }
+
+    @Test
+    fun `injection reads as one line for the Daemon tab`() {
+        assertEquals("on — the last build has not been reported yet", ready().injectionLine)
+        assertEquals("off", ready(ContextEvent.Injection(InjectionOutcome.OFF, null)).injectionLine)
+        assertEquals("on — injected", ready(ContextEvent.Injection(InjectionOutcome.INJECTED, null)).injectionLine)
+        assertEquals("on — unresolved: Could not find x", ready(ContextEvent.Injection(InjectionOutcome.UNRESOLVED, "Could not find x")).injectionLine)
     }
 
     @Test

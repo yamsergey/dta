@@ -1,0 +1,41 @@
+package io.yamsergey.dta.studio.inject
+
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.SimplePersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/** Whether IDE builds get DTA (FR-021): on by default, kept across restarts, for every project. */
+@Service(Service.Level.APP)
+@State(name = "DtaInjection", storages = [Storage("dta.xml")])
+class InjectionSettings : SimplePersistentStateComponent<InjectionSettings.Options>(Options()) {
+    class Options : BaseState() {
+        var enabled by property(true)
+    }
+
+    private val changes = MutableStateFlow(true)
+
+    /** The switch as it changes, for the views that state it. */
+    val enabledFlow: StateFlow<Boolean> = changes.asStateFlow()
+
+    var enabled: Boolean
+        get() = state.enabled
+        set(value) {
+            state.enabled = value
+            changes.value = value
+        }
+
+    override fun loadState(state: Options) {
+        super.loadState(state)
+        changes.value = state.enabled
+    }
+
+    companion object {
+        fun get(): InjectionSettings = ApplicationManager.getApplication().getService(InjectionSettings::class.java)
+    }
+}

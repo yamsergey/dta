@@ -29,6 +29,7 @@ class DaemonPanel(private val controller: ContextController, private val scope: 
     }
 
     fun refresh(state: ContextState) {
+        injection = state.injectionLine
         val client = controller.client ?: return show(null)
         scope.launch {
             val status = runCatching { client.call("daemon.status").result.jsonObject }.getOrNull()
@@ -42,6 +43,8 @@ class DaemonPanel(private val controller: ContextController, private val scope: 
         }
     }
 
+    private var injection = ""
+
     private fun show(view: DaemonView?) {
         body.removeAll()
         if (view == null) {
@@ -50,6 +53,7 @@ class DaemonPanel(private val controller: ContextController, private val scope: 
             val form = FormBuilder.createFormBuilder()
                 .addLabeledComponent("Daemon", JBLabel(view.version))
                 .addLabeledComponent("Process", JBLabel(view.process))
+                .addLabeledComponent("Injection", JBLabel(injection))
                 .addLabeledComponent("adb", view.adbProblem?.let { StatementMark(it) } ?: JBLabel(view.adb ?: ""))
                 .addLabeledComponent("Clients", JBLabel(view.clients.joinToString(", ")))
                 .addLabeledComponent("Devices", JBLabel(view.devices.joinToString(", ").ifEmpty { "none" }))

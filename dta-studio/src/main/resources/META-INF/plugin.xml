@@ -18,5 +18,13 @@ network scripts, and give coding agents the same tools over a local MCP server.<
                     anchor="bottom"
                     factoryClass="io.yamsergey.dta.studio.toolwindow.DtaToolWindowFactory"
                     icon="/icons/dta-13.svg"/>
+        <applicationConfigurable parentId="tools"
+                                 id="io.yamsergey.dta.settings"
+                                 displayName="DTA"
+                                 instance="io.yamsergey.dta.studio.inject.InjectionConfigurable"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
+        <taskManager implementation="io.yamsergey.dta.studio.inject.SidekickInjector"/>
     </extensions>
 </idea-plugin>

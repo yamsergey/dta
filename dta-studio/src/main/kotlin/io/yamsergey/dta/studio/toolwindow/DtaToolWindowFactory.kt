@@ -46,6 +46,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             add(tabs, BorderLayout.CENTER)
         }
         toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(root, "", false))
+        // The injection switch, also in Settings › Tools › DTA (FR-021).
+        toolWindow.setTitleActions(listOf(io.yamsergey.dta.studio.inject.ToggleInjectionAction()))
 
         service.scope.launch {
             controller.state.collect { state ->
