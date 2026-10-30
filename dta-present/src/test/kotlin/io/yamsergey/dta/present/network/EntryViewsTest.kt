@@ -54,14 +54,14 @@ class EntryViewsTest {
         assertEquals(EntryKind.WS_OUT, binary.kind)
         assertEquals("Sent", binary.verb)
         assertEquals("/chat?room=1", binary.path)
-        assertEquals("binary 16 B", binary.preview)
+        assertEquals("binary", binary.preview, "the size is in its own column, once")
     }
 
     @Test
-    fun `a WebSocket connection reads like its handshake - GET, host and path, 101 while open, then the close`() {
+    fun `a WebSocket connection says Connect, host and path, 101 while open, then the close`() {
         val open = row(6)
         assertEquals(EntryKind.WS_CONNECTION, open.kind)
-        assertEquals("GET", open.verb)
+        assertEquals("Connect", open.verb, "the handshake's GET is in its headers, not the list")
         assertEquals("chat.example.com", open.host)
         assertEquals("/chat", open.path)
         assertNull(open.preview)

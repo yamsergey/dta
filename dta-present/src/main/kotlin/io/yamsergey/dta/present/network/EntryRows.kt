@@ -34,7 +34,7 @@ data class EntryRow(
     val outcome: Outcome,
     val timing: String,
     val marks: Marks,
-    /** A message's payload, muted after its socket's path: the text's first line, or "binary 16 B". */
+    /** A message's payload, muted after its socket's path: the text's first line, or "binary" (the size has its own column). */
     val preview: String? = null,
 )
 
@@ -61,7 +61,7 @@ object EntryRows {
         }
         val payload = entry.obj("payload")
         val preview = if (!message) null else when {
-            payload?.bool("binary") == true || entry.str("opcode") == "binary" -> "binary ${Units.bytes(payload?.long("storedBytes") ?: 0)}"
+            payload?.bool("binary") == true || entry.str("opcode") == "binary" -> "binary"
             else -> payload?.str("preview")?.lineSequence()?.firstOrNull()?.take(200) ?: ""
         }
         val bodies = listOfNotNull(entry.obj("requestBody"), entry.obj("responseBody"), payload)
@@ -79,7 +79,7 @@ object EntryRows {
             verb = when (type) {
                 "http" -> entry.str("method") ?: "?"
                 // The handshake is a GET answered by 101.
-                "ws-connection" -> "GET"
+                "ws-connection" -> "Connect"
                 else -> if (kind == EntryKind.WS_OUT) "Sent" else "Received"
             },
             host = host,

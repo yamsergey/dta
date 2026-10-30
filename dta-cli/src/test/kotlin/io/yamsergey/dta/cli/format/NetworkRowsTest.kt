@@ -21,9 +21,9 @@ class NetworkRowsTest {
     private val out = Formatters(Style.PLAIN).format("network.list", list).lines()
 
     @Test
-    fun `a connection reads like its handshake`() {
+    fun `a connection says Connect`() {
         val row = out[0]
-        assertTrue("GET" in row && "chat.example.com/chat" in row && "closed 1000" in row && "1.3 s · 2 msgs" in row, row)
+        assertTrue("Connect" in row && "chat.example.com/chat" in row && "closed 1000" in row && "1.3 s · 2 msgs" in row, row)
     }
 
     @Test
