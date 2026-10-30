@@ -99,7 +99,28 @@ class StatementsTest {
         assertEquals("fallback: no DTA in com.example.plain", statements[0].detail)
         assertTrue("Build it with DTA" in statements[0].sentence, statements[0].sentence)
         assertEquals("compose-tooling-absent", statements[1].code)
+        assertTrue("ui-tooling" in statements[1].sentence && "debug build" in statements[1].sentence, "cause and next step: ${statements[1].sentence}")
         assertEquals("detail full reduced to basic", statements[2].detail)
+    }
+
+    @Test
+    fun `every degradation code says what is missing and what to do`() {
+        val codes = io.yamsergey.dta.protocol.layout.DegradationCodes::class.java.declaredFields
+            .filter { java.lang.reflect.Modifier.isStatic(it.modifiers) && it.type == String::class.java }
+            .map { it.isAccessible = true; it.get(null) as String }
+        assertTrue(codes.size > 10, "$codes")
+        val missing = codes.filter { Degradations.explain(it) == null }
+        assertEquals(emptyList(), missing, "codes without an explanation")
+    }
+
+    @Test
+    fun `a capability whose reason carries a code is explained by it`() {
+        val report = kotlinx.serialization.json.Json.parseToJsonElement("""
+            {"capabilities":[{"name":"layout","status":"degraded","reason":"compose present, enrichment unavailable: compose-tooling-absent"}]}
+        """).jsonObject
+        val layout = Statements.forCapability(report).single()
+        assertEquals("compose-tooling-absent", layout.code)
+        assertTrue("ui-tooling" in layout.sentence, layout.sentence)
     }
 
     @Test

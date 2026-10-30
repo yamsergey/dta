@@ -1,5 +1,6 @@
 package io.yamsergey.dta.present.daemon
 
+import io.yamsergey.dta.present.Degradations
 import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.StatementKind
 import io.yamsergey.dta.present.Statements
@@ -8,8 +9,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
-/** One capability or library of the app (depth 1 = a library under its capability). */
-data class CapabilityRow(val name: String, val status: String, val reason: String?, val depth: Int, val statement: Statement?)
+/**
+ * One capability or library of the app (depth 1 = a library under its capability). [advice] is
+ * what the gap means and what to do, when its [reason] names a known degradation code.
+ */
+data class CapabilityRow(val name: String, val status: String, val reason: String?, val depth: Int, val statement: Statement?, val advice: String? = null)
 
 /**
  * The Daemon view (data-model DaemonView, FR-016): the shared daemon's identity and process,
@@ -53,7 +57,8 @@ data class DaemonView(
 
         private fun row(o: JsonObject, depth: Int, gaps: Map<String?, Statement>): CapabilityRow {
             val name = o.str("name") ?: "?"
-            return CapabilityRow(name, o.str("status") ?: "?", o.str("reason"), depth, gaps[name])
+            val reason = o.str("reason")
+            return CapabilityRow(name, o.str("status") ?: "?", reason, depth, gaps[name], Degradations.explain(Degradations.codeIn(reason)))
         }
 
         fun uptime(ms: Long): String {

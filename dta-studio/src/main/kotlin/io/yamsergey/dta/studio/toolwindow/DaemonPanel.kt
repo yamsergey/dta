@@ -61,6 +61,11 @@ class DaemonPanel(private val controller: ContextController, private val scope: 
                 line.add(row.statement?.let { StatementMark(it) } ?: JBLabel(row.status))
                 row.reason?.let { line.add(JBLabel(it).apply { foreground = com.intellij.ui.JBColor.GRAY }) }
                 form.addComponent(line)
+                // What the gap means and the next step, wrapped under its row.
+                row.advice?.let { advice ->
+                    val text = "<html>${advice.replace("&", "&amp;").replace("<", "&lt;")}</html>"
+                    form.addComponent(JBLabel(text).apply { border = JBUI.Borders.emptyLeft(JBUI.scale(24 * (row.depth + 1))); setCopyable(true) })
+                }
             }
             body.add(form.panel.apply { border = JBUI.Borders.empty(12) }, BorderLayout.NORTH)
         }

@@ -143,7 +143,9 @@ object Statements {
             if (name == "grpc") {
                 add(Statement(StatementKind.NOT_CAPTURED, detail = listOfNotNull("$name not captured", reason).joinToString(": "), subject = name))
             } else {
-                add(Statement(StatementKind.DEGRADED, word = status, detail = listOfNotNull("$name $status", reason).joinToString(": "), subject = name))
+                val code = Degradations.codeIn(reason)
+                add(Statement(StatementKind.DEGRADED, word = status, detail = listOfNotNull("$name $status", reason).joinToString(": "), subject = name,
+                    code = code, explanation = Degradations.explain(code)))
             }
         }
         report.arr("capabilities").forEach { c ->
@@ -161,10 +163,11 @@ object Statements {
         return Statement(StatementKind.EVICTED, word = "cleared", detail = text, explanation = text)
     }
 
-    /** Degradation markers (`[{capability, reason}]`): the reason is the protocol code. */
+    /** Degradation markers (`[{capability, reason}]`): the reason is the protocol code, explained by [Degradations]. */
     fun markers(element: JsonElement?): List<Statement> = (element as? JsonArray).orEmpty().map { m ->
         val marker = m.asObj()
-        Statement(StatementKind.DEGRADED, detail = "${marker.str("capability")}: ${marker.str("reason")}", code = marker.str("reason"))
+        Statement(StatementKind.DEGRADED, detail = "${marker.str("capability")}: ${marker.str("reason")}", code = marker.str("reason"),
+            explanation = Degradations.explain(marker.str("reason")))
     }
 
     private fun redaction(element: JsonElement?): List<Statement> {

@@ -44,5 +44,16 @@ class DaemonViewTest {
         assertEquals(StatementKind.NOT_CAPTURED, rows.getValue("grpc").statement!!.kind)
         assertEquals(StatementKind.DEGRADED, rows.getValue("java-websocket").statement!!.kind)
         assertEquals("hook failed: NoSuchMethodError", rows.getValue("java-websocket").reason)
+        assertNull(rows.getValue("java-websocket").advice, "a reason without a known code has no advice to add")
+    }
+
+    @Test
+    fun `a gap whose reason carries a code says what to do`() {
+        val capability = Json.parseToJsonElement("""
+            {"sidekickVersion":"0.10.0","packageName":"com.example.shop","capabilities":[
+              {"name":"layout","status":"degraded","reason":"compose present, enrichment unavailable: compose-tooling-absent","libraries":[]}]}
+        """).jsonObject
+        val layout = DaemonView.from(canned("daemon-status"), capability).capabilities.single()
+        assertTrue("ui-tooling" in layout.advice!!, layout.advice)
     }
 }
