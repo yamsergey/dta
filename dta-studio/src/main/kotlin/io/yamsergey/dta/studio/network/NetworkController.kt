@@ -4,7 +4,6 @@ import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.Statements
 import io.yamsergey.dta.present.context.Connection
-import io.yamsergey.dta.present.context.ContextEvent
 import io.yamsergey.dta.present.network.LiveEvent
 import io.yamsergey.dta.present.network.LiveList
 import io.yamsergey.dta.present.network.NetworkFilters
@@ -35,7 +34,6 @@ data class NetworkViewState(
     val loading: Boolean = false,
     val watching: Boolean = false,
     val error: String? = null,
-    val run: String? = null,
 )
 
 /**
@@ -130,7 +128,6 @@ class NetworkController(private val context: ContextController, private val scop
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
                         mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false, watching = true) }
-                        seenRun()
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
                         val cleared = Statements.forCleared(data)!!
@@ -140,7 +137,6 @@ class NetworkController(private val context: ContextController, private val scop
                         val entry = event["entry"]?.jsonObject ?: return@collect
                         val change = (event["change"] as? JsonPrimitive)?.content
                         list(if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry))
-                        if (change != "updated") seenRun()
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -150,15 +146,6 @@ class NetworkController(private val context: ContextController, private val scop
             } finally {
                 mutable.update { it.copy(loading = false, watching = false) }
             }
-        }
-    }
-
-    /** The newest row's run is the context's run label. */
-    private fun seenRun() {
-        val run = (mutable.value.list.rows.lastOrNull()?.entry?.get("runId") as? JsonPrimitive)?.content ?: return
-        if (run != mutable.value.run) {
-            mutable.update { it.copy(run = run) }
-            if (context.state.value.run != run) context.apply(ContextEvent.RunSeen(run))
         }
     }
 

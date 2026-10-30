@@ -77,7 +77,6 @@ data class EntryDetail(
                 add(Field("Started", EntryRows.of(e, zone).time))
                 e.long("durationMs")?.let { add(Field("Duration", Units.millis(it))) }
                 add(Field("Library", listOfNotNull(e.str("library"), e.str("protocol")).joinToString(" · ")))
-                add(Field("Run", e.str("runId") ?: ""))
             }
             val i = e.obj("intervention")
             val hasAppSide = e["appRequest"] != null || e["appResponse"] != null || e["appPayload"] != null

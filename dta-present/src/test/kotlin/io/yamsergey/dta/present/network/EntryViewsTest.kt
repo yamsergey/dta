@@ -28,7 +28,6 @@ class EntryViewsTest {
         assertEquals("404", r.outcome.text)
         assertEquals("status-client", r.outcome.token)
         assertEquals("142 ms · 18.4 KB", r.timing)
-        assertEquals("r1-1", r.run)
         assertEquals(emptyList(), r.marks.shown)
     }
 
@@ -74,12 +73,6 @@ class EntryViewsTest {
     }
 
     @Test
-    fun `runs get short labels only when the list holds more than one`() {
-        assertEquals(emptyMap<String, String>(), EntryRows.runLabels(listOf("r1-9", "r1-9")))
-        assertEquals(mapOf("r1-9" to "1", "r2-4" to "2"), EntryRows.runLabels(listOf("r1-9", "r2-4", "r1-9")))
-    }
-
-    @Test
     fun `each kind has a word, so HTTP and WebSocket rows read apart`() {
         assertEquals(listOf("HTTP", "WS", "WS ↑", "WS ↓"), EntryKind.entries.map { it.label })
         assertEquals("WebSocket message received", EntryKind.WS_IN.description)
@@ -93,7 +86,7 @@ class EntryViewsTest {
         assertEquals("POST https://api.example.com/v1/cart?x=1", d.summary.first().value)
         assertTrue(d.summary.any { it.label == "Status" && it.value == "503" })
         assertTrue(d.summary.any { it.label == "Library" && it.value == "okhttp3 · h2" })
-        assertTrue(d.summary.any { it.label == "Run" && it.value == "r2-1" })
+        assertTrue(d.summary.none { it.label == "Run" }, "the run id is for agents; a person reads the time")
         assertEquals(listOf(StatementKind.SCRIPTED, StatementKind.REDACTED), d.statements.map { it.kind })
         val initiator = d.initiator!!
         assertEquals("OkHttp Dispatcher · enqueue", initiator.header)

@@ -36,13 +36,11 @@ sealed interface ContextEvent {
     /** The selection an operation result reported. */
     data class Selected(val selection: SelectionStatement) : ContextEvent
     data class AppConnection(val event: AppConnectionEvent) : ContextEvent
-    data class RunSeen(val run: String) : ContextEvent
     data class Injection(val outcome: InjectionOutcome, val reason: String?) : ContextEvent
 }
 
 /**
- * The context line every view shares: device · app · connection · run · daemon, the auto
- * statements, and the banner for whatever applies to the whole view. Liveness comes only from
+ * The context line every view shares: device · app · connection, the auto statements, and the banner for whatever applies to the whole view. Liveness comes only from
  * what the daemon reports (constitution II); [generation] grows when device or app changes, so
  * views drop their results and query again.
  */
@@ -55,7 +53,6 @@ data class ContextState(
     val appRule: AppRule? = null,
     val connection: Connection = Connection.UNKNOWN,
     val connectionReason: String? = null,
-    val run: String? = null,
     val daemon: DaemonInfo = DaemonInfo(),
     val injection: InjectionOutcome? = null,
     val injectionReason: String? = null,
@@ -63,6 +60,12 @@ data class ContextState(
 ) {
     val selection: List<Statement>
         get() = device?.let { Statements.forSelection(SelectionStatement(it, deviceRule ?: DeviceRule.NAMED, app, appRule)) }.orEmpty()
+
+    /** The `auto` statement for the device, shown beside its picker; null when the person chose it. */
+    val deviceAuto: Statement? get() = selection.firstOrNull { it.subject == device }
+
+    /** The `auto` statement for the app, shown beside its picker; null when the person chose it. */
+    val appAuto: Statement? get() = app?.let { a -> selection.firstOrNull { it.subject == a } }
 
     fun reduce(event: ContextEvent): ContextState = when (event) {
         is ContextEvent.DaemonConnected -> copy(daemon = DaemonInfo(DaemonPhase.CONNECTED, event.version))
@@ -85,7 +88,6 @@ data class ContextState(
             val e = event.event
             if (e.device != device || e.app != app) this else copy(connection = connectionOf(e.state), connectionReason = e.reason)
         }
-        is ContextEvent.RunSeen -> copy(run = event.run)
         is ContextEvent.Injection -> copy(injection = event.outcome, injectionReason = event.reason)
     }
 
@@ -119,7 +121,7 @@ data class ContextState(
     /** A different device or app: everything that described the old one goes. */
     private fun switched(device: String?, deviceRule: DeviceRule?, app: String?, appRule: AppRule?) = copy(
         device = device, deviceRule = deviceRule, app = app, appRule = appRule,
-        connection = Connection.UNKNOWN, connectionReason = null, run = null, generation = generation + 1,
+        connection = Connection.UNKNOWN, connectionReason = null, generation = generation + 1,
     )
 
     val banner: Banner?

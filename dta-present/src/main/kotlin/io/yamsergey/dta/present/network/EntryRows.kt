@@ -33,7 +33,6 @@ data class EntryRow(
     val path: String,
     val outcome: Outcome,
     val timing: String,
-    val run: String,
     val marks: Marks,
     /** A message's payload, muted after its socket's path: the text's first line, or "binary 16 B". */
     val preview: String? = null,
@@ -42,15 +41,6 @@ data class EntryRow(
 object EntryRows {
     private val OUTCOMES = setOf(StatementKind.FAILED, StatementKind.PENDING, StatementKind.PROCESS_ENDED)
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
-
-    /**
-     * Short labels for the runs in a list, numbered by first appearance; empty when there is one
-     * run (the context line already names it), so a run column says something only when it matters.
-     */
-    fun runLabels(runIds: List<String>): Map<String, String> {
-        val runs = runIds.distinct()
-        return if (runs.size < 2) emptyMap() else runs.withIndex().associate { (i, id) -> id to "${i + 1}" }
-    }
 
     fun of(entry: JsonObject, zone: ZoneId = ZoneId.systemDefault()): EntryRow {
         val statements = Statements.forEntry(entry)
@@ -97,7 +87,6 @@ object EntryRows {
             preview = preview,
             outcome = outcome(entry, type, ending),
             timing = timing,
-            run = entry.str("runId") ?: "",
             marks = Statements.marks(statements.filter { it.kind !in OUTCOMES }),
         )
     }

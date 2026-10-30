@@ -1,5 +1,6 @@
 package io.yamsergey.dta.studio.toolwindow
 
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -15,6 +16,7 @@ import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.present.network.EntryRow
 import io.yamsergey.dta.present.network.EntryRows
+import io.yamsergey.dta.present.network.ListOrder
 import io.yamsergey.dta.present.network.LiveEvent
 import io.yamsergey.dta.present.network.NetworkFilters
 import io.yamsergey.dta.present.network.Row
@@ -46,8 +48,8 @@ import javax.swing.table.AbstractTableModel
 
 /**
  * The Network view (US1, contracts/tool-window.md): one live list of HTTP and WebSocket traffic
- * that never jumps, filter chips with "shown of total", pause, and the entry detail beside or
- * below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
+ * that never jumps, newest on top or at the bottom as the person prefers, filter chips with
+ * "shown of total", pause, and the entry detail beside or below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
  */
 class NetworkPanel(
     private val project: Project,
@@ -76,7 +78,8 @@ class NetworkPanel(
     private val kinds = io.yamsergey.dta.present.network.KindChoice.entries.associateWith { javax.swing.JToggleButton(it.label) }
     private val pause = JBCheckBox("Pause")
     private val redact = JBCheckBox("Redact")
-    private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEnd() }
+    private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
+    private val orderLink = ActionLink("") { setOrder(model.order.toggled()) }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val detail = EntryDetailPane(project, scope)
     // The list gets most of the width; the person's own split is remembered.
@@ -98,6 +101,7 @@ class NetworkPanel(
             add(ActionLink("+ Filter") { addFilter() })
             add(chips)
             add(caption)
+            add(orderLink)
             add(pause)
             add(redact)
             add(ActionLink("Clear") { clear() })
@@ -119,16 +123,20 @@ class NetworkPanel(
         redact.addActionListener { network.setRedact(redact.isSelected) }
         table.selectionModel.addListSelectionListener { e ->
             if (e.valueIsAdjusting || model.updating) return@addListSelectionListener
-            val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rows[it] }
+            val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rowAt(it) }
             network.list(LiveEvent.Selected(row?.id))
         }
         // Only the person's own scrolling stops following: rows arriving also move the scroll bar.
-        scroll.addMouseWheelListener { e -> if (e.wheelRotation < 0 && last.list.following) network.list(LiveEvent.ScrolledAway) }
-        scroll.verticalScrollBar.addAdjustmentListener { e ->
-            if (!programmaticScroll && e.valueIsAdjusting && !atEnd() && last.list.following) network.list(LiveEvent.ScrolledAway)
+        scroll.addMouseWheelListener { e ->
+            val away = if (model.order == ListOrder.NEWEST_FIRST) e.wheelRotation > 0 else e.wheelRotation < 0
+            if (away && last.list.following) network.list(LiveEvent.ScrolledAway)
         }
+        scroll.verticalScrollBar.addAdjustmentListener { e ->
+            if (!programmaticScroll && e.valueIsAdjusting && !atEdge() && last.list.following) network.list(LiveEvent.ScrolledAway)
+        }
+        setOrder(ListOrder.of(PropertiesComponent.getInstance().getValue(ORDER_KEY)))
         Keyboard.bind(this, ViewKey.START) { if (model.rowCount > 0) table.changeSelection(0, 0, false, false) }
-        Keyboard.bind(this, ViewKey.END) { network.list(LiveEvent.JumpToEnd); table.clearSelection(); scrollToEnd() }
+        Keyboard.bind(this, ViewKey.END) { network.list(LiveEvent.JumpToEnd); table.clearSelection(); scrollToEdge() }
         Keyboard.bind(this, ViewKey.PAUSE) { pause.doClick() }
         Keyboard.bind(this, ViewKey.FILTERS) { addFilter() }
         Keyboard.bind(this, ViewKey.SEARCH) { addFilter("url") }
@@ -148,10 +156,12 @@ class NetworkPanel(
     private fun show(s: NetworkViewState) {
         val previous = last
         last = s
-        model.update(s.list.rows)
+        val added = model.update(s.list.rows)
         // Keep the selection on its row by id, whatever moved around it.
         s.list.selectedId?.let { id -> model.indexOf(id)?.let { i -> if (table.selectedRow != i) { model.updating = true; table.setRowSelectionInterval(i, i); model.updating = false } } }
-        if (s.list.following && s.list.selectedId == null) scrollToEnd()
+        if (s.list.following && s.list.selectedId == null) scrollToEdge()
+        // Rows added above what the person is reading push it down; scroll by as much so nothing jumps.
+        else if (added > 0 && model.order == ListOrder.NEWEST_FIRST) keepInPlace(added)
 
         // A kinds filter the switch cannot express is a chip; then no switch position is lit.
         val kind = s.filters.kind
@@ -167,7 +177,7 @@ class NetworkPanel(
             if (s.list.paused) io.yamsergey.dta.present.Statement(io.yamsergey.dta.present.StatementKind.PENDING, word = "paused", detail = "paused: ${s.list.backlog} waiting; capture goes on") else null,
         )).forEach { statements.add(StatementMark(it)) }
         s.error?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.of("status-server") }) }
-        newBar.text = if (s.list.newCount > 0) "${s.list.newCount} new — G to follow" else ""
+        newBar.text = if (s.list.newCount > 0) "${s.list.newCount} new ${if (model.order == ListOrder.NEWEST_FIRST) "above" else "below"} — G to follow" else ""
         newBar.isVisible = s.list.newCount > 0
         empty.text = when {
             s.app == null -> ""
@@ -182,16 +192,40 @@ class NetworkPanel(
         repaint()
     }
 
-    private fun atEnd(): Boolean {
+    /** Whether the view is at the edge where new rows appear. */
+    private fun atEdge(): Boolean {
         val bar = scroll.verticalScrollBar
-        return bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(4)
+        return if (model.order == ListOrder.NEWEST_FIRST) bar.value <= JBUI.scale(4)
+        else bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(4)
     }
 
-    private fun scrollToEnd() {
+    private fun scrollToEdge() {
         if (model.rowCount == 0) return
         programmaticScroll = true
-        table.scrollRectToVisible(table.getCellRect(model.rowCount - 1, 0, true))
+        table.scrollRectToVisible(table.getCellRect(model.order.followEdge(model.rowCount), 0, true))
         programmaticScroll = false
+    }
+
+    private fun keepInPlace(added: Int) {
+        val bar = scroll.verticalScrollBar
+        programmaticScroll = true
+        scroll.validate()
+        bar.value += added * table.rowHeight
+        programmaticScroll = false
+    }
+
+    /** Shows newest on top or at the bottom, remembered across sessions; the selection and following stay. */
+    private fun setOrder(order: ListOrder) {
+        PropertiesComponent.getInstance().setValue(ORDER_KEY, order.name, ListOrder.DEFAULT.name)
+        orderLink.text = if (order == ListOrder.NEWEST_FIRST) "↓ ${order.label}" else "↑ ${order.label}"
+        orderLink.toolTipText = "Show ${order.toggled().label.lowercase()}"
+        if (model.order == order && model.rowCount > 0) return
+        model.reorder(order)
+        val selected = last.list.selectedId?.let { model.indexOf(it) }
+        if (selected != null) {
+            model.updating = true; table.setRowSelectionInterval(selected, selected); model.updating = false
+            table.scrollRectToVisible(table.getCellRect(selected, 0, true))
+        } else if (last.list.following) scrollToEdge()
     }
 
     private fun clear() {
@@ -200,7 +234,7 @@ class NetworkPanel(
     }
 
     private fun copySelected() {
-        val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rows[it] } ?: return
+        val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rowAt(it) } ?: return
         val url = (row.entry["url"] as? JsonPrimitive)?.content ?: row.id
         CopyPasteManager.getInstance().setContents(StringSelection(url))
     }
@@ -235,46 +269,51 @@ class NetworkPanel(
 
     private data class Column(val title: String, val sample: String?, val tooltip: String? = null)
 
+    /** The live list's rows (oldest to newest) shown in [order]; indexes here are shown places. */
     private inner class RowsModel : AbstractTableModel() {
-        var rows: List<Row> = emptyList()
+        private var rows: List<Row> = emptyList()
+        var order = ListOrder.DEFAULT
             private set
         var updating = false
         private val cache = HashMap<Row, EntryRow>()
 
         fun view(row: Row): EntryRow = cache.getOrPut(row) { EntryRows.of(row.entry) }
 
-        /** Short run labels, only when the list holds more than one run. */
-        var runLabels: Map<String, String> = emptyMap()
-            private set
+        fun rowAt(shown: Int): Row = rows[order.shown(shown, rows.size)]
 
-        fun indexOf(id: String): Int? = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+        fun indexOf(id: String): Int? = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { order.shown(it, rows.size) }
 
-        /** Appends, updates in place, or reloads, so rows never jump (patterns.md live list). */
-        fun update(next: List<Row>) {
+        fun reorder(next: ListOrder) {
+            order = next
+            updating = true
+            fireTableDataChanged()
+            updating = false
+        }
+
+        /** Appends, updates in place, or reloads, so rows never jump (patterns.md live list); returns how many were appended. */
+        fun update(next: List<Row>): Int {
             val before = rows
-            if (next === before) return
+            if (next === before) return 0
             updating = true
             rows = next
             if (cache.size > 20_000) cache.clear()
-            val labels = EntryRows.runLabels(next.map { view(it).run })
-            val relabelled = labels != runLabels
-            runLabels = labels
+            var added = 0
             when {
                 next.size >= before.size && before.indices.all { before[it].id == next[it].id } -> {
-                    val changed = before.indices.filter { before[it] != next[it] }
-                    changed.forEach { fireTableRowsUpdated(it, it) }
-                    if (next.size > before.size) fireTableRowsInserted(before.size, next.size - 1)
+                    added = next.size - before.size
+                    if (added > 0) order.appended(before.size, next.size).let { fireTableRowsInserted(it.first, it.last) }
+                    before.indices.filter { before[it] != next[it] }.forEach { val i = order.shown(it, next.size); fireTableRowsUpdated(i, i) }
                 }
                 else -> fireTableDataChanged()
             }
-            if (relabelled && next.isNotEmpty()) fireTableRowsUpdated(0, next.size - 1)
             updating = false
+            return added
         }
 
         override fun getRowCount() = rows.size
         override fun getColumnCount() = COLUMNS.size
         override fun getColumnName(column: Int) = COLUMNS[column].title
-        override fun getValueAt(rowIndex: Int, columnIndex: Int): Any = view(rows[rowIndex])
+        override fun getValueAt(rowIndex: Int, columnIndex: Int): Any = view(rowAt(rowIndex))
     }
 
     private inner class RowRenderer : ColoredTableCellRenderer() {
@@ -297,8 +336,7 @@ class NetworkPanel(
                     }
                 }
                 5 -> append(r.timing, muted)
-                6 -> model.runLabels[r.run]?.let { append(it, muted); toolTipText = "Run ${r.run}" }
-                7 -> {
+                6 -> {
                     r.marks.shown.forEach { append("${it.kind.glyph} ${it.word}  ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.text(it.kind))) }
                     r.marks.moreLabel?.let { append(it, muted) }
                     toolTipText = r.marks.shown.joinToString("<br>", "<html>", "</html>") { it.sentence }
@@ -308,10 +346,12 @@ class NetworkPanel(
     }
 
     private companion object {
+        const val ORDER_KEY = "dta.network.order"
+
         /** [sample] is the widest content the column shows; null = flexible, takes what is left. */
         val COLUMNS = listOf(
             Column("Time", "00:00:00.000"), Column("Type", "WS ↓"), Column("Method", "Received"), Column("URL", null),
-            Column("Status", "closed 1000"), Column("Duration · Size", "1.3 s · 18.4 KB"), Column("Run", "99"),
+            Column("Status", "closed 1000"), Column("Duration · Size", "1.3 s · 18.4 KB"),
             Column("Notes", null, "What DTA states about the entry: binary, scripted, redacted, incomplete, decoded…"),
         )
 

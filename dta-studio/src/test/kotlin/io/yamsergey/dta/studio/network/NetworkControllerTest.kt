@@ -47,7 +47,6 @@ class NetworkControllerTest {
         session.start()
         val loaded = await { it.list.rows.size == 3 && it.watching }
         assertEquals(500, daemon.ops.queries.last().second.limit)
-        assertEquals("r1-1", loaded.run)
         daemon.ops.events.emit(NetworkEntryEvent(http(10, HttpState.PENDING), EntryChange.CREATED))
         await { it.list.rows.last().id == "r1-1:10" }
         daemon.ops.events.emit(NetworkEntryEvent(http(10), EntryChange.UPDATED))

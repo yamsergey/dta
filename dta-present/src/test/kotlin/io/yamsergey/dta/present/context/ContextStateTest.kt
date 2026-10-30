@@ -29,6 +29,9 @@ class ContextStateTest {
         assertEquals("com.example.shop", state.app)
         assertEquals(listOf(StatementKind.AUTO, StatementKind.AUTO), state.selection.map { it.kind })
         assertEquals(Connection.UNKNOWN, state.connection)
+        // Each mark stands beside its own picker, so the two `auto`s read apart.
+        assertTrue("only one connected" in state.deviceAuto!!.sentence)
+        assertTrue("foreground" in state.appAuto!!.sentence)
     }
 
     @Test
@@ -37,6 +40,8 @@ class ContextStateTest {
         assertEquals(listOf(StatementKind.AUTO), state.selection.map { it.kind }, "the device is still the only one")
         val result = ready(ContextEvent.Selected(SelectionStatement("emulator-5554", DeviceRule.NAMED, "com.example.shop", AppRule.NAMED)))
         assertEquals(emptyList(), result.selection)
+        assertNull(result.deviceAuto)
+        assertNull(result.appAuto)
     }
 
     @Test
@@ -93,13 +98,10 @@ class ContextStateTest {
     fun `changing device or app resets what depended on the old one`() {
         val before = ready(
             ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", "com.example.shop", "connected")),
-            ContextEvent.RunSeen("r2-1"),
         )
-        assertEquals("r2-1", before.run)
         val after = before.reduce(ContextEvent.AppChosen("com.example.other"))
         assertEquals("com.example.other", after.app)
         assertEquals(Connection.UNKNOWN, after.connection)
-        assertNull(after.run)
         assertEquals(before.generation + 1, after.generation, "views re-query on a new generation")
 
         val noDevice = after.reduce(ContextEvent.Devices(emptyList()))
