@@ -4,7 +4,6 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.openapi.application.ApplicationManager
@@ -19,7 +18,6 @@ import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
 import javax.swing.BoxLayout
 import javax.swing.JPanel
-import javax.swing.SwingConstants
 
 /** The DTA tool window (contracts/tool-window.md): context line, whole-view banner, one tab per view. */
 class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
@@ -30,16 +28,26 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         val banner = BannerPanel().apply { onAction { DtaApplicationService.get().session.retry() } }
         val daemonPanel = DaemonPanel(controller, service.scope)
         val layoutPanel = LayoutPanel(project, service.layout, service.scope)
+        val scriptPanel = ScriptPanel(project, controller, service.scope)
+        val schemasPanel = SchemasPanel(project, controller, service.scope)
         val tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
             addTab("Layout", layoutPanel)
-            listOf("Script", "Schemas").forEach { addTab(it, placeholder(it)) }
+            addTab("Script", scriptPanel)
+            addTab("Schemas", schemasPanel)
             addTab("Daemon", daemonPanel)
             val agents = AgentServerService.get()
             addTab("Agents", AgentsPanel(agents.controller, ApplicationManager.getApplication().getService(AgentServerSettings::class.java), service.scope))
         }
         // A layout is a snapshot: captured only while its tab is the one shown.
-        tabs.addChangeListener { service.layout.setActive(tabs.selectedComponent === layoutPanel) }
+        tabs.addChangeListener {
+            service.layout.setActive(tabs.selectedComponent === layoutPanel)
+            // Script and Schemas are refreshed when shown and after their actions.
+            when (tabs.selectedComponent) {
+                scriptPanel -> scriptPanel.show(controller.state.value)
+                schemasPanel -> schemasPanel.show(controller.state.value)
+            }
+        }
         val top = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             add(bar)
@@ -59,10 +67,12 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                     bar.show(state)
                     banner.show(state.banner)
                     daemonPanel.refresh(state)
+                    when (tabs.selectedComponent) {
+                        scriptPanel -> scriptPanel.show(state)
+                        schemasPanel -> schemasPanel.show(state)
+                    }
                 }
             }
         }
     }
-
-    private fun placeholder(name: String) = JBLabel("$name — coming in this release", SwingConstants.CENTER)
 }
