@@ -22,7 +22,6 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.Writer
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
@@ -362,16 +361,24 @@ class NetworkStore(
         if (!queue.offer(record)) synchronized(lock) { dropped++ }
     }
 
+    /**
+     * Takes and writes each record under [writeLock], so [flush] never returns while a record
+     * the writer already took is still unwritten. Capture never waits on this lock: it only
+     * offers to the queue, and the writer looks for new records at least every 100 ms.
+     */
     private fun writerLoop() {
         while (persisted) {
-            val record = try {
-                queue.poll(500, TimeUnit.MILLISECONDS)
+            try {
+                synchronized(writeLock) {
+                    val record = queue.poll() ?: run {
+                        (writeLock as Object).wait(100)
+                        queue.poll()
+                    }
+                    if (record != null) write(record)
+                    if (queue.isEmpty()) runCatching { segmentWriter?.flush() }
+                }
             } catch (_: InterruptedException) {
                 return
-            }
-            synchronized(writeLock) {
-                if (record != null) write(record)
-                if (queue.isEmpty()) runCatching { segmentWriter?.flush() }
             }
             if (queue.isEmpty()) runCatching { evictIfNeeded() }
         }

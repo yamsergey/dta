@@ -132,6 +132,19 @@ class NetworkStoreTest {
     }
 
     @Test
+    fun `flush returns only after every record queued before it is on disk, even one the writer already took`() {
+        val s = store()
+        repeat(300) {
+            val e = http(s)
+            s.upsert(e)
+            Thread.sleep(1) // the writer wakes and takes the record: flush must still wait for it
+            s.flush()
+            val log = File(dir, "segments").listFiles()!!.joinToString("") { f -> f.readText() }
+            assertTrue(e.id in log, "record $it: ${e.id} not written when flush returned")
+        }
+    }
+
+    @Test
     fun `writer queue overflow is counted as dropped and never blocks`() {
         val s = store(queueCapacity = 3, startWriter = false)
         repeat(5) { s.upsert(http(s)) }

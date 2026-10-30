@@ -52,7 +52,9 @@ class LayoutControllerTest {
     @Test
     fun `nothing is captured until the view is shown, then the app's screen at layout detail`() = runBlocking<Unit> {
         session.start()
-        withTimeout(5_000) { context.state.first { it.app == "com.example.shop" } }
+        // The layout controller itself has seen the app: showing the view now is one capture of it
+        // (showing it earlier is a capture of the foreground app, then another once the app is known).
+        await { it.app == "com.example.shop" }
         assertTrue(daemon.ops.layoutRequests.isEmpty())
         layout.setActive(true)
         val shown = await { it.tree != null }
