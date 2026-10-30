@@ -7,7 +7,10 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.content.ContentFactory
+import com.intellij.openapi.application.ApplicationManager
 import io.yamsergey.dta.studio.DtaApplicationService
+import io.yamsergey.dta.studio.agents.AgentServerService
+import io.yamsergey.dta.studio.agents.AgentServerSettings
 import io.yamsergey.dta.studio.DtaProjectService
 import io.yamsergey.dta.studio.ui.BannerPanel
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +35,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             addTab("Layout", layoutPanel)
             listOf("Script", "Schemas").forEach { addTab(it, placeholder(it)) }
             addTab("Daemon", daemonPanel)
-            addTab("Agents", placeholder("Agents"))
+            val agents = AgentServerService.get()
+            addTab("Agents", AgentsPanel(agents.controller, ApplicationManager.getApplication().getService(AgentServerSettings::class.java), service.scope))
         }
         // A layout is a snapshot: captured only while its tab is the one shown.
         tabs.addChangeListener { service.layout.setActive(tabs.selectedComponent === layoutPanel) }

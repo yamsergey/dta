@@ -23,13 +23,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Service(Service.Level.APP)
 class DtaApplicationService(scope: CoroutineScope) : Disposable {
     val version: VersionInfo = VersionInfo.current()
-    val session = DaemonSession(connect = { DaemonLauncher(version = version, spawner = ClasspathSpawner(launch())).ensure(ClientKind.IDE) }, scope = scope)
+    val session = DaemonSession(connect = { connect(ClientKind.IDE) }, scope = scope)
     private val started = AtomicBoolean(false)
 
     /** Starts (or joins) the daemon the first time any project needs it. */
     fun ensureStarted() {
         if (started.compareAndSet(false, true)) session.start()
     }
+
+    /** Connects to (or starts) the shared daemon as a client of [kind]: the tool window, or the agent server. */
+    suspend fun connect(kind: ClientKind): DaemonLauncher.Connected =
+        DaemonLauncher(version = version, spawner = ClasspathSpawner(launch())).ensure(kind)
 
     private fun launch(): DaemonLaunch {
         val plugin = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID)) ?: error("plugin $PLUGIN_ID is not loaded")

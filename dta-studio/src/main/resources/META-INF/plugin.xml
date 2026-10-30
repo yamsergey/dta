@@ -22,6 +22,7 @@ network scripts, and give coding agents the same tools over a local MCP server.<
                                  id="io.yamsergey.dta.settings"
                                  displayName="DTA"
                                  instance="io.yamsergey.dta.studio.inject.InjectionConfigurable"/>
+        <postStartupActivity implementation="io.yamsergey.dta.studio.agents.AgentServerStartup"/>
     </extensions>
 
     <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
