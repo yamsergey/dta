@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import java.util.Properties
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
@@ -150,26 +151,55 @@ tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask>(
     from(daemonRuntime) { into(intellijPlatform.projectName.map { "$it/daemon" }) }
 }
 
-/** Fails the build when the plugin ZIP cannot start the daemon: `daemon/` must hold DaemonMain's jar. */
+/**
+ * Fails the build when the plugin ZIP cannot start the daemon (`daemon/` must hold DaemonMain's
+ * jar), or when its parts disagree on the version (FR-025): the plugin's own version, the version
+ * resource the daemon's identity and the injected sidekick come from (dta-client's), and the
+ * bundled daemon must all be [expectedVersion].
+ */
 abstract class VerifyDaemonBundle : DefaultTask() {
     @get:InputFile abstract val pluginZip: RegularFileProperty
+    @get:Input abstract val expectedVersion: Property<String>
 
     @TaskAction
     fun verify() {
+        val expected = expectedVersion.get()
+        val name = pluginZip.get().asFile.name
         ZipFile(pluginZip.get().asFile).use { zip ->
-            val daemonJars = zip.entries().asSequence().filter { Regex("[^/]+/daemon/[^/]+\\.jar").matches(it.name) }.toList()
-            val main = daemonJars.firstOrNull { it.name.substringAfterLast('/').startsWith("dta-daemon-") }
-                ?: throw GradleException("${pluginZip.get().asFile.name}: daemon/ has no dta-daemon jar (found ${daemonJars.map { it.name }})")
-            ZipInputStream(zip.getInputStream(main)).use { jar ->
-                val entries = generateSequence { jar.nextEntry }.map { it.name }.toSet()
-                if ("io/yamsergey/dta/daemon/server/DaemonMain.class" !in entries) throw GradleException("${main.name} has no DaemonMain")
+            val jars = zip.entries().asSequence().map { it.name }.filter { it.endsWith(".jar") }.toList()
+            val daemonJars = jars.filter { Regex("[^/]+/daemon/[^/]+\\.jar").matches(it) }
+            val main = daemonJars.firstOrNull { it.substringAfterLast('/').startsWith("dta-daemon-") }
+                ?: throw GradleException("$name: daemon/ has no dta-daemon jar (found $daemonJars)")
+            val mainEntries = entries(zip, main)
+            if ("io/yamsergey/dta/daemon/server/DaemonMain.class" !in mainEntries.keys) throw GradleException("$main has no DaemonMain")
+
+            val versions = linkedMapOf<String, String?>()
+            versions["daemon/ dta-daemon jar"] = main.substringAfterLast('/').removePrefix("dta-daemon-").removeSuffix(".jar")
+            val studio = jars.firstOrNull { Regex("[^/]+/lib/dta-studio-[^/]+\\.jar").matches(it) } ?: throw GradleException("$name: no dta-studio jar in lib/")
+            versions["plugin.xml <version>"] = entries(zip, studio)["META-INF/plugin.xml"]?.let { Regex("<version>([^<]+)</version>").find(it)?.groupValues?.get(1) }
+            val client = jars.firstOrNull { Regex("[^/]+/lib/dta-client-[^/]+\\.jar").matches(it) } ?: throw GradleException("$name: no dta-client jar in lib/")
+            versions["dta-version.properties (daemon identity, injected sidekick)"] = entries(zip, client)["dta-version.properties"]?.let { text ->
+                Properties().apply { load(text.reader()) }.getProperty("version")
+            }
+            val wrong = versions.filterValues { it != expected }
+            if (wrong.isNotEmpty()) {
+                throw GradleException("$name: versions disagree with $expected (FR-025): " + wrong.entries.joinToString("; ") { "${it.key} = ${it.value}" })
             }
         }
     }
+
+    /** The text entries of a jar inside the ZIP that this check reads. */
+    private fun entries(zip: ZipFile, jar: String): Map<String, String> =
+        ZipInputStream(zip.getInputStream(zip.getEntry(jar))).use { input ->
+            generateSequence { input.nextEntry }.associate { entry ->
+                entry.name to if (entry.name.endsWith(".xml") || entry.name.endsWith(".properties")) input.readBytes().decodeToString() else ""
+            }
+        }
 }
 
 val verifyDaemonBundle = tasks.register<VerifyDaemonBundle>("verifyDaemonBundle") {
     pluginZip = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    expectedVersion = project.version.toString()
 }
 tasks.named("buildPlugin") { finalizedBy(verifyDaemonBundle) }
 tasks.named("check") { dependsOn(verifyDaemonBundle) }
