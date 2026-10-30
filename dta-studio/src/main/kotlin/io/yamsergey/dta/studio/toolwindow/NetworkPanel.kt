@@ -15,7 +15,10 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.present.network.EntryRow
+import com.intellij.ui.dsl.builder.SegmentedButton
+import com.intellij.ui.dsl.builder.panel
 import io.yamsergey.dta.present.network.EntryRows
+import io.yamsergey.dta.present.network.KindChoice
 import io.yamsergey.dta.present.network.ListOrder
 import io.yamsergey.dta.present.network.LiveEvent
 import io.yamsergey.dta.present.network.NetworkFilters
@@ -75,7 +78,8 @@ class NetworkPanel(
     private val chips = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
     private val caption = JBLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
-    private val kinds = io.yamsergey.dta.present.network.KindChoice.entries.associateWith { javax.swing.JToggleButton(it.label) }
+    // The IDE's own segmented control: a plain JToggleButton's pressed state barely shows in the new UI.
+    private lateinit var kinds: SegmentedButton<KindChoice>
     private val pause = JBCheckBox("Pause")
     private val redact = JBCheckBox("Redact")
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
@@ -88,14 +92,13 @@ class NetworkPanel(
     private var last = NetworkViewState()
 
     init {
-        val kindGroup = javax.swing.ButtonGroup()
-        val kindSwitch = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-            kinds.forEach { (choice, button) ->
-                kindGroup.add(button)
-                button.addActionListener { if (last.filters.kind != choice) network.setKind(choice) }
-                add(button)
+        val kindSwitch = panel {
+            row {
+                kinds = segmentedButton(KindChoice.entries) { text = it.label }
+                    .whenItemSelectedFromUi { choice -> if (last.filters.kind != choice) network.setKind(choice) }
             }
-        }
+        }.apply { isOpaque = false }
+        kinds.selectedItem = KindChoice.ALL
         val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
             add(kindSwitch)
             add(ActionLink("+ Filter") { addFilter() })
@@ -165,8 +168,7 @@ class NetworkPanel(
 
         // A kinds filter the switch cannot express is a chip; then no switch position is lit.
         val kind = s.filters.kind
-        kinds.forEach { (choice, button) -> button.isSelected = choice == kind }
-        if (kind == null) kinds.values.firstOrNull()?.let { (it.model as? javax.swing.DefaultButtonModel)?.group?.clearSelection() }
+        if (kinds.selectedItem != kind) kinds.selectedItem = kind
         if (s.filters != previous.filters || chips.componentCount == 0) {
             chips.removeAll()
             s.filters.chips.forEach { chip -> chips.add(ActionLink("${chip.label} ×") { network.removeFilter(chip.name) }) }
