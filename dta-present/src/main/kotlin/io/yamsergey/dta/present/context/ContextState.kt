@@ -1,8 +1,6 @@
 package io.yamsergey.dta.present.context
 
-import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.StatementKind
-import io.yamsergey.dta.present.Statements
 import io.yamsergey.dta.protocol.ops.AppConnectionEvent
 import io.yamsergey.dta.protocol.ops.AppList
 import io.yamsergey.dta.protocol.ops.AppRule
@@ -40,7 +38,8 @@ sealed interface ContextEvent {
 }
 
 /**
- * The context line every view shares: device · app · connection, the auto statements, and the banner for whatever applies to the whole view. Liveness comes only from
+ * The context line every view shares: device · app · connection (what DTA chose automatically
+ * is not marked: the pickers show it), and the banner for whatever applies to the whole view. Liveness comes only from
  * what the daemon reports (constitution II); [generation] grows when device or app changes, so
  * views drop their results and query again.
  */
@@ -58,15 +57,6 @@ data class ContextState(
     val injectionReason: String? = null,
     val generation: Int = 0,
 ) {
-    val selection: List<Statement>
-        get() = device?.let { Statements.forSelection(SelectionStatement(it, deviceRule ?: DeviceRule.NAMED, app, appRule)) }.orEmpty()
-
-    /** The `auto` statement for the device, shown beside its picker; null when the person chose it. */
-    val deviceAuto: Statement? get() = selection.firstOrNull { it.subject == device }
-
-    /** The `auto` statement for the app, shown beside its picker; null when the person chose it. */
-    val appAuto: Statement? get() = app?.let { a -> selection.firstOrNull { it.subject == a } }
-
     fun reduce(event: ContextEvent): ContextState = when (event) {
         is ContextEvent.DaemonConnected -> copy(daemon = DaemonInfo(DaemonPhase.CONNECTED, event.version))
         is ContextEvent.DaemonReplaced -> copy(daemon = daemon.copy(phase = DaemonPhase.REPLACED, message = event.by))

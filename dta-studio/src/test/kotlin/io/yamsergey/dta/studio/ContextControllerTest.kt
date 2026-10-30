@@ -58,7 +58,7 @@ class ContextControllerTest {
         assertEquals("Pixel Fold", chosen.deviceModel)
         controller.chooseApp("com.example.other")
         val app = controller.await { it.app == "com.example.other" && it.connection == Connection.NO_DTA }
-        assertEquals(emptyList(), app.selection.filter { "app" in it.detail })
+        assertEquals(io.yamsergey.dta.protocol.ops.AppRule.NAMED, app.appRule)
     }
 
     @Test

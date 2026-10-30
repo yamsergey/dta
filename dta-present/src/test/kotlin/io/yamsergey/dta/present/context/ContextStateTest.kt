@@ -23,25 +23,22 @@ class ContextStateTest {
             .fold(ContextState()) { s, e -> s.reduce(e) }
 
     @Test
-    fun `one device and the foreground app are chosen automatically and stated`() {
+    fun `one device and the foreground app are chosen automatically`() {
         val state = ready()
         assertEquals("emulator-5554", state.device)
+        assertEquals(DeviceRule.ONLY_DEVICE, state.deviceRule)
         assertEquals("com.example.shop", state.app)
-        assertEquals(listOf(StatementKind.AUTO, StatementKind.AUTO), state.selection.map { it.kind })
+        assertEquals(AppRule.FOREGROUND, state.appRule)
         assertEquals(Connection.UNKNOWN, state.connection)
-        // Each mark stands beside its own picker, so the two `auto`s read apart.
-        assertTrue("only one connected" in state.deviceAuto!!.sentence)
-        assertTrue("foreground" in state.appAuto!!.sentence)
     }
 
     @Test
-    fun `a named choice drops the auto statements`() {
+    fun `a named choice is kept as the person's`() {
         val state = ready(ContextEvent.AppChosen("com.example.shop"))
-        assertEquals(listOf(StatementKind.AUTO), state.selection.map { it.kind }, "the device is still the only one")
+        assertEquals(AppRule.NAMED, state.appRule)
+        assertEquals(DeviceRule.ONLY_DEVICE, state.deviceRule, "the device is still the only one")
         val result = ready(ContextEvent.Selected(SelectionStatement("emulator-5554", DeviceRule.NAMED, "com.example.shop", AppRule.NAMED)))
-        assertEquals(emptyList(), result.selection)
-        assertNull(result.deviceAuto)
-        assertNull(result.appAuto)
+        assertEquals(DeviceRule.NAMED to AppRule.NAMED, result.deviceRule to result.appRule)
     }
 
     @Test

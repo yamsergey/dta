@@ -135,20 +135,6 @@ object Statements {
         }
     }.ordered()
 
-    /** How device and app were chosen: nothing when the person named both. */
-    fun forSelection(selection: SelectionStatement?): List<Statement> = buildList {
-        selection ?: return@buildList
-        if (selection.deviceRule == DeviceRule.ONLY_DEVICE) {
-            add(Statement(StatementKind.AUTO, detail = "device ${selection.device} (only device)", subject = selection.device,
-                explanation = "Device ${selection.device} was chosen because it is the only one connected."))
-        }
-        if (selection.app != null && selection.appRule == AppRule.FOREGROUND) {
-            add(Statement(StatementKind.AUTO, detail = "app ${selection.app} (foreground)", subject = selection.app,
-                explanation = "App ${selection.app} was chosen because it is in the foreground."))
-        }
-        selection.note?.let { add(Statement(StatementKind.AUTO, detail = it)) }
-    }
-
     /** A `capability.report` result: every capability or library that is not fully available. */
     fun forCapability(report: JsonObject): List<Statement> = buildList {
         fun gap(name: String, status: String, reason: String?) {

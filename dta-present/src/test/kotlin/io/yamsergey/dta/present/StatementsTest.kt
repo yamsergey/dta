@@ -103,16 +103,6 @@ class StatementsTest {
     }
 
     @Test
-    fun `auto selection states the rule, a named one states nothing`() {
-        val auto = Statements.forSelection(SelectionStatement("emulator-5554", DeviceRule.ONLY_DEVICE, "com.example.shop", AppRule.FOREGROUND))
-        assertEquals(listOf(AUTO, AUTO), auto.kinds())
-        assertEquals("device emulator-5554 (only device)", auto[0].detail)
-        assertEquals("app com.example.shop (foreground)", auto[1].detail)
-        assertEquals(emptyList(), Statements.forSelection(SelectionStatement("emulator-5554", DeviceRule.NAMED, "com.example.shop", AppRule.NAMED)))
-        assertEquals(emptyList(), Statements.forSelection(null))
-    }
-
-    @Test
     fun `libraries not captured are information, other gaps are degradation`() {
         val statements = Statements.forCapability(canned("capability"))
         assertEquals(listOf(DEGRADED, NOT_CAPTURED), statements.kinds())

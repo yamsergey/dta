@@ -7,7 +7,6 @@ import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.present.context.Connection
 import io.yamsergey.dta.present.context.ContextState
 import io.yamsergey.dta.studio.ContextController
-import io.yamsergey.dta.studio.ui.StatementMark
 import java.awt.FlowLayout
 import java.awt.event.ItemEvent
 import javax.swing.JPanel
@@ -15,23 +14,20 @@ import javax.swing.event.PopupMenuEvent
 import javax.swing.event.PopupMenuListener
 
 /**
- * The context line (contracts/tool-window.md): device · app · connection, each picker followed
- * by its `auto` mark when DTA chose it. The daemon's version is on the Daemon tab; the run id is
- * for agents, a person reads the time of each request.
+ * The context line (contracts/tool-window.md): device · app · connection, with pickers for
+ * choosing. What DTA chose is not marked: the pickers show it. The daemon's version is on the
+ * Daemon tab; the run id is for agents, a person reads the time of each request.
  */
 class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))) {
     private val devices = ComboBox<String>()
     private val apps = ComboBox<String>()
-    private val deviceMark = mark()
-    private val appMark = mark()
-    private val notes = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false }
     private val connection = JBLabel()
     private var updating = false
 
     init {
-        add(JBLabel("Device")); add(devices); add(deviceMark)
-        add(JBLabel("App")); add(apps); add(appMark)
-        add(connection); add(notes)
+        add(JBLabel("Device")); add(devices)
+        add(JBLabel("App")); add(apps)
+        add(connection)
         devices.renderer = SimpleListCellRenderer.create("No device") { it }
         apps.renderer = SimpleListCellRenderer.create("No app") { it }
         devices.addPopupMenuListener(onOpen { controller.refreshDevices() })
@@ -57,15 +53,9 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
             Connection.NO_DTA -> "no DTA"
             else -> state.connection.name.lowercase()
         }
-        deviceMark.removeAll(); state.deviceAuto?.let { deviceMark.add(StatementMark(it)) }
-        appMark.removeAll(); state.appAuto?.let { appMark.add(StatementMark(it)) }
-        notes.removeAll()
-        (state.selection - listOfNotNull(state.deviceAuto, state.appAuto).toSet()).forEach { notes.add(StatementMark(it)) }
         revalidate()
         repaint()
     }
-
-    private fun mark() = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false }
 
     private fun onOpen(action: () -> Unit) = object : PopupMenuListener {
         override fun popupMenuWillBecomeVisible(e: PopupMenuEvent?) = action()
