@@ -15,6 +15,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.present.context.Banner
+import io.yamsergey.dta.studio.ui.textRenderer
 import io.yamsergey.dta.present.layout.LayoutTree
 import io.yamsergey.dta.present.layout.NodeDetail
 import io.yamsergey.dta.present.layout.SearchResult
@@ -72,7 +73,7 @@ class LayoutPanel(
     private val banners = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
     private val summary = JBLabel().apply { foreground = JBColor.GRAY }
     private val detailLevel = ComboBox(DetailLevel.entries.toTypedArray()).apply {
-        renderer = com.intellij.ui.SimpleListCellRenderer.create("") { it.name.lowercase() }
+        renderer = io.yamsergey.dta.studio.ui.textRenderer { it.name.lowercase() }
     }
     private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Search name, text, id, test tag" }
     private val position = JBLabel().apply { foreground = JBColor.GRAY }
@@ -81,7 +82,7 @@ class LayoutPanel(
     private val navigator = SourceNavigator(project)
     private val detail = NodeDetailPane(
         onAncestor = { depth -> last.selected?.let { controller.select(it.take(depth)) } },
-        openSource = { source, anchor -> navigator.open(source, last.app, anchor) },
+        openSource = { source, anchor, onMissing -> navigator.open(source, last.app, anchor, onMissing) },
     )
     private val splitter = JBSplitter(false, 0.55f)
     private var last = LayoutViewState()

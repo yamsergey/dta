@@ -1,8 +1,6 @@
 package io.yamsergey.dta.studio.inject
 
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import io.yamsergey.dta.inject.InitScript
 import io.yamsergey.dta.inject.InjectionConfig
@@ -33,6 +31,6 @@ object InjectionFiles {
 
     fun config(pluginVersion: String): InjectionConfig = InjectionConfig.forRelease(pluginVersion)
 
-    private fun pluginVersion(): String =
-        PluginManagerCore.getPlugin(PluginId.getId(DtaApplicationService.PLUGIN_ID))?.version ?: error("plugin ${DtaApplicationService.PLUGIN_ID} is not loaded")
+    /** The plugin's version: the one release version the plugin, daemon and sidekick share (FR-025). */
+    private fun pluginVersion(): String = DtaApplicationService.get().version.version
 }

@@ -1,7 +1,7 @@
 package io.yamsergey.dta.studio.toolwindow
 
 import com.intellij.openapi.ui.ComboBox
-import com.intellij.ui.SimpleListCellRenderer
+import io.yamsergey.dta.studio.ui.textRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.present.context.ContextState
@@ -28,8 +28,8 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
         add(JBLabel("Device")); add(devices)
         add(JBLabel("App")); add(apps)
         add(connection)
-        devices.renderer = SimpleListCellRenderer.create("No device") { it }
-        apps.renderer = SimpleListCellRenderer.create("No app") { it }
+        devices.renderer = textRenderer<String>("No device") { it }
+        apps.renderer = textRenderer<String>("No app") { it }
         devices.addPopupMenuListener(onOpen { controller.refreshDevices() })
         apps.addPopupMenuListener(onOpen { controller.refreshApps() })
         devices.addItemListener { e -> if (!updating && e.stateChange == ItemEvent.SELECTED) controller.chooseDevice((e.item as String).substringBefore(' ')) }

@@ -4,7 +4,7 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
-import com.intellij.ui.SimpleListCellRenderer
+import io.yamsergey.dta.studio.ui.textRenderer
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
@@ -43,7 +43,7 @@ class AgentsPanel(
     private val stateLine = JBLabel()
     private val fix = ActionLink("") { port.requestFocusInWindow(); port.selectAll() }.apply { isVisible = false }
     private val agent = ComboBox(Agent.entries.toTypedArray()).apply {
-        renderer = SimpleListCellRenderer.create("") { it.title }
+        renderer = textRenderer { it.title }
     }
     private val config = JBTextArea(6, 60).apply { isEditable = false; lineWrap = true; font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, font.size) }
     private val where = JBLabel().apply { foreground = JBColor.GRAY }

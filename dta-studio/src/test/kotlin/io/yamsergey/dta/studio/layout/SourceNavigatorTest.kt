@@ -19,4 +19,19 @@ class SourceNavigatorTest : BasePlatformTestCase() {
     fun `test a file not in the project has no candidates`() {
         assertEmpty(SourceNavigator(project).candidates(Source("Nowhere.kt", 1), "com.example.shop"))
     }
+
+    fun `test while the IDE indexes, a click is refused, not reported as missing`() {
+        var missing = false
+        com.intellij.testFramework.DumbModeTestUtils.runInDumbModeSynchronously(project) {
+            SourceNavigator(project).open(Source("Screen.kt", 3), "com.example.shop", javax.swing.JLabel()) { missing = true }
+        }
+        assertFalse("indexing is not 'not in this project'", missing)
+    }
+
+    fun `test a file not in the project is reported missing`() {
+        var missing = false
+        SourceNavigator(project).open(Source("Nowhere.kt", 1), "com.example.shop", javax.swing.JLabel()) { missing = true }
+        com.intellij.testFramework.PlatformTestUtil.waitWhileBusy { !missing }
+        assertTrue(missing)
+    }
 }

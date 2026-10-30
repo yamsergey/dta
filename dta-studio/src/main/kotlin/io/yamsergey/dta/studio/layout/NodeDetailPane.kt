@@ -23,7 +23,7 @@ import javax.swing.JPanel
  */
 class NodeDetailPane(
     private val onAncestor: (depth: Int) -> Unit,
-    private val openSource: (Source, JComponent) -> Boolean,
+    private val openSource: (Source, JComponent, onMissing: () -> Unit) -> Unit,
 ) : JPanel(BorderLayout()) {
     private val content = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); border = JBUI.Borders.empty(8, 12) }
 
@@ -63,7 +63,7 @@ class NodeDetailPane(
         val holder = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
         val link = ActionLink("${source.file}:${source.line}")
         link.addActionListener {
-            if (!openSource(source, link)) {
+            openSource(source, link) {
                 holder.removeAll()
                 holder.add(JBLabel("${source.file}:${source.line} — not in this project").apply { foreground = JBColor.GRAY })
                 holder.revalidate()

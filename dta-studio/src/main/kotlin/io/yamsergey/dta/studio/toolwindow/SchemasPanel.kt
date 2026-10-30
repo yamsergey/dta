@@ -9,7 +9,7 @@ import com.intellij.openapi.ui.DialogBuilder
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
-import com.intellij.ui.SimpleListCellRenderer
+import io.yamsergey.dta.studio.ui.textRenderer
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -138,7 +138,7 @@ class SchemasPanel(
         val method = JBTextField(8)
         val direction = ComboBox(arrayOf("any", "in", "out"))
         val type = ComboBox(types.toTypedArray()).apply {
-            renderer = SimpleListCellRenderer.create("") { "${it.type}  (${it.schema})" }
+            renderer = textRenderer { "${it.type}  (${it.schema})" }
         }
         val form = FormBuilder.createFormBuilder()
             .addLabeledComponent("URL pattern", url)

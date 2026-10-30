@@ -1,10 +1,12 @@
 package io.yamsergey.dta.studio.source
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.DumbModeBlockedFunctionality
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.JavaPsiFacade
@@ -24,12 +26,14 @@ class FrameNavigator(private val project: Project) {
 
     data class Location(val file: VirtualFile, val line: Int?, val offset: Int?)
 
-    fun resolve(className: String, method: String, file: String?, line: Int?): Location? = ReadAction.compute<Location?, RuntimeException> {
-        if (FrameClassifier.generated(className, method)) return@compute null
-        val cls = findClass(className) ?: return@compute null
+    fun resolve(className: String, method: String, file: String?, line: Int?): Location? = ApplicationManager.getApplication().runReadAction(Computable { find(className, method, line) })
+
+    private fun find(className: String, method: String, line: Int?): Location? {
+        if (FrameClassifier.generated(className, method)) return null
+        val cls = findClass(className) ?: return null
         val source = cls.navigationElement
-        val vf = source.containingFile?.virtualFile ?: return@compute null
-        if (line != null && source !is PsiCompiledElement) {
+        val vf = source.containingFile?.virtualFile ?: return null
+        return if (line != null && source !is PsiCompiledElement) {
             Location(vf, line, null)
         } else {
             val target = cls.findMethodsByName(method, false).firstOrNull()?.navigationElement ?: source

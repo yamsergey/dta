@@ -39,6 +39,9 @@ kotlin {
  */
 val androidStudioVersion = "2025.2.2.7"
 
+/** The current Android Studio release, verified as well so a newer IDE is checked before users get it. */
+val currentAndroidStudioVersion = "2026.2.2.8"
+
 fun findLocalAndroidStudio(): String? {
     providers.gradleProperty("androidStudioPath").orNull?.let { return it }
     providers.environmentVariable("ANDROID_STUDIO_PATH").orNull?.let { return it }
@@ -118,11 +121,23 @@ intellijPlatform {
             sinceBuild = "252" // Android Studio 2025.2.2, the original's range
             untilBuild = provider { null }
         }
+        changeNotes = providers.provider {
+            "<p>DTA ${project.version}: Network (HTTP and WebSocket in one live list), Layout, network Script and protobuf " +
+                "Schemas, DTA added to debug builds run from the IDE, and DTA's tools served to agents over HTTP.</p>"
+        }
+    }
+
+    // JetBrains Marketplace (as the original): the token from the repository secret, channel eap unless stable.
+    // Not signed: the original wasn't, and the repository holds no signing secrets.
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+        channels = providers.environmentVariable("PUBLISH_CHANNEL").orElse("eap").map { listOf(it) }
     }
 
     pluginVerification {
         ides {
             create(IntelliJPlatformType.AndroidStudio, androidStudioVersion)
+            create(IntelliJPlatformType.AndroidStudio, currentAndroidStudioVersion)
         }
     }
 
