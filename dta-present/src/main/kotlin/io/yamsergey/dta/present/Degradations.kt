@@ -52,7 +52,8 @@ object Degradations {
         Codes.NETWORK_INITIATOR_MISSING to
             "Some entries have no initiator stack: they were captured without one, for example before the process restarted.",
         Codes.NETWORK_BODY_INCOMPLETE to
-            "Some bodies were stored only in part, beyond the capture size limit; the entries say which.",
+            "Some bodies were captured only in part: the app stopped reading them, or they passed the capture size limit. " +
+            "The entries say which and how much was seen.",
         Codes.NETWORK_REDACTION_WITHHELD to
             "Part of the content was withheld by redaction. Turn redaction off to see it.",
         Codes.NETWORK_SCRIPT_UNAVAILABLE to
