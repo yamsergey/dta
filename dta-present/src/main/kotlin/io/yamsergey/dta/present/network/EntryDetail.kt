@@ -35,7 +35,8 @@ data class FrameLine(
 
 data class InitiatorView(val header: String, val frames: List<FrameLine>, val missing: String?, val truncated: Int?)
 
-data class InterventionView(val summary: String, val hasAppSide: Boolean, val mocked: Boolean, val dropped: Boolean, val error: String?)
+/** [description] is the script's own words for what it did; [summary] is what DTA recorded. */
+data class InterventionView(val summary: String, val hasAppSide: Boolean, val mocked: Boolean, val dropped: Boolean, val error: String?, val description: String? = null)
 
 /**
  * One entry in full (information.md "Network entry"): summary, script intervention with the
@@ -85,7 +86,7 @@ data class EntryDetail(
                 InterventionView(
                     summary = listOfNotNull(changed.takeIf { c -> c.isNotEmpty() }?.let { c -> "changed $c" }, it.long("delayMs")?.let { d -> "delayed $d ms" },
                         if (it.bool("mocked")) "answered by the script" else null, if (it.bool("dropped")) "dropped" else null).joinToString(" · ").ifEmpty { "ran, changed nothing" },
-                    hasAppSide = hasAppSide, mocked = it.bool("mocked"), dropped = it.bool("dropped"), error = it.str("error"),
+                    hasAppSide = hasAppSide, mocked = it.bool("mocked"), dropped = it.bool("dropped"), error = it.str("error"), description = it.str("description"),
                 )
             }
             val appRequest = e.obj("appRequest").takeIf { app }

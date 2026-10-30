@@ -22,6 +22,7 @@ object InterventionDiff {
             mocked = effect is Effect.Mock,
             dropped = effect == Effect.Drop,
             error = result.error,
+            description = result.description,
         )
     }
 
@@ -38,6 +39,7 @@ object InterventionDiff {
             mocked = a.mocked || b.mocked,
             dropped = a.dropped || b.dropped,
             error = listOfNotNull(a.error, b.error).joinToString("; ").ifEmpty { null },
+            description = listOfNotNull(a.description, b.description).joinToString("; ").ifEmpty { null },
         )
     }
 

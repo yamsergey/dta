@@ -79,4 +79,6 @@ data class ScriptResult<out T>(
     val scriptMs: Long = 0,
     val throttleBytesPerSecond: Long? = null,
     val error: String? = null,
+    /** The script's own words for what it did (`description()`). */
+    val description: String? = null,
 )

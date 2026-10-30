@@ -20,7 +20,9 @@ Return values:
 - `drop()`: the app sees a network failure (or the message disappears).
 - `null`: an error is logged, traffic unchanged.
 
-Globals: `sleep(ms)`, `throttle(bytesPerSecond)` (in `onResponse` only), `state` (`get`, `set`, `delete`, `clear` — kept between calls), `log(...)` (read with `network_script_logs`).
+Globals: `sleep(ms)`, `throttle(bytesPerSecond)` (in `onResponse` only), `description(text)`, `state` (`get`, `set`, `delete`, `clear` — kept between calls), `log(...)` (read with `network_script_logs`).
+
+`description(text)` says in a few words what the handler did, e.g. `description("simulated checkout outage")`. It is stored on the entry (`intervention.description`, up to 200 characters; several calls join with "; ") and shown next to what DTA recorded. Only what a handler actually does changes traffic: a description of a call that changed nothing goes to the script log with the entry id instead. Unknown fields in a returned object are ignored, so `return {delayMs: 10}` does nothing — use `sleep(10)`.
 
 ## Recipes
 
@@ -28,8 +30,10 @@ Globals: `sleep(ms)`, `throttle(bytesPerSecond)` (in `onResponse` only), `state`
 // Delay everything by 2 s
 function onRequest(req) { sleep(2000); }
 
-// Fail matching requests with a status
-function onRequest(req) { if (req.url.includes("/login")) return respond({status: 503, body: "down"}); }
+// Fail matching requests with a status, saying why
+function onRequest(req) {
+  if (req.url.includes("/login")) { description("login backend down"); return respond({status: 503, body: "down"}); }
+}
 
 // Mock a JSON response
 function onRequest(req) {

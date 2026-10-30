@@ -106,6 +106,8 @@ class EntryViewsTest {
     fun `a scripted entry switches between the wire and what the app saw`() {
         val wire = EntryDetail.of(canned("entry-scripted"))
         assertEquals("changed status, body · delayed 2000 ms", wire.intervention!!.summary)
+        assertEquals("checkout outage", wire.intervention!!.description, "the script's own words")
+        assertTrue("checkout outage" in wire.statements.first().sentence, "and in the scripted mark's sentence, for the list and the CLI")
         assertTrue(wire.intervention!!.hasAppSide)
         assertEquals(Side.WIRE, wire.side)
         assertEquals(listOf("Content-Type", "Retry-After"), wire.response!!.headers.map { it.first })

@@ -74,7 +74,8 @@ object Statements {
         bodies.firstOrNull { it.str("completeness") != "complete" }?.let { add(incomplete(it)) }
         entry.obj("intervention")?.let { i ->
             val changed = i.arr("changed").joinToString(",") { it.content }.ifEmpty { "nothing" }
-            add(Statement(StatementKind.SCRIPTED, detail = "script ${i.str("scriptId")} changed $changed" + (i.long("delayMs")?.let { ", delayed $it ms" } ?: "")))
+            add(Statement(StatementKind.SCRIPTED, detail = "script ${i.str("scriptId")} changed $changed" + (i.long("delayMs")?.let { ", delayed $it ms" } ?: "") +
+                (i.str("description")?.let { " — $it" } ?: "")))
         }
         if (bodies.any { it.bool("binary") }) add(Statement(StatementKind.BINARY))
         when (entry.str("state")) {

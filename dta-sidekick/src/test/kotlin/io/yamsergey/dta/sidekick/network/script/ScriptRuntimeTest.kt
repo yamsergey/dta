@@ -84,6 +84,16 @@ class ScriptRuntimeTest {
     }
 
     @Test
+    fun `a description of a call that changed nothing goes to the log with the entry, not lost`() {
+        runtime.install("function onRequest(r) {}")
+        runtime.account(ScriptHandler.REQUEST, ScriptResult<Any>(Effect.None, description = "looked at auth"), "r1-1:7")
+        val line = runtime.logs(0).lines.single()
+        assertEquals("r1-1:7", line.entryId)
+        assertEquals("looked at auth (nothing changed)", line.message)
+        assertEquals(0, runtime.status().changes)
+    }
+
+    @Test
     fun `script log lines reach the runtime log`() {
         runtime.install("function onRequest(r) { log('hello', r.url); }")
         runtime.current()!!.script.onRequest(request)

@@ -117,6 +117,9 @@ class ScriptRuntime(
             log(ScriptLogLevel.ERROR, handler, entryId, result.error)
         } else if (result.effect != Effect.None || result.delayMs > 0 || result.throttleBytesPerSecond != null) {
             changes.incrementAndGet()
+        } else if (result.description != null) {
+            // Nothing on the entry to carry it: the words go to the log, with the entry they concern.
+            log(ScriptLogLevel.LOG, handler, entryId, "${result.description} (nothing changed)")
         }
     }
 

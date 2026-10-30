@@ -243,7 +243,7 @@ object Catalog {
         ),
         OperationSpec(
             "network.script.set",
-            "Install the app's network script (JavaScript with request/response/ws handlers that can delay, rewrite, answer or drop traffic). It persists until cleared. Give source or path.",
+            "Install the app's network script (JavaScript with request/response/ws handlers that can delay, rewrite, answer or drop traffic, and say what they did with description(text), a short line stored on the entry). It persists until cleared. Give source or path.",
             Scope.APP,
             listOf(
                 ParamSpec("source", ParamType.STRING, "Script source text."),

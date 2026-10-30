@@ -65,13 +65,14 @@ object ScriptEngine {
     }
 }
 
-/** Per-call bookkeeping read by the global functions (sleep, throttle, log). */
+/** Per-call bookkeeping read by the global functions (sleep, throttle, description, log). */
 internal class CallState(val handler: ScriptHandler) {
     var delayNanos = 0L
     var throttle: Long? = null
+    val description = mutableListOf<String>()
 }
 
-/** `sleep`, `throttle`, `log`, `state`, `respond`, `drop`. */
+/** `sleep`, `throttle`, `description`, `log`, `state`, `respond`, `drop`. */
 internal class ScriptGlobals(private val log: ScriptLogSink) {
     val current = ThreadLocal<CallState?>()
     private val state = HashMap<String, Any?>()
@@ -94,6 +95,10 @@ internal class ScriptGlobals(private val log: ScriptLogSink) {
             val call = current.get()
             if (call?.handler != ScriptHandler.RESPONSE) throw IllegalStateException("throttle() is only available in onResponse")
             call.throttle = Context.toNumber(args.getOrNull(0)).toLong().takeIf { it > 0 }
+            Undefined.instance
+        }
+        fn(scope, "description") { args ->
+            Context.toString(args.getOrNull(0)).trim().takeIf { it.isNotEmpty() }?.let { current.get()?.description?.add(it) }
             Undefined.instance
         }
         fn(scope, "log") { args ->
@@ -119,6 +124,15 @@ internal class ScriptGlobals(private val log: ScriptLogSink) {
 
     companion object {
         const val MARKER = "__dta"
+
+        /** A description is a short line: longer ones are cut, saying so with "…". */
+        const val DESCRIPTION_MAX = 200
+
+        fun shortDescription(text: String): String? = when {
+            text.isEmpty() -> null
+            text.length <= DESCRIPTION_MAX -> text
+            else -> text.take(DESCRIPTION_MAX - 1) + "…"
+        }
 
         fun fn(target: Scriptable, name: String, body: (Array<Any?>) -> Any?) {
             ScriptableObject.putProperty(target, name, object : BaseFunction() {
@@ -190,6 +204,7 @@ class CompiledScript internal constructor(
             scriptMs = (totalNanos - state.delayNanos).coerceAtLeast(0) / 1_000_000,
             throttleBytesPerSecond = if (error != null) null else state.throttle,
             error = error?.let { "${names[handler]}: $it" },
+            description = ScriptGlobals.shortDescription(state.description.joinToString("; ")),
         )
     }
 

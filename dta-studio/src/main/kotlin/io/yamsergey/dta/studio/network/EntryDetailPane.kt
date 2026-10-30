@@ -114,7 +114,7 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
         ) + detail.statements
         if (statements.isNotEmpty()) header.add(row(statements.map { StatementMark(it) }))
         detail.intervention?.let { i ->
-            val items = mutableListOf<JComponent>(JBLabel("✎ ${i.summary}").apply { foreground = DtaColors.of("intervened") })
+            val items = mutableListOf<JComponent>(JBLabel("✎ ${listOfNotNull(i.description, i.summary).joinToString(" — ")}").apply { foreground = DtaColors.of("intervened") })
             if (i.hasAppSide) {
                 items += ComboBox(arrayOf("On the wire", "What the app saw")).apply {
                     selectedIndex = if (side == Side.WIRE) 0 else 1

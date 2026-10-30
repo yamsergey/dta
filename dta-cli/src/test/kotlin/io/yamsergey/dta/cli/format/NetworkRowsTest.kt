@@ -1,6 +1,7 @@
 package io.yamsergey.dta.cli.format
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -32,5 +33,16 @@ class NetworkRowsTest {
         assertTrue("Sent" in binary && "chat.example.com/chat" in binary && "binary 16 B" !in binary, binary)
         assertTrue("Received" in text && "chat.example.com/chat" in text && "hello" !in text, text)
         assertFalse(out.any { "conn r1-1" in it }, out.joinToString("\n"))
+    }
+
+    @Test
+    fun `a scripted entry says what the script did, in its own words`() {
+        val entry = Json.parseToJsonElement("""
+            {"entry":{"type":"http","id":"r1-1:2","runId":"r1-1","timeMs":1700000000000,"library":"okhttp3","method":"GET",
+             "url":"https://api.example.com/cart","state":"complete","status":503,
+             "intervention":{"scriptId":"abc123","handlers":["request"],"delayMs":10,"description":"checkout outage"}}}
+        """).jsonObject
+        val out = Formatters(Style.PLAIN).format("network.entry", entry)
+        assertTrue("checkout outage" in out && "delayed 10 ms" in out, out)
     }
 }

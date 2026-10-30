@@ -111,6 +111,16 @@ class ScriptEngineTest {
     }
 
     @Test
+    fun `description says in the script's words what it did, kept short`() {
+        assertEquals("slow auth", compile("function onRequest(req) { sleep(1); description('slow auth'); }").onRequest(request()).description)
+        assertEquals("slow auth; then 503", compile("function onRequest(req) { description('slow auth'); description('then 503'); }").onRequest(request()).description)
+        assertNull(compile("function onRequest(req) { description('  '); }").onRequest(request()).description)
+        val long = compile("function onRequest(req) { description('x'.repeat(500)); }").onRequest(request()).description!!
+        assertEquals(ScriptGlobals.DESCRIPTION_MAX, long.length)
+        assertTrue(long.endsWith("…"))
+    }
+
+    @Test
     fun `sleep is accounted as delay, not script time`() {
         val result = compile("function onRequest(req) { sleep(120); }").onRequest(request())
         assertTrue(result.delayMs in 120..400, "delay ${result.delayMs}")

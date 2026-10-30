@@ -40,6 +40,15 @@ class InterventionDiffTest {
     }
 
     @Test
+    fun `a description rides on what the handler did, and alone is no record`() {
+        val record = InterventionDiff.record("s", ScriptHandler.REQUEST, ScriptResult<RequestChange>(Effect.None, delayMs = 10, description = "slow auth"))
+        assertEquals("slow auth", record!!.description)
+        assertNull(InterventionDiff.record("s", ScriptHandler.REQUEST, ScriptResult<RequestChange>(Effect.None, description = "looked")))
+        val merged = InterventionDiff.merge(record, InterventionRecord("s", listOf(ScriptHandler.RESPONSE), description = "then 503"))
+        assertEquals("slow auth; then 503", merged!!.description)
+    }
+
+    @Test
     fun `request and response records of one exchange merge`() {
         val a = InterventionRecord("s", listOf(ScriptHandler.REQUEST), listOf(ChangedField.HEADERS), delayMs = 100, scriptMs = 1)
         val b = InterventionRecord("s", listOf(ScriptHandler.RESPONSE), listOf(ChangedField.STATUS), delayMs = 50, scriptMs = 2, throttleBytesPerSecond = 10)

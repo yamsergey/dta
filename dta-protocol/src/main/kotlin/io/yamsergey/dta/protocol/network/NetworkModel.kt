@@ -282,6 +282,8 @@ data class InterventionRecord(
     val dropped: Boolean = false,
     /** A handler error; the traffic passed unchanged. */
     val error: String? = null,
+    /** What happened, in the script's own words (`description()`); handlers' words joined by "; ". */
+    val description: String? = null,
 )
 
 @Serializable

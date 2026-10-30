@@ -3,7 +3,7 @@
   "responseHeaders":[{"name":"Content-Type","value":"application/json"},{"name":"Retry-After","value":"5"}],
   "requestBody":{"part":"request","storedBytes":42,"contentType":"application/json","completeness":"complete","preview":"{\"sku\":\"A1\"}"},
   "responseBody":{"part":"response","storedBytes":120,"contentType":"application/json","completeness":"complete","preview":"{\"error\":\"busy\"}"},
-  "intervention":{"scriptId":"abc123","handlers":["response"],"changed":["status","body"],"delayMs":2000,"scriptMs":3},
+  "intervention":{"scriptId":"abc123","handlers":["response"],"changed":["status","body"],"delayMs":2000,"scriptMs":3,"description":"checkout outage"},
   "appResponse":{"status":503,"headers":[{"name":"Content-Type","value":"application/json"},{"name":"X-Scripted","value":"1"}],"body":{"part":"app-response","storedBytes":18,"contentType":"application/json","completeness":"complete","preview":"{\"error\":\"busy\"}"}},
   "initiator":{"thread":"OkHttp Dispatcher","site":"enqueue","frames":[
     {"className":"okhttp3.RealCall","method":"enqueue","file":"RealCall.kt","line":140,"app":false},

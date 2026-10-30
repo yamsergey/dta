@@ -114,7 +114,8 @@ dta daemon status | stop
     `network_script_logs` (`since`); daemon `networkScriptSet/Clear/Status/Logs`.
   - Handlers `onRequest(req)`, `onResponse(res, req)`, `onWsSend(msg, conn)`,
     `onWsReceive(msg, conn)`; helpers `respond({...})` (mock), `drop()`,
-    `sleep(ms)`, `throttle(bytesPerSecond)`, `state`, `log`. Return the mutated
+    `sleep(ms)`, `throttle(bytesPerSecond)`, `description(text)` (a short line
+    stored on the entry), `state`, `log`. Return the mutated
     object to change it; `null` is an error, never a silent drop. Bodies are read
     only when the script calls `text()`/`bytes()`/`json()`. Snippets for the
     common cases: `../specs/005-network-scripting/contracts/network-script.md` §8.
@@ -122,7 +123,8 @@ dta daemon status | stop
     applies from the first request of a new process, before any client connects
     (constitution v1.4.0). It is always visible: the `network` capability's
     `script`, an `intervention` record on every entry it touched (handlers,
-    changed fields, delay, throttle, mocked/dropped, errors), the app-side request
+    changed fields, delay, throttle, mocked/dropped, errors, the script's
+    description), the app-side request
     / response / message next to the wire view (`app-request`, `app-response`,
     `app-message` body parts), the `intervened` filter, and a device-log line at
     every app start.
