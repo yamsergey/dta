@@ -58,6 +58,14 @@ class AgentsPanel(
         val copy = JButton("Copy").apply {
             addActionListener { CopyPasteManager.getInstance().setContents(StringSelection(config.text)) }
         }
+        // An instruction for the agent to configure the server itself.
+        val copyPrompt = JButton("Copy prompt").apply {
+            toolTipText = "Copy an instruction to paste into the agent, so it sets up the DTA server itself"
+            addActionListener {
+                val selected = agent.selectedItem as? Agent ?: return@addActionListener
+                CopyPasteManager.getInstance().setContents(StringSelection(AgentConfigs.prompt(selected, endpoint(), controller.credential())))
+            }
+        }
         val regenerate = ActionLink("Regenerate credential") {
             val answer = Messages.showYesNoDialog(
                 this, "Agents configured with the current credential will stop working until you copy the new configuration.",
@@ -70,7 +78,7 @@ class AgentsPanel(
         }
         val portRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(port); add(applyPort) }
         val stateRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(stateLine); add(fix) }
-        val copyRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(copy); add(regenerate) }
+        val copyRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(copy); add(copyPrompt); add(regenerate) }
         val form = FormBuilder.createFormBuilder()
             .addComponent(enabled)
             .addLabeledComponent("Port", portRow)
@@ -105,9 +113,11 @@ class AgentsPanel(
 
     private fun renderConfig() {
         val selected = agent.selectedItem as? Agent ?: return
-        val rendered = AgentConfigs.render(selected, "http://127.0.0.1:${prefs.port}/mcp", controller.credential())
+        val rendered = AgentConfigs.render(selected, endpoint(), controller.credential())
         config.text = rendered.text
         where.text = rendered.where?.let { "Paste into $it" } ?: "Run in a terminal"
         note.text = rendered.note?.let { "<html>${it.replace("&", "&amp;").replace("<", "&lt;")}</html>" }.orEmpty()
     }
+
+    private fun endpoint() = "http://127.0.0.1:${prefs.port}/mcp"
 }
