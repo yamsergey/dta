@@ -68,7 +68,7 @@ class DaemonLauncherTest {
 
     @Test
     fun `a foreign listener on the recorded port is never used`() = runBlocking<Unit> {
-        val foreign = ServerSocket(0)
+        val foreign = ServerSocket(0, 50, java.net.InetAddress.getLoopbackAddress())
         thread(isDaemon = true) { runCatching { while (true) foreign.accept().use { it.getOutputStream().write("HTTP/1.1 404 Nope\r\n\r\n".toByteArray()) } } }
         state.write(DaemonState(ProcessHandle.current().pid(), foreign.localPort, "0.1.0", "2026-10-28T10:00:00Z", 1, 0))
         File(home.daemonDir, "token").writeText("x")

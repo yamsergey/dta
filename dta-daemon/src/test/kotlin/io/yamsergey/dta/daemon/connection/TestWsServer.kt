@@ -27,7 +27,9 @@ class TestWsServer(
         serverVersion = serverVersion,
         protocolVersion = protocolVersion,
     )
-    private val serverSocket = ServerSocket(0)
+    // Loopback, as every DTA server binds: a wildcard bind can share its port with another
+    // test JVM's loopback server, and 127.0.0.1 then reaches that one instead.
+    private val serverSocket = ServerSocket(0, 50, java.net.InetAddress.getLoopbackAddress())
     val port: Int get() = serverSocket.localPort
     val sessions: MutableList<ServerSession> = Collections.synchronizedList(mutableListOf())
     private val sockets = Collections.synchronizedList(mutableListOf<java.net.Socket>())
