@@ -67,4 +67,18 @@ class ContextControllerTest {
         val controller = ContextController(failing.state, scope).also { failing.start() }
         assertEquals("did not start; see daemon.log", controller.await { it.daemon.phase == DaemonPhase.FAILED }.daemon.message)
     }
+
+    @Test
+    fun `several projects share the IDE's one daemon connection, each with its own context`() = runBlocking<Unit> {
+        val first = ContextController(session.state, scope)
+        val second = ContextController(session.state, scope)
+        session.start()
+        first.await { it.app != null }
+        second.await { it.app != null }
+        second.chooseApp("com.example.other")
+        assertEquals("com.example.shop", first.state.value.app, "one project's choice is not another's")
+        val status = first.client!!.call("daemon.status").result as kotlinx.serialization.json.JsonObject
+        val kinds = (status["clients"] as kotlinx.serialization.json.JsonArray).map { (it as kotlinx.serialization.json.JsonObject)["kind"].toString().trim('"') }
+        assertEquals(listOf("ide"), kinds, "one connection for the whole IDE")
+    }
 }

@@ -62,6 +62,28 @@ class LayoutTreeTest {
     }
 
     @Test
+    fun `a very large tree opens collapsed below two levels, and builds quickly`() {
+        // 20 wide, 3 levels below the root: 1 + 20 + 400 + 8,000 = 8,421 nodes.
+        fun node(depth: Int): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {
+            put("kind", kotlinx.serialization.json.JsonPrimitive("view"))
+            put("className", kotlinx.serialization.json.JsonPrimitive("android.widget.FrameLayout"))
+            put("children", kotlinx.serialization.json.JsonArray(if (depth == 0) emptyList() else List(20) { node(depth - 1) }))
+        }
+        val capture = kotlinx.serialization.json.buildJsonObject {
+            put("windows", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.buildJsonObject {
+                put("type", kotlinx.serialization.json.JsonPrimitive("application"))
+                put("root", node(3))
+            })))
+        }
+        val start = System.nanoTime()
+        val tree = LayoutTree.of(capture)
+        val ms = (System.nanoTime() - start) / 1_000_000
+        assertEquals(8_421, tree.all().count(), "every node is in the model")
+        assertEquals(1 + 20, tree.initiallyExpanded.size, "the root and its 20 children: nothing deeper opens")
+        assertTrue(ms < 2_000, "built in $ms ms")
+    }
+
+    @Test
     fun `a fallback capture is a banner with its reason, and its nodes are tagged fallback`() {
         val plain = LayoutTree.of(canned("layout-plain-fallback"))
         val fallback = plain.statements.single()
