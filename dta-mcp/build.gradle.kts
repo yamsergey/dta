@@ -20,6 +20,7 @@ kotlin {
 dependencies {
     api(project(":dta-client"))
     api(libs.mcp)
+    implementation(libs.jetty.ee11.servlet)
 
     // An in-process daemon with canned answers, shared by the CLI's and the plugin's tests.
     testFixturesApi(project(":dta-daemon"))

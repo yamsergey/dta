@@ -16,7 +16,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /** The daemon is newer than this client; [message] names both versions and the fix. */
 class VersionConflictException(val daemon: VersionIdentity, val client: VersionIdentity, kind: ClientKind = ClientKind.CLI) : Exception(
-    if (kind == ClientKind.IDE) {
+    if (kind == ClientKind.IDE || kind == ClientKind.MCP_HTTP) {
         "The running DTA daemon is ${daemon.display}, newer than this DTA plugin ${client.display}. " +
             "Update the DTA plugin, or stop the daemon with 'dta daemon stop' and retry to use this version."
     } else {

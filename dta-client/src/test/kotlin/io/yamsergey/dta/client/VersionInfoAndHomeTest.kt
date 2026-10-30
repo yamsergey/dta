@@ -6,6 +6,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import io.yamsergey.dta.protocol.ops.ClientKind
+import io.yamsergey.dta.protocol.ops.VersionIdentity
 
 class VersionInfoAndHomeTest {
 
@@ -45,5 +48,15 @@ class VersionInfoAndHomeTest {
         val home = DtaHome.resolve(env = emptyMap(), property = null, userHome = "/u")
         assertEquals(File("/u/.dta"), home.root)
         assertEquals(File("/u/.dta/daemon"), home.daemonDir)
+    }
+
+    @Test
+    fun `a version conflict tells the plugin's clients to update the plugin`() {
+        val daemon = VersionIdentity("0.3.0", "2026-10-30T10:00:00Z", 1)
+        val client = VersionIdentity("0.2.0", "2026-10-28T10:00:00Z", 1)
+        for (kind in listOf(ClientKind.IDE, ClientKind.MCP_HTTP)) {
+            assertTrue("Update the DTA plugin" in VersionConflictException(daemon, client, kind).message!!, "$kind")
+        }
+        assertTrue("Upgrade dta" in VersionConflictException(daemon, client, ClientKind.MCP).message!!)
     }
 }

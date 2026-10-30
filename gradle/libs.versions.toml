@@ -22,6 +22,8 @@ wire = "6.4.7"  # 7.x pulls kotlin-stdlib 2.3
 # CLI only (feature 008). Clikt 5.1 pulls kotlin-stdlib 2.3; the MCP Kotlin SDK pulls 2.4.
 clikt = "5.0.3"
 mcp = "2.0.1"
+# The agent server over HTTP (feature 009 R9): ee11 = Servlet 6.1, what mcp-core is built against.
+jetty = "12.1.14"
 # Android Studio plugin only (feature 009).
 intellij-platform = "2.19.0"
 # Publishing (as in the original).
@@ -44,6 +46,7 @@ opentelemetry-proto = { module = "io.opentelemetry.proto:opentelemetry-proto", v
 wire-schema = { module = "com.squareup.wire:wire-schema-jvm", version.ref = "wire" }
 clikt = { module = "com.github.ajalt.clikt:clikt-core", version.ref = "clikt" }
 mcp = { module = "io.modelcontextprotocol.sdk:mcp", version.ref = "mcp" }
+jetty-ee11-servlet = { module = "org.eclipse.jetty.ee11:jetty-ee11-servlet", version.ref = "jetty" }
 compose-ui-tooling-data = { module = "androidx.compose.ui:ui-tooling-data", version.ref = "compose" }
 
 [plugins]

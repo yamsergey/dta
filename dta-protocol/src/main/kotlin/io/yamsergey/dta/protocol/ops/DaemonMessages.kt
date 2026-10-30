@@ -63,6 +63,8 @@ enum class ClientKind {
     @SerialName("cli") CLI,
     @SerialName("mcp") MCP,
     @SerialName("ide") IDE,
+    /** The agent server over HTTP hosted by the Android Studio plugin (009 US4). */
+    @SerialName("mcp-http") MCP_HTTP,
 }
 
 /** First request of every client connection (contract daemon-protocol §Connect). */
