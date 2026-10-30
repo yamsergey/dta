@@ -31,6 +31,8 @@ object Tokens {
         token("kind-ws", 0x5a46b0, 0xb0a2ff),
         token("node-view", 0x2d5b8a, 0x8db8e4),
         token("node-compose", 0x2e7346, 0x7fd39b),
+        // The app's live connection (context line); a surface extension, not yet in tokens.json.
+        token("live", 0x2e7346, 0x7fd39b),
         token("status-client", 0x8f5200, 0xf2b45a),
         token("status-server", 0xb4261c, 0xff8d82),
         token("caveat", 0x855000, 0xf0b34d),

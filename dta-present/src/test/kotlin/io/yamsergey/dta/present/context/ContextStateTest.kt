@@ -10,6 +10,7 @@ import io.yamsergey.dta.protocol.ops.DeviceRule
 import io.yamsergey.dta.protocol.ops.SelectionStatement
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -114,5 +115,19 @@ class ContextStateTest {
         assertNull(state.device)
         assertTrue("Choose a device" in state.banner!!.text, state.banner!!.text)
         assertEquals("emulator-5556", state.reduce(ContextEvent.DeviceChosen("emulator-5556")).device)
+    }
+
+    @Test
+    fun `the connection reads at a glance - green when connected, red when lost or refused`() {
+        fun line(state: String, reason: String? = null) =
+            ready(ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", "com.example.shop", state, reason))).connectionLine!!
+        assertEquals(ConnectionLine("● connected", "live", null), line("connected"))
+        assertEquals(ConnectionLine("● lost", "status-server", "socket closed"), line("lost", "socket closed"))
+        assertEquals("status-server", line("refused").token)
+        assertEquals("ink-muted", line("ended").token)
+        assertNull(ready().connectionLine, "nothing reported yet: nothing shown")
+        val noDta = ready(ContextEvent.Apps(AppList("emulator-5554", "com.example.plain", emptyList())))
+        assertEquals(ConnectionLine("● no DTA", "caveat", null), noDta.connectionLine)
+        assertNotNull(io.yamsergey.dta.present.Tokens["live"])
     }
 }

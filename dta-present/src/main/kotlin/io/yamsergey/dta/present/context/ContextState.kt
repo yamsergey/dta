@@ -13,6 +13,9 @@ enum class Connection { UNKNOWN, CONNECTED, LOST, REFUSED, ENDED, NO_DTA }
 
 enum class DaemonPhase { STARTING, CONNECTED, REPLACED, CONFLICT, FAILED }
 
+/** The connection as the context line shows it: a dot and a word in [token]'s colour, the reason as its tooltip. */
+data class ConnectionLine(val text: String, val token: String, val reason: String?)
+
 data class DaemonInfo(val phase: DaemonPhase = DaemonPhase.STARTING, val version: String? = null, val message: String? = null)
 
 /** What injection did for the app's module in the last IDE build (contracts/injection.md); OFF when turned off. */
@@ -113,6 +116,20 @@ data class ContextState(
         device = device, deviceRule = deviceRule, app = app, appRule = appRule,
         connection = Connection.UNKNOWN, connectionReason = null, generation = generation + 1,
     )
+
+    /** The app's connection at a glance; null until the daemon reports one. */
+    val connectionLine: ConnectionLine?
+        get() {
+            val (word, token) = when (connection) {
+                Connection.UNKNOWN -> return null
+                Connection.CONNECTED -> "connected" to "live"
+                Connection.LOST -> "lost" to "status-server"
+                Connection.REFUSED -> "refused" to "status-server"
+                Connection.ENDED -> "ended" to "ink-muted"
+                Connection.NO_DTA -> "no DTA" to "caveat"
+            }
+            return ConnectionLine("● $word", token, connectionReason)
+        }
 
     val banner: Banner?
         get() = when (daemon.phase) {

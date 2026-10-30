@@ -4,9 +4,9 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
-import io.yamsergey.dta.present.context.Connection
 import io.yamsergey.dta.present.context.ContextState
 import io.yamsergey.dta.studio.ContextController
+import io.yamsergey.dta.studio.ui.DtaColors
 import java.awt.FlowLayout
 import java.awt.event.ItemEvent
 import javax.swing.JPanel
@@ -48,11 +48,10 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
         } finally {
             updating = false
         }
-        connection.text = when (state.connection) {
-            Connection.UNKNOWN -> ""
-            Connection.NO_DTA -> "no DTA"
-            else -> state.connection.name.lowercase()
-        }
+        val line = state.connectionLine
+        connection.text = line?.text ?: ""
+        connection.foreground = line?.let { if (it.token == "ink-muted") com.intellij.ui.JBColor.GRAY else DtaColors.of(it.token) }
+        connection.toolTipText = line?.reason
         revalidate()
         repaint()
     }
