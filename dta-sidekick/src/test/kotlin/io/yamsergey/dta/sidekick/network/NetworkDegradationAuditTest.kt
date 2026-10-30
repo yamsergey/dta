@@ -69,6 +69,14 @@ class NetworkDegradationAuditTest {
     }
 
     @Test
+    fun `with no limit set, nothing is evicted however much is stored`() = withStore(bounds = StoreBounds(segmentBytes = 500)) { store, recorder ->
+        repeat(6) { completeGet(recorder, bodyBytes = 1_000); store.flush() }
+        store.evictIfNeeded()
+        assertEquals(0, store.coverage().evicted)
+        assertTrue(DegradationCodes.NETWORK_HISTORY_EVICTED !in codes(NetworkMethods(store) { available }.list(null)))
+    }
+
+    @Test
     fun `history-evicted comes from eviction`() = withStore(bounds = StoreBounds(historyBytes = 6_000, segmentBytes = 500)) { store, recorder ->
         repeat(6) { completeGet(recorder, bodyBytes = 1_000); store.flush() }
         store.evictIfNeeded()

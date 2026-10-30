@@ -24,9 +24,18 @@ class TeeStreamsTest {
 
     private val data = ByteArray(10_000) { (it * 31 + 7).toByte() }
 
-    private fun recorder(sink: BodySink?, bound: Long = 1_000_000, declared: Long? = null): Pair<BodyRecorder, () -> BodyCapture?> {
+    private fun recorder(sink: BodySink?, bound: Long? = 1_000_000, declared: Long? = null): Pair<BodyRecorder, () -> BodyCapture?> {
         var captured: BodyCapture? = null
         return BodyRecorder(sink, bound, declared) { captured = it } to { captured }
+    }
+
+    @Test
+    fun `without a bound every byte the app reads is stored`() {
+        val sink = MemorySink()
+        val (rec, result) = recorder(sink, bound = null)
+        TeeInputStream(ByteArrayInputStream(data), rec).use { it.readBytes() }
+        assertContentEquals(data, sink.bytes.toByteArray())
+        assertEquals(BodyCapture(10_000, 10_000, Completeness.COMPLETE, null), result())
     }
 
     @Test

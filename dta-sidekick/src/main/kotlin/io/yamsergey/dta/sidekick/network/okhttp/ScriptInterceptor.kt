@@ -49,7 +49,8 @@ internal class ScriptInterceptor(
     private val contexts: CallContexts,
     private val initiators: Initiators,
     private val scripts: ScriptRuntime,
-    private val bodyBound: Long,
+    /** At most this much of a body is read for a script; null reads all of it. */
+    private val bodyBound: Long?,
 ) : Interceptor {
 
     @Throws(IOException::class)
@@ -146,7 +147,7 @@ internal class ScriptInterceptor(
             if (changedResponse != null) {
                 ids.lastOrNull()?.let { id ->
                     recorder.httpAppResponse(id, changedResponse.code, headers(changedResponse.headers),
-                        changedResponse.peekBody(bodyBound).bytes(), changedResponse.body?.contentType()?.toString())
+                        changedResponse.peekBody(bodyBound ?: Long.MAX_VALUE).bytes(), changedResponse.body?.contentType()?.toString())
                 }
             }
         } catch (_: Throwable) {
@@ -190,7 +191,7 @@ internal class ScriptInterceptor(
     }
 
     /** The response body as the app would read it (bounded peek; the app's stream is untouched). */
-    private fun decoded(response: Response): ByteArray = response.peekBody(bodyBound).bytes()
+    private fun decoded(response: Response): ByteArray = response.peekBody(bodyBound ?: Long.MAX_VALUE).bytes()
 
     private fun readRequestBody(request: Request): ByteArray? {
         val body = request.body ?: return null

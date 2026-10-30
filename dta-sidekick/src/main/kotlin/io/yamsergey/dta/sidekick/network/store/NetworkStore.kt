@@ -39,10 +39,14 @@ internal data class StoreState(
     val clearedAtMs: Long? = null,
 )
 
-/** Storage bounds (data-model §Bounds); stated in the capability and coverage. */
+/**
+ * Storage bounds (data-model §Bounds); stated in the capability and coverage. None by default:
+ * the whole history and every body are kept. A set [historyBytes] evicts the oldest entries; a
+ * set [bodyBytes] stores a body up to it and states the rest as truncated.
+ */
 data class StoreBounds(
-    val historyBytes: Long = 100L * 1024 * 1024,
-    val bodyBytes: Long = 32L * 1024 * 1024,
+    val historyBytes: Long? = null,
+    val bodyBytes: Long? = null,
     val segmentBytes: Long = 4L * 1024 * 1024,
 )
 
@@ -265,14 +269,15 @@ class NetworkStore(
      * deletes segments holding only evicted entries. Runs on the writer thread.
      */
     fun evictIfNeeded() {
-        if (diskBytes.get() <= bounds.historyBytes) return
+        val limit = bounds.historyBytes ?: return
+        if (diskBytes.get() <= limit) return
         synchronized(writeLock) {
             // Roll the segment: the one being written could never be deleted, and its
             // bytes would make the loop evict entries without freeing anything.
             runCatching { segmentWriter?.close() }
             segmentWriter = null
             segment = null
-            while (diskBytes.get() > bounds.historyBytes) {
+            while (diskBytes.get() > limit) {
                 val oldest = synchronized(lock) {
                     val first = entries.values.firstOrNull() ?: return@synchronized null
                     entries.remove(first.id)

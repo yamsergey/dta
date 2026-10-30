@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong
 class NetworkRecorder(
     private val store: NetworkStore,
     private val clock: () -> Long = System::currentTimeMillis,
-    val bodyBound: Long = store.bounds.bodyBytes,
+    val bodyBound: Long? = store.bounds.bodyBytes,
     private val publish: (String, JsonElement?) -> Unit,
 ) {
     private companion object {

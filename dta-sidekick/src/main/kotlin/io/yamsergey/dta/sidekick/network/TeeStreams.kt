@@ -27,7 +27,8 @@ data class BodyCapture(
  */
 class BodyRecorder(
     private var sink: BodySink?,
-    private val bound: Long,
+    /** Bytes stored at most; null stores every byte the app reads. */
+    private val bound: Long?,
     /** Content-Length when known: seeing all of it is complete even if the app never reads EOF. */
     private val declaredBytes: Long? = null,
     private val onDone: (BodyCapture) -> Unit,
@@ -42,7 +43,7 @@ class BodyRecorder(
         if (finished || length <= 0) return
         observed += length
         val target = sink ?: return
-        val room = (bound - stored).coerceAtLeast(0).toInt().coerceAtMost(length)
+        val room = if (bound == null) length else (bound - stored).coerceAtLeast(0).coerceAtMost(length.toLong()).toInt()
         if (room == 0) return
         try {
             target.write(buffer, offset, room)

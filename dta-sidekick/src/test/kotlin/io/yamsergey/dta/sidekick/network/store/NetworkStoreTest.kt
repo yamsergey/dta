@@ -50,6 +50,12 @@ class NetworkStoreTest {
         HttpEntry(id = store.nextId(), runId = store.runId, timeMs = now++, library = "okhttp3", method = "GET", url = url, state = state)
 
     @Test
+    fun `no limits by default - neither the history nor a body is bounded`() {
+        assertNull(StoreBounds().historyBytes)
+        assertNull(StoreBounds().bodyBytes)
+    }
+
+    @Test
     fun `ids are run-scoped and monotonic`() {
         val s = store()
         assertEquals("r1000-42", s.runId)
@@ -253,7 +259,7 @@ class NetworkStoreTest {
         s.evictIfNeeded()
         val c = s.coverage()
         assertTrue(c.evicted > 0, "evicted ${c.evicted}")
-        assertTrue(s.diskBytes() <= bounds.historyBytes, "disk ${s.diskBytes()}")
+        assertTrue(s.diskBytes() <= bounds.historyBytes!!, "disk ${s.diskBytes()}")
         val kept = s.list(order = Order.OLDEST_FIRST, limit = 100).entries.map { it.id }
         assertEquals(ids.takeLast(kept.size), kept, "the newest survive, in order")
         assertEquals(s.get(kept.first())!!.timeMs, c.earliestMs)

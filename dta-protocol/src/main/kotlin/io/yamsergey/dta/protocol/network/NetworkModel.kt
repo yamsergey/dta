@@ -415,9 +415,9 @@ data class LibraryStatus(
     val reason: String? = null,
 )
 
-/** Storage bounds stated by the `network` capability. */
+/** Storage bounds stated by the `network` capability; null is no limit (the default). */
 @Serializable
-data class NetworkBounds(val historyBytes: Long, val bodyBytes: Long)
+data class NetworkBounds(val historyBytes: Long? = null, val bodyBytes: Long? = null)
 
 object NetworkLibraries {
     const val OKHTTP3 = "okhttp3"

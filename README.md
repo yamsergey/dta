@@ -87,14 +87,15 @@ dta daemon status | stop
     stack, app frames marked, `firstAppFrame` set; async OkHttp calls show the
     `enqueue` site, not the dispatcher thread.
   - Bodies of any type are teed to device storage as the app reads them (no
-    pre-buffering), up to 32 MB each; listings carry size, type and a ≤256-char
+    pre-buffering), whole (no size limit); listings carry size, type and a ≤256-char
     preview. `network_body` returns wire bytes; the daemon decodes (gzip,
     deflate; br/zstd stated as not decoded) and writes files with sha256.
   - On-device filters across all kinds: `url`, `method`, `status`
     (`404`/`4xx`/`failed`/`pending`), `kinds`, time range, `bodyContains`
     (with match locations; binary bodies are searched as bytes for the needle's
     UTF-8 and marked `*-binary`), `runs`.
-  - History persists across process restarts (100 MB, oldest evicted first);
+  - History persists across process restarts, with no size limit: nothing is
+    evicted until the history is cleared;
     entries are labeled by process run; in-flight entries of a dead process read
     `process-ended`. Capture starts before `Application.onCreate` and runs
     without a client (observation, constitution v1.3.0).
