@@ -5,7 +5,7 @@ description: Inspect a running Android app with DTA — read its screen as a Vie
 
 # Using DTA
 
-DTA runs inside a debug build of the app and reports what the app is doing. The `dta` MCP tools talk to a shared DTA daemon on this machine; it starts by itself.
+DTA runs inside a debug build of the app and reports what the app is doing. The `dta` MCP tools talk to a shared DTA daemon on this machine; it starts by itself. The same tools may also come from Android Studio's DTA plugin over HTTP (`http://127.0.0.1:12321/mcp`): they behave identically, and both share the one daemon.
 
 Use adb directly for screenshots, taps, swipes, text input and logcat. Use DTA for what adb cannot see: the app's own view of its screen (Compose names, test tags, source lines) and its network traffic.
 
