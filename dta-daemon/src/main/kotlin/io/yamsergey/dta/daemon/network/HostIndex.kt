@@ -45,6 +45,8 @@ class HostIndex(
     private val device: DeviceIdentity,
     private val packageName: String,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The app's protobuf decoding (its schemas and mappings), for search in decoded bodies (US6). */
+    private val decoding: () -> io.yamsergey.dta.daemon.network.proto.BodyDecoding = { io.yamsergey.dta.daemon.network.proto.BodyDecoding.NONE },
     private val connection: suspend () -> AppConnection,
 ) {
     /** Journal records per request, and requests per answer before the rest is left to the next one. */
@@ -59,7 +61,9 @@ class HostIndex(
     /** Entries the device cleared that the host never read, known when the clear went through the daemon. */
     private var neverReceived = 0
 
-    private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, ::hostBodyBytes)
+    private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, ::hostBodyBytes) { entry, part ->
+        decodedJson(entry, part, epoch?.id, live::get)
+    }
 
     suspend fun list(query: NetworkQuery): NetworkPage = mutex.withLock {
         query.archive?.let { return archived(query, it) }
@@ -130,13 +134,41 @@ class HostIndex(
             coverage = io.yamsergey.dta.protocol.network.Coverage(searched = entries.size, stored = entries.size, persisted = true),
             capture = io.yamsergey.dta.protocol.rpc.CapabilityStatus("network", io.yamsergey.dta.protocol.rpc.CapabilityStatus.Status.AVAILABLE),
         )
-        return NetworkHistoryView({ entries.values.toList() }, { entries[it] }, { context }) { entry, part ->
-            val info = NetworkHistoryView.bodyOf(entry, part) ?: return@NetworkHistoryView null
-            val sha = store.bodyRef(epochOf.getValue(entry.id), entry.id, part)?.sha256 ?: return@NetworkHistoryView null
-            val raw = store.openBody(sha)?.use { it.readBytes() } ?: return@NetworkHistoryView null
-            val decoded = BodyCodec.decode(raw, info.encoding)
-            NetworkFilterEval.BodyBytes(decoded.bytes, decoded.decoded)
+        return NetworkHistoryView(
+            { entries.values.toList() }, { entries[it] }, { context },
+            { entry, part ->
+                val info = NetworkHistoryView.bodyOf(entry, part)
+                val raw = info?.let { rawBody(epochOf.getValue(entry.id), entry.id, part) }
+                raw?.let { BodyCodec.decode(it, info.encoding).let { d -> NetworkFilterEval.BodyBytes(d.bytes, d.decoded) } }
+            },
+        ) { entry, part -> decodedJson(entry, part, epochOf[entry.id], entries::get) }
+    }
+
+    private fun rawBody(epochId: String, entryId: String, part: BodyPart): ByteArray? {
+        val sha = store.bodyRef(epochId, entryId, part)?.sha256 ?: return null
+        return store.openBody(sha)?.use { it.readBytes() }
+    }
+
+    /** A host-held binary body as the app's schemas decode it; null when none applies or it is not here. */
+    private fun decodedJson(entry: NetworkEntry, part: BodyPart, epochId: String?, byId: (String) -> NetworkEntry?): String? {
+        val d = decoding()
+        if (d === io.yamsergey.dta.daemon.network.proto.BodyDecoding.NONE || epochId == null) return null
+        val info = NetworkHistoryView.bodyOf(entry, part) ?: return null
+        val mappingPart = when (part) {
+            BodyPart.REQUEST, BodyPart.APP_REQUEST -> io.yamsergey.dta.daemon.network.proto.MappingPart.REQUEST
+            BodyPart.RESPONSE, BodyPart.APP_RESPONSE -> io.yamsergey.dta.daemon.network.proto.MappingPart.RESPONSE
+            BodyPart.MESSAGE, BodyPart.APP_MESSAGE -> io.yamsergey.dta.daemon.network.proto.MappingPart.MESSAGE
         }
+        val target = when (entry) {
+            is HttpEntry -> io.yamsergey.dta.daemon.network.proto.BodyTarget(entry.url, entry.method, mappingPart, null, info.contentType)
+            is io.yamsergey.dta.protocol.network.WsMessageEntry -> {
+                val socket = byId(entry.connectionId) as? WsConnectionEntry ?: return null
+                io.yamsergey.dta.daemon.network.proto.BodyTarget(socket.url, null, mappingPart, entry.direction, info.contentType)
+            }
+            else -> return null
+        }
+        val raw = rawBody(epochId, entry.id, part) ?: return null
+        return runCatching { d.decode(target, raw, info).json }.getOrNull()
     }
 
     private fun mark(e: Epoch) = io.yamsergey.dta.protocol.network.ArchivedMark(e.id, e.reason ?: EpochCloseReason.UNKNOWN, e.closedMs ?: 0, store.versionOf(e.id))

@@ -76,10 +76,10 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
 
     /** The sidekick's own answer over the same history: the reference the host must equal. */
-    fun deviceAnswer(query: NetworkQuery): NetworkPage = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context) { e, part ->
-        val info = NetworkHistoryView.bodyOf(e, part) ?: return@NetworkHistoryView null
-        bodies[e.id to part]?.let { BodyCodec.decode(it, info.encoding).let { d -> NetworkFilterEval.BodyBytes(d.bytes, d.decoded) } }
-    }.list(query)
+    fun deviceAnswer(query: NetworkQuery): NetworkPage = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context, bodyBytes = { e, part ->
+        val info = NetworkHistoryView.bodyOf(e, part)
+        info?.let { bodies[e.id to part]?.let { BodyCodec.decode(it, info.encoding).let { d -> NetworkFilterEval.BodyBytes(d.bytes, d.decoded) } } }
+    }).list(query)
 
     override val hello = HelloResult(PROTOCOL_VERSION, "dta-sidekick", "0.11.0", "io.example")
     override val events: SharedFlow<Event> = MutableSharedFlow()

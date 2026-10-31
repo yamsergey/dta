@@ -262,6 +262,10 @@ enum class ChangedField {
     @SerialName("request-body-binary") REQUEST_BODY_BINARY,
     @SerialName("response-body-binary") RESPONSE_BODY_BINARY,
     @SerialName("payload-binary") PAYLOAD_BINARY,
+    /** Feature 011: found in a field of the body as its protobuf schema decodes it; the page's `fields` name it. */
+    @SerialName("request-body-decoded") REQUEST_BODY_DECODED,
+    @SerialName("response-body-decoded") RESPONSE_BODY_DECODED,
+    @SerialName("payload-decoded") PAYLOAD_DECODED,
 }
 
 /** What the network script did to one entry (FR-016): never a silent intervention. */
@@ -362,6 +366,10 @@ enum class MatchLocation {
     @SerialName("request-body-binary") REQUEST_BODY_BINARY,
     @SerialName("response-body-binary") RESPONSE_BODY_BINARY,
     @SerialName("payload-binary") PAYLOAD_BINARY,
+    /** Feature 011: found in a field of the body as its protobuf schema decodes it; the page's `fields` name it. */
+    @SerialName("request-body-decoded") REQUEST_BODY_DECODED,
+    @SerialName("response-body-decoded") RESPONSE_BODY_DECODED,
+    @SerialName("payload-decoded") PAYLOAD_DECODED,
 }
 
 /** Result of `network_list`. */
@@ -378,6 +386,8 @@ data class NetworkPage(
     val degraded: List<DegradationMarker>? = null,
     /** Entries of the page that come from the archive, by id (feature 011). */
     val archived: Map<String, ArchivedMark>? = null,
+    /** Decoded protobuf fields where a body search matched, by entry id, e.g. `items[0].name` (feature 011). */
+    val fields: Map<String, List<String>>? = null,
 )
 
 /** Result of `network_entry`. */

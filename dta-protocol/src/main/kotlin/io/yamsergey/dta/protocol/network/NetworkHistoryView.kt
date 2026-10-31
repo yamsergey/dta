@@ -37,6 +37,8 @@ class NetworkHistoryView(
     private val byId: (String) -> NetworkEntry?,
     private val context: () -> HistoryContext,
     private val bodyBytes: (NetworkEntry, BodyPart) -> NetworkFilterEval.BodyBytes?,
+    /** Decoded protobuf for body search; the host has the schemas, the app does not (feature 011). */
+    private val decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
 ) {
     fun list(query: NetworkQuery): NetworkPage {
         val ctx = context()
@@ -46,6 +48,7 @@ class NetworkHistoryView(
                 liveRunId = ctx.runId,
                 connectionUrl = { id -> (byId(id) as? WsConnectionEntry)?.url },
                 bodyBytes = bodyBytes,
+                decoded = decoded,
             )
         }
         val chronological = entries()
@@ -68,7 +71,10 @@ class NetworkHistoryView(
             if (index < start) return@forEachIndexed
             if (page.size < query.limit) page += entry else more = true
         }
-        val notSearched = eval?.binaryNotSearched?.takeIf { it > 0 }?.let { listOf("binary bodies whose encoding cannot be undone ($it)") }
+        val notSearched = listOfNotNull(
+            eval?.binaryNotSearched?.takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
+            eval?.binaryUndecoded?.takeIf { it > 0 }?.let { "binary bodies without a schema, searched as bytes only ($it)" },
+        ).ifEmpty { null }
         val coverage = ctx.coverage.copy(searched = all.size, notSearched = notSearched)
         val earliest = chronological.firstOrNull()?.id
         return NetworkPage(
@@ -78,6 +84,7 @@ class NetworkHistoryView(
             next = if (more) page.last().id else null,
             coverage = coverage,
             degraded = degradations(ctx, page).plusHistory(coverage, reachesEvicted = coverage.evicted > 0 && page.any { it.id == earliest }),
+            fields = eval?.fieldPaths?.filterKeys { id -> page.any { it.id == id } }?.mapValues { it.value.toList() }?.ifEmpty { null },
         )
     }
 

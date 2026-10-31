@@ -136,10 +136,10 @@ class NetworkFilterEvalTest {
     @Test
     fun `intervened keeps only entries the script touched, or only untouched ones`() {
         val touched = ok.copy(id = "r2-1:9", intervention = InterventionRecord("s", delayMs = 5))
-        val e = NetworkFilterEval(NetworkFilter(intervened = true), "r2-1", { null }, { _, _ -> null })
+        val e = NetworkFilterEval(NetworkFilter(intervened = true), "r2-1", { null }, bodyBytes = { _, _ -> null })
         assertEquals(listOf(MatchLocation.URL).size - 1, e.matches(touched)!!.size)
         assertNull(e.matches(ok))
-        val untouched = NetworkFilterEval(NetworkFilter(intervened = false), "r2-1", { null }, { _, _ -> null })
+        val untouched = NetworkFilterEval(NetworkFilter(intervened = false), "r2-1", { null }, bodyBytes = { _, _ -> null })
         assertNull(untouched.matches(touched))
         assertEquals(emptyList(), untouched.matches(ok))
     }

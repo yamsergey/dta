@@ -82,7 +82,7 @@ class DtaDaemon(
 
     private fun hostIndex(serial: String, pkg: String): io.yamsergey.dta.daemon.network.HostIndex =
         hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
-            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg) {
+            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }) {
                 connections.connect(key)
             }.also(::startCopying)
         }

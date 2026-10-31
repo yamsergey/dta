@@ -15,6 +15,8 @@ class NetworkFilterEval(
     private val filter: NetworkFilter,
     private val liveRunId: String,
     private val connectionUrl: (String) -> String?,
+    /** A binary body as its protobuf schema decodes it, as JSON; null when no schema decodes it (feature 011). */
+    private val decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
     private val bodyBytes: (NetworkEntry, BodyPart) -> BodyBytes?,
 ) {
     /** [decoded] is false when the Content-Encoding could not be undone ([bytes] are as sent). */
@@ -23,6 +25,13 @@ class NetworkFilterEval(
     /** Binary bodies `bodyContains` could not search — encoding not undone (stated in coverage.notSearched). */
     var binaryNotSearched = 0
         private set
+
+    /** Binary bodies no schema decodes, searched as bytes only (stated when a decoder is given). */
+    var binaryUndecoded = 0
+        private set
+
+    /** Decoded fields where the needle was found, by entry id. */
+    val fieldPaths = LinkedHashMap<String, MutableList<String>>()
 
     private val needleBytes = filter.bodyContains?.toByteArray(Charsets.UTF_8)
 
@@ -48,11 +57,33 @@ class NetworkFilterEval(
             locations += MatchLocation.URL
         }
         filter.bodyContains?.let { needle ->
-            val hits = bodies(entry).mapNotNull { (info, part) -> if (contains(entry, info, part, needle)) location(part, info.binary) else null }
+            val hits = bodies(entry).mapNotNull { (info, part) ->
+                decodedHit(entry, info, part, needle)?.let { return@mapNotNull it }
+                if (contains(entry, info, part, needle)) location(part, info.binary) else null
+            }
             if (hits.isEmpty()) return null
             locations += hits.distinct()
         }
         return locations
+    }
+
+    /** The decoded location when a schema decodes the body and a field holds the needle. */
+    private fun decodedHit(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): MatchLocation? {
+        val decode = decoded ?: return null
+        if (!info.binary) return null
+        val json = decode(entry, part)
+        if (json == null) {
+            binaryUndecoded++
+            return null
+        }
+        val paths = DecodedFields.paths(json, needle)
+        if (paths.isEmpty()) return null
+        fieldPaths.getOrPut(entry.id) { mutableListOf() } += paths
+        return when (part) {
+            BodyPart.REQUEST, BodyPart.APP_REQUEST -> MatchLocation.REQUEST_BODY_DECODED
+            BodyPart.RESPONSE, BodyPart.APP_RESPONSE -> MatchLocation.RESPONSE_BODY_DECODED
+            BodyPart.MESSAGE, BodyPart.APP_MESSAGE -> MatchLocation.PAYLOAD_DECODED
+        }
     }
 
     private fun contains(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): Boolean {
