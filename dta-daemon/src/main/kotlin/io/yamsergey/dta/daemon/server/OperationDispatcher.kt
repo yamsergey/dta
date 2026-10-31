@@ -109,7 +109,7 @@ class OperationDispatcher(
         "links.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
         "links.open" to { c ->
             try {
-                encode(io.yamsergey.dta.protocol.network.LinkOpenResult.serializer(), ops.linksOpen(c.device, c.required("uri"), c.string("package")))
+                encode(io.yamsergey.dta.protocol.network.LinkOpenResult.serializer(), ops.linksOpen(c.device, c.required("uri"), c.string("package"), c.bool("only")))
             } catch (e: IllegalArgumentException) {
                 invalid(e.message ?: "invalid URI")
             }

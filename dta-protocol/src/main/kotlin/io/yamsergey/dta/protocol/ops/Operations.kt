@@ -337,7 +337,8 @@ object Catalog {
             Scope.DEVICE,
             listOf(
                 ParamSpec("uri", ParamType.STRING, "The URI to open, e.g. myapp://item/42 or https://example.com/item/42.", required = true, positional = true),
-                ParamSpec("package", ParamType.STRING, "Only this app may open it (skips the chooser); also the app whose record is awaited."),
+                ParamSpec("package", ParamType.STRING, "The app it is meant for: its record is awaited, and its App Links state explains an https link it did not get."),
+                ParamSpec("only", ParamType.BOOLEAN, "Only that app may open it (skips the chooser and App Links verification)."),
             ),
             cliPathOverride = listOf("links", "open"),
         ),

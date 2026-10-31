@@ -276,13 +276,13 @@ class DtaDaemon(
      * did — the link's record, awaited for a few seconds; for an http(s) link the app did not
      * get, its host's App Links state.
      */
-    suspend fun linksOpen(serial: String, uri: String, pkg: String?): io.yamsergey.dta.protocol.network.LinkOpenResult {
+    suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean = false): io.yamsergey.dta.protocol.network.LinkOpenResult {
         val quoted = io.yamsergey.dta.daemon.links.LinkParsers.shellQuote(uri)
         fun linkIds(app: String): Set<String> = runCatching {
             kotlinx.coroutines.runBlocking { linkQuery(serial, app, uri) }
         }.getOrDefault(emptySet())
         val before = pkg?.let(::linkIds).orEmpty()
-        val command = "am start -W -a android.intent.action.VIEW -d $quoted" + (pkg?.let { " -p $it" } ?: "") + " --user current"
+        val command = "am start -W -a android.intent.action.VIEW -d $quoted" + (pkg?.takeIf { only }?.let { " -p $it" } ?: "") + " --user current"
         val output = runAdb(listOf("-s", serial, "shell", command)).let { it.stdout + it.stderr }
         val result = io.yamsergey.dta.daemon.links.LinkParsers.launch(output, pkg)
         if (result.outcome == io.yamsergey.dta.protocol.network.LinkOpenOutcome.RECEIVED) {
