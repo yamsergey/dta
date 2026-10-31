@@ -70,6 +70,14 @@ dta archive delete --epoch <id>       # says what it would remove; add --confirm
 - The archive has no size limit and never expires on its own; `archive list` shows its size. Deleting is always an explicit action; the live history is never deleted from the archive (clear it on the device, which archives it).
 - **Privacy**: the archive holds the traffic unredacted, secrets included. It is readable by your user only (like the daemon's token); redaction applies when results are shown.
 
+## Protobuf schemas from the project (feature 013)
+
+Binary protobuf bodies decode when DTA knows the schemas and which endpoint uses which message type. Both are usually already in the project:
+
+- **Android Studio** finds the project's `.proto` files, its own and those packaged in its dependencies, and gives them to DTA when the app is known and whenever a `.proto` file changes. From Retrofit interfaces it derives the mappings: the `@Body` type is the request body and the return type is the response body, when they are protobuf or Wire messages. Nothing is guessed: an endpoint whose type matches no schema type, or several, is listed in the Schemas tab as not mapped. Each derived mapping links to its line in the code; one you add by hand wins over it.
+- **The terminal and agents**: `dta network schema sync .` takes every `.proto` file under the folder (imports resolve across `src/*/proto` roots), as one set that a later sync of the same folder replaces. `dta mcp` does this for its working folder by itself the first time a body needs a schema. Mappings then come from the code: `dta network mapping add`; an agent reads the code and adds them itself.
+- Every set says where it came from (project, folder or by hand) and when; a decoded body names whose schemas decoded it. Archived bodies (feature 011) decode with today's schemas, and say so.
+
 ## Install and use (feature 008)
 
 Prerequisites: Java 21+, adb (found through `DTA_ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` or `PATH`), an app built with `dta-sidekick` in its debug build.

@@ -34,6 +34,10 @@ Results say how each value was obtained. Never ignore them:
 - When the device cleared or lost its history, this computer kept it: the live list states `archivedEpochs`. Pass `archive` (`all`, `version:<name>`, `<fromMs>..<toMs>`, or an epoch id from `archive_list`) to look back; every entry then carries its epoch and why it was archived. The app does not need to run for that.
 - `archive_delete` only says what it would remove unless `confirm` is true; deleting is the user's call, so ask first.
 
+## Protobuf bodies
+
+When a body is binary protobuf and not decoded, the schemas or the mapping are missing. In the project folder, `network_schema_sync` with the folder takes its `.proto` files (the stdio server does it once by itself, and says so). Then read the code: find the endpoint that sends or returns the body (a Retrofit interface, an OkHttp call, a WebSocket handler), and add the mapping with `network_mapping_add` (URL pattern, part, the schema set from the sync result, the message type). Fetch the body again; the result names the type and whose schemas decoded it.
+
 ## Layout
 
 - `layout_tree` returns windows with nodes (`kind`: view, compose, fallback), bounds in screen pixels, text, interactions.

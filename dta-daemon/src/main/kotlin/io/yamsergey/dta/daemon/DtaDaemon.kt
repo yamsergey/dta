@@ -84,14 +84,22 @@ class DtaDaemon(
         hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
             io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }) {
                 connections.connect(key)
-            }.also(::startCopying)
+            }.also { startCopying(key, it) }
         }
 
-    /** Catches up and copies bodies while the app runs; waits longer while it does not. */
-    private fun startCopying(index: io.yamsergey.dta.daemon.network.HostIndex) {
+    /**
+     * Catches up and copies bodies while the app is connected. It never opens a connection
+     * itself: attempts on an app that is gone would leave a failure behind that a query right
+     * after the app restarts would get.
+     */
+    private fun startCopying(key: ConnectionKey, index: io.yamsergey.dta.daemon.network.HostIndex) {
         val worker = io.yamsergey.dta.daemon.network.CopyWorker(index)
         background.launch {
             while (isActive) {
+                if (key !in connections.openKeys()) {
+                    delay(1_000)
+                    continue
+                }
                 val copied = try {
                     index.refresh()
                     worker.runOnce()
