@@ -10,7 +10,7 @@ prototype lives on the `pre-refined` branch.
 | Module | Role |
 |---|---|
 | `dta-protocol` | Pure-JVM wire core: hand-rolled RFC 6455 server half, JSON message envelope, hello-gated RPC sessions, diagnostic methods, and the shared layout tree model + filter. No Android, no third-party transport deps. |
-| `dta-daemon` | Host side (library): ADB discovery (`/proc/net/unix` scan), port-forward ownership with startup sweep, `SidekickConnectionManager` (the single connection-lifecycle owner), `SidekickConnection` (JDK WebSocket client), and `LayoutService` (sidekick-vs-uiautomator-fallback decision ladder with honest labeling). |
+| `dta-daemon` | Host side (library): the host store of the network history and its archive (SQLite, bodies by content, feature 011), ADB discovery (`/proc/net/unix` scan), port-forward ownership with startup sweep, `SidekickConnectionManager` (the single connection-lifecycle owner), `SidekickConnection` (JDK WebSocket client), and `LayoutService` (sidekick-vs-uiautomator-fallback decision ladder with honest labeling). |
 | `dta-sidekick` | Android AAR embedded in debug builds: `LocalServerSocket` accept loop, AndroidX Startup init, capability registry with live statuses, layout capture (View walk + two-tier Compose: semantics always, ui-tooling-data enrichment when present), and network capture through a JVMTI agent (`libdta-agent.so`, dex rewriting on vendored AOSP slicer). Zero third-party runtime deps — Compose and OkHttp are `compileOnly` (constitution I). |
 | `dta-sidekick-rhino` | Rhino 1.7.15 (MPL 2.0) relocated to `io.yamsergey.dta.vendor.rhino` — the network-script engine; consumers never see `org.mozilla`. |
 | `dta-client` | Client of the daemon process (feature 008): `DaemonLauncher` (find, start, replace or refuse the daemon by version; recover stale state) and `DaemonClient` (JDK WebSocket, same JSON-RPC envelope as the sidekick channel, live events). Shared by the CLI, `dta mcp` and the Android Studio plugin. |
@@ -50,6 +50,25 @@ dta run -- --offline              # Gradle arguments after --
 - `--json` prints one result document; agents get the same document from the MCP tool `app_run`, with progress while it builds.
 
 `run` and `mcp` are the CLI's host-local commands; every other command is an operation of the shared daemon.
+
+## The network history on this computer (feature 011)
+
+The app only records: in-flight requests and a window of recent ones stay in its memory, everything else goes to its journal on the device. The daemon reads that journal, keeps the history in `$DTA_HOME/store` and answers every network query from there. Bodies are copied in the background as soon as a request finishes (256 KB at a time, within a bandwidth budget), so a query never waits behind a large body.
+
+When the device forgets (you clear the history, wipe the app's data, or reinstall it), this computer does **not**: the history becomes an archived epoch, labelled with why it closed (cleared, data wiped, reinstalled, new build) and the app version.
+
+```
+dta network list                      # the live history; the result says how many archived epochs exist
+dta archive list                      # device › app › install › epochs, with dates, reason and size
+dta network list --archive all        # look back: all, version:1.4.0, <fromMs>..<toMs>, or an epoch id
+dta network body <id>                 # an archived entry's body comes from this computer; the app need not run
+dta archive delete --epoch <id>       # says what it would remove; add --confirm to delete
+```
+
+- Without `--archive`, queries cover the live history only, exactly as before.
+- Search in bodies also matches fields of protobuf bodies the app's schemas decode, with the field path as the location.
+- The archive has no size limit and never expires on its own; `archive list` shows its size. Deleting is always an explicit action; the live history is never deleted from the archive (clear it on the device, which archives it).
+- **Privacy**: the archive holds the traffic unredacted, secrets included. It is readable by your user only (like the daemon's token); redaction applies when results are shown.
 
 ## Install and use (feature 008)
 

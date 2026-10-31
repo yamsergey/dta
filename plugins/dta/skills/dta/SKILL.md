@@ -28,6 +28,12 @@ Results say how each value was obtained. Never ignore them:
 - `intervention` on an entry: the network script changed it; `appRequest`/`appResponse` show what the app saw.
 - A result with `truncated` was cut to fit; it says what was left out and how to get it.
 
+## History and archive
+
+- `network_list` answers from this computer's copy of the app's history. Coverage may say entries or bodies are not read or copied yet: ask again.
+- When the device cleared or lost its history, this computer kept it: the live list states `archivedEpochs`. Pass `archive` (`all`, `version:<name>`, `<fromMs>..<toMs>`, or an epoch id from `archive_list`) to look back; every entry then carries its epoch and why it was archived. The app does not need to run for that.
+- `archive_delete` only says what it would remove unless `confirm` is true; deleting is the user's call, so ask first.
+
 ## Layout
 
 - `layout_tree` returns windows with nodes (`kind`: view, compose, fallback), bounds in screen pixels, text, interactions.
