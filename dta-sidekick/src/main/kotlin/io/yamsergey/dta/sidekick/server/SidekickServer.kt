@@ -6,6 +6,7 @@ import android.util.Log
 import io.yamsergey.dta.protocol.rpc.CapabilityStatus
 import io.yamsergey.dta.protocol.rpc.DiagnosticMethods
 import io.yamsergey.dta.protocol.rpc.DtaJson
+import io.yamsergey.dta.protocol.rpc.AppInstallation
 import io.yamsergey.dta.protocol.rpc.IdentityReport
 import io.yamsergey.dta.protocol.rpc.MethodRegistry
 import io.yamsergey.dta.protocol.rpc.ServerSessionConnectionListener
@@ -46,7 +47,7 @@ object SidekickServer {
     val sessions = SessionHub()
 
     @Synchronized
-    fun start(packageName: String, sidekickVersion: String) {
+    fun start(packageName: String, sidekickVersion: String, installation: () -> AppInstallation? = { null }) {
         if (started) return
         started = true
 
@@ -71,7 +72,7 @@ object SidekickServer {
             register("identity") {
                 DtaJson.encodeToJsonElement(
                     IdentityReport.serializer(),
-                    capabilities.buildIdentity(packageName, sidekickVersion),
+                    capabilities.buildIdentity(packageName, sidekickVersion, runCatching(installation).getOrNull()),
                 )
             }
             register("layout_tree") { ctx ->

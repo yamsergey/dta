@@ -14,8 +14,9 @@ import java.io.File
 import kotlin.test.Test
 
 /**
- * 011 T001 (research R0): what the store's in-memory history costs per finished entry today.
- * A measurement, printed for research.md; the SC-001 assertion comes with the change (T009).
+ * 011 T001/T009 (research R0, SC-001): what the store's in-memory history costs. Before 011 it
+ * grew by about 1.45 KB per finished entry; now only in-flight entries and a window of recent
+ * ones are held, so it stays flat. The numbers are printed for research.md.
  */
 class HeapPerEntryTest {
     @TempDir
@@ -56,5 +57,10 @@ class HeapPerEntryTest {
             Triple(count, after - before, perEntry)
         }
         results.forEach { (count, total, per) -> println("R0 heap: $count entries -> ${total / 1024} KB retained, ~$per bytes per entry") }
+        // SC-001 (T009): past the recent window the history no longer grows with the entries.
+        val at10k = results[1].second
+        val at100k = results[2].second
+        kotlin.test.assertTrue(at100k <= at10k * 1.25 + 512 * 1024, "100k entries hold ${at100k / 1024} KB, 10k hold ${at10k / 1024} KB")
+        kotlin.test.assertTrue(at100k < 8L * 1024 * 1024, "the history holds ${at100k / 1024} KB at 100k entries")
     }
 }

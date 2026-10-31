@@ -29,6 +29,7 @@ class SidekickInitializer : Initializer<Unit> {
         SidekickServer.start(
             packageName = context.packageName,
             sidekickVersion = BuildConfig.VERSION,
+            installation = { AppInstallations.of(context) },
         )
     }
 

@@ -7,7 +7,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /** Wire protocol version, negotiated in `hello` (contract §3). v1 policy: exact match. */
-const val PROTOCOL_VERSION = 1
+/** 2: the journal methods of feature 011; the daemon answers network queries from its own store. */
+const val PROTOCOL_VERSION = 2
 
 object ErrorCodes {
     const val METHOD_NOT_FOUND = -32601
@@ -129,10 +130,22 @@ data class HelloResult(
 @Serializable
 data class ToolingSource(val present: Boolean, val source: String, val version: String? = null)
 
+/** The installed build of the app, read inside it (feature 011, research R5). */
+@Serializable
+data class AppInstallation(
+    val versionName: String? = null,
+    val versionCode: Long? = null,
+    val firstInstallMs: Long? = null,
+    val lastUpdateMs: Long? = null,
+    val signingSha256: String? = null,
+)
+
 @Serializable
 data class IdentityReport(
     val protocolVersion: Int,
     val sidekickVersion: String,
     val packageName: String,
     val capabilities: List<CapabilityStatus>,
+    /** Absent from sidekicks before feature 011. */
+    val app: AppInstallation? = null,
 )

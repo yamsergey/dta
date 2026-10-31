@@ -21,6 +21,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.Writer
+import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
@@ -29,14 +30,22 @@ import kotlin.concurrent.thread
 @Serializable
 internal data class EntryRecord(val entry: NetworkEntry)
 
-/** What the log alone cannot tell: how far eviction went and when history was cleared. */
+/** What the log alone cannot tell: how far eviction went, when history was cleared, which journal this is. */
 @Serializable
 internal data class StoreState(
     /** runId → highest evicted seq of that run. */
     val evictedThrough: Map<String, Long> = emptyMap(),
     val evicted: Int = 0,
     val clearedAtMs: Long? = null,
+    /** Changes when the history is cleared or the storage is new (feature 011, contracts/sidekick-journal.md). */
+    val journalId: String? = null,
 )
+
+/** The journal's identity; [reason] says why it is new in this process (`cleared`, `storage-new`). */
+data class JournalIdentity(val journalId: String, val reason: String?, val entries: Int, val persisted: Boolean)
+
+/** A page of the journal: records in write order; [next] resumes after them; [end] when nothing more is written yet. */
+data class JournalPage(val journalId: String, val records: List<NetworkEntry>, val next: String, val end: Boolean)
 
 /**
  * Storage bounds (data-model §Bounds); stated in the capability and coverage. None by default:
@@ -58,18 +67,23 @@ data class StorePage(
 )
 
 /**
- * Network history that outlives the process (US5): an in-memory index (insertion order =
- * chronological order, stable under device clock changes) backed by an append-only
- * JSON-lines segment log and one file per body, written by one background thread so
- * capture never waits on disk metadata.
+ * Network history that outlives the process (US5): an append-only JSON-lines segment log
+ * (the journal) and one file per body, written by one background thread so capture never
+ * waits on disk metadata.
  *
- * On start it loads earlier runs; their in-flight entries become `process-ended`. Over
- * [StoreBounds.historyBytes] the oldest entries and their bodies are evicted, the count
- * kept in coverage; a persisted watermark keeps evicted entries from coming back.
+ * Memory stays flat however long the app records (feature 011 US1): only in-flight entries
+ * and a window of the most recently finished ones are held ([recentWindow]); an older entry
+ * is read back from the journal when something still updates it. The host reads the journal
+ * ([journal], [identity]) and answers queries; [list] over the whole journal remains for the
+ * memory-only fallback and as the reference the host is checked against.
  *
- * Every failure degrades instead of throwing: an unusable directory or a write error
- * turns persistence off (`coverage.persisted = false`); a full writer queue counts the
- * record as dropped (constitution I, III).
+ * On start, in-flight entries of earlier runs are written again as `process-ended`. Over
+ * [StoreBounds.historyBytes] the oldest entries and their bodies are evicted, the count kept
+ * in coverage; a persisted watermark keeps evicted entries from coming back.
+ *
+ * Every failure degrades instead of throwing: an unusable directory or a write error turns
+ * persistence off (`coverage.persisted = false`, everything then stays in memory); a full
+ * writer queue counts the record as dropped (constitution I, III).
  */
 class NetworkStore(
     storage: StorageDir?,
@@ -78,6 +92,8 @@ class NetworkStore(
     queueCapacity: Int = 10_000,
     startWriter: Boolean = true,
     val bounds: StoreBounds = StoreBounds(),
+    /** Finished entries held in memory besides the in-flight ones. */
+    private val recentWindow: Int = 2_000,
 ) {
     private val storage: StorageDir? = storage?.takeIf { it.prepare() }
 
@@ -87,9 +103,18 @@ class NetworkStore(
     private val seq = AtomicLong()
 
     private val lock = Any()
+    /** In-flight entries and the recent window, in insertion order; everything when not persisted. */
     private val entries = LinkedHashMap<String, NetworkEntry>()
+    private var finishedInMemory = 0
     private var dropped = 0
     private var state = StoreState()
+    private var journalReason: String? = null
+
+    /** Entries stored (not evicted), their earliest time, and each run's last time: kept as counters. */
+    private var stored = 0
+    private var earliestMs: Long? = null
+    private val runLastTime = LinkedHashMap<String, Long>()
+    private var highestCreated = 0L
 
     @Volatile
     private var persisted = this.storage != null
@@ -108,7 +133,7 @@ class NetworkStore(
     private val diskBytes = AtomicLong()
 
     init {
-        if (persisted) load()
+        if (persisted) load() else newJournal("storage-new")
         if (startWriter && persisted) {
             writer = thread(isDaemon = true, name = "dta-network-store") { writerLoop() }
         }
@@ -119,19 +144,50 @@ class NetworkStore(
     fun upsert(entry: NetworkEntry): EntryChange {
         val change = synchronized(lock) {
             if (isEvicted(entry.id)) return EntryChange.UPDATED
-            if (entries.put(entry.id, entry) == null) EntryChange.CREATED else EntryChange.UPDATED
+            val created = isNew(entry.id)
+            val previous = entries.remove(entry.id)
+            if (previous != null && !inFlight(previous)) finishedInMemory--
+            entries[entry.id] = entry
+            if (!inFlight(entry)) finishedInMemory++
+            if (created) {
+                stored++
+                if (earliestMs == null) earliestMs = entry.timeMs
+            }
+            runLastTime[entry.runId] = maxOf(runLastTime[entry.runId] ?: 0, entry.timeMs)
+            trimWindow()
+            if (created) EntryChange.CREATED else EntryChange.UPDATED
         }
         enqueue(EntryRecord(entry))
         return change
     }
 
-    fun get(id: String): NetworkEntry? = synchronized(lock) { entries[id] }
+    /** The entry by id: from memory, else (when it left the recent window) from the journal. */
+    fun get(id: String): NetworkEntry? {
+        synchronized(lock) {
+            entries[id]?.let { return it }
+            if (!persisted || isEvicted(id)) return null
+        }
+        return fromJournal(id)
+    }
+
+    /** Entries held in memory now: in flight plus the recent window (everything without storage). */
+    fun inMemory(): Int = synchronized(lock) { entries.size }
 
     /** The oldest stored entry: the one next to the evicted range. */
-    fun earliestId(): String? = synchronized(lock) { entries.keys.firstOrNull() }
+    fun earliestId(): String? = snapshot().firstOrNull()?.id
 
-    /** Every stored entry in chronological order. */
-    fun snapshot(): List<NetworkEntry> = synchronized(lock) { entries.values.toList() }
+    /**
+     * Every stored entry in chronological order. With storage this reads the whole journal
+     * (the memory-only fallback and the host's reference use it; the host keeps its own index).
+     */
+    fun snapshot(): List<NetworkEntry> {
+        if (!persisted) return synchronized(lock) { entries.values.toList() }
+        flush()
+        val all = LinkedHashMap<String, NetworkEntry>()
+        forEachRecord { _, entry -> if (!isEvicted(entry.id)) all[entry.id] = entry }
+        synchronized(lock) { entries.values.forEach { e -> if (!isEvicted(e.id)) all[e.id] = e } }
+        return all.values.toList()
+    }
 
     /**
      * Entries matching [predicate], in [order], starting after cursor [before] (the `next`
@@ -163,9 +219,9 @@ class NetworkStore(
 
     fun coverage(): Coverage = synchronized(lock) {
         Coverage(
-            searched = entries.size,
-            stored = entries.size,
-            earliestMs = entries.values.firstOrNull()?.timeMs,
+            searched = stored,
+            stored = stored,
+            earliestMs = earliestMs,
             evicted = state.evicted,
             dropped = dropped,
             persisted = persisted,
@@ -174,16 +230,41 @@ class NetworkStore(
         )
     }
 
-    /** Runs derived from the stored entries' ids, plus the live run. */
-    private fun runs(): List<ProcessRun> {
-        val lastTime = LinkedHashMap<String, Long>()
-        for (e in entries.values) lastTime[e.runId] = maxOf(lastTime[e.runId] ?: 0, e.timeMs)
-        val earlier = lastTime.keys.filter { it != runId }.mapNotNull { id ->
-            parseRun(id)?.let { (start, runPid) ->
-                ProcessRun(id, runPid, start, endedAtMs = lastTime[id], ended = RunEnd.PROCESS_ENDED)
+    /** Which journal this is, and why it is new in this process (feature 011). */
+    fun identity(): JournalIdentity = synchronized(lock) { JournalIdentity(state.journalId!!, journalReason, stored, persisted) }
+
+    /**
+     * Journal records after [after] (a [JournalPage.next]; null from the start), at most [limit],
+     * in write order. The latest record of an entry is its current state.
+     */
+    fun journal(after: String?, limit: Int): JournalPage {
+        val journalId = synchronized(lock) { state.journalId!! }
+        if (!persisted) return JournalPage(journalId, emptyList(), after ?: "0:0", end = true)
+        flush()
+        val (fromSegment, fromLine) = after?.let(::parseCursor) ?: (0 to 0)
+        val records = ArrayList<NetworkEntry>()
+        var next = after ?: "0:0"
+        var end = true
+        for (file in segmentFiles()) {
+            val index = segmentIndex(file) ?: continue
+            if (index < fromSegment) continue
+            var line = 0
+            val skip = if (index == fromSegment) fromLine else 0
+            var full = false
+            file.bufferedReader().useLines { lines ->
+                for (text in lines) {
+                    if (line < skip) { line++; continue }
+                    if (records.size >= limit) { full = true; break }
+                    line++
+                    if (text.isBlank()) continue
+                    runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), text).entry }.getOrNull()
+                        ?.takeUnless { isEvicted(it.id) }?.let(records::add)
+                }
             }
-        }.sortedBy { it.startedAtMs }
-        return earlier + ProcessRun(runId, pid, startedAtMs)
+            next = "$index:$line"
+            if (full) { end = false; break }
+        }
+        return JournalPage(journalId, records, next, end)
     }
 
     /** Null when bodies cannot be stored (memory-only history). */
@@ -217,18 +298,44 @@ class NetworkStore(
         }
     }
 
+    /** [length] bytes of a body from [offset] (fewer at its end), so the host copies it in chunks. */
+    fun openBodyRange(id: String, part: BodyPart, offset: Long, length: Long): InputStream? {
+        val input = openBody(id, part) ?: return null
+        return try {
+            var skipped = 0L
+            while (skipped < offset) {
+                val n = input.skip(offset - skipped)
+                if (n <= 0) break
+                skipped += n
+            }
+            BoundedInputStream(input, length)
+        } catch (_: Throwable) {
+            runCatching { input.close() }
+            null
+        }
+    }
+
+    /** Bytes of a stored body, or null when there is none. */
+    fun bodySize(id: String, part: BodyPart): Long? = bodyFile(id, part)?.takeIf { it.isFile }?.length()
+
     /** Bytes the history occupies on disk: segments plus bodies. */
     fun diskBytes(): Long = diskBytes.get()
 
     /**
-     * Deletes every run's entries, segments and body files; the live run keeps capturing.
+     * Deletes every run's entries, segments and body files; the live run keeps capturing, in
+     * a new journal (identity reason `cleared`).
      * @return how many entries were removed.
      */
     fun clear(): Int {
         val removed = synchronized(lock) {
-            val count = entries.size
+            val count = stored
             entries.clear()
-            state = StoreState(clearedAtMs = clock())
+            finishedInMemory = 0
+            stored = 0
+            earliestMs = null
+            runLastTime.clear()
+            state = StoreState(clearedAtMs = clock(), journalId = UUID.randomUUID().toString())
+            journalReason = "cleared"
             count
         }
         synchronized(writeLock) {
@@ -276,17 +383,21 @@ class NetworkStore(
             runCatching { segmentWriter?.close() }
             segmentWriter = null
             segment = null
+            val oldestFirst = ArrayDeque<NetworkEntry>()
+            val seen = HashSet<String>()
+            forEachRecord { _, entry -> if (!isEvicted(entry.id) && seen.add(entry.id)) oldestFirst += entry }
             while (diskBytes.get() > limit) {
-                val oldest = synchronized(lock) {
-                    val first = entries.values.firstOrNull() ?: return@synchronized null
-                    entries.remove(first.id)
-                    val (run, n) = idParts(first.id) ?: (first.runId to 0L)
+                val oldest = oldestFirst.removeFirstOrNull() ?: break
+                synchronized(lock) {
+                    entries.remove(oldest.id)?.let { if (!inFlight(it)) finishedInMemory-- }
+                    val (run, n) = idParts(oldest.id) ?: (oldest.runId to 0L)
                     state = state.copy(
                         evictedThrough = state.evictedThrough + (run to maxOf(n, state.evictedThrough[run] ?: 0)),
                         evicted = state.evicted + 1,
                     )
-                    first
-                } ?: break
+                    stored--
+                    earliestMs = oldestFirst.firstOrNull()?.timeMs
+                }
                 for (part in BodyPart.entries) {
                     bodyFile(oldest.id, part)?.takeIf { it.isFile }?.let { file ->
                         val size = file.length()
@@ -311,15 +422,73 @@ class NetworkStore(
         }
     }
 
+    // ---- memory ------------------------------------------------------------------------
+
+    private fun inFlight(entry: NetworkEntry): Boolean = when (entry) {
+        is HttpEntry -> entry.state == HttpState.PENDING
+        is WsConnectionEntry -> entry.state == WsState.OPEN || entry.state == WsState.CONNECTING
+        else -> false
+    }
+
+    /** Only this process creates entries, with growing sequence numbers. */
+    private fun isNew(id: String): Boolean {
+        val (run, n) = idParts(id) ?: return !entries.containsKey(id)
+        if (run != runId) return false
+        if (n <= highestCreated) return false
+        highestCreated = n
+        return true
+    }
+
+    /** Drops the oldest finished entries beyond the window; they stay in the journal. */
+    private fun trimWindow() {
+        if (!persisted || finishedInMemory <= recentWindow) return
+        val iterator = entries.values.iterator()
+        while (finishedInMemory > recentWindow && iterator.hasNext()) {
+            val e = iterator.next()
+            if (!inFlight(e)) {
+                iterator.remove()
+                finishedInMemory--
+            }
+        }
+    }
+
+    /** The latest record of [id] in the journal (newest segments first). */
+    private fun fromJournal(id: String): NetworkEntry? {
+        flush()
+        val marker = "\"id\":\"$id\""
+        for (file in segmentFiles().asReversed()) {
+            var found: NetworkEntry? = null
+            file.forEachLine { line ->
+                if (marker in line) {
+                    runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()
+                        ?.takeIf { it.id == id }?.let { found = it }
+                }
+            }
+            found?.let { return it }
+        }
+        return null
+    }
+
+    private fun forEachRecord(action: (File, NetworkEntry) -> Unit) {
+        for (file in segmentFiles()) {
+            file.forEachLine { line ->
+                if (line.isBlank()) return@forEachLine
+                runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()?.let { action(file, it) }
+            }
+        }
+    }
+
     // ---- loading ---------------------------------------------------------------------
 
     private fun load() {
         val dir = storage ?: return
         try {
-            state = stateFile()?.takeIf { it.isFile }?.let {
-                DtaJson.decodeFromString(StoreState.serializer(), it.readText())
-            } ?: StoreState()
-            val loaded = LinkedHashMap<String, NetworkEntry>()
+            val stateFile = stateFile()?.takeIf { it.isFile }
+            state = stateFile?.let { DtaJson.decodeFromString(StoreState.serializer(), it.readText()) } ?: StoreState()
+            if (stateFile == null || state.journalId == null) newJournal("storage-new")
+            // Counted, not held: the entries stay in the journal (feature 011 US1).
+            val seen = HashMap<String, java.util.BitSet>()
+            val pending = LinkedHashMap<String, NetworkEntry>()
             for (file in segmentFiles()) {
                 lastSegmentIndex = maxOf(lastSegmentIndex, segmentIndex(file) ?: 0)
                 diskBytes.addAndGet(file.length())
@@ -329,17 +498,32 @@ class NetworkStore(
                     val entry = runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()
                         ?: return@forEachLine
                     newest = entry.id
-                    if (!isEvicted(entry.id)) loaded[entry.id] = entry
+                    if (isEvicted(entry.id)) return@forEachLine
+                    val (run, n) = idParts(entry.id) ?: (entry.runId to 0L)
+                    val bits = seen.getOrPut(run) { java.util.BitSet() }
+                    if (!bits.get(n.toInt())) {
+                        bits.set(n.toInt())
+                        stored++
+                        if (earliestMs == null) earliestMs = entry.timeMs
+                    }
+                    runLastTime[entry.runId] = maxOf(runLastTime[entry.runId] ?: 0, entry.timeMs)
+                    if (inFlight(entry)) pending[entry.id] = entry else pending.remove(entry.id)
                 }
                 segmentNewest[file] = newest ?: continue
             }
             dir.bodies.listFiles()?.forEach { diskBytes.addAndGet(it.length()) }
-            synchronized(lock) {
-                for ((id, entry) in loaded) entries[id] = endedByProcessDeath(entry)
-            }
+            // The process that owned them is gone (FR-027): the journal says so for the host too.
+            pending.values.forEach { enqueue(EntryRecord(endedByProcessDeath(it))) }
         } catch (_: Throwable) {
             // A history that cannot be read is not a reason to stop capturing.
+            if (state.journalId == null) newJournal("storage-new")
         }
+    }
+
+    private fun newJournal(reason: String) {
+        state = state.copy(journalId = UUID.randomUUID().toString())
+        journalReason = reason
+        saveState()
     }
 
     /** The process that owned an in-flight entry is gone (FR-027). */
@@ -349,6 +533,16 @@ class NetworkStore(
         entry is WsConnectionEntry && (entry.state == WsState.OPEN || entry.state == WsState.CONNECTING) ->
             entry.copy(state = WsState.PROCESS_ENDED)
         else -> entry
+    }
+
+    /** Runs from the counters, plus the live run. */
+    private fun runs(): List<ProcessRun> {
+        val earlier = runLastTime.keys.filter { it != runId }.mapNotNull { id ->
+            parseRun(id)?.let { (start, runPid) ->
+                ProcessRun(id, runPid, start, endedAtMs = runLastTime[id], ended = RunEnd.PROCESS_ENDED)
+            }
+        }.sortedBy { it.startedAtMs }
+        return earlier + ProcessRun(runId, pid, startedAtMs)
     }
 
     private fun segmentFiles(): List<File> =
@@ -453,6 +647,14 @@ class NetworkStore(
         return match.groupValues[1].toLong() to match.groupValues[2].toInt()
     }
 
+    private fun parseCursor(cursor: String): Pair<Int, Int> {
+        val parts = cursor.split(':')
+        val segment = parts.getOrNull(0)?.toIntOrNull()
+        val line = parts.getOrNull(1)?.toIntOrNull()
+        if (segment == null || line == null) throw InvalidParamsException("unknown journal cursor '$cursor'")
+        return segment to line
+    }
+
     private fun bodyFile(id: String, part: BodyPart): File? =
         storage?.let { File(it.bodies, "${id.replace(':', '_')}.${part.name.lowercase()}") }
 
@@ -463,5 +665,22 @@ class NetworkStore(
     private companion object {
         val RUN_ID = Regex("""r(\d+)-(\d+)""")
         val SEGMENT = Regex("""seg-(\d+)\.jsonl""")
+    }
+}
+
+/** At most [remaining] bytes of [input]. */
+private class BoundedInputStream(input: InputStream, private var remaining: Long) : java.io.FilterInputStream(input) {
+    override fun read(): Int {
+        if (remaining <= 0) return -1
+        val b = super.read()
+        if (b >= 0) remaining--
+        return b
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (remaining <= 0) return -1
+        val n = super.read(b, off, minOf(len.toLong(), remaining).toInt())
+        if (n > 0) remaining -= n
+        return n
     }
 }

@@ -1,6 +1,7 @@
 package io.yamsergey.dta.sidekick.capability
 
 import io.yamsergey.dta.protocol.rpc.CapabilityStatus
+import io.yamsergey.dta.protocol.rpc.AppInstallation
 import io.yamsergey.dta.protocol.rpc.IdentityReport
 import io.yamsergey.dta.protocol.rpc.PROTOCOL_VERSION
 
@@ -32,11 +33,12 @@ class CapabilityRegistry {
         }
     }
 
-    fun buildIdentity(packageName: String, sidekickVersion: String): IdentityReport =
+    fun buildIdentity(packageName: String, sidekickVersion: String, app: AppInstallation? = null): IdentityReport =
         IdentityReport(
             protocolVersion = PROTOCOL_VERSION,
             sidekickVersion = sidekickVersion,
             packageName = packageName,
             capabilities = snapshot(),
+            app = app,
         )
 }

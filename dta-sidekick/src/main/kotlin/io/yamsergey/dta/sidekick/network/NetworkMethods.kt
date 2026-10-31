@@ -4,6 +4,9 @@ import io.yamsergey.dta.protocol.layout.DegradationCodes
 import io.yamsergey.dta.protocol.network.BodyCodec
 import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
+import io.yamsergey.dta.protocol.network.BodyRangeResult
+import io.yamsergey.dta.protocol.network.JournalIdentityResult
+import io.yamsergey.dta.protocol.network.JournalPageResult
 import io.yamsergey.dta.protocol.network.ClearResult
 import io.yamsergey.dta.protocol.network.Completeness
 import io.yamsergey.dta.protocol.network.Coverage
@@ -44,6 +47,47 @@ class NetworkMethods(
         registry.register("network_body") { ctx ->
             DtaJson.encodeToJsonElement(NetworkBodyResult.serializer(), body(ctx.params, ctx::attachBinary))
         }
+        // The host's side (feature 011): which journal, its records after a cursor, bodies by range.
+        registry.register("network_identity") { DtaJson.encodeToJsonElement(JournalIdentityResult.serializer(), identity()) }
+        registry.register("network_journal") { ctx -> DtaJson.encodeToJsonElement(JournalPageResult.serializer(), journal(ctx.params)) }
+        registry.register("network_body_range") { ctx ->
+            DtaJson.encodeToJsonElement(BodyRangeResult.serializer(), bodyRange(ctx.params, ctx::attachBinary))
+        }
+    }
+
+    fun identity(): JournalIdentityResult = store.identity().let { JournalIdentityResult(it.journalId, it.reason, it.entries, it.persisted) }
+
+    fun journal(params: JsonObject?): JournalPageResult {
+        val after = (params?.get("after") as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val limit = ((params?.get("limit") as? JsonPrimitive)?.content?.toIntOrNull() ?: JOURNAL_PAGE).coerceIn(1, MAX_JOURNAL_PAGE)
+        val page = store.journal(after, limit)
+        return JournalPageResult(page.journalId, page.records, page.next, page.end)
+    }
+
+    fun bodyRange(params: JsonObject?, attach: (ByteArray) -> Unit): BodyRangeResult {
+        val id = (params?.get("id") as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: throw InvalidParamsException("network_body_range requires a string 'id'")
+        val partName = (params["part"] as? JsonPrimitive)?.content
+        val part = BodyPart.entries.firstOrNull { wireName(it) == partName }
+            ?: throw InvalidParamsException("unknown part '$partName'; valid values: ${BodyPart.entries.joinToString(", ") { wireName(it) }}")
+        val offset = (params["offset"] as? JsonPrimitive)?.content?.toLongOrNull()?.takeIf { it >= 0 }
+            ?: throw InvalidParamsException("network_body_range requires an 'offset' of 0 or more")
+        val length = (params["length"] as? JsonPrimitive)?.content?.toLongOrNull()?.takeIf { it > 0 }
+            ?: throw InvalidParamsException("network_body_range requires a positive 'length'")
+        val total = store.bodySize(id, part) ?: throw InvalidParamsException("no stored ${wireName(part)} body for $id (it may have been evicted or cleared)")
+        var sent = 0L
+        store.openBodyRange(id, part, offset, length)?.use { stream ->
+            val buffer = ByteArray(CHUNK_BYTES)
+            while (true) {
+                val n = stream.read(buffer)
+                if (n < 0) break
+                if (n > 0) {
+                    attach(buffer.copyOf(n))
+                    sent += n
+                }
+            }
+        }
+        return BodyRangeResult(total, offset, sent)
     }
 
     fun list(params: JsonObject?): NetworkPage {
@@ -175,6 +219,8 @@ class NetworkMethods(
 
     companion object {
         const val CHUNK_BYTES = 256 * 1024
+        const val JOURNAL_PAGE = 500
+        const val MAX_JOURNAL_PAGE = 5_000
     }
 
     private fun earliest(): String = store.coverage().earliestMs?.let { io.yamsergey.dta.sidekick.util.IsoTime.format(it) } ?: "nothing stored"
