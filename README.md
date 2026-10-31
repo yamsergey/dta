@@ -78,6 +78,16 @@ Binary protobuf bodies decode when DTA knows the schemas and which endpoint uses
 - **The terminal and agents**: `dta network schema sync .` takes every `.proto` file under the folder (imports resolve across `src/*/proto` roots), as one set that a later sync of the same folder replaces. `dta mcp` does this for its working folder by itself the first time a body needs a schema. Mappings then come from the code: `dta network mapping add`; an agent reads the code and adds them itself.
 - Every set says where it came from (project, folder or by hand) and when; a decoded body names whose schemas decoded it. Archived bodies (feature 011) decode with today's schemas, and say so.
 
+## Links that reach the app (feature 012)
+
+Every intent with a URI that reaches an activity of the app — a deep link, an App Link, a notification or another app's intent — is recorded in the app's history: the URI and its parts, action, categories, flags, every extra (or why it could not be read), the activity, how it arrived (cold start, created, new intent, from recents) and who sent it. Re-creating an activity (rotation) or a launcher start is no link. Links survive restarts and are archived like network traffic.
+
+- `dta links list` / `dta links entry <id>`; the Links tab in Android Studio.
+- `dta links open <uri> --package <app>` opens it on the device and says who received it: the app (with its record), another app, the system's chooser, or nothing, with why. For an https link the app did not get, the host's App Links state explains it. `--only` sends it to the app alone.
+- `dta links verification` lists the app's App Links hosts: verified or not (with Android's code), and whether the user turned them off. Android 12 or newer; before that it says so.
+- Not recorded: links the app hands to other apps (only the system sees them) and links it opens in a WebView or Custom Tab.
+- An activity that is not a `ComponentActivity` shows its new intents only when it calls `setIntent`; the links capability names such activities.
+
 ## Install and use (feature 008)
 
 Prerequisites: Java 21+, adb (found through `DTA_ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` or `PATH`), an app built with `dta-sidekick` in its debug build.

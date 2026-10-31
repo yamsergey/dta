@@ -54,6 +54,13 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - `redact: true` masks tokens, cookies, passwords and keys (in decoded protobuf too); bodies that cannot be redacted are withheld unless `allowUnredacted`.
 - `network_clear` empties the history (all runs).
 
+## Links
+
+- `links_list` lists the links (deep links, App Links, any intent with a URI) that reached an activity of the app: URI, `delivery` (`cold-start`, `created`, `new-intent`, `from-recents`), activity, referrer. Filters: `uri`, `activity`, `delivery`, `runs`, `archive`. `links_entry` gives the query, flags and every extra (or why it could not be read).
+- `links_open` opens a URI on the device and says who received it: the app (with the link's id), another app, the chooser, or nothing. Pass `package` to wait for the app's record and, for an https link it did not get, to see its App Links state; `only: true` sends it to the app alone.
+- `links_verification` says, per declared https host, whether Android verified it and whether the user allowed it: why a link opens in the browser instead of the app.
+- Links the app hands to other apps (browser, store, mail) are not recorded; links it opens in a WebView or a Custom Tab are not either.
+
 ## Scripts
 
 `network_script_set` installs JavaScript that runs inside the app for every request, response and WebSocket message. It persists across app restarts until `network_script_clear`. Check `network_script_status` and `network_script_logs` after installing. See [scripting.md](scripting.md) for the API and recipes.
