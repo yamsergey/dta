@@ -1,5 +1,9 @@
 package io.yamsergey.dta.daemon
 
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import io.yamsergey.dta.daemon.adb.AdbExec
 import io.yamsergey.dta.daemon.adb.PortForwards
 import io.yamsergey.dta.daemon.connection.ForwardOps
@@ -73,12 +77,34 @@ class DtaDaemon(
     private val deviceIdentities = io.yamsergey.dta.daemon.device.DeviceIdentities { serial -> runAdb(listOf("-s", serial, "shell", "getprop")) }
     private val hostIndexes = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.network.HostIndex>()
 
+    /** Background work of the host store: copying bodies as soon as entries finish (011 US7). */
+    private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
     private fun hostIndex(serial: String, pkg: String): io.yamsergey.dta.daemon.network.HostIndex =
         hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
             io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg) {
                 connections.connect(key)
+            }.also(::startCopying)
+        }
+
+    /** Catches up and copies bodies while the app runs; waits longer while it does not. */
+    private fun startCopying(index: io.yamsergey.dta.daemon.network.HostIndex) {
+        val worker = io.yamsergey.dta.daemon.network.CopyWorker(index)
+        background.launch {
+            while (isActive) {
+                val copied = try {
+                    index.refresh()
+                    worker.runOnce()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    delay(5_000)
+                    continue
+                }
+                if (copied == 0L) delay(1_000)
             }
         }
+    }
     private val forwards = PortForwards(runAdb)
 
     init {
@@ -228,7 +254,10 @@ class DtaDaemon(
         return Screen(w, h, density)
     }
 
-    suspend fun shutdown() = connections.shutdown()
+    suspend fun shutdown() {
+        background.cancel()
+        connections.shutdown()
+    }
 
     // --- Feature 008: what the daemon process serves besides the per-app operations.
 

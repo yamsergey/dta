@@ -174,6 +174,13 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
 
     fun openBody(sha256: String): InputStream? = bodies.open(sha256)
 
+    /** Where a body being copied in chunks collects until it is whole (a disconnect resumes from its size). */
+    fun partialFile(epochId: String, entryId: String, part: BodyPart): File =
+        File(root, "partial/" + "$epochId-$entryId-${part.name}".replace(Regex("[^A-Za-z0-9_.-]"), "_")).apply { parentFile.mkdirs() }
+
+    @Synchronized
+    fun countNotArchived(epochId: String): Int = query("SELECT count(*) FROM body_ref WHERE epoch_id=? AND not_archived IS NOT NULL", epochId) { it.getInt(1) }.single()
+
     @Synchronized
     fun cursor(deviceKey: String, packageName: String): Cursor? =
         query("SELECT journal_id, position FROM cursor WHERE device_key=? AND package=?", deviceKey, packageName) { Cursor(it.getString(1), it.getString(2)) }.firstOrNull()

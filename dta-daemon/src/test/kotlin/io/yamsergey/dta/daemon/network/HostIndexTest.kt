@@ -52,7 +52,7 @@ import kotlin.time.Duration
  * An app's journal in memory, served as the sidekick serves it (contracts/sidekick-journal.md):
  * one record per change, pages after a cursor, bodies by range.
  */
-class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean = true) : AppConnection {
+open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean = true) : AppConnection {
     val records = mutableListOf<NetworkEntry>()
     val bodies = HashMap<Pair<String, BodyPart>, ByteArray>()
     var runId = "r1-1"
@@ -131,6 +131,10 @@ class HostIndexTest {
     private fun index(app: FakeJournalApp, store: HostStore = HostStore(dir).also { stores += it }) =
         HostIndex(store, DeviceIdentity("dev1", "emulator-5554"), "io.example") { app }
 
+    /** The app's answer, without what only the host adds (bodies it has not copied yet, US7). */
+    private suspend fun HostIndex.answer(q: NetworkQuery): NetworkPage =
+        list(q).let { it.copy(coverage = it.coverage.copy(bodiesPending = null, bodiesNotArchived = null)) }
+
     private var t = 1_000L
 
     private fun http(app: FakeJournalApp, n: Int, url: String = "https://api/x/$n", state: HttpState = HttpState.COMPLETE, status: Int = 200, body: String? = null, run: String = app.runId) =
@@ -166,10 +170,10 @@ class HostIndexTest {
     fun `every query of the corpus gets the device's answer`() = runBlocking<Unit> {
         val app = FakeJournalApp().also(::corpus)
         val host = index(app)
-        queries.forEach { q -> assertEquals(app.deviceAnswer(q), host.list(q), "query $q") }
+        queries.forEach { q -> assertEquals(app.deviceAnswer(q), host.answer(q), "query $q") }
         // Paging through with the cursor gives the same pages.
         val first = host.list(NetworkQuery(limit = 10))
-        assertEquals(app.deviceAnswer(NetworkQuery(limit = 10, before = first.next)), host.list(NetworkQuery(limit = 10, before = first.next)))
+        assertEquals(app.deviceAnswer(NetworkQuery(limit = 10, before = first.next)), host.answer(NetworkQuery(limit = 10, before = first.next)))
         assertEquals(0, app.listCalls, "the device answered nothing itself")
     }
 
@@ -188,7 +192,7 @@ class HostIndexTest {
         val before = host.list(NetworkQuery()).total
         http(app, 40)
         assertEquals(before + 1, host.list(NetworkQuery()).total)
-        assertEquals(app.deviceAnswer(NetworkQuery()), host.list(NetworkQuery()))
+        assertEquals(app.deviceAnswer(NetworkQuery()), host.answer(NetworkQuery()))
     }
 
     @Test
@@ -199,7 +203,7 @@ class HostIndexTest {
         http(app, 41); http(app, 42)
         val again = index(app)
         val requestsBefore = app.requests.size
-        assertEquals(app.deviceAnswer(NetworkQuery()), again.list(NetworkQuery()))
+        assertEquals(app.deviceAnswer(NetworkQuery()), again.answer(NetworkQuery()))
         assertTrue(app.requests.drop(requestsBefore).count { it == "network_journal" } <= 2, "only the new records were read: ${app.requests.drop(requestsBefore)}")
     }
 

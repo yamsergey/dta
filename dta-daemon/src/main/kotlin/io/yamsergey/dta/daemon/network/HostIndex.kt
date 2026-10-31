@@ -1,6 +1,8 @@
 package io.yamsergey.dta.daemon.network
 
 import io.yamsergey.dta.daemon.connection.AppConnection
+import io.yamsergey.dta.daemon.connection.ConnectionLostException
+import io.yamsergey.dta.daemon.connection.RequestTimeoutException
 import io.yamsergey.dta.daemon.store.ArchivingStoppedException
 import io.yamsergey.dta.daemon.store.DeviceIdentity
 import io.yamsergey.dta.daemon.store.Epoch
@@ -11,6 +13,10 @@ import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.BodyRangeResult
 import io.yamsergey.dta.protocol.network.EpochCloseReason
 import io.yamsergey.dta.protocol.network.HistoryContext
+import io.yamsergey.dta.protocol.network.HttpEntry
+import io.yamsergey.dta.protocol.network.HttpState
+import io.yamsergey.dta.protocol.network.WsConnectionEntry
+import io.yamsergey.dta.protocol.network.WsState
 import io.yamsergey.dta.protocol.network.JournalIdentityResult
 import io.yamsergey.dta.protocol.network.JournalPageResult
 import io.yamsergey.dta.protocol.network.NetworkEntry
@@ -26,7 +32,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import java.io.ByteArrayOutputStream
 
 /**
  * One app's network history on the host (feature 011 US2): caught up from the app's journal
@@ -58,16 +63,21 @@ class HostIndex(
     suspend fun list(query: NetworkQuery): NetworkPage = mutex.withLock {
         val app = connection()
         if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkPage.serializer(), app.request("network_list", query.toJson()))
-        if (query.filter?.bodyContains != null) fetchBodies(app)
+        if (query.filter?.bodyContains != null) fetchBodies()
         val page = view.list(query)
         page.copy(
             coverage = page.coverage.copy(
                 hostLagRecords = lag.takeIf { it > 0 },
+                bodiesPending = pending().size.takeIf { it > 0 },
+                bodiesNotArchived = epoch?.let { store.countNotArchived(it.id) }?.takeIf { it > 0 },
                 archivedEpochs = store.archivedCount(device.key, packageName).takeIf { it > 0 },
                 archivingStopped = store.archivingStopped,
             ),
         )
     }
+
+    /** Catches up with the journal without answering anything (the copy worker's loop). */
+    suspend fun refresh() = mutex.withLock { sync(connection()) }
 
     /** The device cleared [clearedEntries]: those the host never read are counted on the archived epoch. */
     suspend fun cleared(clearedEntries: Int) = mutex.withLock {
@@ -148,43 +158,73 @@ class HostIndex(
         return InstallationInfo(a.versionName, a.versionCode, a.lastUpdateMs, a.signingSha256)
     }
 
-    /** Bodies a body search needs, copied to the host first (the copy worker of US7 does this for every body). */
-    private suspend fun fetchBodies(app: AppConnection) {
-        val e = epoch ?: return
-        for (entry in live.values) {
-            for (part in BodyPart.entries) {
-                val info = NetworkHistoryView.bodyOf(entry, part) ?: continue
-                if (info.storedBytes <= 0 || store.bodyRef(e.id, entry.id, part) != null) continue
-                copyBody(app, e, entry.id, part)
+    /** A body of a finished entry not on the host yet. */
+    data class PendingBody(val entryId: String, val part: BodyPart, val bytes: Long)
+
+    /** Bodies of finished entries in the live epoch that the host has not copied (US7). */
+    suspend fun pendingBodies(): List<PendingBody> = mutex.withLock { pending() }
+
+    private fun pending(): List<PendingBody> {
+        val e = epoch ?: return emptyList()
+        return live.values.filter { !inFlight(it) }.flatMap { entry ->
+            BodyPart.entries.mapNotNull { part ->
+                val info = NetworkHistoryView.bodyOf(entry, part) ?: return@mapNotNull null
+                if (info.storedBytes <= 0 || store.bodyRef(e.id, entry.id, part) != null) null else PendingBody(entry.id, part, info.storedBytes)
             }
         }
     }
 
-    private suspend fun copyBody(app: AppConnection, e: Epoch, id: String, part: BodyPart) {
-        val out = ByteArrayOutputStream()
+    private fun inFlight(entry: NetworkEntry): Boolean = when (entry) {
+        is HttpEntry -> entry.state == HttpState.PENDING
+        is WsConnectionEntry -> entry.state == WsState.OPEN || entry.state == WsState.CONNECTING
+        else -> false
+    }
+
+    /** Bodies a body search needs, copied to the host first (the copy worker does this for every body). */
+    private suspend fun fetchBodies() {
+        pending().forEach { copyBody(it.entryId, it.part) }
+    }
+
+    /**
+     * Copies one body of the live epoch in [CHUNK] ranges over the app's channel, resuming a
+     * partial copy; [paced] runs after each chunk with its bytes and round-trip (the worker's
+     * budget). A lost link propagates (the copy resumes later); a body the app no longer has is
+     * marked "not archived" with the reason.
+     */
+    suspend fun copyBody(entryId: String, part: BodyPart, paced: suspend (bytes: Long, ms: Long) -> Unit = { _, _ -> }) {
+        val e = epoch ?: return
+        val app = connection()
+        val partial = store.partialFile(e.id, entryId, part)
         val partName = DtaJson.encodeToJsonElement(BodyPart.serializer(), part).jsonPrimitive.content
         try {
-            var offset = 0L
             while (true) {
+                val offset = partial.length()
+                val started = clock()
                 val response = app.requestFull(
                     "network_body_range",
                     buildJsonObject {
-                        put("id", id)
+                        put("id", entryId)
                         put("part", partName)
                         put("offset", offset)
                         put("length", CHUNK)
                     },
                 )
                 val range = DtaJson.decodeFromJsonElement(BodyRangeResult.serializer(), response.result)
-                response.binaryPayloads.forEach(out::write)
-                offset += range.bytes
-                if (range.bytes <= 0 || offset >= range.totalBytes) break
+                java.io.FileOutputStream(partial, true).use { out -> response.binaryPayloads.forEach(out::write) }
+                paced(range.bytes, clock() - started)
+                if (range.bytes <= 0 || partial.length() >= range.totalBytes) break
             }
-            store.putBody(e.id, id, part, out.toByteArray().inputStream())
+            partial.inputStream().use { store.putBody(e.id, entryId, part, it) }
+            partial.delete()
+        } catch (lost: ConnectionLostException) {
+            throw lost
+        } catch (timeout: RequestTimeoutException) {
+            throw timeout
         } catch (_: ArchivingStoppedException) {
-            // Stated in coverage (archivingStopped); the search goes on without this body.
+            // Stated in coverage (archivingStopped).
         } catch (ex: Exception) {
-            store.markNotArchived(e.id, id, part, "the device no longer had it: ${ex.message}")
+            partial.delete()
+            store.markNotArchived(e.id, entryId, part, "the app no longer had it: ${ex.message ?: ex.javaClass.simpleName}")
         }
     }
 
