@@ -54,6 +54,10 @@ interface DaemonOperations {
     fun networkMappingAdd(pkg: String, mapping: BodyMappingSpec): BodyMapping
     fun networkMappings(pkg: String): List<BodyMapping>
     fun networkMappingRemove(pkg: String, id: String): Boolean
+    /** Opens a URI on the device and says who received it (feature 012). */
+    suspend fun linksOpen(serial: String, uri: String, pkg: String?): io.yamsergey.dta.protocol.network.LinkOpenResult
+    /** The app's App Links state (feature 012). */
+    fun linksVerification(serial: String, pkg: String): io.yamsergey.dta.protocol.network.AppLinksState
     /** Replaces one origin's schema set and derived mappings (feature 013). */
     fun networkSchemaSync(pkg: String, origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin, files: Map<String, String>, mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>, notes: List<String>): io.yamsergey.dta.daemon.network.proto.SyncResult
     /** The host's network archive (feature 011). */
@@ -64,6 +68,8 @@ interface DaemonOperations {
 /** Adapts [DtaDaemon] (whose methods carry defaults) to [DaemonOperations]. */
 class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun archiveList() = daemon.archiveList()
+    override suspend fun linksOpen(serial: String, uri: String, pkg: String?) = daemon.linksOpen(serial, uri, pkg)
+    override fun linksVerification(serial: String, pkg: String) = daemon.linksVerification(serial, pkg)
     override fun networkSchemaSync(pkg: String, origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin, files: Map<String, String>, mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>, notes: List<String>) =
         daemon.networkSchemaSync(pkg, origin, files, mappings, notes)
     override fun archiveDelete(target: DeleteTarget, confirm: Boolean) = daemon.archiveDelete(target, confirm)

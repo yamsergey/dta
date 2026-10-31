@@ -26,6 +26,8 @@ class SidekickInitializer : Initializer<Unit> {
         // Normally already started by HooksProvider; idempotent, so the network methods
         // exist even if that provider was stripped from the manifest.
         runCatching { NetworkRuntime.start(context) }
+        // Links that reach an activity (feature 012), recorded into the same history.
+        runCatching { io.yamsergey.dta.sidekick.links.LinkRecorder.start(context.applicationContext as android.app.Application) }
         SidekickServer.start(
             packageName = context.packageName,
             sidekickVersion = BuildConfig.VERSION,

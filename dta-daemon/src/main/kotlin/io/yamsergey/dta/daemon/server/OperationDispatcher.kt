@@ -105,6 +105,16 @@ class OperationDispatcher(
             buildJsonObject { put("removed", name); put("brokenMappings", encode(ListSerializer(BodyMapping.serializer()), ops.networkSchemaRemove(c.app, name))) }
         },
         "network.mapping.add" to { c -> encode(BodyMapping.serializer(), ops.networkMappingAdd(c.app, mapping(c))) },
+        "links.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, linksQuery(c.params))) },
+        "links.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
+        "links.open" to { c ->
+            try {
+                encode(io.yamsergey.dta.protocol.network.LinkOpenResult.serializer(), ops.linksOpen(c.device, c.required("uri"), c.string("package")))
+            } catch (e: IllegalArgumentException) {
+                invalid(e.message ?: "invalid URI")
+            }
+        },
+        "links.verification" to { c -> encode(io.yamsergey.dta.protocol.network.AppLinksState.serializer(), ops.linksVerification(c.device, c.app)) },
         "archive.list" to { _ -> encode(ArchiveListing.serializer(), ops.archiveList()) },
         "archive.delete" to { c ->
             val targets = listOfNotNull(
@@ -186,6 +196,12 @@ class OperationDispatcher(
         io.yamsergey.dta.protocol.ops.Scope.NONE -> emptyList()
         io.yamsergey.dta.protocol.ops.Scope.DEVICE -> listOf("device")
         else -> listOf("device", "app")
+    }
+
+    /** `links.list` is the app's history filtered to links (feature 012 R1). */
+    private fun linksQuery(params: JsonObject): NetworkQuery {
+        val renamed = JsonObject(params.mapKeys { (k, _) -> if (k == "uri") "url" else k } + ("kinds" to kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("link")) }))
+        return query(renamed)
     }
 
     private fun query(params: JsonObject): NetworkQuery {

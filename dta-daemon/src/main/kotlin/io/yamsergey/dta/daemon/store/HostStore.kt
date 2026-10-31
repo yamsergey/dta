@@ -343,12 +343,14 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
         is HttpEntry -> "http"
         is WsConnectionEntry -> "ws-connection"
         is WsMessageEntry -> "ws-message"
+        is io.yamsergey.dta.protocol.network.LinkEntry -> "link"
     }
 
     private fun urlOf(e: NetworkEntry): String? = when (e) {
         is HttpEntry -> e.url
         is WsConnectionEntry -> e.url
         is WsMessageEntry -> null
+        is io.yamsergey.dta.protocol.network.LinkEntry -> e.uri
     }
 
     private companion object {

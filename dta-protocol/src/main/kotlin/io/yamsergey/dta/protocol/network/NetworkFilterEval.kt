@@ -1,5 +1,7 @@
 package io.yamsergey.dta.protocol.network
 
+import io.yamsergey.dta.protocol.rpc.DtaJson
+
 /**
  * Evaluates a [NetworkFilter] against entries (FR-019..022): every field AND-combined,
  * the same rules for HTTP exchanges and WebSocket traffic. Pure; bodies and connection
@@ -52,9 +54,14 @@ class NetworkFilterEval(
                 is HttpEntry -> entry.url
                 is WsConnectionEntry -> entry.url
                 is WsMessageEntry -> connectionUrl(entry.connectionId)
+                is LinkEntry -> entry.uri
             }
             if (url == null || !url.contains(needle, ignoreCase = true)) return null
             locations += MatchLocation.URL
+        }
+        filter.activity?.let { needle -> if (entry !is LinkEntry || !entry.activity.contains(needle, ignoreCase = true)) return null }
+        filter.delivery?.let { wanted ->
+            if (entry !is LinkEntry || DtaJson.encodeToJsonElement(LinkDelivery.serializer(), entry.delivery).let { (it as kotlinx.serialization.json.JsonPrimitive).content } != wanted) return null
         }
         filter.bodyContains?.let { needle ->
             val hits = bodies(entry).mapNotNull { (info, part) ->
@@ -120,7 +127,7 @@ class NetworkFilterEval(
             entry.appResponse?.body?.let { it to BodyPart.APP_RESPONSE },
         )
         is WsMessageEntry -> listOfNotNull(entry.payload to BodyPart.MESSAGE, entry.appPayload?.let { it to BodyPart.APP_MESSAGE })
-        is WsConnectionEntry -> emptyList()
+        is WsConnectionEntry, is LinkEntry -> emptyList()
     }
 
     private fun location(part: BodyPart, binary: Boolean) = when (part) {
@@ -141,6 +148,7 @@ class NetworkFilterEval(
             is HttpEntry -> EntryKind.HTTP
             is WsConnectionEntry -> EntryKind.WS_CONNECTION
             is WsMessageEntry -> EntryKind.WS_MESSAGE
+            is LinkEntry -> EntryKind.LINK
         }
     }
 }

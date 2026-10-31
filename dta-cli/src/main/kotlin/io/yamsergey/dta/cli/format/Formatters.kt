@@ -46,6 +46,10 @@ class Formatters(private val style: Style) {
         "network.mapping.add" -> mappingRow(result.obj)
         "network.mapping.list" -> result.arr.joinToString("\n") { mappingRow(it.obj) }.ifEmpty { "No mappings." }
         "network.mapping.remove" -> "Removed mapping ${result.obj.str("removed")}."
+        "links.list" -> linksList(result.obj)
+        "links.entry" -> linkEntry(result.obj.obj("entry") ?: JsonObject(emptyMap()))
+        "links.open" -> linkOpen(result.obj)
+        "links.verification" -> verification(result.obj)
         "archive.list" -> archiveList(result.obj)
         "archive.delete" -> archiveDelete(result.obj)
         "daemon.status" -> status(result.obj)
@@ -184,6 +188,71 @@ class Formatters(private val style: Style) {
         append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
+    }
+
+    // --- Links (feature 012)
+
+    private fun linksList(o: JsonObject): String = buildString {
+        val entries = o.arr("entries")
+        if (entries.isEmpty()) appendLine("No links have reached the app.")
+        val archived = o.obj("archived")
+        entries.forEach { e ->
+            val l = e.obj
+            val mark = archived?.obj(l.str("id") ?: "")?.let { "  " + style.mark(Statements.forArchived(it)) }.orEmpty()
+            appendLine(listOf(style.paint(l.str("id") ?: "", Token.INK_MUTED), l.str("uri") ?: "", style.paint(l.str("delivery") ?: "", Token.ACCENT),
+                (l.str("activity") ?: "").substringAfterLast('.')).joinToString("  ") + mark)
+        }
+        append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
+        o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
+    }
+
+    private fun linkEntry(l: JsonObject): String = buildString {
+        appendLine(l.str("uri"))
+        fun row(name: String, value: String?) { value?.takeIf { it.isNotEmpty() }?.let { appendLine(name.padEnd(12) + it) } }
+        row("delivery", l.str("delivery"))
+        row("activity", l.str("activity"))
+        row("referrer", l.str("referrer") ?: "unknown")
+        row("action", l.str("action"))
+        row("categories", l.arr("categories").joinToString(", ") { it.jsonContent })
+        row("flags", l.str("flags"))
+        l.arr("query").takeIf { it.isNotEmpty() }?.let { q -> appendLine("query"); q.forEach { appendLine("  ${it.obj.str("name")} = ${it.obj.str("value")}") } }
+        l.arr("extras").takeIf { it.isNotEmpty() }?.let { x ->
+            appendLine("extras")
+            x.forEach { e ->
+                val ex = e.obj
+                appendLine(ex.str("notRead")?.let { "  ${ex.str("key")}: " + style.mark(StatementKind.DEGRADED, "not read: $it") }
+                    ?: "  ${ex.str("key")}${ex.str("type")?.let { " ($it)" } ?: ""} = ${ex.str("value")}")
+            }
+        }
+    }.trimEnd()
+
+    private fun linkOpen(o: JsonObject): String {
+        val activity = o.str("activity")
+        val main = when (o.str("outcome")) {
+            "received" -> "Received by ${activity ?: o.str("packageName")}" + (o.str("recordId")?.let { " — link $it." } ?: ".")
+            "other-app" -> "Opened by another app: ${o.str("packageName")}" + (activity?.let { " ($it)" } ?: "") + "."
+            "chooser" -> "The system showed a chooser: several apps can open it and none is the default."
+            else -> "Nothing on the device can open it."
+        }
+        val extra = listOfNotNull(
+            o.str("reason")?.takeIf { o.str("outcome") != "received" || o.str("recordId") == null }?.let { if (o.str("outcome") == "received") it else "Why: $it" },
+            o.obj("appLinks")?.let { h -> "App Links: ${h.str("host")}: ${h.str("state")}" + (h.str("reason")?.let { " ($it)" } ?: "") },
+        )
+        return (listOf(main) + extra).joinToString("\n")
+    }
+
+    private fun verification(o: JsonObject): String {
+        if (!o.bool("available")) return o.str("reason") ?: "unavailable"
+        val hosts = o.arr("hosts")
+        if (hosts.isEmpty()) return o.str("reason") ?: "No App Links hosts."
+        return buildString {
+            hosts.forEach { h ->
+                val host = h.obj
+                val off = if (host["enabled"]?.toString() == "false") " · turned off by the user" else ""
+                appendLine("${host.str("host")}  ${host.str("state")}" + (host.str("reason")?.let { " — $it" } ?: "") + off)
+            }
+            if (o["linkHandlingAllowed"]?.toString() == "false") append(style.mark(StatementKind.DEGRADED, "the user turned off opening supported links for this app"))
+        }.trimEnd()
     }
 
     // --- Schemas from the project (feature 013)

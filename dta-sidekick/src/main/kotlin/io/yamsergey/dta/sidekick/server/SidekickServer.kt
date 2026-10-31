@@ -61,6 +61,7 @@ object SidekickServer {
         capabilities.register(LayoutCapability.NAME) { LayoutCapability.status(composePresence) }
 
         capabilities.register(NetworkCapability.NAME) { NetworkRuntime.capability() }
+        capabilities.register(io.yamsergey.dta.sidekick.links.LinkRecorder.NAME) { io.yamsergey.dta.sidekick.links.LinkRecorder.capability() }
 
         val layoutMethod = LayoutCaptureMethod(
             presence = composePresence,

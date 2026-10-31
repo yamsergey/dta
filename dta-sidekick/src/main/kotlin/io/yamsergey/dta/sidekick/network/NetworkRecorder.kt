@@ -159,6 +159,8 @@ class NetworkRecorder(
                     is HttpEntry -> current.copy(intervention = merged)
                     is WsConnectionEntry -> current.copy(intervention = merged)
                     is WsMessageEntry -> current.copy(intervention = merged)
+                    // Scripts act on network traffic only.
+                    is io.yamsergey.dta.protocol.network.LinkEntry -> return@guard
                 },
             )
         }
@@ -310,6 +312,11 @@ class NetworkRecorder(
             val next = change(current)
             if (next != current) put(next)
         }
+    }
+
+    /** A link that reached an activity (feature 012), built with the next id of this run. */
+    fun link(build: (id: String, runId: String, timeMs: Long) -> io.yamsergey.dta.protocol.network.LinkEntry) = guard {
+        put(build(store.nextId(), store.runId, clock()))
     }
 
     private fun put(entry: NetworkEntry) {

@@ -51,7 +51,8 @@ class NetworkHistoryView(
                 decoded = decoded,
             )
         }
-        val chronological = entries()
+        // Links (012) are in the same history; network views show them only when kinds asks.
+        val chronological = entries().let { all -> if (query.filter?.kinds == null) all.filter { it !is LinkEntry } else all }
         val all = if (query.order == Order.NEWEST_FIRST) chronological.asReversed() else chronological
         val start = if (query.before == null) 0 else {
             val at = all.indexOfFirst { it.id == query.before }

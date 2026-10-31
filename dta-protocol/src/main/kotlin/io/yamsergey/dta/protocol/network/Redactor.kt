@@ -105,6 +105,20 @@ object Redactor {
                 entry.copy(url = u, handshakeHeaders = hdrs(entry.handshakeHeaders, "handshake"))
             }
             is WsMessageEntry -> entry.copy(payload = preview(entry.payload, "payload")!!)
+            // Feature 012: the same rules over a link's URI, its query and its extras.
+            is LinkEntry -> {
+                val (u, m) = url(entry.uri, at)
+                masked += m
+                val (query, qm) = headers(entry.query, "$at query")
+                masked += qm
+                val extras = entry.extras.map { e ->
+                    if (e.value != null && isSensitive(e.key)) {
+                        masked += "$at extra ${e.key}"
+                        e.copy(value = MASK)
+                    } else e
+                }
+                entry.copy(uri = u, query = query, extras = extras)
+            }
         }
         return redacted to RedactionInfo(masked = masked, withheld = withheld)
     }

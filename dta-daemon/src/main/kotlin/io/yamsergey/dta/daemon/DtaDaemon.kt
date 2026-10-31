@@ -271,6 +271,51 @@ class DtaDaemon(
         return Screen(w, h, density)
     }
 
+    /**
+     * Opens [uri] on the device (feature 012 US2): who received it, and — when the app with DTA
+     * did — the link's record, awaited for a few seconds; for an http(s) link the app did not
+     * get, its host's App Links state.
+     */
+    suspend fun linksOpen(serial: String, uri: String, pkg: String?): io.yamsergey.dta.protocol.network.LinkOpenResult {
+        val quoted = io.yamsergey.dta.daemon.links.LinkParsers.shellQuote(uri)
+        fun linkIds(app: String): Set<String> = runCatching {
+            kotlinx.coroutines.runBlocking { linkQuery(serial, app, uri) }
+        }.getOrDefault(emptySet())
+        val before = pkg?.let(::linkIds).orEmpty()
+        val command = "am start -W -a android.intent.action.VIEW -d $quoted" + (pkg?.let { " -p $it" } ?: "") + " --user current"
+        val output = runAdb(listOf("-s", serial, "shell", command)).let { it.stdout + it.stderr }
+        val result = io.yamsergey.dta.daemon.links.LinkParsers.launch(output, pkg)
+        if (result.outcome == io.yamsergey.dta.protocol.network.LinkOpenOutcome.RECEIVED) {
+            val app = result.packageName ?: pkg ?: return result
+            val deadline = System.currentTimeMillis() + 5_000
+            while (System.currentTimeMillis() < deadline) {
+                val now = runCatching { linkQuery(serial, app, uri) }.getOrDefault(emptySet())
+                (now - before).firstOrNull()?.let { return result.copy(recordId = it) }
+                kotlinx.coroutines.delay(300)
+            }
+            val why = runCatching { capabilityReport(serial, app).capabilities.firstOrNull { it.name == "links" }?.reason }.getOrNull()
+            return result.copy(reason = listOfNotNull(result.reason, "received, but DTA has no record of it" + (why?.let { ": $it" } ?: " (no record arrived within 5 s)")).joinToString("; "))
+        }
+        val host = runCatching { java.net.URI(uri) }.getOrNull()?.takeIf { it.scheme == "http" || it.scheme == "https" }?.host
+        if (host != null && pkg != null) {
+            val state = runCatching { linksVerification(serial, pkg) }.getOrNull()
+            return result.copy(appLinks = state?.hosts?.firstOrNull { it.host.equals(host, ignoreCase = true) } ?: io.yamsergey.dta.protocol.network.AppLinkHost(host, "not declared", "$pkg declares no App Links for $host"))
+        }
+        return result
+    }
+
+    private suspend fun linkQuery(serial: String, pkg: String, uri: String): Set<String> =
+        network(serial, pkg, NetworkQuery(filter = io.yamsergey.dta.protocol.network.NetworkFilter(kinds = listOf(io.yamsergey.dta.protocol.network.EntryKind.LINK), url = uri), limit = 50))
+            .entries.map { it.id }.toSet()
+
+    /** `pm get-app-links` for [pkg] (feature 012 US3); unavailable before Android 12. */
+    fun linksVerification(serial: String, pkg: String): io.yamsergey.dta.protocol.network.AppLinksState {
+        val sdk = runAdb(listOf("-s", serial, "shell", "getprop", "ro.build.version.sdk")).stdout.trim().toIntOrNull() ?: 0
+        if (sdk < 31) return io.yamsergey.dta.daemon.links.LinkParsers.appLinks("", sdk)
+        val output = runAdb(listOf("-s", serial, "shell", "pm", "get-app-links", "--user", "current", pkg)).stdout
+        return io.yamsergey.dta.daemon.links.LinkParsers.appLinks(output, sdk)
+    }
+
     /** The host's network archive (feature 011, contracts/archive-ops.md). */
     fun archiveList(): io.yamsergey.dta.protocol.network.ArchiveListing = hostStore.listing()
 

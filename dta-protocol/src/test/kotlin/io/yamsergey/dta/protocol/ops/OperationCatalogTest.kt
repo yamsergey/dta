@@ -36,6 +36,7 @@ class OperationCatalogTest {
                 "network.script.set", "network.script.clear", "network.script.status", "network.script.logs",
                 "network.schema.add", "network.schema.list", "network.schema.remove", "network.schema.sync",
                 "network.mapping.add", "network.mapping.list", "network.mapping.remove",
+                "links.list", "links.entry", "links.open", "links.verification",
                 "archive.list", "archive.delete",
                 "daemon.status", "daemon.stop",
             ),

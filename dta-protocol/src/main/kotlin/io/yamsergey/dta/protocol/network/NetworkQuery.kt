@@ -16,6 +16,8 @@ enum class EntryKind {
     @SerialName("http") HTTP,
     @SerialName("ws-connection") WS_CONNECTION,
     @SerialName("ws-message") WS_MESSAGE,
+    /** Feature 012: a link that reached an activity; only when asked for (not network traffic). */
+    @SerialName("link") LINK,
 }
 
 @Serializable
@@ -48,6 +50,10 @@ data class NetworkFilter(
     val runs: RunScope? = null,
     /** Feature 005: true = only entries the network script touched; false = only untouched. */
     val intervened: Boolean? = null,
+    /** Feature 012, links: case-insensitive substring of the receiving activity's class. */
+    val activity: String? = null,
+    /** Feature 012, links: cold-start, created, new-intent or from-recents. */
+    val delivery: String? = null,
 )
 
 /** `network_list` params (contract §2). Shared so daemon and sidekick agree (constitution VI). */

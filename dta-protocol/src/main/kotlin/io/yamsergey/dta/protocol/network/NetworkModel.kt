@@ -240,6 +240,86 @@ data class WsMessageEntry(
     override fun summary() = this
 }
 
+// ---- feature 012: a link that reached the app ------------------------------------------
+
+/** How a link reached its activity. */
+@Serializable
+enum class LinkDelivery {
+    /** The process started for it (the first activity of the process). */
+    @SerialName("cold-start") COLD_START,
+    /** A new activity was created for it in a running process. */
+    @SerialName("created") CREATED,
+    /** A running activity received it as a new intent. */
+    @SerialName("new-intent") NEW_INTENT,
+    /** The task was brought back from recents: the original intent again, not a new link. */
+    @SerialName("from-recents") FROM_RECENTS,
+}
+
+/** One extra of the intent: its value as text, or why it was not read (feature 012 R2). */
+@Serializable
+data class IntentExtra(val key: String, val type: String? = null, val value: String? = null, val notRead: String? = null)
+
+/**
+ * An intent with a URI delivered to an activity of the app (feature 012): the first kind of the
+ * app's history that is not network traffic; it shares the journal, runs, Clear and the archive.
+ */
+@Serializable
+@SerialName("link")
+data class LinkEntry(
+    override val id: String,
+    override val runId: String,
+    override val timeMs: Long,
+    val uri: String,
+    val scheme: String? = null,
+    val host: String? = null,
+    val path: String? = null,
+    val query: List<Header> = emptyList(),
+    val action: String? = null,
+    val categories: List<String> = emptyList(),
+    /** Intent flags, hexadecimal. */
+    val flags: String? = null,
+    val extras: List<IntentExtra> = emptyList(),
+    /** The receiving activity's class. */
+    val activity: String,
+    val delivery: LinkDelivery,
+    /** Who sent it (Activity.getReferrer); null is unknown. */
+    val referrer: String? = null,
+) : NetworkEntry {
+    override val library: String get() = "intent"
+    override val initiator: Initiator? get() = null
+    override val intervention: InterventionRecord? get() = null
+    override fun summary() = this
+}
+
+/** What happened to a link the daemon opened (feature 012 US2). */
+@Serializable
+enum class LinkOpenOutcome {
+    @SerialName("received") RECEIVED,
+    @SerialName("other-app") OTHER_APP,
+    @SerialName("chooser") CHOOSER,
+    @SerialName("not-handled") NOT_HANDLED,
+}
+
+/** One host the app declares for App Links: the system's verification state and the user's choice. */
+@Serializable
+data class AppLinkHost(val host: String, val state: String, val reason: String? = null, val enabled: Boolean? = null)
+
+/** `links.verification` (feature 012 US3); [reason] when the state is unavailable or there is none. */
+@Serializable
+data class AppLinksState(val available: Boolean, val hosts: List<AppLinkHost> = emptyList(), val linkHandlingAllowed: Boolean? = null, val reason: String? = null)
+
+/** `links.open`: who received the link; [recordId] the link entry when the app recorded it. */
+@Serializable
+data class LinkOpenResult(
+    val outcome: LinkOpenOutcome,
+    val activity: String? = null,
+    val packageName: String? = null,
+    val recordId: String? = null,
+    val reason: String? = null,
+    /** For an http(s) link the app did not receive: its host's App Links state. */
+    val appLinks: AppLinkHost? = null,
+)
+
 // ---- feature 005: intervention -------------------------------------------------------
 
 @Serializable

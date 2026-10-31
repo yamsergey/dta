@@ -33,6 +33,11 @@ object NetworkRuntime {
     var store: NetworkStore? = null
         private set
 
+    /** Records into the app's history; links (feature 012) use it too. */
+    @Volatile
+    var recorder: NetworkRecorder? = null
+        private set
+
     /** The one network script of this process (feature 005). */
     val scripts = ScriptRuntime()
 
@@ -51,6 +56,7 @@ object NetworkRuntime {
         val created = NetworkStore(StorageDir(root), pid = Process.myPid())
         val recorder = NetworkRecorder(created) { name, data -> SidekickServer.sessions.publish(name, data) }
         store = created
+        this.recorder = recorder
         restoreScript()
         if (!HookAttach.attached) return
         val loader = context.classLoader
