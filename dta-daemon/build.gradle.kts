@@ -18,6 +18,8 @@ dependencies {
     api(project(":dta-protocol"))
     // The injection report says what DTA added to the app (feature 010 US6).
     implementation(project(":dta-inject"))
+    // The host store of feature 011 (research R2).
+    implementation(libs.sqlite.jdbc)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.protobuf.java)
     implementation(libs.protobuf.java.util)

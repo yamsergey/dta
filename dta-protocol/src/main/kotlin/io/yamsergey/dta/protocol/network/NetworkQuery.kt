@@ -60,6 +60,8 @@ data class NetworkQuery(
     val before: String? = null,
     /** Applied by the daemon; the sidekick never redacts. */
     val redact: Boolean = false,
+    /** Archived history to cover; null is the live history only (feature 011). */
+    val archive: ArchiveScope? = null,
 ) {
     fun toJson(): JsonObject = DtaJson.encodeToJsonElement(serializer(), this).jsonObject
 

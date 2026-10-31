@@ -1,4 +1,5 @@
 [versions]
+sqlite-jdbc = "3.53.4.0"
 kotlin = "2.2.20"
 agp = "8.13.0"
 coroutines = "1.10.2"
@@ -30,6 +31,7 @@ intellij-platform = "2.19.0"
 maven-publish = "0.36.0"
 
 [libraries]
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }

@@ -331,6 +331,16 @@ data class Coverage(
     /** e.g. `binary bodies (12)`. */
     val notSearched: List<String>? = null,
     val clearedAtMs: Long? = null,
+    /** Journal records on the device the host has not indexed yet (feature 011). */
+    val hostLagRecords: Long? = null,
+    /** Finished bodies not yet copied to the host. */
+    val bodiesPending: Int? = null,
+    /** Bodies that will never be on the host (gone from the device before the copy). */
+    val bodiesNotArchived: Int? = null,
+    /** Closed epochs of this app outside the query's scope. */
+    val archivedEpochs: Int? = null,
+    /** Why archiving stopped (disk full, write failure); live history keeps working. */
+    val archivingStopped: String? = null,
 )
 
 @Serializable
@@ -366,6 +376,8 @@ data class NetworkPage(
     val coverage: Coverage,
     val redaction: RedactionInfo? = null,
     val degraded: List<DegradationMarker>? = null,
+    /** Entries of the page that come from the archive, by id (feature 011). */
+    val archived: Map<String, ArchivedMark>? = null,
 )
 
 /** Result of `network_entry`. */
