@@ -75,6 +75,19 @@ class SidekickConnectionManager(
         }
     }
 
+    /**
+     * The connection already held for [key], if it still answers; never dials. A dead link is
+     * released (and said so), but no failure is recorded: background work that finds the app
+     * gone must not leave behind an error that a query right after the app restarts would get.
+     */
+    suspend fun held(key: ConnectionKey): AppConnection? = lockFor(key).withLock {
+        val entry = entries[key] ?: return null
+        if (probe(entry.connection)) return entry.connection
+        teardown(key, entry)
+        change(key, "lost", "the app's sidekick stopped answering on its channel")
+        null
+    }
+
     suspend fun close(key: ConnectionKey) = lockFor(key).withLock {
         entries.remove(key)?.let { entry ->
             runCatching { entry.connection.close() }

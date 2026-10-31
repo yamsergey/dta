@@ -83,18 +83,28 @@ class DtaDaemon(
     private fun hostIndex(serial: String, pkg: String): io.yamsergey.dta.daemon.network.HostIndex =
         hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
             io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }) {
-                connections.connect(key)
+                if (kotlinx.coroutines.currentCoroutineContext()[HeldOnly] != null) {
+                    connections.held(key) ?: throw io.yamsergey.dta.daemon.connection.ConnectionLostException("${key.packageName} is not connected")
+                } else {
+                    connections.connect(key)
+                }
             }.also { startCopying(key, it) }
         }
 
+    /** Marks background work: it uses the held connection only and never dials (see [startCopying]). */
+    private class HeldOnly : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+        companion object Key : kotlin.coroutines.CoroutineContext.Key<HeldOnly>
+    }
+
     /**
      * Catches up and copies bodies while the app is connected. It never opens a connection
-     * itself: attempts on an app that is gone would leave a failure behind that a query right
-     * after the app restarts would get.
+     * itself, even when the app dies between the open-keys check and the call (HeldOnly):
+     * attempts on an app that is gone would leave a failure behind that a query right after
+     * the app restarts would get.
      */
     private fun startCopying(key: ConnectionKey, index: io.yamsergey.dta.daemon.network.HostIndex) {
         val worker = io.yamsergey.dta.daemon.network.CopyWorker(index)
-        background.launch {
+        background.launch(HeldOnly()) {
             while (isActive) {
                 if (key !in connections.openKeys()) {
                     delay(1_000)

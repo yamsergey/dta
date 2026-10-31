@@ -126,6 +126,34 @@ class SidekickConnectionManagerTest {
     }
 
     @Test
+    fun `held returns the live connection and never dials`() = runBlocking {
+        val h = Harness()
+        assertEquals(null, h.manager.held(key), "nothing held: no dial")
+        assertEquals(0, h.dialCount.get())
+        val first = h.manager.connect(key)
+        assertSame(first, h.manager.held(key))
+        assertEquals(1, h.dialCount.get())
+    }
+
+    @Test
+    fun `held on a dead link releases it without dialling or leaving a failure behind`() = runBlocking {
+        val h = Harness()
+        val first = h.manager.connect(key) as FakeConnection
+        first.pingHealthy = false
+        h.forwards.refuse = true // the app is gone
+
+        assertEquals(null, h.manager.held(key))
+        assertEquals(1, h.dialCount.get(), "no dial to a dead app")
+        assertEquals(1, first.closeCount)
+        assertEquals(0, h.forwards.active.size)
+
+        // The app restarts right away: the next query connects instead of getting a cached failure.
+        h.forwards.refuse = false
+        val second = h.manager.connect(key)
+        assertTrue(first !== second)
+    }
+
+    @Test
     fun `concurrent connects for one key coalesce into a single dial`() = runBlocking {
         val h = Harness()
         h.dialDelay = 0.2.seconds
