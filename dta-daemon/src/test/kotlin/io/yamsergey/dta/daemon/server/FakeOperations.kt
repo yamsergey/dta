@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.server
 
+import kotlinx.coroutines.flow.onSubscription
 import io.yamsergey.dta.daemon.connection.ConnectException
 import io.yamsergey.dta.daemon.connection.SidekickRpcException
 import io.yamsergey.dta.daemon.network.BodyNotDecodedException
@@ -81,8 +82,15 @@ class FakeOperations : DaemonOperations {
         lastLayout = Triple(pkg, filters, detail)
         return LayoutCapture(Screen(1080, 2400, 2.6f), CaptureSource.SIDEKICK, emptyList())
     }
+    /** The current process's entries a watch with history=current replays; [duringHistory] runs while it is read. */
+    var history: List<io.yamsergey.dta.protocol.network.NetworkEntry> = emptyList()
+    var duringHistory: suspend () -> Unit = {}
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage {
         lastQuery = query
+        if (query.filter?.runs == io.yamsergey.dta.protocol.network.RunScope.CURRENT) {
+            duringHistory()
+            return NetworkPage(history, total = history.size, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = history.size, stored = history.size, persisted = true))
+        }
         return NetworkPage(emptyList(), total = 0, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = 0, stored = 0, persisted = true))
     }
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail {
@@ -101,7 +109,8 @@ class FakeOperations : DaemonOperations {
     }
     override suspend fun networkClear(serial: String, pkg: String) = ClearResult(3, 1)
     val events = kotlinx.coroutines.flow.MutableSharedFlow<NetworkEntryEvent>(extraBufferCapacity = 10_000)
-    override fun networkEvents(serial: String, pkg: String): Flow<NetworkEntryEvent> = events
+    override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent> =
+        events.onSubscription { onSubscribed() }
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true).also { calls += "script:$source" }
     override suspend fun networkScriptClear(serial: String, pkg: String) = true
     override suspend fun networkScriptStatus(serial: String, pkg: String) = ScriptStatus(active = false)

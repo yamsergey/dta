@@ -1,5 +1,10 @@
 package io.yamsergey.dta.daemon.server
 
+import io.yamsergey.dta.protocol.network.EntryChange
+import io.yamsergey.dta.protocol.network.Order
+import io.yamsergey.dta.protocol.network.RunScope
+import io.yamsergey.dta.protocol.network.NetworkQuery
+import io.yamsergey.dta.protocol.network.NetworkEntry
 import io.yamsergey.dta.protocol.network.NetworkFilter
 import io.yamsergey.dta.protocol.network.NetworkFilterEval
 import io.yamsergey.dta.protocol.network.WsConnectionEntry
@@ -224,7 +229,10 @@ class DaemonServer(
                 val eval = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, bodyBytes = { _, _ -> null })
                 val buffer = Channel<NetworkEntryEvent>(subscriberBuffer)
                 val dropped = AtomicBoolean(false)
-                val events = ops.networkEvents(serial, pkg)
+                // history=current: the running process's entries first, then the live ones.
+                val history = (params["history"] as? JsonPrimitive)?.content == "current"
+                val subscribed = kotlinx.coroutines.CompletableDeferred<Unit>()
+                val events = ops.networkEvents(serial, pkg) { subscribed.complete(Unit) }
                 val job = scope.launch {
                     launch {
                         for (event in buffer) {
@@ -248,10 +256,36 @@ class DaemonServer(
                             )
                         }
                     }
+                    fun offer(event: NetworkEntryEvent) {
+                        (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
+                        if (eval.matches(event.entry) != null && buffer.trySend(event).isFailure) dropped.set(true)
+                    }
                     try {
-                        events.collect { event ->
-                            (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
-                            if (eval.matches(event.entry) != null && buffer.trySend(event).isFailure) dropped.set(true)
+                        if (!history) {
+                            events.collect(::offer)
+                        } else {
+                            // Subscribe first and hold live events, then read the snapshot: nothing
+                            // between the two is lost, and a live repeat of a replayed state is skipped.
+                            val live = Channel<NetworkEntryEvent>(Channel.UNLIMITED)
+                            val collector = launch {
+                                try { events.collect { live.send(it) } } finally { live.close() }
+                            }
+                            kotlinx.coroutines.withTimeoutOrNull(10_000) { subscribed.await() }
+                            val replayed = HashMap<String, NetworkEntry>()
+                            var cursor: String? = null
+                            do {
+                                val page = ops.network(serial, pkg, NetworkQuery(filter = filter.copy(runs = RunScope.CURRENT), limit = 1000, order = Order.OLDEST_FIRST, before = cursor))
+                                page.entries.forEach { entry ->
+                                    replayed[entry.id] = entry
+                                    offer(NetworkEntryEvent(entry, EntryChange.CREATED))
+                                }
+                                cursor = page.next
+                            } while (cursor != null)
+                            for (event in live) {
+                                if (replayed.remove(event.entry.id)?.let { it == event.entry } == true) continue
+                                offer(event)
+                            }
+                            collector.join()
                         }
                         event(DaemonEvents.STOPPING, DaemonStoppingEvent.serializer(), DaemonStoppingEvent("event stream of $pkg ended"))
                     } finally {

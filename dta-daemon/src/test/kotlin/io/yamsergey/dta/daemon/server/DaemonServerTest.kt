@@ -122,6 +122,24 @@ class DaemonServerTest {
     }
 
     @Test
+    fun `a watch with history=current first replays the running process, then follows it, losing nothing`() = runBlocking<Unit> {
+        val pending = HttpEntry("r1-1:2", "r1-1", 2, "okhttp3", method = "GET", url = "https://api.example.com/2", state = HttpState.PENDING)
+        fake.history = listOf(entry(1).entry, pending)
+        // Traffic between the subscription and the snapshot: the snapshot already has entry 1 as is.
+        fake.duringHistory = { fake.events.emit(entry(1)); fake.events.emit(entry(3)) }
+        val watcher = connect()
+        val got = async { withTimeout(5_000) { watcher.networkEvents(buildJsonObject { put("history", "current") }).take(5).toList() } }
+        delay(300)
+        fake.events.emit(entry(2)) // the pending one completes
+        fun id(o: JsonObject) = o["event"]!!.jsonObject["entry"]!!.jsonObject["id"]!!.jsonPrimitive.content
+        fun state(o: JsonObject) = o["event"]!!.jsonObject["entry"]!!.jsonObject["state"]!!.jsonPrimitive.content
+        val events = got.await().drop(1)
+        assertEquals(listOf("r1-1:1", "r1-1:2", "r1-1:3", "r1-1:2"), events.map(::id), "history in order, the unchanged repeat of 1 skipped, 3 kept")
+        assertEquals(listOf("pending", "complete"), events.filter { id(it) == "r1-1:2" }.map(::state))
+        watcher.close()
+    }
+
+    @Test
     fun `a clear by any client reaches every watch of that app`() = runBlocking<Unit> {
         val watcher = connect()
         val clearer = connect(ClientKind.MCP)

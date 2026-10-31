@@ -8,6 +8,7 @@ import io.yamsergey.dta.run.RunEnvironment
 import io.yamsergey.dta.run.RunOutcome
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
@@ -31,7 +32,7 @@ private fun runApp(invocation: RunInvocation, runner: Runner): Int {
     }
     println(if (invocation.globals.json) RunFormat.json(result) else format.summary(result))
     if (invocation.watch && result.outcome == RunOutcome.CONNECTED) {
-        // Hand over to `dta network watch` for the same device and app.
+        // Hand over to `dta network watch --history current` for the same device and app.
         val watch = Catalog.all.first { it.name == "network.watch" }
         val globals = Globals().apply {
             device = result.device?.serial
@@ -39,7 +40,8 @@ private fun runApp(invocation: RunInvocation, runner: Runner): Int {
             json = invocation.globals.json
             noColor = invocation.globals.noColor
         }
-        return runner.run(watch, JsonObject(emptyMap()), globals)
+        // From the app's start: its start-up traffic happened before the watch subscribed.
+        return runner.run(watch, JsonObject(mapOf("history" to JsonPrimitive("current"))), globals)
     }
     return result.exitCode
 }

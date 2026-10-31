@@ -222,8 +222,8 @@ class DtaDaemon(
         networkService(serial, pkg).clear()
 
     /** Live entry events; collect for as long as needed. */
-    fun networkEvents(serial: String, pkg: String): Flow<NetworkEntryEvent> =
-        networkService(serial, pkg).events()
+    fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> =
+        networkService(serial, pkg).events(onSubscribed)
 
     /**
      * Adds (or replaces) a protobuf schema set for [pkg]: a compiled descriptor set or

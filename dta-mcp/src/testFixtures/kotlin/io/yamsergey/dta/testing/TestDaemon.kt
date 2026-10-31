@@ -1,5 +1,6 @@
 package io.yamsergey.dta.testing
 
+import kotlinx.coroutines.flow.onSubscription
 import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.client.DaemonLauncher
 import io.yamsergey.dta.daemon.network.BodyOutput
@@ -82,7 +83,8 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
         BodyResult(BodyInfo(part, 13, contentType = "application/json", completeness = Completeness.COMPLETE), text = "{\"items\":[]}", bytes = 12)
     override suspend fun networkClear(serial: String, pkg: String) = ClearResult(clearedEntries = 3, clearedAtMs = 1L).also { cleared++ }
-    override fun networkEvents(serial: String, pkg: String): Flow<NetworkEntryEvent> = events
+    override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent> =
+        events.onSubscription { onSubscribed() }
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true, id = "abc123")
     override suspend fun networkScriptClear(serial: String, pkg: String) = true
     override suspend fun networkScriptStatus(serial: String, pkg: String) = ScriptStatus(active = false)

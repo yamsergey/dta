@@ -38,7 +38,7 @@ In the root of an Android project (the folder with `gradlew`), with nothing abou
 dta run                           # build the debug variant with DTA, install, launch, wait for "DTA connected"
 dta run --variant freeDebug       # any debuggable variant; release is refused
 dta run --module :app --activity .DeepLinkActivity
-dta run --watch                   # then show the network traffic live
+dta run --watch                   # then show the network traffic, from the app's start
 dta run --build-only              # CI: build with DTA injected, no device
 dta run -- --offline              # Gradle arguments after --
 ```
@@ -105,7 +105,7 @@ dta layout --text Pay             # screen tree (View + Compose), filtered
 dta network list --status 4xx     # captured HTTP + WebSocket traffic
 dta network entry <id>            # headers, timing, initiator
 dta network body <id> -o body.bin # a body as text or to a file
-dta network watch                 # follow traffic live (Ctrl-C ends the watch, not the daemon)
+dta network watch                 # follow traffic live (Ctrl-C ends the watch, not the daemon); --history current: from the running process's start
 dta network script set delay.js   # network script (status, logs, clear)
 dta network schema add shop protos/ && dta network mapping add --url-pattern '*/api/order' --part request --schema shop --type shop.v1.Order
 dta daemon status | stop

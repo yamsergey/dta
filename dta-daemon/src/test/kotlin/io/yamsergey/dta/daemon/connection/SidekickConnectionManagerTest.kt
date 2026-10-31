@@ -196,6 +196,16 @@ class SidekickConnectionManagerTest {
     }
 
     @Test
+    fun `not running is never cached - an app started right after is connected`() = runBlocking {
+        val h = Harness()
+        h.forwards.refuse = true
+        assertFailsWith<AppNotRunningException> { h.manager.connect(key) }
+        h.forwards.refuse = false // the app starts within the cooldown
+        h.now += 100
+        assertEquals("com.example.fixture", h.manager.connect(key).hello.packageName)
+    }
+
+    @Test
     fun `close releases connection and forward`() = runBlocking {
         val h = Harness()
         val connection = h.manager.connect(key) as FakeConnection

@@ -242,7 +242,8 @@ object Catalog {
         ),
         OperationSpec("network.clear", "Delete the app's captured network history.", Scope.APP),
         OperationSpec(
-            "network.watch", "Follow new network entries as they happen, until interrupted.", Scope.APP, NETWORK_FILTERS,
+            "network.watch", "Follow new network entries as they happen, until interrupted. With history=current, the running process's entries come first.", Scope.APP,
+            NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
             streaming = true, cliOnly = true,
         ),
         OperationSpec(

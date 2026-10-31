@@ -57,7 +57,9 @@ class SidekickConnectionManager(
         val port = try {
             forwardOps.forward(key)
         } catch (e: Exception) {
-            failures[key] = Failure(clock(), e)
+            // "Not running" is cheap to check again and stale the moment the app starts: cached,
+            // it would answer the first query after a restart (and the watcher's racing look).
+            if (!e.isNotRunning()) failures[key] = Failure(clock(), e)
             throw e
         }
 
@@ -125,6 +127,9 @@ class SidekickConnectionManager(
         if (states.put(key, state) == state) return
         changeFlow.tryEmit(AppConnectionEvent(key.serial, key.packageName, state, reason))
     }
+
+    private fun Exception.isNotRunning() =
+        this is io.yamsergey.dta.daemon.adb.AppNotRunningException && this !is io.yamsergey.dta.daemon.adb.AppWithoutDtaException
 
     private fun lockFor(key: ConnectionKey): Mutex = locks.computeIfAbsent(key) { Mutex() }
 }

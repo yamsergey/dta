@@ -43,7 +43,8 @@ interface DaemonOperations {
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail
     suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult
     suspend fun networkClear(serial: String, pkg: String): ClearResult
-    fun networkEvents(serial: String, pkg: String): Flow<NetworkEntryEvent>
+    /** Live entry events; [onSubscribed] runs once the app's event stream is subscribed. */
+    fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent>
     suspend fun networkScriptSet(serial: String, pkg: String, source: String): ScriptStatus
     suspend fun networkScriptClear(serial: String, pkg: String): Boolean
     suspend fun networkScriptStatus(serial: String, pkg: String): ScriptStatus
@@ -84,7 +85,7 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
         daemon.networkBody(serial, pkg, id, part, output, redact, allowUnredacted)
     override suspend fun networkClear(serial: String, pkg: String) = daemon.networkClear(serial, pkg)
-    override fun networkEvents(serial: String, pkg: String) = daemon.networkEvents(serial, pkg)
+    override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit) = daemon.networkEvents(serial, pkg, onSubscribed)
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = daemon.networkScriptSet(serial, pkg, source)
     override suspend fun networkScriptClear(serial: String, pkg: String) = daemon.networkScriptClear(serial, pkg)
     override suspend fun networkScriptStatus(serial: String, pkg: String) = daemon.networkScriptStatus(serial, pkg)

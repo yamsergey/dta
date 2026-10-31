@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.network
 
+import kotlinx.coroutines.flow.onSubscription
 import io.yamsergey.dta.daemon.connection.AppConnection
 import io.yamsergey.dta.daemon.network.proto.BodyDecoding
 import io.yamsergey.dta.daemon.network.proto.BodyTarget
@@ -246,9 +247,10 @@ class NetworkService(
         DtaJson.decodeFromJsonElement(ClearResult.serializer(), connection().request("network_clear")).also { host?.cleared(it.clearedEntries) }
 
     /** Live `network.entry` events pushed by the sidekick; not replayed (use [list] for history). */
-    fun events(): Flow<NetworkEntryEvent> = flow {
+    fun events(onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> = flow {
         emitAll(
             connection().events
+                .onSubscription { onSubscribed() }
                 .filter { it.name == NetworkEntryEvent.NAME }
                 .mapNotNull { event ->
                     event.data?.let { runCatching { DtaJson.decodeFromJsonElement(NetworkEntryEvent.serializer(), it) }.getOrNull() }
