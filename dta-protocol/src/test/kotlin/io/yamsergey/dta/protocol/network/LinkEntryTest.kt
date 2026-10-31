@@ -46,4 +46,16 @@ class LinkEntryTest {
         assertEquals(listOf("r1-1:3"), ids(NetworkFilter(delivery = "cold-start")))
         assertEquals(emptyList(), ids(NetworkFilter(delivery = "new-intent")))
     }
+
+    @Test
+    fun `redaction masks secrets in the URI, its query and its extras`() {
+        val secret = link.copy(uri = "fixture://item/42?token=s3cret&ref=mail", query = listOf(Header("token", "s3cret"), Header("ref", "mail")))
+        val (redacted, info) = Redactor.entry(secret)
+        redacted as LinkEntry
+        assertTrue("s3cret" !in redacted.uri && "ref=mail" in redacted.uri, redacted.uri)
+        assertEquals(listOf(Redactor.MASK, "mail"), redacted.query.map { it.value })
+        assertEquals(Redactor.MASK, redacted.extras.single { it.key == "token" }.value)
+        assertEquals("class not found", redacted.extras.single { it.key == "blob" }.notRead)
+        assertTrue(info.masked.any { "extra token" in it }, "${info.masked}")
+    }
 }
