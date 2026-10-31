@@ -26,5 +26,7 @@ object InjectionState {
         Reported.PROJECT_PROVIDED -> Shown.PROJECT_PROVIDED
         Reported.UNRESOLVED -> Shown.UNRESOLVED
         Reported.UNSUPPORTED -> Shown.UNSUPPORTED
+        // Only `dta run --no-inject` turns it off per build; for the IDE that is the switch.
+        Reported.OFF -> Shown.OFF
     }
 }

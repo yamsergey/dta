@@ -55,7 +55,8 @@ object McpStdioServer {
             override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it < 0) ended.countDown() }
         }
         val transport = StdioServerTransportProvider(mapper, watchedInput, protocolOut)
-        val specs = McpServerSpecs.tools(tools, mapper)
+        val appRun = AppRunTool(AppRunTool.real(ClientKind.MCP), projects = { listOf(File(System.getProperty("user.dir"))) })
+        val specs = McpServerSpecs.tools(tools, mapper, appRun)
         val server = McpServer.sync(transport)
             .serverInfo("dta", version.version)
             .instructions(McpTools.INSTRUCTIONS)

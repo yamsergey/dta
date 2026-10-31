@@ -160,6 +160,12 @@ class RunSession(
                 progress(RunProgress.StepDone(steps.last()))
                 return result(RunOutcome.FAILED, ExitCode.PROJECT, selectionFailure(run))
             }
+            // The resolve step ends with the selection, known only now.
+            done(Step(StepName.RESOLVE, StepOutcome.OK, resolveMs))
+            if (run != null) {
+                injection = parsed.projects.firstOrNull { it.path == run.module }
+                keep(parsed)
+            }
             if (exit != 0) return buildFailure(building, lines, phases, logFile)
             if (run == null) {
                 return fail(
@@ -169,10 +175,6 @@ class RunSession(
                     phases = phases,
                 )
             }
-            // The resolve step ends with the selection, known only now; it is reported first.
-            Step(StepName.RESOLVE, StepOutcome.OK, resolveMs).let { steps.add(0, it); progress(RunProgress.StepDone(it)) }
-            injection = parsed.projects.firstOrNull { it.path == run.module }
-            keep(parsed)
             done(Step(StepName.BUILD, StepOutcome.OK, building.elapsedNow().inWholeMilliseconds, phases))
 
             val withoutDta = injection?.outcome.let { it != InjectionOutcome.INJECTED && it != InjectionOutcome.PROJECT_PROVIDED }
@@ -317,9 +319,7 @@ class RunSession(
 
         /** Kept per application id, so the daemon can say what injection added (research R6). */
         private fun keep(report: InjectionReport) {
-            report.projects.flatMap { p -> p.variants.mapNotNull { it.applicationId } }.distinct().forEach { id ->
-                runCatching { files.injection(id).apply { parentFile.mkdirs() }.writeText(report.toJson()) }
-            }
+            runCatching { report.keep(files.home) }
         }
     }
 

@@ -90,6 +90,8 @@ data class CapabilityStatus(
     val bounds: io.yamsergey.dta.protocol.network.NetworkBounds? = null,
     /** network capability only: the active network script (feature 005). */
     val script: io.yamsergey.dta.protocol.network.ScriptSummary? = null,
+    /** layout capability only: where Compose's tooling data came from, when DTA's injection knows (feature 010). */
+    val tooling: ToolingSource? = null,
 ) {
     @Serializable
     enum class Status {
@@ -119,6 +121,13 @@ data class HelloResult(
     val serverVersion: String,
     val packageName: String,
 )
+
+/**
+ * Compose's tooling data in the app (feature 010 US6): [source] `dta` when DTA's injection added
+ * it ([version]), `project` when the project declares it; [present] whether the sidekick can use it.
+ */
+@Serializable
+data class ToolingSource(val present: Boolean, val source: String, val version: String? = null)
 
 @Serializable
 data class IdentityReport(

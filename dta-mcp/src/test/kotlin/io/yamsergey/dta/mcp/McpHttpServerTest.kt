@@ -77,7 +77,7 @@ class McpHttpServerTest {
     fun `the tools are the stdio tools`() {
         val server = server().apply { start() }
         client(server).use { client ->
-            assertEquals(Catalog.agentTools.map { it.toolName }.toSet(), client.listTools().tools().map { it.name() }.toSet())
+            assertEquals(Catalog.agentTools.map { it.toolName }.toSet() + AppRunTool.NAME, client.listTools().tools().map { it.name() }.toSet())
         }
     }
 
@@ -147,7 +147,7 @@ class McpHttpServerTest {
             val counts = List(2) {
                 pool.submit(Callable { client(server).use { c -> c.listTools().tools().size } })
             }.map { it.get() }
-            assertEquals(List(2) { Catalog.agentTools.size }, counts)
+            assertEquals(List(2) { Catalog.agentTools.size + 1 }, counts)
         } finally {
             pool.shutdownNow()
         }

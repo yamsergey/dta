@@ -77,6 +77,8 @@ class RunSessionFailuresTest {
         assertEquals(JsonPrimitive("/work/app/src/main/kotlin/Main.kt:12:5"), f.details!!["location"])
         assertTrue(result.log!! in f.next, "the next step points at the log: ${f.next}")
         assertTrue(h.device.started.isEmpty())
+        assertEquals(listOf(StepName.RESOLVE, StepName.BUILD), result.steps.map { it.step }, "the resolve step is reported too")
+        assertEquals(InjectionOutcome.INJECTED, result.injection?.outcome, "what injection did is known from the report")
     }
 
     @Test

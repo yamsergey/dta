@@ -18,6 +18,7 @@ class SidekickInjector : GradleTaskManagerExtension {
         val project = id.findProject() ?: return
         try {
             settings.withArguments("--init-script", InjectionFiles.script().path, "-P${InjectionConfig.REPORT_PROPERTY}=${InjectionFiles.report(project).path}")
+            if (!InjectionSettings.get().tooling) settings.withArguments("-P${InjectionConfig.TOOLING_PROPERTY}=false")
         } catch (e: Exception) {
             // Without the script the build runs as it would without DTA; the report's absence says so.
             LOG.warn("DTA injection: could not prepare the init script", e)

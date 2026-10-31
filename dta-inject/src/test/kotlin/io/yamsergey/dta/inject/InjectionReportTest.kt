@@ -63,4 +63,18 @@ class InjectionReportTest {
         assertEquals(null, old.projects.first().tooling)
         assertEquals(emptyList(), old.projects.first().variants)
     }
+
+    @Test
+    fun `a report is kept under the home once per application id`() {
+        val home = java.nio.file.Files.createTempDirectory("dta-home").toFile()
+        val report = InjectionReport(
+            "1", listOf(ProjectInjection(":app", InjectionOutcome.INJECTED, variants = listOf(
+                VariantInfo("debug", "debug", debuggable = true, applicationId = "io.example.shop.debug"),
+                VariantInfo("staging", "staging", debuggable = true, applicationId = "io.example.shop.debug"),
+                VariantInfo("release", "release", debuggable = false, applicationId = "io.example.shop"),
+            ))),
+        )
+        assertEquals(setOf("io.example.shop.debug", "io.example.shop"), report.keep(home).map { it.nameWithoutExtension }.toSet())
+        assertEquals(report, InjectionReport.parse(java.io.File(home, "injection/io.example.shop.debug.json").readText()))
+    }
 }

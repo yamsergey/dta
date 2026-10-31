@@ -66,6 +66,7 @@ class DtaDaemon(
     ) : this({ args -> adb.run(*args.toTypedArray()) }, adb.binaryPath, requestTimeout, dataDir)
 
     private val schemas = SchemaRegistry(dataDir)
+    private val injectedTooling = io.yamsergey.dta.daemon.inject.InjectedTooling(dataDir)
     private val forwards = PortForwards(runAdb)
 
     init {
@@ -245,11 +246,12 @@ class DtaDaemon(
     fun foregroundPackage(serial: String): String? = foregroundDetector.foregroundPackage(serial)
 
     /** What the app's sidekick reports about its capabilities and libraries. */
-    suspend fun capabilityReport(serial: String, pkg: String): IdentityReport =
+    suspend fun capabilityReport(serial: String, pkg: String): IdentityReport = injectedTooling.annotate(
         DtaJson.decodeFromJsonElement(
             IdentityReport.serializer(),
             connections.connect(ConnectionKey(serial, pkg)).request("identity"),
-        )
+        ),
+    )
 
     /** Open app connections (for `daemon.status`). */
     fun openConnections(): List<ConnectionKey> = connections.openKeys()

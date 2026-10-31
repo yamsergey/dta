@@ -9,11 +9,15 @@ DTA runs inside a debug build of the app and reports what the app is doing. The 
 
 Use adb directly for screenshots, taps, swipes, text input and logcat. Use DTA for what adb cannot see: the app's own view of its screen (Compose names, test tags, source lines) and its network traffic.
 
+## Run the app
+
+After changing the app's code, `app_run` builds, installs and launches it with DTA injected (no project changes) and waits until DTA is connected; then use `network_list` or `layout_tree`. Pass `project` when the server was not started in the project's folder. A build takes minutes. Read the result: `outcome` is `connected`, or `failure` names the step, the cause and the next step (a build error with its file and line, an install refused for its signature — `reinstall` deletes the app's data, so ask the user first — no launcher activity, a crash at start). `ran-without-dta` means the app runs but DTA could not be added; the cause says why.
+
 ## Device and app
 
 - Omit `device` when one device is connected; omit `app` to use the foreground app. Every result's `selection` says what was chosen (`only-device`, `foreground`). Check it before drawing conclusions.
 - Several devices: the error lists them; pass `device`.
-- "has no DTA inside": the app was not built with DTA, or is not running. `apps_list` shows which running apps have DTA.
+- "has no DTA inside": the app was not built with DTA, or is not running. `apps_list` shows which running apps have DTA; `app_run` builds it with DTA.
 
 ## Read the statements
 

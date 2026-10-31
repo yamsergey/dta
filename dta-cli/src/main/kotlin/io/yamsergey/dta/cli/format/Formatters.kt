@@ -115,6 +115,11 @@ class Formatters(private val style: Style) {
                 val lib = l.obj
                 appendLine("  " + capLine(lib.str("name")!!, lib.str("status")!!, lib.str("reason")))
             }
+            cap.obj("tooling")?.let { t ->
+                val origin = if (t.str("source") == "dta") "added by DTA injection" + (t.str("version")?.let { " ($it)" } ?: "") else "declared by the project"
+                val state = if (t["present"]?.toString() == "true") "present" else style.mark(StatementKind.DEGRADED, "not usable")
+                appendLine("  " + listOf("tooling data".padEnd(16), state, style.paint(origin, Token.INK_MUTED)).joinToString("  "))
+            }
         }
     }.trimEnd()
 

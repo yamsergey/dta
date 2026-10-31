@@ -10,7 +10,7 @@ import io.yamsergey.dta.run.RunResult
 import io.yamsergey.dta.run.Step
 import io.yamsergey.dta.run.StepName
 import io.yamsergey.dta.run.StepOutcome
-import kotlinx.serialization.json.Json
+import io.yamsergey.dta.run.toJson
 import java.util.Locale
 
 /**
@@ -81,8 +81,6 @@ class RunFormat(private val style: Style, private val sidekickVersion: String) {
     private fun seconds(ms: Long) = String.format(Locale.ROOT, "%.1f s", ms / 1000.0)
 
     companion object {
-        private val JSON = Json { encodeDefaults = true; explicitNulls = true; prettyPrint = false }
-
-        fun json(result: RunResult): String = JSON.encodeToString(RunResult.serializer(), result)
+        fun json(result: RunResult): String = result.toJson()
     }
 }

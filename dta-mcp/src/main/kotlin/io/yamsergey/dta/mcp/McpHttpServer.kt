@@ -40,6 +40,9 @@ class McpHttpServer(
     private val connect: suspend () -> DaemonLauncher.Connected,
     private val bound: ResultBound = ResultBound(),
     private val log: (String) -> Unit = {},
+    /** The projects `app_run` may run without a `project` argument: the IDE's open Android projects. */
+    private val projects: () -> List<java.io.File> = { emptyList() },
+    private val runApp: AppRunner = AppRunTool.real(io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP),
 ) {
     val url: String = "http://$HOST:$port$ENDPOINT"
 
@@ -64,7 +67,7 @@ class McpHttpServer(
                 .serverInfo("dta", VersionInfo.current().version)
                 .instructions(McpTools.INSTRUCTIONS)
                 .capabilities(McpServerSpecs.CAPABILITIES)
-                .tools(McpServerSpecs.tools(tools, mapper))
+                .tools(McpServerSpecs.tools(tools, mapper, AppRunTool(runApp, projects)))
                 .build()
 
             val jetty = Server(QueuedThreadPool().apply { name = "dta-agent-server"; isDaemon = true })

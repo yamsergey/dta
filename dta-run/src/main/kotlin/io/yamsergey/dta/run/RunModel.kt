@@ -123,3 +123,8 @@ sealed interface RunProgress {
     /** A line of Gradle's output (shown with `--verbose`). */
     data class GradleLine(val line: String) : RunProgress
 }
+
+private val RESULT_JSON = kotlinx.serialization.json.Json { encodeDefaults = true; explicitNulls = true }
+
+/** The result document of contracts/run.md: `dta run --json` and `app_run` print exactly this. */
+fun RunResult.toJson(): String = RESULT_JSON.encodeToString(RunResult.serializer(), this)

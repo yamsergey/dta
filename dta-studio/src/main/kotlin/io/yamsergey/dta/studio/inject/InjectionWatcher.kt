@@ -7,6 +7,7 @@ import com.android.tools.idea.gradle.project.build.GradleBuildState
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import io.yamsergey.dta.client.DtaHome
 import io.yamsergey.dta.inject.InjectionReport
 import io.yamsergey.dta.studio.ContextController
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,8 @@ class InjectionWatcher(private val project: Project, private val context: Contex
             return context.apply(io.yamsergey.dta.present.context.ContextEvent.Injection(
                 io.yamsergey.dta.present.context.InjectionOutcome.UNSUPPORTED, "the injection report ${file.path} could not be read: ${e.message}"))
         }
+        // Where the daemon reads what DTA added to each app (010 research R6).
+        report?.let { r -> runCatching { r.keep(DtaHome.resolve().root) } }
         context.apply(InjectionState.of(enabled, report, built))
     }
 

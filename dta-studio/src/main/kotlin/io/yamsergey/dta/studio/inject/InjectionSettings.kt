@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 class InjectionSettings : SimplePersistentStateComponent<InjectionSettings.Options>(Options()) {
     class Options : BaseState() {
         var enabled by property(true)
+        /** Compose's tooling data added where a Compose app lacks it (feature 010 US6). */
+        var tooling by property(true)
     }
 
     private val changes = MutableStateFlow(true)
@@ -28,6 +30,12 @@ class InjectionSettings : SimplePersistentStateComponent<InjectionSettings.Optio
         set(value) {
             state.enabled = value
             changes.value = value
+        }
+
+    var tooling: Boolean
+        get() = state.tooling
+        set(value) {
+            state.tooling = value
         }
 
     override fun loadState(state: Options) {

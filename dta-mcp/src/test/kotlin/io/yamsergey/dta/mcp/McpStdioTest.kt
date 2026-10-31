@@ -113,7 +113,7 @@ class McpStdioTest {
             assertEquals("dta", receive(1)["result"]!!.jsonObject["serverInfo"]!!.jsonObject["name"]!!.jsonPrimitive.content)
             send("""{"jsonrpc":"2.0","method":"notifications/initialized"}""")
             send("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
-            assertEquals(Catalog.agentTools.size, receive(2)["result"]!!.jsonObject["tools"]!!.jsonArray.size)
+            assertEquals(Catalog.agentTools.size + 1, receive(2)["result"]!!.jsonObject["tools"]!!.jsonArray.size)
             send("""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"network_list","arguments":{}}}""")
             val result = receive(3)["result"]!!.jsonObject
             assertFalse(result["isError"]!!.jsonPrimitive.content.toBoolean())

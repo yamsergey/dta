@@ -8,7 +8,7 @@ import java.time.format.DateTimeFormatter
 /**
  * Where a run keeps its files under the DTA home (plan, Storage): per project the init script,
  * request and report (stable paths, so a reused configuration cache stays valid); the build
- * logs; and the injection reports the daemon reads per application id (research R6).
+ * logs. The injection reports the daemon reads go under it too ([io.yamsergey.dta.inject.InjectionReport.keep]).
  */
 class RunFiles(val home: File) {
     fun projectDir(project: File): File = File(home, "run/" + hash(project.canonicalPath)).apply { mkdirs() }
@@ -21,8 +21,6 @@ class RunFiles(val home: File) {
 
     fun newLog(now: LocalDateTime = LocalDateTime.now()): File =
         File(home, "logs/run-" + now.format(STAMP) + ".log").apply { parentFile.mkdirs() }
-
-    fun injection(applicationId: String): File = File(home, "injection/$applicationId.json")
 
     private fun hash(text: String): String =
         MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).take(8).joinToString("") { "%02x".format(it) }

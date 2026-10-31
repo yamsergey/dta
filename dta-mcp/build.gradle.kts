@@ -19,6 +19,7 @@ kotlin {
 
 dependencies {
     api(project(":dta-client"))
+    implementation(project(":dta-run"))
     api(libs.mcp)
     implementation(libs.jetty.ee11.servlet)
 

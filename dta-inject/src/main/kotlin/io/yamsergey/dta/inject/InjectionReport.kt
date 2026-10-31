@@ -89,6 +89,18 @@ data class RunSelection(
 data class InjectionReport(val version: String, val projects: List<ProjectInjection>, val run: RunSelection? = null) {
     fun toJson(): String = JSON.encodeToString(serializer(), this)
 
+    /**
+     * Writes this report to `<home>/injection/<applicationId>.json` for every application id it
+     * names, where the daemon reads what DTA added to an app (010 research R6). Returns the files.
+     */
+    fun keep(home: java.io.File): List<java.io.File> =
+        projects.flatMap { p -> p.variants.mapNotNull { it.applicationId } }.distinct().map { id ->
+            java.io.File(home, "injection/$id.json").apply {
+                parentFile.mkdirs()
+                writeText(toJson())
+            }
+        }
+
     companion object {
         private val JSON = Json { ignoreUnknownKeys = true }
 

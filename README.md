@@ -17,7 +17,8 @@ prototype lives on the `pre-refined` branch.
 | `dta-cli` | The `dta` command (Clikt), generated from the operation catalog in `dta-protocol` (`ops/`), and `dta mcp`. Ships as a distribution (`installDist`); the daemon process runs from the same `lib/`. |
 | `dta-mcp` | The agent tools (MCP Java SDK): one tool per catalog operation, with bounded results. Served over stdio by `dta mcp` and over loopback HTTP (Jetty, Streamable HTTP, bearer credential) by the Android Studio plugin. |
 | `dta-present` | What every client shows, IDE-free (feature 009): statements (degraded, inferred, scripted…) with their cause and next step, the network live list and filters, entry and body views, the layout tree, the Script, Schemas, Daemon and Agents views, and the agents' configurations. The plugin binds these to Swing; the CLI uses the same statements. |
-| `dta-inject` | The Gradle init script that adds `dta-sidekick` to the debug build of every Android application module, and its report (injected, project-provided, unresolved, unsupported). Used by the plugin now and by `dta run` (feature 010). |
+| `dta-inject` | The Gradle init script that adds `dta-sidekick` to every debuggable build type of each Android application module (and Compose's tooling data where a Compose app lacks it), and its report (injected, project-provided, unresolved, unsupported, off; variants and application ids). In run mode it also selects the module and variant for `dta run`. Used by the plugin and by `dta run`. |
+| `dta-run` | `dta run` (feature 010): one session — resolve the device through the daemon, build and install with DTA injected in one Gradle invocation, launch, wait for the daemon to report the app connected — used by the CLI, the MCP tool `app_run` and the plugin's agent server. |
 | `dta-studio` | The Android Studio plugin (feature 009): the DTA tool window (Network, Layout, Script, Schemas, Daemon, Agents), DTA injection into debug builds run from the IDE, and the agent server over HTTP. Ships the daemon in its `daemon/` directory, so it works without the CLI. |
 | `dta-sidekick-shim` | Pure-Java hook dispatcher, dexed into the AAR's assets and put on the bootstrap class path by the agent, so boot classes (`java.net.URL`) can call it. Its `onEntry`/`onExit` signatures are a frozen ABI. |
 
@@ -26,8 +27,29 @@ prototype lives on the `pre-refined` branch.
 Install **DTA - Development Tools for Android** from the JetBrains Marketplace (Settings › Plugins; development builds are on the EAP channel), or from disk: `./gradlew :dta-studio:buildPlugin`, then Settings › Plugins › ⚙ › Install Plugin from Disk… with `dta-studio/build/distributions/dta-studio-<version>.zip`. Android Studio 2025.2.2 or newer. The plugin starts (or joins) the same daemon as the CLI and agents from its own `daemon/` directory, on the IDE's Java and with the adb Android Studio uses; the CLI does not need to be installed.
 
 - **The DTA tool window** (bottom): the device and app it shows, with the app's connection; tabs Network (HTTP and WebSocket in one live list, filters, entry detail, bodies with protobuf decoding and redaction), Layout (View and Compose tree, detail levels, open the source), Script, Schemas, Daemon and Agents. Nothing degraded is hidden: every gap is marked with its cause and what to do.
-- **Injection.** Debug builds run from Android Studio get `dta-sidekick` without project changes: a Gradle init script adds it to `debugImplementation` of each application module (never to release builds), unless the project declares it itself. Turn it off in Settings › Tools › DTA or with the tool window's title action; the Daemon tab says what the last build did.
+- **Injection.** Debug builds run from Android Studio get `dta-sidekick` without project changes: a Gradle init script (the one `dta run` uses) adds it to every debuggable build type of each application module (never to release builds), unless the project declares it itself; Compose apps without Compose's tooling data get that too (a separate switch). Turn it off in Settings › Tools › DTA or with the tool window's title action; the Daemon tab says what the last build did.
 - **Agent server.** The Agents tab serves the same tools as `dta mcp` over HTTP at `http://127.0.0.1:12321/mcp` (port configurable, off by default), loopback only, with a credential kept in the IDE's password safe. It shows the configuration for Claude Code, Cursor, Gemini in Android Studio, Claude Desktop and VS Code to copy — or a prompt to paste into the agent so it sets the server up itself.
+
+## Run the app with DTA (feature 010)
+
+In the root of an Android project (the folder with `gradlew`), with nothing about DTA in the project:
+
+```
+dta run                           # build the debug variant with DTA, install, launch, wait for "DTA connected"
+dta run --variant freeDebug       # any debuggable variant; release is refused
+dta run --module :app --activity .DeepLinkActivity
+dta run --watch                   # then show the network traffic live
+dta run --build-only              # CI: build with DTA injected, no device
+dta run -- --offline              # Gradle arguments after --
+```
+
+- It runs the project's own Gradle wrapper once, with an init script that adds `dta-sidekick` (and, for Compose apps without it, Compose's tooling data, so Layout has source lines; `--no-tooling` turns that off) to debuggable build types only. No project file is created or changed.
+- It prints each step (resolve, build and install, launch, connect) and ends with `DTA connected`, or with the step that failed, its cause and the next step. The full Gradle output is in `$DTA_HOME/logs/`.
+- An install refused because another signature is installed is never resolved silently: `--reinstall` uninstalls first (after the new build is packaged), which deletes the app's data.
+- Exit codes: 0 connected (or built/installed), 2 usage, 3 no device, 4 version conflict, 10 project (no app module, choose `--module`/`--variant`, not debuggable), 11 build, 12 install, 13 launch, 14 not connected in time, 15 ran without DTA.
+- `--json` prints one result document; agents get the same document from the MCP tool `app_run`, with progress while it builds.
+
+`run` and `mcp` are the CLI's host-local commands; every other command is an operation of the shared daemon.
 
 ## Install and use (feature 008)
 

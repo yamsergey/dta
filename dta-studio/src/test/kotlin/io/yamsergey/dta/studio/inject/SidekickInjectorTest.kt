@@ -21,6 +21,7 @@ class SidekickInjectorTest : BasePlatformTestCase() {
     override fun tearDown() {
         try {
             InjectionSettings.get().enabled = true
+            InjectionSettings.get().tooling = true
         } finally {
             super.tearDown()
         }
@@ -34,6 +35,15 @@ class SidekickInjectorTest : BasePlatformTestCase() {
         val report = args.single { it.startsWith("-P${InjectionConfig.REPORT_PROPERTY}=") }.substringAfter('=')
         assertEquals(InjectionFiles.report(project).path, report)
         assertEquals("the same file every build: a changed path would void Gradle's configuration cache", report, configured().single { it.startsWith("-P") }.substringAfter('='))
+    }
+
+    fun `test Compose tooling data is on by default and can be turned off for IDE builds`() {
+        assertTrue(InjectionSettings.get().tooling)
+        assertTrue(configured().none { it.startsWith("-P${InjectionConfig.TOOLING_PROPERTY}=") })
+        InjectionSettings.get().tooling = false
+        assertTrue("-P${InjectionConfig.TOOLING_PROPERTY}=false" in configured())
+        val restored = InjectionSettings().apply { loadState(InjectionSettings.get().state) }
+        assertFalse(restored.tooling)
     }
 
     fun `test off adds nothing`() {
