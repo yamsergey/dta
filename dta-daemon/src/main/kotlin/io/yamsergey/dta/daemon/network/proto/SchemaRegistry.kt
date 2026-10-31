@@ -46,6 +46,71 @@ class SchemaRegistry(
     @Synchronized
     fun schemas(pkg: String): List<SchemaSet> = state(pkg).sets.values.map { it.set }
 
+    /**
+     * Replaces the set and the derived mappings of one [origin] (feature 013, research R1/R6):
+     * files that do not compile are left out and reported; when nothing compiles the previous
+     * set of the origin stays. Other origins and what was added by hand are untouched.
+     */
+    @Synchronized
+    fun sync(pkg: String, origin: SchemaOrigin, files: Map<String, String>, mappings: List<DerivedMapping>, notes: List<String> = emptyList()): SyncResult {
+        val stamped = origin.copy(syncedMs = clock())
+        val name = "${stamped.kind.name.lowercase()}-" + sha(stamped.path ?: stamped.kind.name).take(10)
+        val failed = mutableListOf<SyncFailure>()
+        val remaining = LinkedHashMap(files)
+        var compiled: List<Descriptors.FileDescriptor>? = null
+        while (remaining.isNotEmpty()) {
+            try {
+                compiled = ProtoSourceCompiler.compile(remaining)
+                break
+            } catch (e: SchemaException) {
+                val message = e.message ?: "does not compile"
+                // Leave out the file the error names (or, unnamed, every file) and try the rest.
+                val culprit = remaining.keys.firstOrNull { message.contains(it) && !message.contains("(imported by $it)") }
+                    ?: remaining.keys.firstOrNull { message.contains(it) }
+                if (culprit == null) {
+                    remaining.keys.forEach { failed += SyncFailure(it, message) }
+                    remaining.clear()
+                } else {
+                    failed += SyncFailure(culprit, message)
+                    remaining.remove(culprit)
+                }
+            }
+        }
+        val state = state(pkg)
+        if (compiled == null) {
+            return SyncResult(set = state.sets[name]?.set, failed = failed, notes = notes + "nothing compiled; the previous set of this source stays in use")
+        }
+        val types = types(compiled)
+        val replaced = state.sets.containsKey(name)
+        val set = SchemaSet(name, SchemaSource.PROTO_SOURCES, compiled.map { it.name }, types.keys.toList(), clock(), stamped)
+        val dir = dir(pkg).apply { mkdirs() }
+        File(dir, "$name.desc").writeBytes(FileDescriptorSet.newBuilder().addAllFile(compiled.map { it.toProto() }).build().toByteArray())
+        File(dir, "$name.json").writeText(json.encodeToString(SchemaSet.serializer(), set))
+        state.sets[name] = Loaded(set, types)
+
+        // The origin's derived mappings are replaced as a whole.
+        val rejected = mutableListOf<String>()
+        var nextId = state.mappings.nextId
+        val derived = mappings.mapNotNull { d ->
+            if (d.spec.type !in types) {
+                rejected += "${d.spec.type} (${d.location ?: d.spec.urlPattern}): not a message type of the synced schemas"
+                return@mapNotNull null
+            }
+            BodyMapping(
+                id = "m${nextId++}", urlPattern = d.spec.urlPattern, part = d.spec.part, schema = name, type = d.spec.type,
+                method = d.spec.method?.uppercase(), direction = d.spec.direction, addedAtMs = clock(), origin = stamped, location = d.location,
+            )
+        }
+        val kept = state.mappings.mappings.filterNot { it.origin != null && it.origin.kind == stamped.kind && it.origin.path == stamped.path }
+        state.mappings = MappingsFile(nextId, kept + derived)
+        saveMappings(pkg, state)
+        val mapped = state.mappings.mappings.filter { it.schema == name }.map { it.type }.toSet()
+        return SyncResult(set, replaced, failed, derived.size, rejected, types.keys.filter { it !in mapped }, notes)
+    }
+
+    private fun sha(text: String): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+
     /** Returns the mappings that used [name] — now broken until a schema of that name returns. */
     @Synchronized
     fun removeSchema(pkg: String, name: String): List<BodyMapping> {

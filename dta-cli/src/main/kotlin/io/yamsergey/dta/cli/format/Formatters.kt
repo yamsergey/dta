@@ -42,6 +42,7 @@ class Formatters(private val style: Style) {
         "network.schema.add" -> schemaSet(result.obj)
         "network.schema.list" -> result.arr.joinToString("\n\n") { schemaSet(it.obj) }.ifEmpty { "No schema sets. Add one with 'dta network schema add'." }
         "network.schema.remove" -> schemaRemoved(result.obj)
+        "network.schema.sync" -> schemaSync(result.obj)
         "network.mapping.add" -> mappingRow(result.obj)
         "network.mapping.list" -> result.arr.joinToString("\n") { mappingRow(it.obj) }.ifEmpty { "No mappings." }
         "network.mapping.remove" -> "Removed mapping ${result.obj.str("removed")}."
@@ -184,6 +185,27 @@ class Formatters(private val style: Style) {
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
     }
+
+    // --- Schemas from the project (feature 013)
+
+    private fun schemaSync(o: JsonObject): String = buildString {
+        val set = o.obj("set")
+        if (set == null) {
+            appendLine(style.mark(StatementKind.FAILED, "nothing synced"))
+        } else {
+            val from = set.obj("origin")?.str("path") ?: "the project"
+            appendLine("${set.arr("files").size} files from $from as ${set.str("name")}" + if (o.bool("replaced")) " (replaced)" else "")
+            appendLine("  types: " + set.arr("types").joinToString(", ") { it.jsonContent })
+        }
+        o.arr("failed").forEach { f -> appendLine(style.mark(StatementKind.DEGRADED, "not compiled") + "  ${f.obj.str("file")}: ${f.obj.str("reason")}") }
+        o.long("mappings")?.takeIf { it > 0 }?.let { appendLine("$it mappings derived from the code") }
+        o.arr("rejectedMappings").forEach { appendLine(style.mark(StatementKind.DEGRADED, "mapping not added") + "  ${it.jsonContent}") }
+        o.arr("notes").forEach { appendLine(style.mark(StatementKind.DEGRADED, it.jsonContent)) }
+        o.arr("unmappedTypes").takeIf { it.isNotEmpty() }?.let { types ->
+            appendLine(style.paint("not mapped yet: ${types.joinToString(", ") { it.jsonContent }}", Token.INK_MUTED))
+            append(style.paint("map the endpoints that use them: dta network mapping add --url-pattern '*/path' --part response --schema ${set?.str("name") ?: "<set>"} --type <type>", Token.INK_MUTED))
+        }
+    }.trimEnd()
 
     // --- Archive (feature 011)
 

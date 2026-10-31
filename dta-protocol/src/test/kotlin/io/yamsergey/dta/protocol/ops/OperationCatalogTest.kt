@@ -34,7 +34,7 @@ class OperationCatalogTest {
                 "devices.list", "apps.list", "apps.watch", "capability.report", "layout.tree",
                 "network.list", "network.entry", "network.body", "network.clear", "network.watch",
                 "network.script.set", "network.script.clear", "network.script.status", "network.script.logs",
-                "network.schema.add", "network.schema.list", "network.schema.remove",
+                "network.schema.add", "network.schema.list", "network.schema.remove", "network.schema.sync",
                 "network.mapping.add", "network.mapping.list", "network.mapping.remove",
                 "archive.list", "archive.delete",
                 "daemon.status", "daemon.stop",

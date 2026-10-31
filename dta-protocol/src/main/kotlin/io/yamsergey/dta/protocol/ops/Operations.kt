@@ -270,6 +270,17 @@ object Catalog {
                 ParamSpec("sources", ParamType.STRING_MAP, ".proto sources by relative path (path → text), for imports to resolve."),
             ),
         ),
+        OperationSpec(
+            "network.schema.sync",
+            "Take the app's protobuf schemas from a project: every .proto file under the folder (src/*/proto roots resolve imports across modules), as one set replacing what this folder gave before. Then add mappings from the code with network.mapping.add (which endpoint sends or returns which message type). Reports files that do not compile and message types nothing maps yet.",
+            Scope.APP,
+            listOf(
+                ParamSpec("folder", ParamType.STRING, "The project folder on this machine, usually the repository root.", positional = true, path = true),
+                ParamSpec("sources", ParamType.STRING_MAP, ".proto sources by import path (path → text), when a client read them itself (the IDE: dependencies' protos)."),
+                ParamSpec("origin", ParamType.STRING, "With sources: the project they came from (its path)."),
+                ParamSpec("mappings", ParamType.STRING, "With sources: derived mappings as JSON (the IDE: from Retrofit declarations), each with its code location."),
+            ),
+        ),
         OperationSpec("network.schema.list", "List the app's protobuf schema sets and their message types.", Scope.APP),
         OperationSpec(
             "network.schema.remove", "Remove a schema set; the result lists mappings that used it and are now broken.", Scope.APP,

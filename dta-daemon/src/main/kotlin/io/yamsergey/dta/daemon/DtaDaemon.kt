@@ -219,6 +219,15 @@ class DtaDaemon(
     /** Removes a schema set; returns the mappings that used it, now broken. */
     fun networkSchemaRemove(pkg: String, name: String): List<BodyMapping> = schemas.removeSchema(pkg, name)
 
+    /** Replaces one origin's schema set and derived mappings (feature 013). */
+    fun networkSchemaSync(
+        pkg: String,
+        origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin,
+        files: Map<String, String>,
+        mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>,
+        notes: List<String> = emptyList(),
+    ): io.yamsergey.dta.daemon.network.proto.SyncResult = schemas.sync(pkg, origin, files, mappings, notes)
+
     /** Maps a message type to bodies: URL glob, part, and optionally method (HTTP) or direction (WebSocket). */
     fun networkMappingAdd(pkg: String, mapping: BodyMappingSpec): BodyMapping = schemas.addMapping(pkg, mapping)
 

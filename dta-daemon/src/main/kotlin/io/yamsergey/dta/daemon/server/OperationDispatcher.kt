@@ -1,5 +1,10 @@
 package io.yamsergey.dta.daemon.server
 
+import io.yamsergey.dta.daemon.network.proto.DerivedMappingWire
+import io.yamsergey.dta.daemon.network.proto.OriginKind
+import io.yamsergey.dta.daemon.network.proto.ProtoDiscovery
+import io.yamsergey.dta.daemon.network.proto.SchemaOrigin
+import io.yamsergey.dta.daemon.network.proto.SyncResult
 import io.yamsergey.dta.daemon.store.DeleteTarget
 import io.yamsergey.dta.daemon.store.LiveEpochException
 import io.yamsergey.dta.protocol.network.ArchiveDeletion
@@ -92,6 +97,7 @@ class OperationDispatcher(
         "network.script.status" to { c -> encode(ScriptStatus.serializer(), ops.networkScriptStatus(c.device, c.app)) },
         "network.script.logs" to { c -> encode(ScriptLogPage.serializer(), ops.networkScriptLogs(c.device, c.app, c.long("since") ?: 0)) },
         "network.schema.add" to { c -> encode(SchemaSet.serializer(), ops.networkSchemaAdd(c.app, c.required("name"), schemaInput(c))) },
+        "network.schema.sync" to { c -> encode(SyncResult.serializer(), schemaSync(c)) },
         "network.schema.list" to { c -> encode(ListSerializer(SchemaSet.serializer()), ops.networkSchemas(c.app)) },
         "network.schema.remove" to { c ->
             val name = c.required("name")
@@ -211,6 +217,27 @@ class OperationDispatcher(
             ?: if (ops.networkEntry(c.device, c.app, id, false).entry is WsMessageEntry) BodyPart.MESSAGE else BodyPart.RESPONSE
         val output = c.string("output")?.let { BodyOutput.File(it, decoded = !c.bool("raw"), structured = c.bool("structured")) } ?: BodyOutput.Text
         return ops.networkBody(c.device, c.app, id, part, output, c.bool("redact"), c.bool("allowUnredacted"))
+    }
+
+    /** A folder the daemon reads, or sources (and derived mappings) a client read (feature 013, research R1). */
+    private fun schemaSync(c: Call): SyncResult {
+        val folder = c.string("folder")
+        val inline = (c.params["sources"] as? JsonObject)?.mapValues { (it.value as JsonPrimitive).content }
+        if ((folder == null) == (inline == null)) invalid("give the project folder, or sources a client read itself")
+        val derived = c.string("mappings")?.let { text ->
+            try {
+                DtaJson.decodeFromString(ListSerializer(DerivedMappingWire.serializer()), text).map { it.toDerived() }
+            } catch (e: Exception) {
+                invalid("mappings is not a JSON list of derived mappings: ${e.message}")
+            }
+        }.orEmpty()
+        if (folder != null) {
+            val dir = File(folder)
+            if (!dir.isDirectory) notFound("folder", folder)
+            val found = ProtoDiscovery.discover(dir)
+            return ops.networkSchemaSync(c.app, SchemaOrigin(OriginKind.FOLDER, dir.canonicalPath, "cli"), found.files, derived, found.notes)
+        }
+        return ops.networkSchemaSync(c.app, SchemaOrigin(OriginKind.PROJECT, c.string("origin"), "ide"), inline!!, derived, emptyList())
     }
 
     private fun scriptSource(c: Call): String {
