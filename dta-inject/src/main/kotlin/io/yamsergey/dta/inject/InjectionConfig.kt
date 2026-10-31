@@ -1,15 +1,21 @@
 package io.yamsergey.dta.inject
 
 /**
- * What the init script injects (contracts/injection.md): the sidekick [version] of this DTA
- * release, and the Gradle property that names the report file. A `-SNAPSHOT` version also
+ * What the init script injects (010 contracts/injection.md, v2): the sidekick [version] of this
+ * DTA release, and the Gradle properties that name the report file, turn the Compose tooling
+ * data off (`false`) and name a run request (run mode, `dta run`). A `-SNAPSHOT` version also
  * resolves from the snapshot repository and `mavenLocal()`, never cached.
  */
-data class InjectionConfig(val version: String, val reportProperty: String = REPORT_PROPERTY) {
+data class InjectionConfig(
+    val version: String,
+    val reportProperty: String = REPORT_PROPERTY,
+    val toolingProperty: String = TOOLING_PROPERTY,
+    val runProperty: String = RUN_PROPERTY,
+) {
     init {
         // The version is written into the script: only what a Maven version can hold.
         require(VERSION.matches(version)) { "not a sidekick version: $version" }
-        require(PROPERTY.matches(reportProperty)) { "not a Gradle property name: $reportProperty" }
+        listOf(reportProperty, toolingProperty, runProperty).forEach { require(PROPERTY.matches(it)) { "not a Gradle property name: $it" } }
     }
 
     val snapshot: Boolean get() = version.endsWith("-SNAPSHOT")
@@ -20,6 +26,9 @@ data class InjectionConfig(val version: String, val reportProperty: String = REP
         const val GROUP = "io.github.yamsergey"
         const val ARTIFACT = "dta-sidekick"
         const val REPORT_PROPERTY = "dta.inject.report"
+        const val TOOLING_PROPERTY = "dta.inject.tooling"
+        const val RUN_PROPERTY = "dta.run.request"
+        const val TOOLING_COORDINATE = "androidx.compose.ui:ui-tooling-data"
 
         private val VERSION = Regex("[A-Za-z0-9._+-]+")
         private val PROPERTY = Regex("[A-Za-z0-9._-]+")

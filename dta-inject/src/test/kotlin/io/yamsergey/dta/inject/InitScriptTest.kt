@@ -32,11 +32,43 @@ class InitScriptTest {
     }
 
     @Test
-    fun `only debugImplementation, only Android apps`() {
-        assertTrue("'debugImplementation'" in release)
-        assertFalse("releaseImplementation" in release || "'implementation'" in release)
+    fun `every debuggable build type, never another, only Android apps`() {
+        assertTrue("buildTypes.matching { it.debuggable }" in release, release)
+        assertTrue("bt.name + 'Implementation'" in release, release)
+        val adds = Regex("""dependencies\.add\(([^,]+),""").findAll(release).map { it.groupValues[1] }.toSet()
+        assertEquals(setOf("bt.name + 'Implementation'"), adds, "dependencies are only ever added to debuggable build types")
+        assertFalse("releaseImplementation" in release)
         assertTrue("withPlugin('com.android.application')" in release)
         assertFalse("com.android.library" in release, "libraries do not need the sidekick")
+    }
+
+    @Test
+    fun `variants and application ids are reported`() {
+        assertTrue("onVariants" in release && "applicationId" in release && "debuggable" in release, release)
+    }
+
+    @Test
+    fun `Compose tooling data is added versionless, probed first, and can be turned off`() {
+        assertTrue("androidx.compose.ui:ui-tooling-data" in release)
+        assertTrue("projectProperties['dta.inject.tooling']" in release)
+        listOf("'injected'", "'project-provided'", "'not-applicable'", "'unresolved'", "'off'").forEach { assertTrue(it in release, it) }
+        assertTrue("ExternalModuleDependency" in release, "the probe resolves the app's declared external dependencies, never its own configurations")
+    }
+
+    @Test
+    fun `run mode reads the request, registers dtaRun and writes the report from its action`() {
+        assertTrue("projectProperties['dta.run.request']" in release)
+        assertTrue("tasks.register('dtaRun')" in release)
+        assertTrue("doLast" in release)
+        listOf("'selected'", "'no-app-module'", "'module-required'", "'module-not-found'", "'variant-required'", "'variant-not-found'", "'not-debuggable'")
+            .forEach { assertTrue(it in release, it) }
+    }
+
+    @Test
+    fun `the new properties have fixed names`() {
+        val config = InjectionConfig("0.10.0")
+        assertEquals("dta.inject.tooling", config.toolingProperty)
+        assertEquals("dta.run.request", config.runProperty)
     }
 
     @Test
