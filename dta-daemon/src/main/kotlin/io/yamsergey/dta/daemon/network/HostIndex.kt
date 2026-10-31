@@ -9,6 +9,7 @@ import io.yamsergey.dta.daemon.store.Epoch
 import io.yamsergey.dta.daemon.store.HostStore
 import io.yamsergey.dta.daemon.store.InstallationInfo
 import io.yamsergey.dta.protocol.network.BodyCodec
+import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.BodyRangeResult
 import io.yamsergey.dta.protocol.network.EpochCloseReason
@@ -61,6 +62,7 @@ class HostIndex(
     private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, ::hostBodyBytes)
 
     suspend fun list(query: NetworkQuery): NetworkPage = mutex.withLock {
+        query.archive?.let { return archived(query, it) }
         val app = connection()
         if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkPage.serializer(), app.request("network_list", query.toJson()))
         if (query.filter?.bodyContains != null) fetchBodies()
@@ -84,11 +86,60 @@ class HostIndex(
         neverReceived = (clearedEntries - live.size).coerceAtLeast(0)
     }
 
+    /** An entry of the live history, else of the archive (marked); the archive answers with the app gone. */
     suspend fun entry(id: String): NetworkEntryDetail = mutex.withLock {
-        val app = connection()
-        if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), app.request("network_entry", buildJsonObject { put("id", id) }))
-        view.entry(id)
+        val app = runCatching { connection() }.getOrNull()
+        if (app != null) {
+            if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), app.request("network_entry", buildJsonObject { put("id", id) }))
+            if (live.containsKey(id)) return view.entry(id)
+        }
+        val (archivedEpoch, _) = store.findArchived(device.key, packageName, id) ?: run {
+            if (app == null) connection() // the app is gone and the archive has nothing: say why the app cannot answer
+            return view.entry(id)
+        }
+        archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch))
     }
+
+    /** A body as the host holds it (live or archived), or null when it has not been copied. */
+    suspend fun storedBody(id: String, part: BodyPart): Pair<BodyInfo, ByteArray>? = mutex.withLock {
+        val (epochId, entry) = epoch?.takeIf { live.containsKey(id) }?.let { it.id to live.getValue(id) }
+            ?: store.findArchived(device.key, packageName, id)?.let { (e, entry) -> e.id to entry }
+            ?: return null
+        val info = NetworkHistoryView.bodyOf(entry, part) ?: return null
+        val sha = store.bodyRef(epochId, id, part)?.sha256 ?: return null
+        val bytes = store.openBody(sha)?.use { it.readBytes() } ?: return null
+        info to bytes
+    }
+
+    /** Archived epochs answer the same queries from the host alone (US4). */
+    private fun archived(query: NetworkQuery, scope: io.yamsergey.dta.protocol.network.ArchiveScope): NetworkPage {
+        val epochs = store.epochs(device.key, packageName, scope)
+        val page = archiveView(epochs).list(query)
+        val owner = HashMap<String, Epoch>()
+        epochs.forEach { e -> store.entries(e.id).forEach { owner[it.id] = e } }
+        val marks = epochs.associate { it.id to mark(it) }
+        return page.copy(archived = page.entries.associate { it.id to marks.getValue(owner.getValue(it.id).id) }.ifEmpty { null })
+    }
+
+    private fun archiveView(epochs: List<Epoch>): NetworkHistoryView {
+        val entries = LinkedHashMap<String, NetworkEntry>()
+        val epochOf = HashMap<String, String>()
+        epochs.forEach { e -> store.entries(e.id).forEach { entries[it.id] = it; epochOf[it.id] = e.id } }
+        val context = HistoryContext(
+            runId = "",
+            coverage = io.yamsergey.dta.protocol.network.Coverage(searched = entries.size, stored = entries.size, persisted = true),
+            capture = io.yamsergey.dta.protocol.rpc.CapabilityStatus("network", io.yamsergey.dta.protocol.rpc.CapabilityStatus.Status.AVAILABLE),
+        )
+        return NetworkHistoryView({ entries.values.toList() }, { entries[it] }, { context }) { entry, part ->
+            val info = NetworkHistoryView.bodyOf(entry, part) ?: return@NetworkHistoryView null
+            val sha = store.bodyRef(epochOf.getValue(entry.id), entry.id, part)?.sha256 ?: return@NetworkHistoryView null
+            val raw = store.openBody(sha)?.use { it.readBytes() } ?: return@NetworkHistoryView null
+            val decoded = BodyCodec.decode(raw, info.encoding)
+            NetworkFilterEval.BodyBytes(decoded.bytes, decoded.decoded)
+        }
+    }
+
+    private fun mark(e: Epoch) = io.yamsergey.dta.protocol.network.ArchivedMark(e.id, e.reason ?: EpochCloseReason.UNKNOWN, e.closedMs ?: 0, store.versionOf(e.id))
 
     /** Catches up with the journal; false when the app keeps no journal (it answers itself). */
     private suspend fun sync(app: AppConnection): Boolean {

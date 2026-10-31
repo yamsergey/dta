@@ -212,6 +212,10 @@ object Catalog {
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets (tokens, cookies, passwords) in URLs and headers."),
+                ParamSpec(
+                    "archive", ParamType.STRING,
+                    "Archived history instead of the live one (what the device cleared, or earlier installs): all, version:<name>, <fromMs>..<toMs>, or an epoch id from archive list. Entries come marked with their epoch.",
+                ),
             ),
         ),
         OperationSpec(
@@ -288,6 +292,23 @@ object Catalog {
         OperationSpec(
             "network.mapping.remove", "Remove a mapping; its bodies return as raw bytes.", Scope.APP,
             listOf(ParamSpec("id", ParamType.STRING, "Mapping id from network.mapping.list.", required = true, positional = true)),
+        ),
+        OperationSpec(
+            "archive.list",
+            "The network history this computer keeps after devices forgot it (cleared, data wiped, reinstalled): devices › apps › installs › epochs, with dates, why each epoch closed, entry counts and size on disk.",
+            Scope.NONE,
+        ),
+        OperationSpec(
+            "archive.delete",
+            "Delete archived network history: one epoch, one install, an app's whole archive, or everything closed before a time. Without confirm it only says what it would remove. The live history is never deleted here: clearing it on the device archives it.",
+            Scope.NONE,
+            listOf(
+                ParamSpec("epoch", ParamType.STRING, "An epoch id from archive list."),
+                ParamSpec("installation", ParamType.LONG, "An install id from archive list."),
+                ParamSpec("packageName", ParamType.STRING, "An app's whole archive, on every device."),
+                ParamSpec("closedBeforeMs", ParamType.LONG, "Every epoch closed before this epoch millisecond."),
+                ParamSpec("confirm", ParamType.BOOLEAN, "Delete for real; without it the answer only says what would go."),
+            ),
         ),
         OperationSpec(
             "daemon.status", "The DTA service: version, uptime, adb, connected clients, devices and open app connections.", Scope.NONE,

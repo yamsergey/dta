@@ -93,6 +93,9 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override fun networkMappingAdd(pkg: String, mapping: BodyMappingSpec) = BodyMapping("m1", mapping.urlPattern, mapping.part, mapping.schema, mapping.type)
     override fun networkMappings(pkg: String) = emptyList<BodyMapping>()
     override fun networkMappingRemove(pkg: String, id: String) = id == "m1"
+    override fun archiveList() = io.yamsergey.dta.protocol.network.ArchiveListing(emptyList(), 0)
+    override fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean) =
+        io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, io.yamsergey.dta.protocol.network.ArchiveDeleted(0, 0, 0, 0))
 }
 
 /** An in-process daemon over [ops] with a connect function for [Runner]. */

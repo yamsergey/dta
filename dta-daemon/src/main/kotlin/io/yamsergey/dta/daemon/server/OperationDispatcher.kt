@@ -1,5 +1,10 @@
 package io.yamsergey.dta.daemon.server
 
+import io.yamsergey.dta.daemon.store.DeleteTarget
+import io.yamsergey.dta.daemon.store.LiveEpochException
+import io.yamsergey.dta.protocol.network.ArchiveDeletion
+import io.yamsergey.dta.protocol.network.ArchiveListing
+import io.yamsergey.dta.protocol.network.ArchiveScope
 import io.yamsergey.dta.daemon.AdbUnavailableException
 import io.yamsergey.dta.daemon.connection.ConnectException
 import io.yamsergey.dta.daemon.connection.ConnectionLostException
@@ -94,6 +99,21 @@ class OperationDispatcher(
             buildJsonObject { put("removed", name); put("brokenMappings", encode(ListSerializer(BodyMapping.serializer()), ops.networkSchemaRemove(c.app, name))) }
         },
         "network.mapping.add" to { c -> encode(BodyMapping.serializer(), ops.networkMappingAdd(c.app, mapping(c))) },
+        "archive.list" to { _ -> encode(ArchiveListing.serializer(), ops.archiveList()) },
+        "archive.delete" to { c ->
+            val targets = listOfNotNull(
+                c.string("epoch")?.let { DeleteTarget.Epoch(it) },
+                c.long("installation")?.let { DeleteTarget.Installation(it) },
+                c.string("packageName")?.let { DeleteTarget.Package(it) },
+                c.long("closedBeforeMs")?.let { DeleteTarget.ClosedBefore(it) },
+            )
+            if (targets.size != 1) invalid("name exactly one of epoch, installation, packageName or closedBeforeMs")
+            try {
+                encode(ArchiveDeletion.serializer(), ops.archiveDelete(targets.single(), c.bool("confirm")))
+            } catch (e: LiveEpochException) {
+                invalid(e.message ?: "the live history is not deleted here")
+            }
+        },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },
         "network.mapping.remove" to { c ->
             val id = c.required("id")
@@ -164,9 +184,17 @@ class OperationDispatcher(
 
     private fun query(params: JsonObject): NetworkQuery {
         val filterKeys = NetworkFilter.serializer().descriptor.let { d -> (0 until d.elementsCount).map { d.getElementName(it) } }
+        val archive = (params["archive"] as? JsonPrimitive)?.content?.let { text ->
+            try {
+                DtaJson.encodeToJsonElement(ArchiveScope.serializer(), ArchiveScope.parse(text))
+            } catch (e: IllegalArgumentException) {
+                invalid(e.message ?: "invalid archive scope '$text'")
+            }
+        }
         val raw = buildJsonObject {
             put("filter", JsonObject(params.filterKeys { it in filterKeys }))
-            params.filterKeys { it !in filterKeys }.forEach { (k, v) -> put(k, v) }
+            params.filterKeys { it !in filterKeys && it != "archive" }.forEach { (k, v) -> put(k, v) }
+            archive?.let { put("archive", it) }
         }
         return NetworkQuery.parse(raw)
     }

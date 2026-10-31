@@ -19,6 +19,26 @@ data class ArchiveScope(
         val set = listOfNotNull(epoch, version, all?.takeIf { it }, (fromMs ?: toMs)).size
         require(set == 1) { "an archive scope names exactly one of epoch, version, a time range (fromMs/toMs) or all" }
     }
+
+    companion object {
+        /** The CLI and tool form: `all`, `version:1.4.0`, `<fromMs>..<toMs>` (either side may be empty), or an epoch id. */
+        fun parse(text: String): ArchiveScope {
+            val t = text.trim()
+            return when {
+                t == "all" -> ArchiveScope(all = true)
+                t.startsWith("version:") -> ArchiveScope(version = t.removePrefix("version:").also { require(it.isNotBlank()) { "version: needs a version name" } })
+                ".." in t -> {
+                    val (from, to) = t.split("..", limit = 2)
+                    ArchiveScope(
+                        fromMs = from.takeIf { it.isNotBlank() }?.let { it.toLongOrNull() ?: throw IllegalArgumentException("'$from' is not epoch milliseconds") },
+                        toMs = to.takeIf { it.isNotBlank() }?.let { it.toLongOrNull() ?: throw IllegalArgumentException("'$to' is not epoch milliseconds") },
+                    )
+                }
+                t.isNotEmpty() -> ArchiveScope(epoch = t)
+                else -> throw IllegalArgumentException("an archive scope is all, version:<name>, <fromMs>..<toMs> or an epoch id")
+            }
+        }
+    }
 }
 
 /** Why an epoch was closed: the device forgot its history (feature 011, research R7). */
@@ -52,6 +72,8 @@ data class ArchiveEpoch(
 
 @Serializable
 data class ArchiveInstallation(
+    /** For `archive delete --installation`. */
+    val id: Long,
     val versionName: String? = null,
     val versionCode: Long? = null,
     val lastUpdateMs: Long? = null,
@@ -70,3 +92,7 @@ data class ArchiveListing(val devices: List<ArchiveDevice>, val bytes: Long)
 /** What `archive.delete` removed. */
 @Serializable
 data class ArchiveDeleted(val epochs: Int, val entries: Int, val bodiesFreed: Int, val bytesFreed: Long)
+
+/** The answer of `archive.delete`: without `confirm` only what it would remove. */
+@Serializable
+data class ArchiveDeletion(val confirmed: Boolean, val removed: ArchiveDeleted)

@@ -254,6 +254,13 @@ class DtaDaemon(
         return Screen(w, h, density)
     }
 
+    /** The host's network archive (feature 011, contracts/archive-ops.md). */
+    fun archiveList(): io.yamsergey.dta.protocol.network.ArchiveListing = hostStore.listing()
+
+    /** Deletes archived history; without [confirm] says what would go. The live history is refused. */
+    fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean): io.yamsergey.dta.protocol.network.ArchiveDeletion =
+        io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, hostStore.delete(target, dryRun = !confirm))
+
     suspend fun shutdown() {
         background.cancel()
         connections.shutdown()

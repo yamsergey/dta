@@ -45,6 +45,8 @@ class Formatters(private val style: Style) {
         "network.mapping.add" -> mappingRow(result.obj)
         "network.mapping.list" -> result.arr.joinToString("\n") { mappingRow(it.obj) }.ifEmpty { "No mappings." }
         "network.mapping.remove" -> "Removed mapping ${result.obj.str("removed")}."
+        "archive.list" -> archiveList(result.obj)
+        "archive.delete" -> archiveDelete(result.obj)
         "daemon.status" -> status(result.obj)
         "daemon.stop" -> "The DTA daemon is stopping."
         else -> PRETTY.encodeToString(JsonElement.serializer(), result)
@@ -172,12 +174,56 @@ class Formatters(private val style: Style) {
 
     private fun networkList(o: JsonObject): String = buildString {
         val entries = o.arr("entries")
-        entries.forEach { appendLine(entryRow(it.obj, absolute = false)) }
+        val archived = o.obj("archived")
+        entries.forEach { e ->
+            val mark = archived?.obj(e.obj.str("id") ?: "")?.let { "  " + style.mark(Statements.forArchived(it)) }.orEmpty()
+            appendLine(entryRow(e.obj, absolute = false) + mark)
+        }
         if (entries.isEmpty()) appendLine("No entries.")
         append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
     }
+
+    // --- Archive (feature 011)
+
+    private fun archiveList(o: JsonObject): String {
+        val devices = o.arr("devices")
+        if (devices.isEmpty()) return "Nothing archived yet."
+        return buildString {
+            devices.forEach { d ->
+                val dev = d.obj
+                appendLine(listOfNotNull(dev.str("model"), dev.str("serial")).joinToString("  ").ifEmpty { dev.str("key") ?: "" })
+                dev.arr("apps").forEach { a ->
+                    appendLine("  " + a.obj.str("packageName"))
+                    a.obj.arr("installations").forEach { i ->
+                        val inst = i.obj
+                        val version = listOfNotNull(inst.str("versionName"), inst.long("versionCode")?.let { "($it)" }).joinToString(" ").ifEmpty { "unknown version" }
+                        appendLine("    $version  install ${inst.long("id")}")
+                        inst.arr("epochs").forEach { e ->
+                            val ep = e.obj
+                            val closed = ep.long("closedMs")
+                            val state = if (closed == null) style.paint("live", Token.ACCENT) else ep.str("reason")?.replace('-', ' ') ?: "archived"
+                            val span = "${time(ep.long("openedMs"))} → ${closed?.let { time(it) } ?: "now"}"
+                            val never = ep.long("neverReceived")?.takeIf { it > 0 }?.let { "  " + style.mark(StatementKind.DEGRADED, "$it never reached this computer") }.orEmpty()
+                            appendLine("      ${ep.str("id")}  $span  $state  ${ep.long("entries")} entries  ${bytes(ep.long("bytes") ?: 0)}$never")
+                        }
+                    }
+                }
+            }
+            append(style.paint("${bytes(o.long("bytes") ?: 0)} on disk; query with --archive, delete with dta archive delete", Token.INK_MUTED))
+        }
+    }
+
+    private fun archiveDelete(o: JsonObject): String {
+        val r = o.obj("removed") ?: JsonObject(emptyMap())
+        val what = "${r.long("epochs")} epochs, ${r.long("entries")} entries and ${r.long("bodiesFreed")} bodies (${bytes(r.long("bytesFreed") ?: 0)})"
+        return if (o.bool("confirmed")) "Removed $what." else "Would remove $what. Run again with --confirm to delete them."
+    }
+
+    private fun time(ms: Long?): String = ms?.let {
+        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(it))
+    } ?: "?"
 
     /** One entry as a line; the row model is dta-present's, the same the plugin's list shows. */
     private fun entryRow(e: JsonObject, absolute: Boolean, withPayload: Boolean = false): String {

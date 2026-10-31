@@ -101,16 +101,19 @@ class NetworkService(
         redact: Boolean = false,
         allowUnredacted: Boolean = false,
     ): BodyResult {
-        val response = connection().requestFull(
-            "network_body",
-            buildJsonObject {
-                put("id", id)
-                put("part", DtaJson.encodeToJsonElement(BodyPart.serializer(), part).jsonPrimitive.content)
-            },
-            BODY_TIMEOUT,
-        )
-        val info = DtaJson.decodeFromJsonElement(NetworkBodyResult.serializer(), response.result).body
-        val wire = ByteArrayOutputStream().apply { response.binaryPayloads.forEach { write(it) } }.toByteArray()
+        // The host's copy first (archived bodies exist nowhere else, feature 011), else the app's.
+        val (info, wire) = host?.storedBody(id, part) ?: run {
+            val response = connection().requestFull(
+                "network_body",
+                buildJsonObject {
+                    put("id", id)
+                    put("part", DtaJson.encodeToJsonElement(BodyPart.serializer(), part).jsonPrimitive.content)
+                },
+                BODY_TIMEOUT,
+            )
+            DtaJson.decodeFromJsonElement(NetworkBodyResult.serializer(), response.result).body to
+                ByteArrayOutputStream().apply { response.binaryPayloads.forEach { write(it) } }.toByteArray()
+        }
         val degraded = if (info.completeness == Completeness.COMPLETE) null
         else listOf(DegradationMarker("network", DegradationCodes.NETWORK_BODY_INCOMPLETE))
 

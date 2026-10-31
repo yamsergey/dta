@@ -47,6 +47,8 @@ sealed interface DeleteTarget {
     data class Epoch(val id: String) : DeleteTarget
     data class Installation(val id: Long) : DeleteTarget
     data class App(val deviceKey: String, val packageName: String) : DeleteTarget
+    /** An app's archive on every device. */
+    data class Package(val packageName: String) : DeleteTarget
     data class ClosedBefore(val ms: Long) : DeleteTarget
 }
 
@@ -214,6 +216,14 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
         deviceKey, packageName,
     ) { it.getInt(1) }.single()
 
+    /** An entry of an archived epoch of the app, newest epoch first. */
+    @Synchronized
+    fun findArchived(deviceKey: String, packageName: String, entryId: String): Pair<Epoch, NetworkEntry>? = query(
+        """SELECT $EPOCH_COLUMNS, n.json FROM entry n JOIN epoch e ON n.epoch_id=e.id JOIN installation i ON e.installation_id=i.id
+           WHERE i.device_key=? AND i.package=? AND e.closed_ms IS NOT NULL AND n.entry_id=? ORDER BY e.opened_ms DESC LIMIT 1""",
+        deviceKey, packageName, entryId,
+    ) { r -> epochOf(r) to DtaJson.decodeFromString(NetworkEntry.serializer(), r.getString(7)) }.firstOrNull()
+
     /** The installation an epoch belongs to. */
     @Synchronized
     fun installationOf(epochId: String): InstallationInfo? = query(
@@ -243,15 +253,18 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
         }
         val devices = rows.groupBy { it.device }.map { (key, d) ->
             ArchiveDevice(key, d.first().serial, d.first().model, d.groupBy { it.pkg }.map { (pkg, a) ->
-                ArchiveApp(pkg, a.groupBy { it.inst }.map { (_, i) -> ArchiveInstallation(i.first().vName, i.first().vCode, i.first().update, i.map { it.epoch }) })
+                ArchiveApp(pkg, a.groupBy { it.inst }.map { (inst, i) -> ArchiveInstallation(inst, i.first().vName, i.first().vCode, i.first().update, i.map { it.epoch }) })
             })
         }
         return ArchiveListing(devices, rows.sumOf { it.epoch.bytes })
     }
 
-    /** Deletes archived epochs; never the live one (it is cleared on the device, which archives it). */
+    /**
+     * Deletes archived epochs; never the live one (it is cleared on the device, which archives
+     * it). [dryRun] says what would be removed and removes nothing.
+     */
     @Synchronized
-    fun delete(target: DeleteTarget): ArchiveDeleted {
+    fun delete(target: DeleteTarget, dryRun: Boolean = false): ArchiveDeleted {
         val ids: List<String> = when (target) {
             is DeleteTarget.Epoch -> {
                 val closed = query("SELECT closed_ms FROM epoch WHERE id=?", target.id) { it.getLongOrNull(1) }
@@ -265,7 +278,17 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
                 "SELECT e.id FROM epoch e JOIN installation i ON e.installation_id=i.id WHERE i.device_key=? AND i.package=? AND e.closed_ms IS NOT NULL",
                 target.deviceKey, target.packageName,
             ) { it.getString(1) }
+            is DeleteTarget.Package -> query(
+                "SELECT e.id FROM epoch e JOIN installation i ON e.installation_id=i.id WHERE i.package=? AND e.closed_ms IS NOT NULL", target.packageName,
+            ) { it.getString(1) }
             is DeleteTarget.ClosedBefore -> query("SELECT id FROM epoch WHERE closed_ms IS NOT NULL AND closed_ms<?", target.ms) { it.getString(1) }
+        }
+        if (dryRun) {
+            val entries = ids.sumOf { id -> query("SELECT count(*) FROM entry WHERE epoch_id=?", id) { it.getInt(1) }.single() }
+            val refs = ids.flatMap { id -> query("SELECT sha256 FROM body_ref WHERE epoch_id=? AND sha256 IS NOT NULL", id) { it.getString(1) } }.groupingBy { it }.eachCount()
+            val freed = refs.filter { (sha, n) -> query("SELECT ref_count, bytes FROM body WHERE sha256=?", sha) { it.getInt(1) to it.getLong(2) }.firstOrNull()?.first == n }
+            val bytes = freed.keys.sumOf { sha -> query("SELECT bytes FROM body WHERE sha256=?", sha) { it.getLong(1) }.single() }
+            return ArchiveDeleted(ids.size, entries, freed.size, bytes)
         }
         var entries = 0
         val freed = mutableListOf<String>()

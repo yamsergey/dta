@@ -1,5 +1,8 @@
 package io.yamsergey.dta.daemon.server
 
+import io.yamsergey.dta.daemon.store.DeleteTarget
+import io.yamsergey.dta.protocol.network.ArchiveDeletion
+import io.yamsergey.dta.protocol.network.ArchiveListing
 import io.yamsergey.dta.daemon.DtaDaemon
 import io.yamsergey.dta.daemon.network.BodyOutput
 import io.yamsergey.dta.daemon.network.BodyResult
@@ -51,10 +54,15 @@ interface DaemonOperations {
     fun networkMappingAdd(pkg: String, mapping: BodyMappingSpec): BodyMapping
     fun networkMappings(pkg: String): List<BodyMapping>
     fun networkMappingRemove(pkg: String, id: String): Boolean
+    /** The host's network archive (feature 011). */
+    fun archiveList(): ArchiveListing
+    fun archiveDelete(target: DeleteTarget, confirm: Boolean): ArchiveDeletion
 }
 
 /** Adapts [DtaDaemon] (whose methods carry defaults) to [DaemonOperations]. */
 class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
+    override fun archiveList() = daemon.archiveList()
+    override fun archiveDelete(target: DeleteTarget, confirm: Boolean) = daemon.archiveDelete(target, confirm)
     override fun devices() = daemon.devices()
     override fun apps(serial: String) = daemon.apps(serial)
     override fun appEvents(serial: String?) = daemon.appEvents(serial)

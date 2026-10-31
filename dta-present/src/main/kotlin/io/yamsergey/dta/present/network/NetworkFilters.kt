@@ -90,7 +90,8 @@ data class NetworkFilters(
     }
 
     companion object {
-        private val PAGING = setOf("limit", "order", "before", "redact")
+        /** Not filters: paging, redaction, and the archive scope (a Live / Archive switch, feature 011). */
+        private val PAGING = setOf("limit", "order", "before", "redact", "archive")
 
         /** The filter parameters of `network.list`, in catalog order. */
         val NAMES: List<String> = Catalog["network.list"].params.map { it.name }.filter { it !in PAGING }

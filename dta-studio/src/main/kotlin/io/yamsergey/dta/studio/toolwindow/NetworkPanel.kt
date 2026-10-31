@@ -82,6 +82,10 @@ class NetworkPanel(
     private lateinit var kinds: SegmentedButton<KindChoice>
     private val pause = JBCheckBox("Pause")
     private val redact = JBCheckBox("Redact")
+    /** Live traffic, or the history this computer kept after the device forgot it (feature 011). */
+    private val source = com.intellij.openapi.ui.ComboBox(arrayOf(LIVE, ARCHIVE)).apply {
+        toolTipText = "Live: the app's traffic now. Archive: history the device cleared or lost, kept on this computer (browse it in the Daemon tab)."
+    }
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
     private val orderLink = ActionLink("") { setOrder(model.order.toggled()) }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
@@ -105,6 +109,7 @@ class NetworkPanel(
             add(chips)
             add(caption)
             add(orderLink)
+            add(source)
             add(pause)
             add(redact)
             add(ActionLink("Clear") { clear() })
@@ -124,6 +129,10 @@ class NetworkPanel(
 
         pause.addActionListener { network.list(if (pause.isSelected) LiveEvent.Pause else LiveEvent.Resume) }
         redact.addActionListener { network.setRedact(redact.isSelected) }
+        source.addActionListener {
+            val wanted = if (source.selectedItem == ARCHIVE) (last.archive ?: "all") else null
+            if (wanted != last.archive) network.setArchive(wanted)
+        }
         table.selectionModel.addListSelectionListener { e ->
             if (e.valueIsAdjusting || model.updating) return@addListSelectionListener
             val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rowAt(it) }
@@ -165,6 +174,11 @@ class NetworkPanel(
         if (s.list.following && s.list.selectedId == null) scrollToEdge()
         // Rows added above what the person is reading push it down; scroll by as much so nothing jumps.
         else if (added > 0 && model.order == ListOrder.NEWEST_FIRST) keepInPlace(added)
+
+        // Set from the archive browser too: the switch follows the state.
+        val wanted = if (s.archive != null) ARCHIVE else LIVE
+        if (source.selectedItem != wanted) source.selectedItem = wanted
+        pause.isEnabled = s.archive == null
 
         // A kinds filter the switch cannot express is a chip; then no switch position is lit.
         val kind = s.filters.kind
@@ -349,6 +363,8 @@ class NetworkPanel(
 
     private companion object {
         const val ORDER_KEY = "dta.network.order"
+        const val LIVE = "Live"
+        const val ARCHIVE = "Archive"
 
         /** [sample] is the widest content the column shows; null = flexible, takes what is left. */
         val COLUMNS = listOf(

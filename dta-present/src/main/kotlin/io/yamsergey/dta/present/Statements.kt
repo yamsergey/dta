@@ -92,6 +92,11 @@ object Statements {
     /** A `network.list` result as a whole: degradation, runs not searched, eviction. */
     fun forNetworkList(page: JsonObject): List<Statement> = buildList {
         addAll(markers(page["degraded"]))
+        (page["archived"] as? JsonObject)?.takeIf { it.isNotEmpty() }?.let { marks ->
+            val epochs = marks.values.mapNotNull { (it as? JsonObject)?.str("epoch") }.distinct().size
+            add(Statement(StatementKind.NOT_CAPTURED, word = "archived", detail = "archived history: ${marks.size} entries shown from $epochs epochs",
+                explanation = "These entries are from history the device no longer has; this computer kept it. Live traffic is not shown while you look at the archive."))
+        }
         val coverage = page.obj("coverage")
         coverage?.arr("notSearched")?.takeIf { it.isNotEmpty() }?.let { runs ->
             add(Statement(StatementKind.DEGRADED, detail = "not searched: ${runs.joinToString { it.content }}"))
@@ -100,7 +105,32 @@ object Statements {
             add(Statement(StatementKind.EVICTED, detail = "$it older entries evicted", code = "network-history-evicted",
                 explanation = "$it older entries were removed by the history size limit."))
         }
+        // The host's own coverage (feature 011): what it has not read or copied, and the archive.
+        coverage?.str("archivingStopped")?.let {
+            add(Statement(StatementKind.DEGRADED, detail = it, explanation = "$it. The live history still works; free space on this computer, or delete archived history (dta archive delete)."))
+        }
+        coverage?.long("bodiesNotArchived")?.takeIf { it > 0 }?.let {
+            add(Statement(StatementKind.DEGRADED, detail = "$it bodies not archived", explanation = "$it bodies left the device before this computer could copy them; their entries are kept without them."))
+        }
+        coverage?.long("hostLagRecords")?.takeIf { it > 0 }?.let {
+            add(Statement(StatementKind.PENDING, detail = "$it entries not read from the device yet", explanation = "This computer is still reading $it entries from the device; ask again for the rest."))
+        }
+        coverage?.long("bodiesPending")?.takeIf { it > 0 }?.let {
+            add(Statement(StatementKind.PENDING, detail = "$it bodies not copied to this computer yet", explanation = "$it bodies are still on the device only; they are copied in the background."))
+        }
+        coverage?.long("archivedEpochs")?.takeIf { it > 0 }?.let {
+            add(Statement(StatementKind.NOT_CAPTURED, word = "archived", detail = "$it archived epochs not shown (archive list; --archive all)",
+                explanation = "This computer keeps $it earlier histories of the app (cleared, reinstalled, older builds). List them with dta archive list; query them with --archive."))
+        }
     }.ordered()
+
+    /** An entry from the archive: why its history was archived, and the app version then. */
+    fun forArchived(mark: JsonObject): Statement {
+        val reason = mark.str("reason")?.replace('-', ' ') ?: "archived"
+        val version = mark.str("version")?.let { ", version $it" } ?: ""
+        return Statement(StatementKind.NOT_CAPTURED, word = "archived", detail = "archived: $reason$version",
+            explanation = "This entry is from history the device no longer has ($reason$version); this computer kept it.")
+    }
 
     /** A `network.body` result: decoding, completeness, binary, redaction, notes. */
     fun forBody(result: JsonObject): List<Statement> = buildList {

@@ -79,6 +79,28 @@ class StatementsTest {
     }
 
     @Test
+    fun `a list states what the host has not caught up with, and the archive beside it`() {
+        val page = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true,
+               "hostLagRecords":120,"bodiesPending":3,"bodiesNotArchived":2,"archivedEpochs":4,"archivingStopped":"archiving stopped: disk full"}}""",
+        ).jsonObject
+        val s = Statements.forNetworkList(page)
+        assertEquals(listOf(DEGRADED, DEGRADED, PENDING, PENDING, NOT_CAPTURED), s.kinds())
+        assertEquals("archiving stopped: disk full", s[0].detail)
+        assertEquals("2 bodies not archived", s[1].detail)
+        assertEquals("120 entries not read from the device yet", s[2].detail)
+        assertEquals("3 bodies not copied to this computer yet", s[3].detail)
+        assertEquals("4 archived epochs not shown (archive list; --archive all)", s[4].detail)
+    }
+
+    @Test
+    fun `an archived entry says so, with why its history was archived`() {
+        val mark = Statements.forArchived(kotlinx.serialization.json.Json.parseToJsonElement("""{"epoch":"e1","reason":"new-build","closedMs":5,"version":"1.4.0"}""").jsonObject)
+        assertEquals("archived", mark.word)
+        assertEquals("archived: new build, version 1.4.0", mark.detail)
+    }
+
+    @Test
     fun `bodies state decoding, binary, completeness and redaction`() {
         val decoded = Statements.forBody(canned("body-decoded"))
         assertEquals(listOf(REDACTED, DECODED), decoded.kinds())

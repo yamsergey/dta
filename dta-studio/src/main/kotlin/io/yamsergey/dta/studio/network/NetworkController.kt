@@ -31,6 +31,8 @@ data class NetworkViewState(
     /** Statements about the list as a whole: eviction, runs not searched, degradation. */
     val statements: List<Statement> = emptyList(),
     val redact: Boolean = false,
+    /** An archive scope (`all`, an epoch id…): the archived history instead of live traffic (feature 011). */
+    val archive: String? = null,
     val loading: Boolean = false,
     val watching: Boolean = false,
     val error: String? = null,
@@ -80,6 +82,12 @@ class NetworkController(private val context: ContextController, private val scop
         reload()
     }
 
+    /** Live traffic (null), or the archive the scope names: what the device no longer has (feature 011). */
+    fun setArchive(scope: String?) {
+        mutable.update { it.copy(archive = scope, list = LiveList(), statements = emptyList()) }
+        reload()
+    }
+
     /** Older entries above the loaded ones (`before` cursor). */
     fun loadOlder() {
         val s = mutable.value
@@ -118,6 +126,16 @@ class NetworkController(private val context: ContextController, private val scop
             )
         }
         val client = target.client ?: return
+        // The archive answers without the app running; it is a snapshot, not watched.
+        if (mutable.value.archive != null && target.device != null && target.app != null) {
+            source = scope.launch {
+                mutable.update { it.copy(loading = true) }
+                runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
+                    .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false) } }
+                    .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false) } }
+            }
+            return
+        }
         if (target.device == null || target.app == null || !target.hasDta) return
         source = scope.launch {
             mutable.update { it.copy(loading = true) }
@@ -152,7 +170,8 @@ class NetworkController(private val context: ContextController, private val scop
     private fun target(s: NetworkViewState) = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())
 
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
-        target(s) + s.filters.params(limit = PAGE, before = before) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()),
+        target(s) + s.filters.params(limit = PAGE, before = before) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+            (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
     )
 
     companion object {

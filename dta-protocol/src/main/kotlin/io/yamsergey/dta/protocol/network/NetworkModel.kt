@@ -390,6 +390,8 @@ data class NetworkEntryDetail(
     val messagesTruncated: Int? = null,
     val redaction: RedactionInfo? = null,
     val degraded: List<DegradationMarker>? = null,
+    /** Set when the entry comes from the archive (feature 011). */
+    val archived: ArchivedMark? = null,
 ) {
     companion object {
         const val MAX_MESSAGES = 1000
