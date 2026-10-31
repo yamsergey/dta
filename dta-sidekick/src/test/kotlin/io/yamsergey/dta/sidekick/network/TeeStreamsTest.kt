@@ -84,6 +84,15 @@ class TeeStreamsTest {
     }
 
     @Test
+    fun `closing without reading a byte says the app read none of the body`() {
+        val (rec, result) = recorder(MemorySink(), declared = 1256)
+        TeeInputStream(ByteArrayInputStream(data), rec).close()
+        val capture = result()!!
+        assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
+        assertEquals("the app read none of the body", capture.reason)
+    }
+
+    @Test
     fun `closing after every declared byte was read is complete`() {
         val (empty, emptyResult) = recorder(MemorySink(), declared = 0)
         TeeInputStream(ByteArrayInputStream(ByteArray(0)), empty).close()

@@ -76,7 +76,7 @@ class BodyRecorder(
             )
             !endOfStream && observed != declaredBytes -> BodyCapture(
                 stored, observed, Completeness.PARTIALLY_OBSERVED,
-                "app stopped reading after $observed bytes",
+                if (observed == 0L) "the app read none of the body" else "app stopped reading after $observed bytes",
             )
             else -> BodyCapture(stored, observed, Completeness.COMPLETE, null)
         }
