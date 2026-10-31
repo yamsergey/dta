@@ -56,17 +56,29 @@ class DtaDaemon(
     private val adbPath: String?,
     requestTimeout: Duration = 10.seconds,
     /** Daemon state on the developer's machine: protobuf schemas and mappings (feature 006). */
-    dataDir: java.io.File = java.io.File(System.getProperty("user.home"), ".dta"),
+    dataDir: java.io.File = defaultHome(),
     private val adbUnavailableReason: String? = null,
 ) {
     constructor(
         adb: AdbExec = AdbExec(),
         requestTimeout: Duration = 10.seconds,
-        dataDir: java.io.File = java.io.File(System.getProperty("user.home"), ".dta"),
+        dataDir: java.io.File = defaultHome(),
     ) : this({ args -> adb.run(*args.toTypedArray()) }, adb.binaryPath, requestTimeout, dataDir)
 
     private val schemas = SchemaRegistry(dataDir)
     private val injectedTooling = io.yamsergey.dta.daemon.inject.InjectedTooling(dataDir)
+
+    /** The host's network store (feature 011): opened on first use, one per daemon. */
+    private val hostStore by lazy { io.yamsergey.dta.daemon.store.HostStore(java.io.File(dataDir, "store")) }
+    private val deviceIdentities = io.yamsergey.dta.daemon.device.DeviceIdentities { serial -> runAdb(listOf("-s", serial, "shell", "getprop")) }
+    private val hostIndexes = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.network.HostIndex>()
+
+    private fun hostIndex(serial: String, pkg: String): io.yamsergey.dta.daemon.network.HostIndex =
+        hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
+            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg) {
+                connections.connect(key)
+            }
+        }
     private val forwards = PortForwards(runAdb)
 
     init {
@@ -204,7 +216,7 @@ class DtaDaemon(
         NetworkScriptService { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun networkService(serial: String, pkg: String) =
-        NetworkService(BodyDecoding(schemas.rules(pkg))) { connections.connect(ConnectionKey(serial, pkg)) }
+        NetworkService(BodyDecoding(schemas.rules(pkg)), hostIndex(serial, pkg)) { connections.connect(ConnectionKey(serial, pkg)) }
 
     private fun screenOf(serial: String): Screen {
         // wm size / density via adb, best-effort.
@@ -265,3 +277,7 @@ class DtaDaemon(
 
 /** adb could not be found or run; the message says where DTA looked and how to fix it. */
 class AdbUnavailableException(message: String) : Exception(message)
+
+/** `$DTA_HOME`, else `-Ddta.home`, else `~/.dta` — as the clients resolve it. */
+fun defaultHome(env: Map<String, String> = System.getenv(), property: String? = System.getProperty("dta.home")): java.io.File =
+    java.io.File(env["DTA_HOME"]?.takeIf { it.isNotBlank() } ?: property?.takeIf { it.isNotBlank() } ?: (System.getProperty("user.home") + "/.dta"))

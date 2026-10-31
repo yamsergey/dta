@@ -46,18 +46,20 @@ import kotlinx.serialization.json.put
  */
 class NetworkService(
     private val decoding: BodyDecoding = BodyDecoding.NONE,
+    /** The host's index of the app's history (feature 011); null asks the app itself. */
+    private val host: HostIndex? = null,
     private val connection: suspend () -> AppConnection,
 ) {
 
     suspend fun list(query: NetworkQuery = NetworkQuery()): NetworkPage {
-        val page = DtaJson.decodeFromJsonElement(NetworkPage.serializer(), connection().request("network_list", query.toJson()))
+        val page = host?.list(query) ?: DtaJson.decodeFromJsonElement(NetworkPage.serializer(), connection().request("network_list", query.toJson()))
         if (!query.redact) return page
         val (entries, info) = redactAll(page.entries)
         return page.copy(entries = entries, redaction = info, degraded = withheldMarker(page.degraded, info))
     }
 
     suspend fun entry(id: String, redact: Boolean = false): NetworkEntryDetail {
-        val detail = DtaJson.decodeFromJsonElement(
+        val detail = host?.entry(id) ?: DtaJson.decodeFromJsonElement(
             NetworkEntryDetail.serializer(),
             connection().request("network_entry", buildJsonObject { put("id", id) }),
         )
@@ -236,8 +238,9 @@ class NetworkService(
         else -> "$n B"
     }
 
+    /** Clears the app's history; the host keeps what it had as an archived epoch (feature 011). */
     suspend fun clear(): ClearResult =
-        DtaJson.decodeFromJsonElement(ClearResult.serializer(), connection().request("network_clear"))
+        DtaJson.decodeFromJsonElement(ClearResult.serializer(), connection().request("network_clear")).also { host?.cleared(it.clearedEntries) }
 
     /** Live `network.entry` events pushed by the sidekick; not replayed (use [list] for history). */
     fun events(): Flow<NetworkEntryEvent> = flow {

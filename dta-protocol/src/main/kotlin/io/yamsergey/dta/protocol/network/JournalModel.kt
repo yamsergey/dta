@@ -8,7 +8,14 @@ import kotlinx.serialization.Serializable
  * entries it holds; [persisted] false is the memory-only fallback, which answers queries itself.
  */
 @Serializable
-data class JournalIdentityResult(val journalId: String, val reason: String? = null, val entries: Int, val persisted: Boolean)
+data class JournalIdentityResult(
+    val journalId: String,
+    val reason: String? = null,
+    val entries: Int,
+    val persisted: Boolean,
+    /** What the host needs to answer queries as the app would (run, coverage, capture, script). */
+    val context: HistoryContext,
+)
 
 /** `network_journal`: records in write order after a cursor; [next] resumes; [end] when caught up. */
 @Serializable

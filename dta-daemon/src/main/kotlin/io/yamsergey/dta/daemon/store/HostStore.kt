@@ -207,6 +207,13 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
         deviceKey, packageName,
     ) { it.getInt(1) }.single()
 
+    /** The installation an epoch belongs to. */
+    @Synchronized
+    fun installationOf(epochId: String): InstallationInfo? = query(
+        "SELECT i.version_name, i.version_code, i.last_update_ms, i.signing_sha256, i.build_id FROM epoch e JOIN installation i ON e.installation_id=i.id WHERE e.id=?",
+        epochId,
+    ) { InstallationInfo(it.getString(1), it.getLongOrNull(2), it.getLongOrNull(3), it.getString(4), it.getString(5)) }.firstOrNull()
+
     /** The version of the installation an epoch belongs to. */
     @Synchronized
     fun versionOf(epochId: String): String? =
