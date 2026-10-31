@@ -139,7 +139,9 @@ object Statements {
         val decoding = result.obj("decoding")
         when (decoding?.str("outcome")) {
             "decoded" -> add(Statement(StatementKind.DECODED, detail = "decoded as ${decoding.str("format")}" +
-                (decoding.str("type")?.let { " $it" } ?: "") + (decoding.str("schema")?.let { " (schema $it)" } ?: "")))
+                (decoding.str("type")?.let { " $it" } ?: "") + (decoding.str("schema")?.let { " (schema $it)" } ?: "") +
+                // Feature 013: whose schema it was; an archived body is decoded with today's.
+                (decoding.str("origin")?.let { " · schemas from $it" } ?: "")))
             "decoded-with-warnings" -> add(Statement(StatementKind.DEGRADED,
                 detail = "decoded as ${decoding.str("type")} with warnings: ${decoding.arr("warnings").joinToString("; ") { it.content }}"))
             "not-decoded" -> add(Statement(StatementKind.DEGRADED, detail = "not decoded: ${decoding.str("reason")}"))

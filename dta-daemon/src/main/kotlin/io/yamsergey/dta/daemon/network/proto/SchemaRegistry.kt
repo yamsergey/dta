@@ -174,12 +174,16 @@ class SchemaRegistry(
     @Synchronized
     private fun selectUser(pkg: String, target: BodyTarget): Selection? {
         val state = state(pkg)
+        // Added by hand before derived from code (013 FR-009), then the most literal pattern, then the newest.
         val best = state.mappings.mappings
             .filter { matches(it, target) }
-            .maxWithOrNull(compareBy<BodyMapping>({ it.urlPattern.count { c -> c != '*' } }, { it.id.drop(1).toInt() }))
+            .maxWithOrNull(compareBy<BodyMapping>({ it.origin == null }, { it.urlPattern.count { c -> c != '*' } }, { it.id.drop(1).toInt() }))
             ?: return null
         val descriptor = state.sets[best.schema]?.types?.get(best.type)
-        return Selection(descriptor, "protobuf", best.schema, best.id, type = best.type, broken = brokenReason(state, best))
+        val origin = state.sets[best.schema]?.set?.origin?.let { o ->
+            "${o.kind.name.lowercase()}" + (o.path?.let { " $it" } ?: "") + ", synced " + java.time.Instant.ofEpochMilli(o.syncedMs)
+        }
+        return Selection(descriptor, "protobuf", best.schema, best.id, type = best.type, broken = brokenReason(state, best), origin = origin)
     }
 
     private fun matches(mapping: BodyMapping, target: BodyTarget): Boolean =

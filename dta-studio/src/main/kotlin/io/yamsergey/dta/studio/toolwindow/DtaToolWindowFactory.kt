@@ -33,7 +33,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         }
         val layoutPanel = LayoutPanel(project, service.layout, service.scope)
         val scriptPanel = ScriptPanel(project, controller, service.scope)
-        val schemasPanel = SchemasPanel(project, controller, service.scope)
+        val schemasPanel = SchemasPanel(project, controller, service.scope, service.schemaSync)
         tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
             addTab("Layout", layoutPanel)

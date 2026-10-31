@@ -44,7 +44,7 @@ class BodyDecoding(private val rules: List<DecodingRule>) {
                 null,
                 DecodingInfo(
                     DecodingOutcome.NOT_DECODED, format = selection.format, schema = selection.schema,
-                    type = selection.type, rule = selection.rule, reason = "${info.encoding} encoding not decoded",
+                    type = selection.type, rule = selection.rule, reason = "${info.encoding} encoding not decoded", origin = selection.origin,
                 ),
             )
         }

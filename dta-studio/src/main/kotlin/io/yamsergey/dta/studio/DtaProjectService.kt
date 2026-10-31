@@ -12,6 +12,8 @@ class DtaProjectService(private val project: Project, scope: CoroutineScope) : D
     val injection = io.yamsergey.dta.studio.inject.InjectionWatcher(project, context, scope, this)
     val network = io.yamsergey.dta.studio.network.NetworkController(context, scope)
     val layout = io.yamsergey.dta.studio.layout.LayoutController(context, scope)
+    /** The app's protobuf schemas and mappings from this project (feature 013). */
+    val schemaSync = io.yamsergey.dta.studio.schemas.SchemaSync(project, context, scope, this)
     val scope: CoroutineScope = scope
 
     init {

@@ -22,6 +22,8 @@ data class Selection(
     val rule: String,
     val type: String = descriptor?.fullName ?: "",
     val broken: String? = null,
+    /** Where the schema came from when a client synced it (feature 013): "project /path, synced …". */
+    val origin: String? = null,
     val enumsAsInts: Boolean = false,
     /**
      * Format-specific rewriting of the proto3 JSON plus plausibility warnings (OTLP). Not
@@ -43,7 +45,7 @@ object ProtoDecoder {
     fun decode(bytes: ByteArray, completeness: Completeness, selection: Selection): Decoded {
         fun info(outcome: DecodingOutcome, warnings: List<String> = emptyList(), reason: String? = null) = DecodingInfo(
             outcome, format = selection.format, schema = selection.schema, type = selection.type,
-            rule = selection.rule, warnings = warnings, reason = reason,
+            rule = selection.rule, warnings = warnings, reason = reason, origin = selection.origin,
         )
         val descriptor = selection.descriptor
             ?: return Decoded(null, info(DecodingOutcome.NOT_DECODED, reason = selection.broken ?: "no message type"))

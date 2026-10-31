@@ -30,7 +30,11 @@ class McpTools(
     private val tempDir: File = File(System.getProperty("java.io.tmpdir")),
     /** Set when the daemon cannot be used at all (version conflict, old Java): every call answers it. */
     private val unusable: () -> String? = { null },
+    /** The project folder whose .proto files a binary body may need (the stdio server's working folder, feature 013). */
+    private val schemaFolder: java.io.File? = null,
 ) {
+    @Volatile
+    private var schemasSynced = false
     val tools: List<OperationSpec> = Catalog.agentTools
 
     fun byTool(name: String): OperationSpec? = tools.firstOrNull { it.toolName == name }
@@ -49,9 +53,34 @@ class McpTools(
             }
             ToolOutcome(text, isError = false)
         } catch (e: DaemonCallException) {
-            ToolOutcome(errorText(spec, e), isError = true)
+            ToolOutcome(errorText(spec, e) + (autoSync(spec, arguments, e)?.let { "\n$it" } ?: ""), isError = true)
         } catch (e: DaemonGoneException) {
             ToolOutcome("${e.reason}. Call the tool again to reconnect.", isError = true)
+        }
+    }
+
+    /**
+     * A binary body without a schema: the project's .proto files are synced once per session
+     * (research R5), and the answer says which message types still need a mapping from the code.
+     */
+    private suspend fun autoSync(spec: OperationSpec, arguments: JsonObject, e: DaemonCallException): String? {
+        val folder = schemaFolder ?: return null
+        if (spec.name != "network.body" || schemasSynced || "protobuf schema" !in (e.message ?: "")) return null
+        schemasSynced = true
+        val params = buildJsonObject {
+            put("folder", folder.path)
+            arguments["device"]?.let { put("device", it) }
+            arguments["app"]?.let { put("app", it) }
+        }
+        return try {
+            val result = call("network.schema.sync", params).result.jsonObject
+            val set = result["set"] as? JsonObject ?: return "Looked for .proto files in ${folder.path}: none compiled."
+            val types = (result["unmappedTypes"] as? JsonArray)?.joinToString(", ") { (it as JsonPrimitive).content }.orEmpty()
+            "DTA synced the .proto files of ${folder.path} as schema set '${(set["name"] as JsonPrimitive).content}'. " +
+                "Find the endpoint that sends or returns this body in the code and map it with network_mapping_add" +
+                (if (types.isNotEmpty()) " (message types: $types)" else "") + ", then fetch the body again."
+        } catch (sync: DaemonCallException) {
+            "Looked for .proto files in ${folder.path}: ${sync.message}"
         }
     }
 

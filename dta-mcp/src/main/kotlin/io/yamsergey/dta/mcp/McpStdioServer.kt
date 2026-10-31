@@ -46,6 +46,7 @@ object McpStdioServer {
             call = connection::call,
             bound = ResultBound.fromEnv(),
             unusable = { unusable ?: connection.fatal },
+            schemaFolder = File(System.getProperty("user.dir")),
         )
         val mapper = JacksonMcpJsonMapper(JsonMapper.builder().build())
 

@@ -22,6 +22,11 @@ data class DecodingInfo(
     val warnings: List<String> = emptyList(),
     /** Why the body was not decoded. */
     val reason: String? = null,
+    /**
+     * Where the schema came from when a client synced it (feature 013), e.g. "project /work/shop,
+     * synced 2026-10-31T10:00:00Z": an archived body is decoded with these current schemas.
+     */
+    val origin: String? = null,
 )
 
 @Serializable

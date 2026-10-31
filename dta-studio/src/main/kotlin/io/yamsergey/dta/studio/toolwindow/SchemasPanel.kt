@@ -44,7 +44,10 @@ class SchemasPanel(
     private val project: Project,
     private val controller: ContextController,
     private val scope: CoroutineScope,
+    /** Schemas and mappings from the project (feature 013). */
+    private val sync: io.yamsergey.dta.studio.schemas.SchemaSync? = null,
 ) : JPanel(BorderLayout()) {
+    private val syncPanel = JPanel(BorderLayout())
     private val body = JPanel(BorderLayout())
     private val problem = JBLabel().apply { foreground = DtaColors.of("status-server"); setCopyable(true) }
     private var target: JsonObject? = null
@@ -54,13 +57,51 @@ class SchemasPanel(
         val addSet = JButton("Add .proto Files…").apply { addActionListener { addSet() } }
         val addMapping = JButton("Add Mapping…").apply { addActionListener { addMapping() } }
         val refresh = JButton("Refresh").apply { addActionListener { refresh() } }
+        val syncNow = JButton("Sync from Project").apply {
+            toolTipText = "Take the .proto files of the project and its dependencies, and mappings from its Retrofit declarations."
+            addActionListener { sync?.syncNow() }
+            isVisible = sync != null
+        }
         val top = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(8, 12)
-            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(addSet); add(addMapping); add(refresh) }, BorderLayout.NORTH)
+            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(syncNow); add(addSet); add(addMapping); add(refresh) }, BorderLayout.NORTH)
+            add(syncPanel, BorderLayout.CENTER)
             add(problem, BorderLayout.SOUTH)
         }
         add(top, BorderLayout.NORTH)
         add(JBScrollPane(body), BorderLayout.CENTER)
+        sync?.let { s ->
+            scope.launch {
+                s.state.collect { state -> withContext(Dispatchers.Main) { showSync(state); if (!state.running) refresh() } }
+            }
+        }
+    }
+
+    /** What the last sync from the project did: failures, notes, what nothing maps yet (013). */
+    private fun showSync(state: io.yamsergey.dta.studio.schemas.SchemaSyncState) {
+        syncPanel.removeAll()
+        val lines = buildList {
+            if (state.running) add(JBLabel("Syncing schemas from the project…").apply { foreground = JBColor.GRAY })
+            state.error?.let { add(JBLabel("Sync failed: $it").apply { foreground = DtaColors.of("status-server") }) }
+            val result = state.result
+            (result?.get("failed") as? JsonArray)?.forEach { f ->
+                val o = f as JsonObject
+                add(row(StatementMark(io.yamsergey.dta.present.Statement(io.yamsergey.dta.present.StatementKind.DEGRADED, detail = "not compiled")),
+                    JBLabel("${(o["file"] as? JsonPrimitive)?.content}: ${(o["reason"] as? JsonPrimitive)?.content}")))
+            }
+            (result?.get("notes") as? JsonArray)?.forEach { add(JBLabel((it as JsonPrimitive).content).apply { foreground = JBColor.GRAY }) }
+            (result?.get("rejectedMappings") as? JsonArray)?.forEach { add(JBLabel("Not mapped: ${(it as JsonPrimitive).content}").apply { foreground = JBColor.GRAY }) }
+            state.unmappedEndpoints.forEach { add(JBLabel("Not mapped: $it").apply { foreground = JBColor.GRAY }) }
+            (result?.get("unmappedTypes") as? JsonArray)?.takeIf { it.isNotEmpty() }?.let { types ->
+                add(JBLabel("No mapping yet for: ${types.joinToString(", ") { (it as JsonPrimitive).content }}. Add one, or let an agent map them from the code.").apply { foreground = JBColor.GRAY })
+            }
+        }
+        if (lines.isNotEmpty()) syncPanel.add(JPanel().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+            lines.forEach { add(it) }
+        }, BorderLayout.NORTH)
+        syncPanel.revalidate()
+        syncPanel.repaint()
     }
 
     fun show(state: ContextState) {
@@ -101,6 +142,7 @@ class SchemasPanel(
                     add(JBLabel(m.text))
                     m.broken?.let { add(StatementMark(it)); add(JBLabel(it.detail).apply { foreground = JBColor.GRAY }) }
                     if (m.builtin) add(JBLabel("built-in").apply { foreground = JBColor.GRAY })
+                    m.location?.let { location -> add(ActionLink(location) { openLocation(location) }) }
                     if (m.removable) add(ActionLink("Remove") { call("network.mapping.remove", "id" to JsonPrimitive(m.id)) })
                 }
                 form.addComponent(row(*parts.toTypedArray()))
@@ -160,6 +202,14 @@ class SchemasPanel(
             (direction.selectedItem as String).takeIf { it != "any" && part.selectedItem == "message" }?.let { add("direction" to JsonPrimitive(it)) }
         }
         call("network.mapping.add", *params.toTypedArray())
+    }
+
+    /** Jumps to `File.kt:12` of a derived mapping. */
+    private fun openLocation(location: String) {
+        val name = location.substringBefore(':')
+        val line = location.substringAfter(':').toIntOrNull()?.minus(1) ?: 0
+        val file = com.intellij.psi.search.FilenameIndex.getVirtualFilesByName(name, com.intellij.psi.search.GlobalSearchScope.projectScope(project)).firstOrNull() ?: return
+        com.intellij.openapi.fileEditor.OpenFileDescriptor(project, file, line, 0).navigate(true)
     }
 
     private fun problem(message: String?) {

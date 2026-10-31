@@ -82,4 +82,19 @@ class SchemaSyncTest {
         assertEquals(OriginKind.PROJECT, again.schemas("io.example").single().origin!!.kind)
         assertEquals("CartApi.kt:12", again.mappings("io.example").single { !it.builtin }.location)
     }
+
+    @Test
+    fun `a mapping added by hand wins over a derived one, and a decoding names its origin`() {
+        registry.sync("io.example", shop, cart, listOf(DerivedMapping(BodyMappingSpec("*/cart", MappingPart.RESPONSE, "", "shop.v1.CartState", method = "GET"), "CartApi.kt:12")))
+        val target = BodyTarget("https://api/cart", "GET", MappingPart.RESPONSE, null, "application/x-protobuf")
+        val derived = registry.rules("io.example").first().select(target)!!
+        assertEquals("shop.v1.CartState", derived.type)
+        assertTrue(derived.origin!!.startsWith("project /work/shop, synced "), derived.origin)
+
+        registry.addSchema("io.example", "manual", SchemaInput.ProtoSources(cart))
+        registry.addMapping("io.example", BodyMappingSpec("*/cart", MappingPart.RESPONSE, "manual", "shop.v1.Item"))
+        val chosen = registry.rules("io.example").first().select(target)!!
+        assertEquals("shop.v1.Item", chosen.type, "less specific (no method), but added by hand")
+        assertEquals(null, chosen.origin)
+    }
 }

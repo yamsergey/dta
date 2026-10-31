@@ -61,4 +61,22 @@ class SchemasViewTest {
         val view = SchemasView.from(array("[]"), array("[]"))
         assertEquals("No schema sets. Add .proto files from the project.", view.empty)
     }
+
+    @Test
+    fun `a synced set says where it came from, a derived mapping where in the code`() {
+        val sets = kotlinx.serialization.json.Json.parseToJsonElement(
+            """[{"name":"project-ab","source":"proto-sources","files":["a.proto","b.proto"],"types":["shop.v1.Cart"],"addedAtMs":1,
+                "origin":{"kind":"project","path":"/work/shop","client":"ide","syncedMs":0}}]""",
+        ) as kotlinx.serialization.json.JsonArray
+        val mappings = kotlinx.serialization.json.Json.parseToJsonElement(
+            """[{"id":"m1","urlPattern":"*/cart","part":"response","schema":"project-ab","type":"shop.v1.Cart","method":"GET",
+                "origin":{"kind":"project","path":"/work/shop"},"location":"CartApi.kt:12"},
+               {"id":"m2","urlPattern":"*/x","part":"request","schema":"project-ab","type":"shop.v1.Cart"}]""",
+        ) as kotlinx.serialization.json.JsonArray
+        val view = SchemasView.from(sets, mappings, java.time.ZoneOffset.UTC)
+        assertEquals(".proto sources · 2 files · from project /work/shop · synced 00:00:00", view.sets.single().detail)
+        assertEquals("CartApi.kt:12", view.mappings.first().location)
+        assertTrue(view.mappings.first().text.endsWith("· from code"), view.mappings.first().text)
+        assertEquals(null, view.mappings[1].location)
+    }
 }
