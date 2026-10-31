@@ -57,9 +57,9 @@ class CliTest {
     // --- Command tree (T025)
 
     @Test
-    fun `one leaf per catalog operation, plus mcp`() {
+    fun `one leaf per catalog operation, plus the host-local mcp and run`() {
         val cli = Cli(runner = { _, _, _ -> 0 }, mcp = { 0 })
-        assertEquals((Catalog.all.map { it.cliPath } + listOf(listOf("mcp"))).toSet(), cli.leafPaths().toSet())
+        assertEquals((Catalog.all.map { it.cliPath } + listOf(listOf("mcp"), listOf("run"))).toSet(), cli.leafPaths().toSet())
         assertTrue(listOf("--url", "--status", "--kinds", "--since-ms", "--redact") .all { it in cli.parameterNames(listOf("network", "list")) })
         assertTrue("ID" in cli.parameterNames(listOf("network", "entry")))
     }

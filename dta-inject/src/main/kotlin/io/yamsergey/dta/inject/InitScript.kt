@@ -58,6 +58,14 @@ import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 def dtaCoordinate = '${config.coordinate}'
 def dtaToolingOn = gradle.startParameter.projectProperties['${config.toolingProperty}'] != 'false'
 def dtaRunRequest = gradle.startParameter.projectProperties['${config.runProperty}']
+def dtaRunData = null
+try {
+    if (dtaRunRequest) dtaRunData = new groovy.json.JsonSlurper().parse(new File(dtaRunRequest))
+} catch (Throwable t) {
+    gradle.rootProject { it.logger.warn('[DTA] could not read the run request ' + dtaRunRequest + ': ' + t) }
+}
+// `dta run --no-inject`: select and build, but add nothing.
+def dtaSidekickOn = dtaRunData == null || dtaRunData.inject != false
 def dtaOutcomes = new java.util.concurrent.ConcurrentHashMap<String, Map>()
 def dtaVariants = new java.util.concurrent.ConcurrentHashMap<String, List>()
 
@@ -89,7 +97,7 @@ allprojects { project ->
         }
         project.afterEvaluate {
             try {
-                dtaOutcomes[project.path] = dtaInject(project, dtaCoordinate, dtaToolingOn, found)
+                dtaOutcomes[project.path] = dtaInject(project, dtaCoordinate, dtaSidekickOn, dtaToolingOn, found)
             } catch (Throwable t) {
                 dtaOutcomes[project.path] = [outcome: 'unsupported', reason: t.toString()]
             }
@@ -108,10 +116,7 @@ gradle.projectsEvaluated {
             [path: p, outcome: o.outcome, reason: o.reason, tooling: o.tooling, variants: variants]
         }.sort { it.path }
         def run = null
-        if (dtaRunRequest) {
-            def request = new groovy.json.JsonSlurper().parse(new File(dtaRunRequest))
-            run = dtaSelect(request, projects.collectEntries { [(it.path): it.variants] })
-        }
+        if (dtaRunRequest) run = dtaSelect(dtaRunData ?: [:], projects.collectEntries { [(it.path): it.variants] })
         def text = groovy.json.JsonOutput.toJson([version: '@VERSION@', projects: projects, run: run])
         def path = gradle.startParameter.projectProperties['${config.reportProperty}']
         if (path) {
@@ -121,10 +126,19 @@ gradle.projectsEvaluated {
         }
         if (dtaRunRequest) {
             def task = run.outcome == 'selected' ? run.task : null
+            def tasks = task ? [task] : []
+            if (task && dtaRunData?.reinstall == true && dtaRunData?.buildOnly != true) {
+                // `--reinstall`: uninstall (deleting the app's data) only once the app is built.
+                def module = gradle.rootProject.project(run.module)
+                def name = run.variant.substring(0, 1).toUpperCase() + run.variant.substring(1)
+                module.tasks.named('uninstall' + name).configure { it.mustRunAfter('package' + name, 'assemble' + name) }
+                module.tasks.named('install' + name).configure { it.mustRunAfter('uninstall' + name) }
+                tasks = [task.replace(':install' + name, ':uninstall' + name), task]
+            }
             gradle.rootProject.tasks.register('dtaRun') { t ->
                 t.group = 'dta'
                 t.description = 'Builds or installs the variant DTA selected (dta run).'
-                if (task) t.dependsOn(task)
+                if (tasks) t.dependsOn(tasks)
                 // Written again at execution: a reused configuration cache skips this block.
                 t.doLast {
                     if (path) {
@@ -140,7 +154,7 @@ gradle.projectsEvaluated {
     }
 }
 
-def dtaInject(Project project, String coordinate, boolean toolingOn, List variants) {
+def dtaInject(Project project, String coordinate, boolean sidekickOn, boolean toolingOn, List variants) {
     def android = project.extensions.getByName('android')
     def types = android.buildTypes.matching { it.debuggable }.collect { it }
     def result = [debuggable: android.buildTypes.collectEntries { [(it.name): it.debuggable == true] }]
@@ -152,6 +166,8 @@ def dtaInject(Project project, String coordinate, boolean toolingOn, List varian
     }
     if (declared) {
         result += [outcome: 'project-provided', reason: null]
+    } else if (!sidekickOn) {
+        result += [outcome: 'off', reason: null]
     } else {$snapshotProjectSetup
         // Resolve first, as the debug runtime would: an unresolvable sidekick must not fail the build.
         def probe = project.configurations.detachedConfiguration(project.dependencies.create(coordinate))

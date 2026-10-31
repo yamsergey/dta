@@ -13,6 +13,7 @@ import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.arguments.optional
+import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
@@ -26,6 +27,8 @@ import io.yamsergey.dta.client.VersionInfo
 import io.yamsergey.dta.protocol.ops.Catalog
 import io.yamsergey.dta.protocol.ops.OperationSpec
 import io.yamsergey.dta.protocol.ops.ParamType
+import io.yamsergey.dta.run.RunMode
+import io.yamsergey.dta.run.RunRequest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -33,6 +36,10 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.io.PrintStream
 import kotlin.properties.ReadOnlyProperty
+import kotlin.time.Duration.Companion.seconds
+
+/** `dta run` as parsed: the request plus how to show it (feature 010, contracts/run.md). */
+data class RunInvocation(val request: RunRequest, val globals: Globals, val watch: Boolean, val verbose: Boolean)
 
 /** Options every command shares (`dta -d … -a … --json network list`). */
 class Globals {
@@ -49,6 +56,8 @@ class Globals {
 class Cli(
     private val runner: (OperationSpec, JsonObject, Globals) -> Int,
     private val mcp: () -> Int,
+    /** `dta run`, a host-local command beside the catalog (010 research R7). */
+    private val run: (RunInvocation) -> Int = { ExitCodes.USAGE },
     private val out: PrintStream = System.out,
     private val err: PrintStream = System.err,
     private val cwd: File = File(System.getProperty("user.dir")),
@@ -108,7 +117,7 @@ class Cli(
             groups.getValue(path.dropLast(1)).subcommands(leaf)
             groups[path] = leaf
         }
-        root.subcommands(McpCommand())
+        root.subcommands(McpCommand(), RunCommand())
         return root
     }
 
@@ -154,6 +163,50 @@ class Cli(
         override fun help(context: Context) = "Serve DTA to an agent over MCP (stdio)"
         override fun run() {
             (currentContext.findRoot().command as Root).exit = mcp()
+        }
+    }
+
+    private inner class RunCommand : CoreCliktCommand(name = "run") {
+        private val globals by requireObject<Globals>()
+        private val project by option("--project", help = "The Android project's root (the folder with gradlew); default the working folder")
+        private val module by option("--module", help = "The app module's Gradle path, e.g. :app; needed when there are several")
+        private val variant by option("--variant", help = "A debuggable variant, e.g. freeDebug; default debug")
+        private val activity by option("--activity", help = "The activity to start; a leading . is relative to the application id; default the launcher activity")
+        private val buildOnly by option("--build-only", help = "Only build, with DTA injected: no device, no install, no launch").flag()
+        private val noLaunch by option("--no-launch", help = "Install, but do not launch").flag()
+        private val noInject by option("--no-inject", help = "Build the project as it is, without adding DTA").flag()
+        private val noTooling by option("--no-tooling", help = "Do not add Compose's tooling data library").flag()
+        private val reinstall by option("--reinstall", help = "Uninstall the app first; this deletes its data").flag()
+        private val timeout by option("--timeout", help = "Seconds to wait for DTA to connect (default 30)").int().default(30)
+        private val watch by option("--watch", help = "After DTA connects, show the network traffic live until interrupted").flag()
+        private val verbose by option("--verbose", help = "Show Gradle's output").flag()
+        private val gradleArgs by argument("GRADLE_ARGS", help = "Arguments for Gradle, after --").multiple()
+
+        override fun help(context: Context) =
+            "Build, install and launch the app with DTA, then wait until DTA is connected. Run it in the Android project's root; nothing in the project is changed."
+
+        override fun run() {
+            if (buildOnly && (noLaunch || reinstall || watch)) throw UsageError("--build-only cannot be combined with --no-launch, --reinstall or --watch")
+            if (noLaunch && watch) throw UsageError("--watch needs the app launched; drop --no-launch")
+            if (timeout <= 0) throw UsageError("--timeout must be a positive number of seconds")
+            val request = RunRequest(
+                project = project?.let { File(it).let { f -> if (f.isAbsolute) f else File(cwd, it) }.normalize() } ?: cwd,
+                module = module,
+                variant = variant,
+                activity = activity,
+                device = globals.device,
+                mode = when {
+                    buildOnly -> RunMode.BUILD_ONLY
+                    noLaunch -> RunMode.NO_LAUNCH
+                    else -> RunMode.RUN
+                },
+                inject = !noInject,
+                tooling = !noTooling,
+                reinstall = reinstall,
+                timeout = timeout.seconds,
+                gradleArgs = gradleArgs,
+            )
+            (currentContext.findRoot().command as Root).exit = this@Cli.run(RunInvocation(request, globals, watch, verbose))
         }
     }
 

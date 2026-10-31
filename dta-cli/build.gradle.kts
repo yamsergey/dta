@@ -26,6 +26,7 @@ dependencies {
     implementation(project(":dta-daemon"))
     implementation(project(":dta-mcp"))
     implementation(project(":dta-present"))
+    implementation(project(":dta-run"))
     implementation(libs.clikt)
 
     testImplementation(testFixtures(project(":dta-mcp")))

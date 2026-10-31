@@ -16,6 +16,8 @@ enum class InjectionOutcome {
     @SerialName("unresolved") UNRESOLVED,
     /** The script could not handle this project; nothing added, the build went on. */
     @SerialName("unsupported") UNSUPPORTED,
+    /** Injection was turned off for this build (`dta run --no-inject`); nothing added. */
+    @SerialName("off") OFF,
 }
 
 /** What injection did about Compose's tooling data library for one app project (injection v2). */
