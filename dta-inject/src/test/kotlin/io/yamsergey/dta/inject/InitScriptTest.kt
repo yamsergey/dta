@@ -25,6 +25,13 @@ class InitScriptTest {
     }
 
     @Test
+    fun `a snapshot adds project-level repositories only to a project that declares its own`() {
+        // In PREFER_PROJECT mode a project that declares any repository ignores the settings'
+        // ones: adding ours to a project with none would hide google() and mavenCentral() from it.
+        assertTrue("if (needed && !project.repositories.isEmpty())" in snapshot, snapshot)
+    }
+
+    @Test
     fun `the plugin's own version names the coordinate - an EAP build's run number is dropped`() {
         assertEquals("0.10.0-SNAPSHOT", InjectionConfig.forRelease("0.10.0-SNAPSHOT.42").version)
         assertEquals("0.10.0", InjectionConfig.forRelease("0.10.0").version)

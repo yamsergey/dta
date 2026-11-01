@@ -28,7 +28,9 @@ object InitScript {
         val snapshotFunctions = if (config.snapshot) """
 
 // Projects in the default PREFER_PROJECT mode ignore settings repositories once they declare
-// their own; FAIL_ON_PROJECT_REPOS and PREFER_SETTINGS take the settings-level ones above.
+// their own, so those get ours too; a project that declares none uses the settings ones (ours
+// among them) — adding a repository to it would hide google() and mavenCentral() from it.
+// FAIL_ON_PROJECT_REPOS and PREFER_SETTINGS take the settings-level ones above.
 def dtaSnapshotRepositories(Project project) {
     def needed = true
     try {
@@ -38,7 +40,7 @@ def dtaSnapshotRepositories(Project project) {
     } catch (Throwable ignored) {
         // Gradle without repositoriesMode: projects may declare repositories.
     }
-    if (needed) {
+    if (needed && !project.repositories.isEmpty()) {
         project.repositories.maven { url = '$SNAPSHOT_REPOSITORY' }
         project.repositories.mavenLocal()
     }
