@@ -36,6 +36,12 @@ class InputRecorder(
             hook("OnBackPressedDispatcher#onBackPressed", Hooks.entry(dispatcher, "onBackPressed", "()V", EntryHandler { _, _ -> guard { back("dispatcher") } }))
             hook("OnBackPressedDispatcher#onBackPressed exit", Hooks.exit(dispatcher, "onBackPressed", "()V", ExitHandler { r -> guard { closeBack() }; r }))
         }
+        // AndroidX activity 1.12+ hands back to the navigationevent library, not always to onBackPressed.
+        val input = runCatching { Class.forName(NAVIGATION_EVENT_INPUT, false, loader) }.getOrNull()
+        if (input != null) {
+            hook("NavigationEventInput#dispatchOnBackCompleted", Hooks.entry(input, "dispatchOnBackCompleted", "()V", EntryHandler { _, _ -> guard { back("navigation-event") } }))
+            hook("NavigationEventInput#dispatchOnBackCompleted exit", Hooks.exit(input, "dispatchOnBackCompleted", "()V", ExitHandler { r -> guard { closeBack() }; r }))
+        }
         hook("Activity#onBackPressed", Hooks.entry(Activity::class.java, "onBackPressed", "()V", EntryHandler { _, _ -> guard { back("activity") } }))
         hook("Activity#onBackPressed exit", Hooks.exit(Activity::class.java, "onBackPressed", "()V", ExitHandler { r -> guard { closeBack() }; r }))
     }
@@ -99,6 +105,7 @@ class InputRecorder(
 
     private companion object {
         const val DISPATCHER = "androidx.activity.OnBackPressedDispatcher"
+        const val NAVIGATION_EVENT_INPUT = "androidx.navigationevent.NavigationEventInput"
         const val DETAIL = "clicks on Views and back; work moved to another thread is not linked exactly unless the app declares it"
     }
 }

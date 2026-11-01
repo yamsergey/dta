@@ -49,7 +49,19 @@ object TimelineSources {
             val reason = HookAttach.reason ?: "hooks not attached"
             TimelineRuntime.register(Sources.INPUT) { SourceStatus(Sources.INPUT, SourceState.OFF, "hooks unavailable: $reason") }
             TimelineRuntime.register(Sources.APP) { SourceStatus(Sources.APP, SourceState.OFF, "hooks unavailable: $reason") }
+            TimelineRuntime.register(Sources.NAV) { SourceStatus(Sources.NAV, SourceState.OFF, "hooks unavailable: $reason") }
             return
+        }
+        try {
+            val events = io.yamsergey.dta.sidekick.nav.NavigationEvents(
+                buffer, TimelineRuntime.facets, android.os.SystemClock::uptimeMillis, System::currentTimeMillis, scope::current,
+            )
+            val nav = io.yamsergey.dta.sidekick.nav.NavigationAdapters(events)
+            nav.install(context.classLoader)
+            TimelineRuntime.register(Sources.NAV, nav::status)
+        } catch (t: Throwable) {
+            Log.w(TAG, "navigation not read: $t")
+            TimelineRuntime.register(Sources.NAV) { SourceStatus(Sources.NAV, SourceState.OFF, "${t.javaClass.simpleName}: ${t.message}") }
         }
         try {
             val bridge = AppStateBridge(buffer, TimelineRuntime.facets, scope)
