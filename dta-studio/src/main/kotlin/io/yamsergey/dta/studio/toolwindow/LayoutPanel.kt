@@ -84,7 +84,19 @@ class LayoutPanel(
         onAncestor = { depth -> last.selected?.let { controller.select(it.take(depth)) } },
         openSource = { source, anchor, onMissing -> navigator.open(source, last.app, anchor, onMissing) },
     )
-    private val splitter = JBSplitter(false, 0.55f)
+    private val splitter = JBSplitter(false, 0.45f)
+    /** Feature 014: the picture beside the tree, between the tree and the detail. */
+    private val screen = io.yamsergey.dta.studio.layout.ScreenPane(controller)
+    private val screenCaption = JBLabel("").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8) }
+    private val screenToggle = JBCheckBox("Screen", true)
+    private val screenPanel = JPanel(BorderLayout()).apply {
+        add(screen, BorderLayout.CENTER)
+        add(JPanel(BorderLayout()).apply {
+            add(screenCaption, BorderLayout.CENTER)
+            add(ActionLink("Next under pointer (N)") { controller.nextUnderPointer() }, BorderLayout.EAST)
+        }, BorderLayout.SOUTH)
+    }
+    private val inner = JBSplitter(false, 0.5f)
     private var last = LayoutViewState()
     private var updating = false
 
@@ -98,6 +110,7 @@ class LayoutPanel(
             add(ActionLink("↓") { controller.nextMatch() })
             add(position)
             add(hide)
+            add(screenToggle)
         }
         val master = JPanel(BorderLayout()).apply {
             add(JPanel(BorderLayout()).apply {
@@ -109,7 +122,9 @@ class LayoutPanel(
             add(status, BorderLayout.SOUTH)
         }
         splitter.firstComponent = master
-        splitter.secondComponent = detail
+        inner.firstComponent = screenPanel
+        inner.secondComponent = detail
+        splitter.secondComponent = inner
         add(splitter, BorderLayout.CENTER)
         addComponentListener(object : ComponentAdapter() {
             override fun componentResized(e: ComponentEvent?) { splitter.orientation = width < JBUI.scale(900) }
@@ -131,6 +146,8 @@ class LayoutPanel(
             }
         })
         hide.addActionListener { controller.setHideNonMatching(hide.isSelected) }
+        screenToggle.addActionListener { controller.setScreenShown(screenToggle.isSelected) }
+        Keyboard.bind(this, ViewKey.NEXT_UNDER_POINTER) { controller.nextUnderPointer() }
         tree.addTreeSelectionListener {
             if (updating) return@addTreeSelectionListener
             controller.select(((tree.lastSelectedPathComponent as? DefaultMutableTreeNode)?.userObject as? TreeNode)?.path)
@@ -167,6 +184,10 @@ class LayoutPanel(
             if (detailLevel.selectedItem != s.detail) detailLevel.selectedItem = s.detail
             if (s.search == null && search.text.isNotEmpty() && previous.search != null) search.text = ""
             hide.isSelected = s.hideNonMatching
+            screenToggle.isSelected = s.screenShown
+            if (screenPanel.isVisible != s.screenShown) { screenPanel.isVisible = s.screenShown; inner.revalidate() }
+            screen.show(s)
+            screenCaption.text = screen.caption(s)
             position.text = s.search?.position(s.selected) ?: ""
             status.text = when {
                 s.device == null -> "Choose a device to see its screen."

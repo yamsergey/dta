@@ -110,4 +110,88 @@ class LayoutControllerTest {
         layout.search("")
         assertNull(await { it.search == null }.search)
     }
+
+    // --- Feature 014: the screen beside the tree
+
+    private fun withScreen(capture: LayoutCapture, vararg foreign: io.yamsergey.dta.protocol.layout.ScreenWindow) = capture.copy(
+        screenImage = io.yamsergey.dta.protocol.layout.ScreenImage(
+            io.yamsergey.dta.protocol.layout.ScreenImageState.PRESENT, widthPx = 1080, heightPx = 2400,
+            alignment = io.yamsergey.dta.protocol.layout.Alignment(io.yamsergey.dta.protocol.layout.AlignmentKind.ALIGNED), data = "iVBORw0KGgo=",
+        ),
+        screenWindows = foreign.toList() + io.yamsergey.dta.protocol.layout.ScreenWindow(
+            "pkg/.Main", "com.example.shop", true, io.yamsergey.dta.protocol.layout.ScreenWindowKind.ACTIVITY, "BASE_APPLICATION",
+            Rect(0, 0, 1080, 2400), zOrder = foreign.size, treeWindow = 0,
+        ),
+    )
+
+    private fun placed(id: Long, text: String, b: Rect) = ViewNode(id, b, "android.widget.Button", text = text)
+
+    private val toast = io.yamsergey.dta.protocol.layout.ScreenWindow(
+        "Toast", "com.android.systemui", false, io.yamsergey.dta.protocol.layout.ScreenWindowKind.TOAST, "TOAST", Rect(300, 2000, 780, 2150), zOrder = 0,
+    )
+
+    @Test
+    fun `the screen is taken while the screen pane is shown, and the selection is outlined on it`() = runBlocking<Unit> {
+        daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))))
+        session.start()
+        layout.setActive(true)
+        await { it.tree?.screen != null }
+        assertTrue(daemon.ops.screenRequests.last() != null)
+        layout.select(listOf(0, 0))
+        val outline = await { it.selected == listOf(0, 0) }.outline
+        assertEquals(io.yamsergey.dta.present.layout.OutlineState.SHOWN, outline?.state)
+        assertEquals(100.0 to 200.0, outline?.corners?.first())
+
+        layout.setScreenShown(false)
+        layout.refresh()
+        await { !it.loading && it.tree?.screen == null }
+        assertNull(daemon.ops.screenRequests.last())
+    }
+
+    @Test
+    fun `clicking the picture selects the deepest element, and the next action climbs to its parents`() = runBlocking<Unit> {
+        daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))), toast)
+        session.start()
+        layout.setActive(true)
+        await { it.tree?.screen != null }
+        layout.pick(150.0, 230.0)
+        assertEquals(listOf(0, 0), await { it.selected == listOf(0, 0) }.selected)
+        layout.nextUnderPointer()
+        assertEquals(listOf(0), await { it.selected == listOf(0) }.selected)
+        layout.nextUnderPointer()
+        assertEquals(listOf(0, 0), await { it.selected == listOf(0, 0) }.selected)
+    }
+
+    @Test
+    fun `hovering names what is under the pointer, a window that is not the app's included`() = runBlocking<Unit> {
+        daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))), toast)
+        session.start()
+        layout.setActive(true)
+        await { it.tree?.screen != null }
+        layout.hover(500.0, 2050.0)
+        assertEquals("not the app: toast Toast", await { it.hover != null }.hover?.statement)
+        layout.pick(500.0, 2050.0)
+        val picked = await { it.note != null }
+        assertNull(picked.selected)
+        assertEquals("not the app: toast Toast", picked.note)
+        layout.hover(null)
+        assertNull(await { it.hover == null }.hover)
+    }
+
+    @Test
+    fun `after a refresh the outline follows the element to where it moved`() = runBlocking<Unit> {
+        daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))))
+        session.start()
+        layout.setActive(true)
+        await { it.tree?.screen != null }
+        layout.select(listOf(0, 0))
+        daemon.ops.screenCapture = withScreen(screen(placed(7, "Back", Rect(0, 0, 50, 50)), placed(2, "Pay", Rect(100, 600, 300, 660))))
+        layout.refresh()
+        val moved = await { it.selected == listOf(0, 1) }
+        assertEquals(100.0 to 600.0, moved.outline?.corners?.first())
+        daemon.ops.screenCapture = withScreen(screen(placed(7, "Back", Rect(0, 0, 50, 50))))
+        layout.refresh()
+        val gone = await { it.note != null && it.selected == null }
+        assertNull(gone.outline)
+    }
 }

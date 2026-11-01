@@ -2,6 +2,10 @@ package io.yamsergey.dta.studio.layout
 
 import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.present.layout.LayoutTree
+import io.yamsergey.dta.present.layout.Outline
+import io.yamsergey.dta.present.layout.ScreenHit
+import io.yamsergey.dta.present.layout.ScreenPick
+import io.yamsergey.dta.present.layout.outline
 import io.yamsergey.dta.present.layout.SearchResult
 import io.yamsergey.dta.present.layout.TreeSearch
 import io.yamsergey.dta.protocol.layout.DetailLevel
@@ -33,7 +37,18 @@ data class LayoutViewState(
     val note: String? = null,
     val loading: Boolean = false,
     val error: String? = null,
-)
+    /** Feature 014: the screen pane is shown, so captures take the picture. */
+    val screenShown: Boolean = true,
+    /** What is under the pointer on the picture. */
+    val hover: ScreenHit? = null,
+    /** The last click on the picture: the nodes under it and which one is selected. */
+    val pick: Pick? = null,
+) {
+    /** The selected node's outline on the picture. */
+    val outline: Outline? get() = selected?.let { tree?.outline(it) }
+
+    data class Pick(val paths: List<List<Int>>, val index: Int)
+}
 
 /**
  * The Layout view's source (FR-011/012): `layout.tree` for the context's device and app, captured
@@ -81,7 +96,8 @@ class LayoutController(private val context: ContextController, private val scope
         capture = scope.launch {
             val params = JsonObject(
                 listOfNotNull("device" to JsonPrimitive(device), s.app?.let { "app" to JsonPrimitive(it) }).toMap() +
-                    ("detail" to JsonPrimitive(s.detail.name.lowercase())),
+                    ("detail" to JsonPrimitive(s.detail.name.lowercase())) +
+                    (if (s.screenShown) mapOf("screen" to JsonPrimitive(true)) else emptyMap()),
             )
             runCatching { LayoutTree.of(client.call("layout.tree", params).result.jsonObject) }
                 .onSuccess { tree -> mutable.update { captured(it, tree) } }
@@ -97,7 +113,7 @@ class LayoutController(private val context: ContextController, private val scope
         val selected = reselected?.path
         val expanded = (if (previous == null) tree.initiallyExpanded else old.expanded) +
             ancestors(selected) + search?.ancestors.orEmpty()
-        return old.copy(tree = tree, selected = selected, note = reselected?.note, search = search, expanded = expanded, loading = false, error = null)
+        return old.copy(tree = tree, selected = selected, note = reselected?.note, search = search, expanded = expanded, loading = false, error = null, hover = null, pick = null)
     }
 
     fun setDetail(level: DetailLevel) {
@@ -105,7 +121,39 @@ class LayoutController(private val context: ContextController, private val scope
         refresh()
     }
 
-    fun select(path: List<Int>?) = mutable.update { it.copy(selected = path, note = null, expanded = it.expanded + ancestors(path)) }
+    fun select(path: List<Int>?) = mutable.update { it.copy(selected = path, note = null, expanded = it.expanded + ancestors(path), pick = null) }
+
+    /** Shows or hides the screen pane; showing it recaptures when the capture has no picture. */
+    fun setScreenShown(on: Boolean) {
+        mutable.update { it.copy(screenShown = on) }
+        if (on && mutable.value.tree?.screen == null && active) refresh()
+    }
+
+    /** The pointer is over image pixel ([x], [y]), or left the picture (null). */
+    fun hover(x: Double?, y: Double? = null) = mutable.update { s ->
+        val tree = s.tree
+        s.copy(hover = if (x == null || y == null || tree == null) null else ScreenPick.at(tree, x, y))
+    }
+
+    /** A click on the picture: the deepest element under it, or why there is none. */
+    fun pick(x: Double, y: Double) = mutable.update { s ->
+        val tree = s.tree ?: return@update s
+        when (val hit = ScreenPick.at(tree, x, y)) {
+            is ScreenHit.Nodes -> {
+                val first = hit.paths.first()
+                s.copy(selected = first, note = null, expanded = s.expanded + ancestors(first), pick = LayoutViewState.Pick(hit.paths, 0))
+            }
+            else -> s.copy(selected = null, note = hit.statement, pick = null)
+        }
+    }
+
+    /** The next element under the last click, from the deepest up to the window root, then round. */
+    fun nextUnderPointer() = mutable.update { s ->
+        val pick = s.pick ?: return@update s
+        val next = pick.copy(index = (pick.index + 1) % pick.paths.size)
+        val path = next.paths[next.index]
+        s.copy(selected = path, note = null, expanded = s.expanded + ancestors(path), pick = next)
+    }
 
     fun setExpanded(path: List<Int>, expanded: Boolean) =
         mutable.update { it.copy(expanded = if (expanded) it.expanded + listOf(path) else it.expanded - listOf(path)) }

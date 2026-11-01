@@ -53,3 +53,14 @@ data class Outline(val state: OutlineState, val corners: List<Pair<Double, Doubl
         }
     }
 }
+
+/** The outline of the node at [path] on this capture's picture, or null without a picture. */
+fun LayoutTree.outline(path: List<Int>): Outline? {
+    val screen = screen ?: return null
+    val width = screen.image.widthPx ?: return null
+    val height = screen.image.heightPx ?: return null
+    val json = node(path)?.json ?: return null
+    val bounds = json["bounds"]?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(Rect.serializer(), it) } ?: return null
+    val quad = json["renderOutline"]?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(Quad.serializer(), it) }
+    return Outline.of(bounds, quad, screen.alignment, width, height)
+}
