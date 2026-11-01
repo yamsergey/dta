@@ -35,8 +35,17 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         val scriptPanel = ScriptPanel(project, controller, service.scope)
         val schemasPanel = SchemasPanel(project, controller, service.scope, service.schemaSync)
         val linksPanel = LinksPanel(project, controller, service.scope)
+        val timelinePanel = TimelinePanel(
+            service.timeline, service.scope,
+            openNetwork = { id ->
+                service.network.reveal(id)
+                tabs.selectedIndex = 0
+            },
+            openLayout = { tabs.selectedComponent = layoutPanel },
+        )
         tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
+            addTab("Timeline", timelinePanel)
             addTab("Links", linksPanel)
             addTab("Layout", layoutPanel)
             addTab("Script", scriptPanel)
@@ -48,6 +57,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         // A layout is a snapshot: captured only while its tab is the one shown.
         tabs.addChangeListener {
             service.layout.setActive(tabs.selectedComponent === layoutPanel)
+            service.timeline.setActive(tabs.selectedComponent === timelinePanel)
             // Script and Schemas are refreshed when shown and after their actions; Links while shown.
             if (tabs.selectedComponent === linksPanel) linksPanel.show(controller.state.value) else linksPanel.stopRefreshing()
             when (tabs.selectedComponent) {

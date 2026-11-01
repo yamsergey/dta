@@ -14,6 +14,8 @@ enum class ViewKey(val stroke: String) {
     SEARCH("SLASH"), FILTERS("F"), START("G"), END("shift G"), PAUSE("P"), COPY("C"), OPEN("ENTER"), BACK("ESCAPE"),
     /** Layout (feature 014): the next element under the last click on the picture. */
     NEXT_UNDER_POINTER("N"),
+    /** Timeline (feature 017): zoom the lanes. */
+    ZOOM_IN("shift EQUALS"), ZOOM_OUT("MINUS"),
 }
 
 object Keyboard {
