@@ -27,15 +27,16 @@ import java.util.WeakHashMap
  * Records the app's windows as they are added and removed (feature 015 US1, research R1, R3,
  * R4): observe-only entry hooks on WindowManagerGlobal, a summary at addView and once the
  * window settles, a draw listener per window as its change signal. Runs on the main thread;
- * every handler swallows its own failures (constitution I). [onSettle] gets each later settle
- * of a window, for the element diff (US4).
+ * every handler swallows its own failures (constitution I). Each later settle of a window goes
+ * to [elements], for what came and went inside it (US4).
  */
 class WindowRecorder(
     private val buffer: UiJournalBuffer,
     private val walker: WindowWalker,
     private val links: (Long) -> List<io.yamsergey.dta.protocol.ui.EventLink>,
     private val isToastView: (View) -> Boolean,
-    private val onSettle: (Window, Summarized, Settle.Fired) -> Unit = { _, _, _ -> },
+    /** Elements that come and go inside the windows (US4); null when that source is off. */
+    private val elements: ElementTracker? = null,
 ) {
     /** One window the recorder follows. */
     inner class Window internal constructor(
@@ -121,7 +122,7 @@ class WindowRecorder(
         val windowKind = WindowKinds.kind(type, hierarchy)
         val secure = lp != null && (lp.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
         val now = SystemClock.uptimeMillis()
-        val summarized = if (offMain) null else walker.walk(view).let { ContentSummaries.summarize(it, secure, settled = false, takenMonoMs = now) }
+        val summarized = if (offMain) null else timed { ContentSummaries.summarize(walker.walk(view), secure, settled = false, takenMonoMs = now) }
         val windowId = "w${++counter}"
         val ownerName = (ownerObject as? Activity)?.javaClass?.name ?: activityOf(view.context)?.javaClass?.name
         val recreated = if (windowKind == WindowKind.ACTIVITY && ownerName != null) {
@@ -174,7 +175,9 @@ class WindowRecorder(
         if (windows[view] !== window) return
         val now = SystemClock.uptimeMillis()
         val fired = window.settle.fire(now) ?: return schedule(window)
-        val summarized = ContentSummaries.summarize(walker.walk(view), window.ref.secure, settled = true, takenMonoMs = now)
+        val started = System.nanoTime()
+        val summarized = timed { ContentSummaries.summarize(walker.walk(view), window.ref.secure, settled = true, takenMonoMs = now) }
+        val costMs = (System.nanoTime() - started) / 1_000_000
         if (!window.settledOnce) {
             window.settledOnce = true
             val title = WindowKinds.title(window.ref.kind, window.ref.owner, summarized.heading, summarized.firstText) ?: window.ref.title
@@ -189,7 +192,7 @@ class WindowRecorder(
                 )
             }
         } else {
-            onSettle(window, summarized, fired)
+            window.last?.let { before -> elements?.settled(window.ref, before, summarized, fired.byCap, costMs, now) }
         }
         window.last = summarized
     }
@@ -214,6 +217,7 @@ class WindowRecorder(
 
     private fun disappear(view: View) {
         val window = windows.remove(view) ?: return
+        elements?.windowGone(window.ref.windowId)
         window.listener?.let { l -> runCatching { view.viewTreeObserver.removeOnDrawListener(l) } }
         val now = SystemClock.uptimeMillis()
         val owner = window.ref.owner
@@ -229,6 +233,25 @@ class WindowRecorder(
                 appearedId = window.appearedId,
             )
         }
+    }
+
+    private val costsUs = ArrayDeque<Long>()
+
+    private inline fun <T> timed(block: () -> T): T {
+        val started = System.nanoTime()
+        return block().also {
+            synchronized(costsUs) {
+                costsUs.addLast((System.nanoTime() - started) / 1_000)
+                if (costsUs.size > COSTS_KEPT) costsUs.removeFirst()
+            }
+        }
+    }
+
+    /** The cost of the latest summaries on the main thread (SC-003). */
+    fun costs(): io.yamsergey.dta.protocol.ui.UiCosts {
+        val sorted = synchronized(costsUs) { costsUs.sorted() }
+        if (sorted.isEmpty()) return io.yamsergey.dta.protocol.ui.UiCosts()
+        return io.yamsergey.dta.protocol.ui.UiCosts(sorted.size, sorted[sorted.size / 2], sorted[(sorted.size * 95 / 100).coerceAtMost(sorted.size - 1)], sorted.last())
     }
 
     private fun markers(summary: ContentSummary?, secure: Boolean, settled: Boolean, offMain: Boolean) = buildList {
@@ -277,5 +300,6 @@ class WindowRecorder(
         const val REMOVE_VIEW = "(Landroid/view/ViewRootImpl;)V"
         const val REMOVE_VIEW_BY_VIEW = "(Landroid/view/View;Z)V"
         private const val RECREATE_MS = 2_000L
+        private const val COSTS_KEPT = 500
     }
 }

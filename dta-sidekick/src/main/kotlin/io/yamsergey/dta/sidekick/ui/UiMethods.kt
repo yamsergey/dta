@@ -22,6 +22,6 @@ object UiMethods {
         val after = params?.get("afterSeq")?.jsonPrimitive?.long
         val limit = (params?.get("limit")?.jsonPrimitive?.int ?: 100).coerceIn(1, MAX_LIMIT)
         val read = buffer.read(after, if (statusOnly) 0 else limit)
-        return UiJournalRead(read.epoch, read.events, read.dropped, read.lastSeq, UiRuntime.journalCapability())
+        return UiJournalRead(read.epoch, read.events, read.dropped, read.lastSeq, UiRuntime.journalCapability(), UiRuntime.costs())
     }
 }

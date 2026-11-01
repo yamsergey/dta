@@ -58,7 +58,7 @@ object UiRuntime {
             val compose = if (ComposePresence().composePresent) ComposeSummaryWalker() else null
             val walker = WindowWalker(compose)
             val toastRecorder = ToastRecorder(created, walker, network::links)
-            val windowRecorder = WindowRecorder(created, walker, network::links, toastRecorder::isToastView)
+            val windowRecorder = WindowRecorder(created, walker, network::links, toastRecorder::isToastView, ElementTracker(created))
             toastRecorder.install()?.let { Log.w(TAG, "toasts not recorded: $it") }
             windowRecorder.install()?.let { Log.w(TAG, "windows not recorded: $it") }
             if (windowRecorder.failure == null) windowRecorder.presentAtStart()
@@ -69,6 +69,8 @@ object UiRuntime {
             Log.w(TAG, "UI journal not started: $hooksReason")
         }
     }
+
+    fun costs() = windows?.costs()
 
     fun journalCapability(): UiCapability {
         fun state(failure: String?, recorder: Any?) = when {
@@ -83,7 +85,7 @@ object UiRuntime {
             sources = listOf(
                 UiSourceState(UiSource.WINDOW, w, wr),
                 UiSourceState(UiSource.TOAST, t, tr),
-                UiSourceState(UiSource.ELEMENT, SourceState.OFF, "not recorded yet"),
+                UiSourceState(UiSource.ELEMENT, w, wr),
             ),
             settleMs = Settle.QUIET_MS,
             maxWaitMs = Settle.MAX_WAIT_MS,
