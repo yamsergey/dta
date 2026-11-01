@@ -42,6 +42,8 @@ class WindowRecorder(
     private val elements: ElementTracker? = null,
     /** Where the `ui.windows` facet is kept (016); null in tests that do not look at it. */
     private val facets: FacetState? = null,
+    /** The top activity window settled with this content (016, the screen fingerprint). */
+    private val onScreen: ((WindowRef, ContentSummary) -> Unit)? = null,
 ) {
     /** One window the recorder follows. */
     inner class Window internal constructor(
@@ -205,7 +207,12 @@ class WindowRecorder(
             window.last?.let { before -> elements?.settled(window.ref, before, summarized, fired.byCap, costMs, now) }
         }
         window.last = summarized
+        if (topActivity() === window) onScreen?.invoke(window.ref, summarized.summary)
     }
+
+    /** The app's activity window on top, by add order. */
+    private fun topActivity(): Window? =
+        windows.values.filter { it.ref.kind == WindowKind.ACTIVITY }.maxByOrNull { it.ref.windowId.removePrefix("w").toIntOrNull() ?: 0 }
 
     private fun onRemove(root: Any?) {
         root ?: return
@@ -244,6 +251,7 @@ class WindowRecorder(
             )
         }
         attribute(gone.id)
+        if (window.ref.kind == WindowKind.ACTIVITY) topActivity()?.let { top -> top.last?.let { onScreen?.invoke(top.ref, it.summary) } }
     }
 
     /** The `ui.windows` change these windows make, bottom first (window ids are in add order). */

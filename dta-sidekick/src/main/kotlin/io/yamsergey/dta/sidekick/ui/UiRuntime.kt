@@ -45,9 +45,14 @@ object UiRuntime {
     @Synchronized
     fun start(context: Context, publish: (String, kotlinx.serialization.json.JsonElement?) -> Unit) {
         if (buffer != null) return
-        val created = UiJournalBuffer(TimelineRuntime.start(publish)) { TimelineRuntime.scopeCause() }
+        val timeline = TimelineRuntime.start(publish)
+        val created = UiJournalBuffer(timeline) { TimelineRuntime.scopeCause() }
         buffer = created
         TimelineRuntime.register(Sources.UI, ::sourceStatus)
+        TimelineRuntime.register(Sources.SCREEN) {
+            val ui = sourceStatus()
+            SourceStatus(Sources.SCREEN, ui.state, ui.reason, "the structure of the top activity's window, from the journal's summaries; texts and values do not count")
+        }
 
         if (!HookAttach.attached) {
             hooksReason = HookAttach.reason ?: "hooks not attached"
@@ -58,7 +63,8 @@ object UiRuntime {
             val compose = if (ComposePresence().composePresent) ComposeSummaryWalker() else null
             val walker = WindowWalker(compose)
             val toastRecorder = ToastRecorder(created, walker, network::links)
-            val windowRecorder = WindowRecorder(created, walker, network::links, toastRecorder::isToastView, ElementTracker(created), TimelineRuntime.facets)
+            val screen = ScreenSource(timeline, TimelineRuntime.facets) { TimelineRuntime.scopeCause() }
+            val windowRecorder = WindowRecorder(created, walker, network::links, toastRecorder::isToastView, ElementTracker(created), TimelineRuntime.facets, screen::settled)
             toastRecorder.install()?.let { Log.w(TAG, "toasts not recorded: $it") }
             windowRecorder.install()?.let { Log.w(TAG, "windows not recorded: $it") }
             if (windowRecorder.failure == null) windowRecorder.presentAtStart()
