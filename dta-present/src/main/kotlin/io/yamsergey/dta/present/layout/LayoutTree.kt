@@ -76,7 +76,13 @@ data class WindowRow(val index: Int, val label: String, val root: TreeNode)
  * A `layout.tree` result as the Layout view shows it (FR-011): a header line, the capture's
  * statements (fallback, degradation, reduced detail) for banners, and the windows' trees.
  */
-data class LayoutTree(val summary: String, val statements: List<Statement>, val windows: List<WindowRow>) {
+data class LayoutTree(
+    val summary: String,
+    val statements: List<Statement>,
+    val windows: List<WindowRow>,
+    /** Feature 014: the picture and the windows on screen, when the capture took them. */
+    val screen: ScreenInfo? = null,
+) {
 
     fun node(path: List<Int>): TreeNode? {
         var node = windows.getOrNull(path.firstOrNull() ?: return null)?.root ?: return null
@@ -110,7 +116,7 @@ data class LayoutTree(val summary: String, val statements: List<Statement>, val 
                 val window = w as JsonObject
                 WindowRow(i, "window ${window.str("type")}" + (window.str("title")?.let { " \"$it\"" } ?: ""), build(window.obj("root")!!, listOf(i)))
             }
-            return LayoutTree(summary, Statements.forCapture(capture), windows)
+            return LayoutTree(summary, Statements.forCapture(capture), windows, ScreenInfo.of(capture))
         }
 
         private fun build(n: JsonObject, path: List<Int>): TreeNode =
