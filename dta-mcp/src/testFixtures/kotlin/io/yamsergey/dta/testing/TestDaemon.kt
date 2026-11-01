@@ -113,8 +113,19 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
         timelineFailure?.let { throw it }
         return timeline.page(if (since == "end") timeline.end() else since, limit, sinceMs, sources, kinds)
     }
+    /** Live timeline events for watchers; feed with [pushTimeline]. */
+    val timelineLive = kotlinx.coroutines.flow.MutableSharedFlow<io.yamsergey.dta.protocol.timeline.TimelineEvent>(extraBufferCapacity = 1_000)
+
+    /** An event the app's sidekick pushed: kept and sent to watchers. */
+    fun pushTimeline(event: io.yamsergey.dta.protocol.timeline.TimelineEvent) {
+        if (timeline.pushed(event)) timelineLive.tryEmit(event)
+    }
+
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
-        kotlinx.coroutines.flow.flowOf(*timeline.page(null, 500, null, sources, kinds).events.toTypedArray())
+        kotlinx.coroutines.flow.flow {
+            if (history) timeline.page(null, 500, null, sources, kinds).events.forEach { emit(it) }
+            timelineLive.collect { e -> if ((sources.isEmpty() || e.source in sources) && (kinds.isEmpty() || e.kind in kinds)) emit(e) }
+        }
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
         io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
     override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)

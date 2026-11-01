@@ -88,6 +88,12 @@ class NetworkController(private val context: ContextController, private val scop
         reload()
     }
 
+    /** Shows the live entry [id] selected (from another tab, feature 017): out of an archive scope if one was on. */
+    fun reveal(id: String) {
+        if (mutable.value.archive != null) setArchive(null)
+        list(LiveEvent.Selected(id))
+    }
+
     /** Older entries above the loaded ones (`before` cursor). */
     fun loadOlder() {
         val s = mutable.value

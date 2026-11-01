@@ -55,6 +55,17 @@ class NetworkControllerTest {
     }
 
     @Test
+    fun `reveal leaves an archive scope and selects the entry (from the Timeline tab)`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setArchive("all")
+        await { it.archive == "all" }
+        network.reveal("r1-1:2")
+        val s = await { it.archive == null && it.list.selectedId == "r1-1:2" }
+        assertEquals("r1-1:2", s.list.selectedId)
+    }
+
+    @Test
     fun `a filter change is a new query with exactly those parameters`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 }
