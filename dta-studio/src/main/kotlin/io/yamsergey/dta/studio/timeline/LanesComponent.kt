@@ -160,8 +160,8 @@ class LanesComponent(private val controller: TimelineController) : JComponent() 
             val (x1, y1) = at[line.from] ?: continue
             val (x2, y2) = at[line.to] ?: continue
             when (line.style) {
-                ChainView.Style.EXACT -> { g.color = UIUtil.getLabelForeground(); g.stroke = BasicStroke(JBUI.scale(1.5f)) }
-                ChainView.Style.DECLARED -> { g.color = DtaColors.of("accent"); g.stroke = BasicStroke(JBUI.scale(1.5f)) }
+                ChainView.Style.EXACT -> { g.color = UIUtil.getLabelForeground(); g.stroke = BasicStroke(JBUI.scale(3) / 2f) }
+                ChainView.Style.DECLARED -> { g.color = DtaColors.of("accent"); g.stroke = BasicStroke(JBUI.scale(3) / 2f) }
                 ChainView.Style.INFERRED -> { g.color = DtaColors.of("inferred"); g.stroke = DASHED }
             }
             g.draw(Line2D.Double(x1.toDouble(), y1.toDouble(), x2.toDouble(), y2.toDouble()))
