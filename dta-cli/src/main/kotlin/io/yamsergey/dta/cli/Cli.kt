@@ -216,7 +216,7 @@ class Cli(
         private val readers = mutableListOf<Pair<String, () -> JsonElement?>>()
 
         init {
-            spec.params.forEach { p -> readers += p.name to register(p) }
+            spec.params.filterNot { it.cliHidden }.forEach { p -> readers += p.name to register(p) }
         }
 
         override fun help(context: Context) = spec.description
@@ -225,7 +225,7 @@ class Cli(
         private fun <T> holder(delegate: ReadOnlyProperty<CoreCliktCommand, T>): () -> T = { delegate.getValue(this, ::dummy) }
 
         private fun register(p: io.yamsergey.dta.protocol.ops.ParamSpec): () -> JsonElement? {
-            val longName = "--" + p.name.replace(Regex("([A-Z])")) { "-" + it.value.lowercase() }
+            val longName = "--" + (p.cliName ?: p.name.replace(Regex("([A-Z])")) { "-" + it.value.lowercase() })
             val names = listOfNotNull(p.cliShort, longName).toTypedArray()
             val absolute: (String) -> String = { if (p.path) File(it).let { f -> if (f.isAbsolute) f else File(cwd, it) }.normalize().path else it }
             if (p.positional) {

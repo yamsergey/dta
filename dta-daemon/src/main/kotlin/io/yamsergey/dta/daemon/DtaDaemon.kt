@@ -176,6 +176,8 @@ class DtaDaemon(
         filters: LayoutFilter? = null,
         detail: DetailLevel = DetailLevel.SEMANTIC,
         frameworkFrames: Boolean = false,
+        /** Feature 014: also the screen image and the windows on screen, around the tree. */
+        screen: io.yamsergey.dta.daemon.layout.ScreenRequest? = null,
     ): LayoutCapture {
         val service = LayoutService(
             foregroundPackage = { foregroundDetector.foregroundPackage(it) },
@@ -192,8 +194,24 @@ class DtaDaemon(
             },
             screenOf = { screenOf(it) },
         )
-        return service.capture(serial, pkg, LayoutTreeParams(filters, detail, frameworkFrames))
+        val params = LayoutTreeParams(filters, detail, frameworkFrames)
+        if (screen == null) return service.capture(serial, pkg, params)
+        return screenCapture.capture(serial, pkg, screen.output) { service.capture(serial, pkg, params) }
     }
+
+    private val screenCapture = io.yamsergey.dta.daemon.layout.ScreenCapture(
+        dumpsys = { serial, args ->
+            val r = runAdb(listOf("-s", serial, "shell", "dumpsys") + args)
+            check(r.exitCode == 0) { r.stderr.trim().ifEmpty { "dumpsys ${args.joinToString(" ")} exited with ${r.exitCode}" } }
+            r.stdout
+        },
+        screencap = { serial ->
+            val adb = AdbExec(adbPath ?: error(adbUnavailableReason ?: "adb is not available"))
+            val r = adb.runBytes("-s", serial, "exec-out", "screencap", "-p", timeout = 15.seconds)
+            check(r.exitCode == 0 && r.stdout.isNotEmpty()) { r.stderr.trim().ifEmpty { "screencap exited with ${r.exitCode}" } }
+            r.stdout
+        },
+    )
 
     /** Network history of [pkg]: HTTP and WebSocket entries in one list (feature 004). */
     suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage =

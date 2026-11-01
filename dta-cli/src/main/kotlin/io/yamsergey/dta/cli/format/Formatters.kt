@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.longOrNull
 import java.time.Instant
@@ -139,6 +140,11 @@ class Formatters(private val style: Style) {
                 (screen?.str("activity")?.let { "  $it" } ?: "") +
                 "  source ${o.str("source")}" + (o.obj("detail")?.let { "  detail ${it.str("delivered")}" } ?: ""),
         )
+        o.obj("screenImage")?.let { appendLine(screenLine(it)) }
+        o["screenWindows"]?.let { list ->
+            val foreign = (list as JsonArray).map { it.obj }.filter { it["app"]?.jsonPrimitive?.content != "true" }
+            if (foreign.isNotEmpty()) appendLine(style.paint("Not the app: " + foreign.joinToString(", ") { "${it.str("name")} (${it.str("kind")})" }, Token.INK_MUTED))
+        }
         Statements.forCapture(o).forEach { appendLine(style.mark(it)) }
         val matches = o["matches"]
         if (matches is JsonArray) {
@@ -155,6 +161,21 @@ class Formatters(private val style: Style) {
             }
         }
     }.trimEnd()
+
+    /** Feature 014: where the image went and how the bounds line up with it. */
+    private fun screenLine(image: JsonObject): String {
+        val state = image.str("state")
+        if (state != "present") return "Screen: not saved — $state: ${image.str("reason") ?: "no reason given"}"
+        val where = image.obj("file")?.str("path") ?: "inline"
+        val alignment = image.obj("alignment")?.let { a ->
+            when (a.str("kind")) {
+                "offset" -> "offset by ${a.long("dx") ?: 0},${a.long("dy") ?: 0}"
+                "scaled" -> "scaled ×${a["scale"]?.jsonPrimitive?.content}"
+                else -> a.str("kind")
+            }
+        } ?: "alignment unknown"
+        return "Screen: $where — ${image.long("widthPx")}×${image.long("heightPx")}, $alignment"
+    }
 
     private fun StringBuilder.tree(node: JsonObject, depth: Int) {
         appendLine("  ".repeat(depth) + nodeLine(node))

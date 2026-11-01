@@ -53,7 +53,9 @@ object McpServerSpecs {
             .callHandler { _, request ->
                 val args = McpTools.arguments(request.arguments()) { mapper.writeValueAsString(it) }
                 val outcome = runBlocking { tools.invoke(spec.toolName, args) }
-                McpSchema.CallToolResult.builder().addTextContent(outcome.text).isError(outcome.isError).build()
+                McpSchema.CallToolResult.builder().addTextContent(outcome.text)
+                    .apply { outcome.images.forEach { addContent(McpSchema.ImageContent(null, it.data, it.mimeType)) } }
+                    .isError(outcome.isError).build()
             }
             .build()
     }

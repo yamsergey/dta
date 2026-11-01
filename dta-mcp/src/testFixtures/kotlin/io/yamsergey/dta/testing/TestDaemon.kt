@@ -73,8 +73,11 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
             children = listOf(ViewNode(2, Rect(0, 0, 100, 50), "android.widget.Button", text = "Pay"))))),
     )
     val layoutRequests = java.util.concurrent.CopyOnWriteArrayList<Pair<String?, DetailLevel>>()
-    override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean) =
-        capture.also { layoutRequests += pkg to detail }
+    /** What layout returns when the screen is asked for; [capture] otherwise. */
+    var screenCapture: LayoutCapture? = null
+    override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean, screen: io.yamsergey.dta.daemon.layout.ScreenRequest?) =
+        (screen?.let { screenCapture } ?: capture).also { layoutRequests += pkg to detail; screenRequests += screen }
+    val screenRequests = java.util.concurrent.CopyOnWriteArrayList<io.yamsergey.dta.daemon.layout.ScreenRequest?>()
     val queries = java.util.concurrent.CopyOnWriteArrayList<Pair<String, NetworkQuery>>()
     var cleared = 0
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) =

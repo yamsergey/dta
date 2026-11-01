@@ -38,7 +38,7 @@ interface DaemonOperations {
     /** App connection state changes on [serial], or every device when null (feature 009). */
     fun appEvents(serial: String?): Flow<AppConnectionEvent>
     suspend fun capabilityReport(serial: String, pkg: String): IdentityReport
-    suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean): LayoutCapture
+    suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean, screen: io.yamsergey.dta.daemon.layout.ScreenRequest?): LayoutCapture
     suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail
     suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult
@@ -78,8 +78,8 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun apps(serial: String) = daemon.apps(serial)
     override fun appEvents(serial: String?) = daemon.appEvents(serial)
     override suspend fun capabilityReport(serial: String, pkg: String) = daemon.capabilityReport(serial, pkg)
-    override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean) =
-        daemon.layout(serial, pkg, filters, detail, frameworkFrames)
+    override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean, screen: io.yamsergey.dta.daemon.layout.ScreenRequest?) =
+        daemon.layout(serial, pkg, filters, detail, frameworkFrames, screen)
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) = daemon.network(serial, pkg, query)
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = daemon.networkEntry(serial, pkg, id, redact)
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =

@@ -44,6 +44,10 @@ data class ParamSpec(
     val path: Boolean = false,
     /** Short CLI alias (`-o`). */
     val cliShort: String? = null,
+    /** The CLI option's name instead of the one derived from [name] (`--screen` for `screenOutput`). */
+    val cliName: String? = null,
+    /** Not on the command line: its value would not print (an inline image). Agents and the plugin still get it. */
+    val cliHidden: Boolean = false,
 )
 
 data class OperationSpec(
@@ -196,6 +200,8 @@ object Catalog {
                 ParamSpec("type", ParamType.STRING, "Match by simple class name (View) or composable name (Compose)."),
                 ParamSpec("resourceId", ParamType.STRING, "Match by full resource id (android:id/content)."),
                 ParamSpec("rootId", ParamType.LONG, "Only search the subtree of this node id."),
+                ParamSpec("screen", ParamType.BOOLEAN, "Also take the screen image and the windows on screen, with statements when the picture may not match the tree (secure window, lock screen, a change during the capture).", cliHidden = true),
+                ParamSpec("screenOutput", ParamType.STRING, "Also take the screen and the windows on screen, writing the image (PNG) to this file; the result gives path, size and sha256.", path = true, cliName = "screen"),
             ),
             cliPathOverride = listOf("layout"),
         ),

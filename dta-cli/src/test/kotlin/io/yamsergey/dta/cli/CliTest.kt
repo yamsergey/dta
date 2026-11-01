@@ -98,6 +98,43 @@ class CliTest {
         assertTrue("Network script abc123 active" in stdout, stdout)
     }
 
+    // --- Layout with the screen (feature 014, T008)
+
+    @Test
+    fun `layout --screen saves the image to a file and says how it lines up`() {
+        daemon.ops.screenCapture = daemon.ops.capture.copy(
+            screenImage = io.yamsergey.dta.protocol.layout.ScreenImage(
+                state = io.yamsergey.dta.protocol.layout.ScreenImageState.PRESENT, widthPx = 1080, heightPx = 2400,
+                alignment = io.yamsergey.dta.protocol.layout.Alignment(io.yamsergey.dta.protocol.layout.AlignmentKind.ALIGNED),
+                file = io.yamsergey.dta.protocol.layout.FileRef("/work/shot.png", 36_167, "ab"),
+            ),
+            degraded = listOf(io.yamsergey.dta.protocol.rpc.DegradationMarker("layout", "screen-changed-during-capture: Toast appeared")),
+        )
+        assertEquals(0, dta("layout", "--screen", "shot.png"))
+        assertEquals(io.yamsergey.dta.daemon.layout.ScreenRequest("/work/shot.png"), daemon.ops.screenRequests.last())
+        assertTrue("Screen: /work/shot.png — 1080×2400, aligned" in stdout, stdout)
+        assertTrue("screen-changed-during-capture: Toast appeared" in stdout, stdout)
+    }
+
+    @Test
+    fun `layout --screen needs a file, and the inline image is never offered on the command line`() {
+        assertEquals(ExitCodes.USAGE, dta("layout", "--screen"))
+        val names = Cli(runner = { _, _, _ -> 0 }, mcp = { 0 }).parameterNames(listOf("layout"))
+        assertTrue("--screen" in names, "$names")
+        assertFalse("--screen-output" in names, "$names")
+    }
+
+    @Test
+    fun `an image that was not taken is said so`() {
+        daemon.ops.screenCapture = daemon.ops.capture.copy(
+            screenImage = io.yamsergey.dta.protocol.layout.ScreenImage(
+                state = io.yamsergey.dta.protocol.layout.ScreenImageState.BLOCKED, reason = "pkg/.Main is a secure window",
+            ),
+        )
+        assertEquals(0, dta("layout", "--screen", "shot.png"))
+        assertTrue("Screen: not saved — blocked: pkg/.Main is a secure window" in stdout, stdout)
+    }
+
     // --- Exit codes (T027)
 
     @Test

@@ -116,6 +116,16 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `layout takes the screen only when asked, inline or to a file`() {
+        call("layout.tree")
+        assertEquals(null, fake.lastScreen)
+        call("layout.tree", buildJsonObject { put("screen", true) })
+        assertEquals(io.yamsergey.dta.daemon.layout.ScreenRequest(null), fake.lastScreen)
+        call("layout.tree", buildJsonObject { put("screenOutput", "/tmp/s.png") })
+        assertEquals(io.yamsergey.dta.daemon.layout.ScreenRequest("/tmp/s.png"), fake.lastScreen)
+    }
+
+    @Test
     fun `body part defaults by entry kind and output goes to a file`() {
         call("network.body", buildJsonObject { put("id", "r1-1:3") })
         assertEquals(BodyPart.RESPONSE, fake.lastBody!!.first)

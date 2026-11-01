@@ -61,6 +61,25 @@ object Degradations {
             "Run the app's debug build.",
         Codes.NETWORK_SCRIPT_NOT_PERSISTED to
             "The network script could not be saved on the device, so it stops applying when the app restarts. Set it again after a restart.",
+        Codes.SCREEN_BLOCKED to
+            "The app shows a secure window, and the system blacks it out in screen captures, so there is no picture. The tree is complete; " +
+            "open a screen without the secure flag to see the picture.",
+        Codes.SCREEN_NOT_TAKEN to
+            "The screen image could not be taken (see the reason); the tree is complete. Capture again.",
+        Codes.SCREEN_LOCKED to
+            "The lock screen is showing: the picture shows it, not the app. Unlock the device and capture again.",
+        Codes.SCREEN_OFF to
+            "The device's screen is off, so there is no picture. Wake the device and capture again.",
+        Codes.SCREEN_CHANGED_DURING_CAPTURE to
+            "The screen changed while the tree was captured (see what changed), so the picture and the tree may differ there. " +
+            "Capture again when the screen is still; an animation that never stops always reports its area.",
+        Codes.SCREEN_SCALED to
+            "The picture and the tree's bounds differ by a uniform scale, which DTA applied. Outlines are placed with it.",
+        Codes.SCREEN_NOT_ALIGNED to
+            "The tree's bounds do not match the windows on the picture (see the reason), so elements are not outlined. Capture again; " +
+            "if it persists, report it with the device model and Android version.",
+        Codes.SCREEN_DISPLAY_UNKNOWN to
+            "The display the app is on could not be determined, so the picture may show another display.",
     )
 
     /** The sentence for [code]; null for a code this client does not know. */

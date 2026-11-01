@@ -16,8 +16,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import java.io.File
 
-/** What a tool call returns: text, and whether it is an error. */
-data class ToolOutcome(val text: String, val isError: Boolean)
+/** What a tool call returns: text, whether it is an error, and images (the layout's screen, feature 014). */
+data class ToolOutcome(val text: String, val isError: Boolean, val images: List<ToolImage> = emptyList())
 
 /**
  * DTA's agent tools (feature 008 US2): one per catalog operation offered to agents, with the
@@ -43,7 +43,9 @@ class McpTools(
         unusable()?.let { return ToolOutcome(it, isError = true) }
         val spec = byTool(toolName) ?: return ToolOutcome("Unknown tool '$toolName'. Tools: ${tools.joinToString(", ") { it.toolName }}", true)
         return try {
-            val selected = call(spec.name, arguments)
+            val (selected, image) = call(spec.name, arguments).let { s ->
+                if (spec.name == "layout.tree") ScreenImageBound.split(s.result).let { (r, i) -> s.copy(result = r) to i } else s to null
+            }
             val text = bound.apply(spec.name, selected)
             if (spec.name == "network.body" && "truncated" in text && arguments["output"] == null) {
                 // A body too large for the response goes to a file instead (contract mcp.md).
@@ -51,7 +53,7 @@ class McpTools(
                 val written = call(spec.name, JsonObject(arguments + ("output" to JsonPrimitive(file.absolutePath))))
                 return ToolOutcome(bound.apply(spec.name, written), isError = false)
             }
-            ToolOutcome(text, isError = false)
+            ToolOutcome(text, isError = false, images = listOfNotNull(image))
         } catch (e: DaemonCallException) {
             ToolOutcome(errorText(spec, e) + (autoSync(spec, arguments, e)?.let { "\n$it" } ?: ""), isError = true)
         } catch (e: DaemonGoneException) {

@@ -224,7 +224,8 @@ class OperationDispatcher(
     private suspend fun layout(c: Call): LayoutCapture {
         val filter = LayoutFilter(c.string("text"), c.string("type"), c.string("resourceId"), c.long("rootId"))
         val detail = c.string("detail")?.let { d -> DetailLevel.entries.first { it.name.lowercase() == d } } ?: DetailLevel.SEMANTIC
-        return ops.layout(c.device, c.pkg, filter.takeUnless { it.isEmpty }, detail, c.bool("frameworkFrames"))
+        val screen = if (c.bool("screen") || c.string("screenOutput") != null) io.yamsergey.dta.daemon.layout.ScreenRequest(c.string("screenOutput")) else null
+        return ops.layout(c.device, c.pkg, filter.takeUnless { it.isEmpty }, detail, c.bool("frameworkFrames"), screen)
     }
 
     private suspend fun body(c: Call): BodyResult {

@@ -78,8 +78,10 @@ class FakeOperations : DaemonOperations {
     override fun appEvents(serial: String?): Flow<io.yamsergey.dta.protocol.ops.AppConnectionEvent> = appEventFlow
     override fun apps(serial: String) = AppList(serial, "com.example.shop", listOf(AppInfo("com.example.shop", true)))
     override suspend fun capabilityReport(serial: String, pkg: String) = IdentityReport(1, "0.1.0", pkg, emptyList()).also { calls += "capability" }
-    override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean): LayoutCapture {
+    var lastScreen: io.yamsergey.dta.daemon.layout.ScreenRequest? = null
+    override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean, screen: io.yamsergey.dta.daemon.layout.ScreenRequest?): LayoutCapture {
         lastLayout = Triple(pkg, filters, detail)
+        lastScreen = screen
         return LayoutCapture(Screen(1080, 2400, 2.6f), CaptureSource.SIDEKICK, emptyList())
     }
     /** The current process's entries a watch with history=current replays; [duringHistory] runs while it is read. */
