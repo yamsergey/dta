@@ -46,6 +46,14 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - Bounds are in screen pixels: the same coordinates `adb shell input tap` uses. A rotated or scaled view's bounds are its box on the screen; `renderOutline` has its four corners.
 - `screen: true` adds the screen image taken with the tree (one image item) and `screenWindows`: every window on screen, the app's or not (`kind`: toast, keyboard, system, other-app…). A toast or a system dialog is on the picture but not in the app's tree; `screenWindows` names it. `screenOutput: <file>` writes the PNG instead. Read the statements: `screen-changed-during-capture` (the picture and the tree may differ in the area it names), `screen-blocked` (a secure window, no picture), `screen-locked`, `screen-not-aligned`, `screen-scaled` (multiply bounds by `screenImage.scale`). Ask for the screen only when you need to see it; the tree alone is cheaper.
 
+## Short-lived UI
+
+- Every tool answer may end with "Since your last call: N UI events — …": dialogs, toasts, snackbars, permission prompts that appeared (and closed) since your previous call. Read it before deciding what happened after a tap.
+- `ui_events` gives the details: window kind, title, texts, buttons, lifetime, the network requests around it. Pass `since` (the `next` of the previous read) to get only newer events; `kinds` narrows to `window`, `toast`, `element`, `screen-window` (not the app's), `gap`, `process`.
+- Use it instead of re-reading the layout to catch a toast or a dialog that closed itself. The journal records structure and text, never pictures.
+- A `gap` event means some events were lost there (the app's buffer, a busy window, a reader too far behind). `process-ended` marks a crash or kill; what came before it is kept.
+- Windows that are not the app's are sampled every 500 ms while the journal is read; shorter ones may be missed.
+
 ## Network
 
 - `network_list` is one chronological list of HTTP exchanges, WebSocket connections and messages. Filters: `url`, `method`, `status` (`404`, `4xx`, `failed`, `pending`), `kinds`, `sinceMs`/`untilMs`, `bodyContains` (also inside binary bodies), `runs` (`current` = this process only), `intervened`.

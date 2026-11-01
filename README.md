@@ -88,6 +88,30 @@ Every intent with a URI that reaches an activity of the app — a deep link, an 
 - Not recorded: links the app hands to other apps (only the system sees them) and links it opens in a WebView or Custom Tab.
 - An activity that is not a `ComponentActivity` shows its new intents only when it calls `setIntent`; the links capability names such activities.
 
+## Short-lived UI: the journal (feature 015)
+
+Dialogs, popups, bottom sheets, toasts, snackbars and inline errors often go before anyone looks. The sidekick records them as they appear, into the UI journal: no screen images, only structure and text.
+
+- **Windows the app opens:** activity, dialog, popup, bottom sheet, custom toast. Each gets its time, kind, title and a content summary: texts, buttons, inputs and headings, at most 50 elements. A window is recorded when it is added and again once it settles (250 ms without drawing, at most 1 s). Its closing comes with its lifetime.
+  - Secure windows are recorded without their texts. Password fields never are.
+- **Toasts:** text and duration, also when the system draws them.
+- **Elements inside a window:** a snackbar, an error text, a banner that came and went, with its lifetime. These are not events:
+  - list scrolling;
+  - running animations;
+  - texts that only change;
+  - a whole new screen.
+- **Windows that are not the app's:** permission prompts, system and crash dialogs, the keyboard, other apps on top. The computer reads them from the device's window list every 500 ms while someone reads the journal, so a shorter window can be missed.
+- **Links to network traffic:** each appearance names the requests in flight, or finished within the last 2 s, related by time only.
+- **History:** the computer keeps the journal per app: 5 000 events, including what led up to a crash and the end of the process.
+- **Gaps:** losses are stated in place. These include the app's buffer overflowing, a busy window being skipped for 5 s, and old events dropped on the computer.
+
+```
+dta ui events                     # the journal, one line per event; --since <next> continues
+dta ui watch                      # follow it live; --history current: the kept events first
+```
+
+Agents get one line at the end of every tool answer: "Since your last call: 2 UI events — dialog "Delete item?" (closed after 1.2 s), toast "Saved"." The `ui_events` tool reads the details with a cursor.
+
 ## Install and use (feature 008)
 
 Prerequisites: Java 21+, adb (found through `DTA_ADB`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` or `PATH`), an app built with `dta-sidekick` in its debug build.
@@ -103,6 +127,7 @@ dta devices                       # connected devices
 dta apps                          # running apps with DTA inside, and the foreground app
 dta layout --text Pay             # screen tree (View + Compose), filtered
 dta layout --screen shot.png      # the tree plus the screen image it describes, and the windows on screen
+dta ui events                     # dialogs, toasts, snackbars that came and went (the UI journal)
 dta network list --status 4xx     # captured HTTP + WebSocket traffic
 dta network entry <id>            # headers, timing, initiator
 dta network body <id> -o body.bin # a body as text or to a file
