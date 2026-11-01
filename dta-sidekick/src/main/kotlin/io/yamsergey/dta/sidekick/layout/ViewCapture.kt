@@ -153,7 +153,8 @@ class ViewCapture(private val maxDepth: Int = 100) {
         degraded: List<DegradationMarker>?,
     ): ViewNode {
         val loc = IntArray(2).also { view.getLocationOnScreen(it) }
-        val bounds = Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height)
+        val outline = renderOutline(view, loc)
+        val bounds = ScreenBounds.of(loc, view.width, view.height, outline)
         val interactions = buildList {
             if (view.isClickable) add(Interaction.CLICKABLE)
             if (view.isLongClickable) add(Interaction.LONG_CLICKABLE)
@@ -171,7 +172,7 @@ class ViewCapture(private val maxDepth: Int = 100) {
             interactions = interactions,
             enabled = view.isEnabled,
             visibility = if (view.visibility == View.VISIBLE) Visibility.VISIBLE else Visibility.INVISIBLE,
-            renderOutline = renderOutline(view, loc),
+            renderOutline = outline,
             children = children,
             degraded = degraded,
         )
