@@ -96,6 +96,20 @@ object Degradations {
             "The framework did not let DTA read this value on this Android version; the event is recorded without it.",
         Codes.UI_HISTORY_EVICTED to
             "Older events were dropped from the computer's journal to stay within its size; the reader was behind them.",
+        Codes.TIMELINE_REJECTED_CAUSE to
+            "A cause the app declared was not kept: it pointed forwards in time or across a restart of the app.",
+        Codes.TIMELINE_VALUE_CUT to
+            "A value was longer than DTA keeps, so it was cut at the bound.",
+        Codes.TIMELINE_RATE_DROPPED to
+            "The app reported its own events faster than DTA takes them; the excess was dropped and counted.",
+        Codes.TIMELINE_CHAIN_CUT to
+            "The chain of causes stops here: the event is no longer kept, was never reported, or is from an earlier run of the app.",
+        Codes.STATE_FACET_UNAVAILABLE to
+            "A chosen facet has no source that reports it now, so states are grouped without it.",
+        Codes.STATE_WINDOW_PARTIAL to
+            "Older events were dropped from the timeline, so the states and transitions before them are missing.",
+        Codes.STATE_SHORT_MERGED to
+            "States held for less than the chosen minimum were merged into the next state.",
     )
 
     /** The sentence for [code]; null for a code this client does not know. */

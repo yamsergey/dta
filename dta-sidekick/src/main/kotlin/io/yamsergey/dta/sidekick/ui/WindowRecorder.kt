@@ -20,6 +20,9 @@ import io.yamsergey.dta.protocol.ui.WindowRef
 import io.yamsergey.dta.shim.EntryHandler
 import io.yamsergey.dta.shim.ShimReflect
 import io.yamsergey.dta.sidekick.hooks.Hooks
+import io.yamsergey.dta.sidekick.timeline.FacetState
+import io.yamsergey.dta.protocol.timeline.FacetChange
+import io.yamsergey.dta.protocol.timeline.Facets
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
@@ -37,6 +40,8 @@ class WindowRecorder(
     private val isToastView: (View) -> Boolean,
     /** Elements that come and go inside the windows (US4); null when that source is off. */
     private val elements: ElementTracker? = null,
+    /** Where the `ui.windows` facet is kept (016); null in tests that do not look at it. */
+    private val facets: FacetState? = null,
 ) {
     /** One window the recorder follows. */
     inner class Window internal constructor(
@@ -139,7 +144,7 @@ class WindowRecorder(
             secure = secure,
             recreatedFrom = recreated,
         )
-        val event = buffer.append { id, seq ->
+        val event = buffer.append({ windowsFacet(windows.values.map { it.ref } + ref) }) { id, seq ->
             UiEvent(
                 id, seq, now, System.currentTimeMillis(), kind, UiSource.WINDOW,
                 window = ref,
@@ -148,6 +153,7 @@ class WindowRecorder(
                 links = links(System.currentTimeMillis()),
             )
         }
+        attribute(event.id)
         val window = Window(ref, WeakReference(view), event.id, now)
         window.last = summarized
         windows[view] = window
@@ -182,7 +188,7 @@ class WindowRecorder(
             window.settledOnce = true
             val title = WindowKinds.title(window.ref.kind, window.ref.owner, summarized.heading, summarized.firstText) ?: window.ref.title
             window.ref = window.ref.copy(title = title)
-            buffer.append { id, seq ->
+            val settledEvent = buffer.append({ windowsFacet(windows.values.map { it.ref }) }) { id, seq ->
                 UiEvent(
                     id, seq, now, System.currentTimeMillis(), UiEventKind.WINDOW_SETTLED, UiSource.WINDOW,
                     window = window.ref,
@@ -191,6 +197,7 @@ class WindowRecorder(
                     completeness = markers(summarized.summary, window.ref.secure, settled = true, offMain = false),
                 )
             }
+            attribute(settledEvent.id)
         } else {
             window.last?.let { before -> elements?.settled(window.ref, before, summarized, fired.byCap, costMs, now) }
         }
@@ -225,7 +232,7 @@ class WindowRecorder(
             lastActivityGone = owner to window.ref.windowId
             lastActivityGoneAt = now
         }
-        buffer.append { id, seq ->
+        val gone = buffer.append({ windowsFacet(windows.values.map { it.ref }) }) { id, seq ->
             UiEvent(
                 id, seq, now, System.currentTimeMillis(), UiEventKind.WINDOW_DISAPPEARED, UiSource.WINDOW,
                 window = window.ref,
@@ -233,6 +240,18 @@ class WindowRecorder(
                 appearedId = window.appearedId,
             )
         }
+        attribute(gone.id)
+    }
+
+    /** The `ui.windows` change these windows make, bottom first (window ids are in add order). */
+    private fun windowsFacet(open: List<WindowRef>): List<FacetChange> {
+        val state = facets ?: return emptyList()
+        val ordered = open.sortedBy { it.windowId.removePrefix("w").toIntOrNull() ?: Int.MAX_VALUE }
+        return listOfNotNull(state.change(Facets.UI_WINDOWS, WindowsFacet.value(ordered), null))
+    }
+
+    private fun attribute(eventId: String) {
+        facets?.attribute(listOf(Facets.UI_WINDOWS), eventId)
     }
 
     private val costsUs = ArrayDeque<Long>()

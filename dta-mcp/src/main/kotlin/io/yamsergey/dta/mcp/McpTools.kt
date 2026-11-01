@@ -41,20 +41,20 @@ class McpTools(
 
     /**
      * Runs one tool; [session] is the MCP session (null for the stdio server's one client). The
-     * answer ends with what UI came and went since that session's previous call (feature 015).
+     * answer ends with what the app did since that session's previous call (features 015/016).
      */
     suspend fun invoke(toolName: String, arguments: JsonObject, session: String? = null): ToolOutcome {
         unusable()?.let { return ToolOutcome(it, isError = true) }
         val spec = byTool(toolName) ?: return ToolOutcome("Unknown tool '$toolName'. Tools: ${tools.joinToString(", ") { it.toolName }}", true)
         val outcome = runTool(spec, arguments)
-        if (spec.name == "ui.events") return outcome.toolOutcome
-        val line = uiSummary.after(session, outcome.selection ?: selectionOf(arguments))
+        if (spec.name == TimelineSummary.OPERATION) return outcome.toolOutcome
+        val line = summary.after(session, outcome.selection ?: selectionOf(arguments))
         return if (line == null) outcome.toolOutcome else outcome.toolOutcome.copy(text = outcome.toolOutcome.text + "\n\n" + line)
     }
 
     private class Ran(val toolOutcome: ToolOutcome, val selection: Pair<String?, String?>? = null)
 
-    private val uiSummary = UiSummary(call)
+    private val summary = TimelineSummary(call)
 
     private fun selectionOf(arguments: JsonObject): Pair<String?, String?>? {
         val device = (arguments["device"] as? JsonPrimitive)?.content
@@ -69,7 +69,7 @@ class McpTools(
                 selected = s
                 if (spec.name == "layout.tree") ScreenImageBound.split(s.result).let { (r, i) -> s.copy(result = r) to i } else s to null
             }
-            if (spec.name == "ui.events") uiSummary.read(arguments, result.result)
+            if (spec.name == TimelineSummary.OPERATION) summary.read(arguments, result.result)
             val text = bound.apply(spec.name, result)
             if (spec.name == "network.body" && "truncated" in text && arguments["output"] == null) {
                 // A body too large for the response goes to a file instead (contract mcp.md).

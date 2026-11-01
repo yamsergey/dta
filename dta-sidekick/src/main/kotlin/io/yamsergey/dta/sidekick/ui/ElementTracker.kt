@@ -36,7 +36,7 @@ class ElementTracker(
         val capsInARow = if (byCap) (caps[window.windowId] ?: 0) + 1 else 0
         caps[window.windowId] = capsInARow
         record(window, before, after, byCap, nowMono)
-        if (costMs > budgetMs || capsInARow > MAX_CAPS) backOff(wall, if (costMs > budgetMs) "a summary took $costMs ms" else "the window keeps drawing")
+        if (costMs > budgetMs || capsInARow > MAX_CAPS) backOff(wall, nowMono, if (costMs > budgetMs) "a summary took $costMs ms" else "the window keeps drawing")
     }
 
     fun windowGone(windowId: String) {
@@ -82,11 +82,11 @@ class ElementTracker(
     private fun scrolled(key: String, where: Summarized, other: Summarized): Boolean =
         where.scrolledBy[key].orEmpty().any { c -> where.scrolls[c] != other.scrolls[c] }
 
-    private fun backOff(wall: Long, why: String) {
+    private fun backOff(wall: Long, nowMono: Long, why: String) {
         backOffUntil = wall + backOffMs
         buffer.append { id, seq ->
             UiEvent(
-                id, seq, 0, wall, UiEventKind.GAP, UiSource.ELEMENT,
+                id, seq, nowMono, wall, UiEventKind.GAP, UiSource.ELEMENT,
                 gapFromMs = wall, gapToMs = backOffUntil,
                 completeness = listOf(DegradationMarker("ui", "${DegradationCodes.UI_BACKED_OFF}: $why; elements inside windows are not compared for ${backOffMs / 1000} s")),
             )

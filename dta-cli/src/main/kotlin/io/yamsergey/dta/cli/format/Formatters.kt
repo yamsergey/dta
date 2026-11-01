@@ -1,5 +1,7 @@
 package io.yamsergey.dta.cli.format
 
+import io.yamsergey.dta.present.timeline.TimelineEventText
+
 import io.yamsergey.dta.cli.format.Style.Token
 import io.yamsergey.dta.present.StatementKind
 import io.yamsergey.dta.present.Statements
@@ -51,7 +53,11 @@ class Formatters(private val style: Style) {
         "links.entry" -> linkEntry(result.obj.obj("entry") ?: JsonObject(emptyMap()))
         "links.open" -> linkOpen(result.obj)
         "links.verification" -> verification(result.obj)
-        "ui.events" -> uiEvents(result)
+        "timeline.events" -> timelineEvents(result)
+        "timeline.causes" -> TimelineEventText.chain(decode(io.yamsergey.dta.protocol.timeline.CauseChain.serializer(), result))
+        "state.current" -> TimelineEventText.state(decode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), result))
+        "state.graph" -> TimelineEventText.graph(decode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), result))
+        "state.path" -> statePath(decode(io.yamsergey.dta.protocol.timeline.StatePath.serializer(), result))
         "archive.list" -> archiveList(result.obj)
         "archive.delete" -> archiveDelete(result.obj)
         "daemon.status" -> status(result.obj)
@@ -68,32 +74,42 @@ class Formatters(private val style: Style) {
         return line + (dropped ?: "")
     }
 
-    // --- UI journal (feature 015)
+    // --- Timeline and state (features 015/016)
 
-    private fun uiEvents(result: JsonElement): String {
-        val page = io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.ui.UiEventsPage.serializer(), result)
-        val off = page.capability.sources.filter { it.state != io.yamsergey.dta.protocol.ui.SourceState.ON }
-            .map { style.mark(StatementKind.DEGRADED, "${it.source.name.lowercase().replace('_', '-')} not recorded: ${it.reason}") }
-        val lines = page.events.map(::uiLine)
-        val body = lines.ifEmpty { listOf("No UI events.") }
+    private fun <T> decode(serializer: kotlinx.serialization.KSerializer<T>, result: JsonElement): T =
+        io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(serializer, result)
+
+    private fun timelineEvents(result: JsonElement): String {
+        val page = decode(io.yamsergey.dta.protocol.timeline.TimelinePage.serializer(), result)
+        val off = page.sources.filter { it.state != io.yamsergey.dta.protocol.ui.SourceState.ON }
+            .map { style.mark(StatementKind.DEGRADED, "${it.name} ${it.state.name.lowercase()}: ${it.reason ?: "no reason given"}") }
+        val byId = page.events.associateBy { it.id }
+        val lines = page.events.map { timelineLine(it, byId::get) }
+        val body = lines.ifEmpty { listOf("No events.") }
         val more = if (page.more) listOf(style.paint("more: --since ${page.next}", Token.INK_MUTED)) else emptyList()
         return (off + body + more + style.paint("next: ${page.next}", Token.INK_MUTED)).joinToString("\n")
     }
 
-    /** One live event line for `ui watch`. */
-    fun uiEventLine(event: JsonObject): String {
+    /** One live event line for `timeline watch`. */
+    fun timelineEventLine(event: JsonObject): String {
         val e = event["event"] ?: return ""
-        return uiLine(io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.ui.UiEvent.serializer(), e))
+        return timelineLine(decode(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), e)) { null }
     }
 
-    private fun uiLine(e: io.yamsergey.dta.protocol.ui.UiEvent): String {
-        val text = io.yamsergey.dta.present.ui.UiEventText.line(e)
-        val shown = when (e.kind) {
-            io.yamsergey.dta.protocol.ui.UiEventKind.GAP, io.yamsergey.dta.protocol.ui.UiEventKind.PROCESS_ENDED -> style.paint(text, Token.CAVEAT)
-            io.yamsergey.dta.protocol.ui.UiEventKind.WINDOW_SETTLED -> style.paint(text, Token.INK_MUTED)
+    private fun timelineLine(e: io.yamsergey.dta.protocol.timeline.TimelineEvent, lookup: (String) -> io.yamsergey.dta.protocol.timeline.TimelineEvent?): String {
+        val text = TimelineEventText.line(e, lookup)
+        val shown = when {
+            e.source == io.yamsergey.dta.protocol.timeline.Sources.TIMELINE -> style.paint(text, Token.CAVEAT)
+            e.kind == io.yamsergey.dta.protocol.timeline.Kinds.ui("window-settled") -> style.paint(text, Token.INK_MUTED)
             else -> text
         }
-        return style.paint(TIME.format(Instant.ofEpochMilli(e.wallMs)), Token.INK_MUTED) + "  " + shown
+        return style.paint(TIME.format(Instant.ofEpochMilli(e.wallMs)), Token.INK_MUTED) + "  " + style.paint(e.id.padEnd(16), Token.INK_MUTED) + shown
+    }
+
+    private fun statePath(p: io.yamsergey.dta.protocol.timeline.StatePath): String {
+        if (!p.found) return "No observed path from ${p.from} to ${p.to}."
+        if (p.steps.isEmpty()) return "Already there."
+        return p.steps.joinToString("\n") { t -> "${t.from} → ${t.to}  ×${t.count}  trigger ${t.triggers.firstOrNull() ?: "—"}${if (t.noKnownCause) " (no known cause)" else ""}" }
     }
 
     // --- Devices and apps

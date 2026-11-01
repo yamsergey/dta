@@ -103,18 +103,31 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean) =
         io.yamsergey.dta.protocol.network.LinkOpenResult(io.yamsergey.dta.protocol.network.LinkOpenOutcome.NOT_HANDLED, reason = "fake")
     override fun linksVerification(serial: String, pkg: String) = io.yamsergey.dta.protocol.network.AppLinksState(available = true)
-    /** The app's UI journal (feature 015): tests feed it with [uiJournal] `ingest`. */
-    val uiJournal = io.yamsergey.dta.daemon.ui.UiJournal(session = "t1")
-    val uiReads = java.util.concurrent.CopyOnWriteArrayList<String?>()
-    /** When set, `ui.events` fails with it (the summary must never fail a tool). */
-    @Volatile var uiFailure: Exception? = null
-    override suspend fun uiEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.ui.UiEventsPage {
-        uiReads += since
-        uiFailure?.let { throw it }
-        return if (since == "end") uiJournal.page(uiJournal.end(), limit, sinceMs, kinds) else uiJournal.page(since, limit, sinceMs, kinds)
+    /** The app's timeline (features 015/016): tests feed it with [timeline] `ingest`. */
+    val timeline = io.yamsergey.dta.daemon.timeline.Timeline(session = "t1")
+    val timelineReads = java.util.concurrent.CopyOnWriteArrayList<String?>()
+    /** When set, `timeline.events` fails with it (the summary must never fail a tool). */
+    @Volatile var timelineFailure: Exception? = null
+    override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.timeline.TimelinePage {
+        timelineReads += since
+        timelineFailure?.let { throw it }
+        return timeline.page(if (since == "end") timeline.end() else since, limit, sinceMs, sources, kinds)
     }
-    override fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>) =
-        kotlinx.coroutines.flow.flowOf(*uiJournal.page(null, 500).events.toTypedArray())
+    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
+        kotlinx.coroutines.flow.flowOf(*timeline.page(null, 500, null, sources, kinds).events.toTypedArray())
+    override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
+        io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
+    override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)
+    override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph {
+        val events = timeline.currentEpochEvents()
+        val current = timeline.facets.snapshot()
+        return io.yamsergey.dta.daemon.timeline.StateGrouper(
+            events, io.yamsergey.dta.daemon.timeline.StateGrouper.initialValues(events, current),
+            current.map { it.name }.toSet() + events.flatMap { e -> e.facets.map { it.name } },
+        ).graph(facets, minHoldMs)
+    }
+    override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) =
+        io.yamsergey.dta.daemon.timeline.StatePaths(stateGraph(serial, pkg, facets, 0, false)).path(from, to)
     override fun archiveList() = io.yamsergey.dta.protocol.network.ArchiveListing(emptyList(), 0)
     override fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean) =
         io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, io.yamsergey.dta.protocol.network.ArchiveDeleted(0, 0, 0, 0))

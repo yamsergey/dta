@@ -162,16 +162,6 @@ data class UiCapability(
     val summaryBound: Int? = null,
 )
 
-/** One read of the journal (`ui.events`). */
-@Serializable
-data class UiEventsPage(
-    val events: List<UiEvent>,
-    /** Pass as `since` to continue after the last returned event. */
-    val next: String,
-    val more: Boolean = false,
-    val capability: UiCapability = UiCapability(),
-)
-
 /** What summaries cost on the app's main thread so far (SC-003), in microseconds. */
 @Serializable
 data class UiCosts(
@@ -179,16 +169,4 @@ data class UiCosts(
     val medianUs: Long = 0,
     val p95Us: Long = 0,
     val maxUs: Long = 0,
-)
-
-/** The sidekick's answer to `ui.journal.read` (contract). */
-@Serializable
-data class UiJournalRead(
-    val epoch: Long,
-    val events: List<UiEvent>,
-    /** Events lost to the ring since the requested seq. */
-    val dropped: Int = 0,
-    val lastSeq: Long = 0,
-    val capability: UiCapability = UiCapability(),
-    val costs: UiCosts? = null,
 )

@@ -114,8 +114,8 @@ object DaemonEvents {
     /** An app's captured history was cleared, by any client: data `subscription`, `device`, `app`, `cleared` (ClearResult), `by` (client kind). */
     const val NETWORK_CLEARED = "network.cleared"
     const val APP_CONNECTION = "app.connection"
-    /** One UI journal event (feature 015): data `subscription`, `device`, `app`, `event` (UiEvent). */
-    const val UI_EVENT = "ui.event"
+    /** One timeline event (features 015/016): data `subscription`, `device`, `app`, `event` (TimelineEvent). */
+    const val TIMELINE_EVENT = "timeline.event"
     const val REPLACED = "daemon.replaced"
     const val STOPPING = "daemon.stopping"
 }
@@ -137,6 +137,6 @@ object DaemonMethods {
     const val NETWORK_UNSUBSCRIBE = "network.unsubscribe"
     const val APPS_SUBSCRIBE = "apps.subscribe"
     const val APPS_UNSUBSCRIBE = "apps.unsubscribe"
-    const val UI_SUBSCRIBE = "ui.subscribe"
-    const val UI_UNSUBSCRIBE = "ui.unsubscribe"
+    const val TIMELINE_SUBSCRIBE = "timeline.subscribe"
+    const val TIMELINE_UNSUBSCRIBE = "timeline.unsubscribe"
 }

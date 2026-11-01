@@ -82,7 +82,7 @@ object SidekickServer {
                 DtaJson.encodeToJsonElement(LayoutCapture.serializer(), layoutMethod.capture(params))
             }
             DiagnosticMethods.install(this)
-            io.yamsergey.dta.sidekick.ui.UiMethods.install(this)
+            io.yamsergey.dta.sidekick.timeline.TimelineMethods.install(this)
             // Diagnostic: proves JVMTI entry/exit hooks on app and boot classes (feature 004).
             register("hook_selftest") { HookSelfTest.run() }
             NetworkRuntime.store?.let { store ->

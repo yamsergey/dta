@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
  */
 class HostWindowWatch(
     private val pkg: String,
-    private val journal: UiJournal,
+    private val journal: io.yamsergey.dta.daemon.timeline.Timeline,
     private val dumpsys: suspend () -> String,
     private val clock: () -> Long = System::currentTimeMillis,
     val intervalMs: Long = INTERVAL_MS,

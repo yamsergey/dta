@@ -61,9 +61,13 @@ interface DaemonOperations {
     fun linksVerification(serial: String, pkg: String): io.yamsergey.dta.protocol.network.AppLinksState
     /** Replaces one origin's schema set and derived mappings (feature 013). */
     fun networkSchemaSync(pkg: String, origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin, files: Map<String, String>, mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>, notes: List<String>): io.yamsergey.dta.daemon.network.proto.SyncResult
-    /** The app's journal of short-lived UI (feature 015). */
-    suspend fun uiEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.ui.UiEventsPage
-    fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.ui.UiEvent>
+    /** The app's timeline (features 015/016). */
+    suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.timeline.TimelinePage
+    fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.timeline.TimelineEvent>
+    suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain
+    suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState
+    suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph
+    suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath
     /** The host's network archive (feature 011). */
     fun archiveList(): ArchiveListing
     fun archiveDelete(target: DeleteTarget, confirm: Boolean): ArchiveDeletion
@@ -71,8 +75,14 @@ interface DaemonOperations {
 
 /** Adapts [DtaDaemon] (whose methods carry defaults) to [DaemonOperations]. */
 class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
-    override suspend fun uiEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, kinds: Set<String>, limit: Int) = daemon.uiEvents(serial, pkg, since, sinceMs, kinds, limit)
-    override fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>) = daemon.uiWatch(serial, pkg, history, kinds)
+    override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int) =
+        daemon.timelineEvents(serial, pkg, since, sinceMs, sources, kinds, limit)
+    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) = daemon.timelineWatch(serial, pkg, history, sources, kinds)
+    override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
+        daemon.timelineCauses(serial, pkg, event, direction, depth, inferred)
+    override suspend fun stateCurrent(serial: String, pkg: String) = daemon.stateCurrent(serial, pkg)
+    override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean) = daemon.stateGraph(serial, pkg, facets, minHoldMs, inferred)
+    override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) = daemon.statePath(serial, pkg, from, to, facets)
     override fun archiveList() = daemon.archiveList()
     override suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean) = daemon.linksOpen(serial, uri, pkg)
     override fun linksVerification(serial: String, pkg: String) = daemon.linksVerification(serial, pkg)

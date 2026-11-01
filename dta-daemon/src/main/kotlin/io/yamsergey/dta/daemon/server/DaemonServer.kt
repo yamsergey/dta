@@ -151,8 +151,8 @@ class DaemonServer(
                 DaemonMethods.REPLACE -> replace(request)
                 DaemonMethods.NETWORK_SUBSCRIBE -> scope.launch { subscribe(request) }
                 DaemonMethods.APPS_SUBSCRIBE -> scope.launch { subscribeApps(request) }
-                DaemonMethods.UI_SUBSCRIBE -> scope.launch { subscribeUi(request) }
-                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.UI_UNSUBSCRIBE -> {
+                DaemonMethods.TIMELINE_SUBSCRIBE -> scope.launch { subscribeTimeline(request) }
+                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
                     id?.let { networkTargets.remove(it) }
@@ -340,8 +340,8 @@ class DaemonServer(
             }
         }
 
-        /** `ui.watch` (feature 015): the app's UI journal as the host takes it in, optionally the kept events first. */
-        private suspend fun subscribeUi(request: Request) {
+        /** `timeline.watch` (features 015/016): the app's timeline as the host takes it in, optionally the kept events first. */
+        private suspend fun subscribeTimeline(request: Request) {
             val params = request.params ?: JsonObject(emptyMap())
             try {
                 val resolution = selector.resolve(
@@ -352,20 +352,21 @@ class DaemonServer(
                 val serial = resolution.serial!!
                 val pkg = resolution.pkg!!
                 val kinds = (params["kinds"] as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().toSet()
+                val sources = (params["sources"] as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().toSet()
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
                 val id = "s${subscriptionIds.incrementAndGet()}"
-                val events = ops.uiWatch(serial, pkg, history, kinds)
+                val events = ops.timelineWatch(serial, pkg, history, sources, kinds)
                 val job = scope.launch {
                     events.collect { e ->
                         send(
                             Event(
-                                name = DaemonEvents.UI_EVENT,
+                                name = DaemonEvents.TIMELINE_EVENT,
                                 seq = seq.incrementAndGet(),
                                 data = buildJsonObject {
                                     put("subscription", id)
                                     put("device", serial)
                                     put("app", pkg)
-                                    put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.ui.UiEvent.serializer(), e))
+                                    put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), e))
                                 },
                             ),
                         )

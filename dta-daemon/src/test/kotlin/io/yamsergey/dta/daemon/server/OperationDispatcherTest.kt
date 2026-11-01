@@ -116,14 +116,37 @@ class OperationDispatcherTest {
     }
 
     @Test
-    fun `the UI journal is read with a cursor, filters and a limit`() {
-        call("ui.events", buildJsonObject {
+    fun `the timeline is read with a cursor, filters and a limit`() {
+        call("timeline.events", buildJsonObject {
             put("since", "s:3"); put("sinceMs", 5L); put("limit", 20)
-            put("kinds", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("toast")) })
+            put("sources", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("ui")) })
+            put("kinds", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("ui/toast")) })
         })
-        assertEquals(listOf("s:3", 5L, setOf("toast"), 20), fake.lastUi)
-        call("ui.events")
-        assertEquals(listOf(null, null, emptySet<String>(), 100), fake.lastUi)
+        assertEquals(listOf("s:3", 5L, setOf("ui"), setOf("ui/toast"), 20), fake.lastTimeline)
+        call("timeline.events")
+        assertEquals(listOf(null, null, emptySet<String>(), emptySet<String>(), 100), fake.lastTimeline)
+    }
+
+    @Test
+    fun `causes take a direction, depth and inferred, and an unknown event is not found`() {
+        call("timeline.causes", buildJsonObject { put("event", "7:6"); put("direction", "effects"); put("depth", 3); put("inferred", true) })
+        assertEquals(listOf("7:6", io.yamsergey.dta.protocol.timeline.ChainDirection.EFFECTS, 3, true), fake.lastTimeline)
+        call("timeline.causes", buildJsonObject { put("event", "7:6") })
+        assertEquals(listOf("7:6", io.yamsergey.dta.protocol.timeline.ChainDirection.CAUSES, 8, false), fake.lastTimeline)
+        val failure = runCatching { call("timeline.causes", buildJsonObject { put("event", "gone") }) }.exceptionOrNull()
+        assertTrue(failure != null, "not found")
+    }
+
+    @Test
+    fun `state graph takes facets and a minimum hold`() {
+        call("state.graph", buildJsonObject {
+            put("facets", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("app.cart")) })
+            put("minHoldMs", 200L)
+        })
+        assertEquals(listOf(listOf("app.cart"), 200L, false), fake.lastTimeline)
+        call("state.current")
+        call("state.path", buildJsonObject { put("from", "items") })
+        assertTrue("stateCurrent" in fake.calls && "statePath" in fake.calls)
     }
 
     @Test
@@ -200,7 +223,7 @@ class OperationDispatcherTest {
 
     @Test
     fun `every catalog operation except the server's own has a handler`() {
-        val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch", "apps.watch", "ui.watch")
+        val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch", "apps.watch", "timeline.watch")
         assertEquals(Catalog.all.map { it.name }.toSet() - serverOwned, dispatcher.handled)
     }
 }

@@ -41,9 +41,12 @@ object UiEventText {
         return head + shown.joinToString(", ") + if (left > 0) ", and $left more." else "."
     }
 
-    private fun items(events: List<UiEvent>): List<String> {
+    private fun items(events: List<UiEvent>): List<String> = events.mapNotNull { item(it, events) }
+
+    /** One event's item in a summary of [events] (a window's life folds into its appearance), or null. */
+    fun item(e: UiEvent, events: List<UiEvent>): String? {
         val closed = events.filter { it.kind == UiEventKind.WINDOW_DISAPPEARED }.associateBy { it.appearedId }
-        return events.mapNotNull { e ->
+        return run {
             when (e.kind) {
                 UiEventKind.WINDOW_APPEARED, UiEventKind.WINDOW_PRESENT_AT_START, UiEventKind.ELEMENT_APPEARED -> {
                     val what = if (e.window?.app == false) "window not the app's: ${foreignName(e.window)}" else name(e)

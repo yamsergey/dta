@@ -134,13 +134,34 @@ class FakeOperations : DaemonOperations {
     override suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean) =
         io.yamsergey.dta.protocol.network.LinkOpenResult(io.yamsergey.dta.protocol.network.LinkOpenOutcome.NOT_HANDLED, reason = "fake")
     override fun linksVerification(serial: String, pkg: String) = io.yamsergey.dta.protocol.network.AppLinksState(available = true)
-    var lastUi: List<Any?>? = null
-    override suspend fun uiEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.ui.UiEventsPage {
-        calls += "uiEvents"
-        lastUi = listOf(since, sinceMs, kinds, limit)
-        return io.yamsergey.dta.protocol.ui.UiEventsPage(emptyList(), next = "s:0")
+    var lastTimeline: List<Any?>? = null
+    override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.timeline.TimelinePage {
+        calls += "timelineEvents"
+        lastTimeline = listOf(since, sinceMs, sources, kinds, limit)
+        return io.yamsergey.dta.protocol.timeline.TimelinePage(emptyList(), next = "s:0")
     }
-    override fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>) = kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.ui.UiEvent>()
+    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
+        kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.timeline.TimelineEvent>()
+    override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain {
+        calls += "timelineCauses"
+        lastTimeline = listOf(event, direction, depth, inferred)
+        if (event == "gone") throw io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent(event, evicted = true)
+        val root = io.yamsergey.dta.protocol.timeline.TimelineEvent(event, 1, 1, 1, "ui", "ui/toast")
+        return io.yamsergey.dta.protocol.timeline.CauseChain(root, direction, listOf(root), emptyList())
+    }
+    override suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState {
+        calls += "stateCurrent"
+        return io.yamsergey.dta.protocol.timeline.CurrentState(emptyList(), emptyList())
+    }
+    override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph {
+        calls += "stateGraph"
+        lastTimeline = listOf(facets, minHoldMs, inferred)
+        return io.yamsergey.dta.protocol.timeline.StateGraph(facets.orEmpty(), nodes = emptyList(), transitions = emptyList(), window = io.yamsergey.dta.protocol.timeline.GraphWindow(0, 0))
+    }
+    override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath {
+        calls += "statePath"
+        return io.yamsergey.dta.protocol.timeline.StatePath(from, to ?: "", emptyList(), found = false)
+    }
     override fun archiveList() = io.yamsergey.dta.protocol.network.ArchiveListing(emptyList(), 0)
     override fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean) =
         io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, io.yamsergey.dta.protocol.network.ArchiveDeleted(0, 0, 0, 0))

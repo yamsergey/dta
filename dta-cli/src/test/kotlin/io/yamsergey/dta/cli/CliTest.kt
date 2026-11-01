@@ -54,24 +54,38 @@ class CliTest {
         return Cli(runner = runner::run, mcp = { 0 }, out = out, err = err, cwd = cwd).run(arrayOf(*args))
     }
 
-    // --- UI journal (feature 015)
+    // --- Timeline and state (features 015/016)
+
+    private val click = io.yamsergey.dta.protocol.timeline.TimelineEvent(
+        "1:1", 1, 1, 1_793_000_000_001, "input", "input/click",
+        input = io.yamsergey.dta.protocol.timeline.InputPayload(io.yamsergey.dta.protocol.timeline.InputAction.CLICK, text = "Delete", via = "view"),
+    )
+    private val toast = io.yamsergey.dta.protocol.timeline.TimelineEvent(
+        "1:2", 2, 2, 1_793_000_000_002, "ui", "ui/toast",
+        ui = io.yamsergey.dta.protocol.ui.UiEvent("1:2", 2, 2, 1_793_000_000_002, io.yamsergey.dta.protocol.ui.UiEventKind.TOAST, io.yamsergey.dta.protocol.ui.UiSource.TOAST, text = "Saved", durationMs = 2_000),
+        causes = listOf(io.yamsergey.dta.protocol.timeline.CauseLink("1:1", io.yamsergey.dta.protocol.timeline.Basis.EXACT, "issued-during:click")),
+        facets = listOf(io.yamsergey.dta.protocol.timeline.FacetChange("app.cart", "empty", "items")),
+    )
 
     @Test
-    fun `ui events lists the journal one line per event with the next cursor`() {
-        val dialog = io.yamsergey.dta.protocol.ui.WindowRef("w1", io.yamsergey.dta.protocol.ui.WindowKind.DIALOG, title = "Delete item?")
-        fun ev(seq: Long, kind: io.yamsergey.dta.protocol.ui.UiEventKind, source: io.yamsergey.dta.protocol.ui.UiSource, w: io.yamsergey.dta.protocol.ui.WindowRef?) =
-            io.yamsergey.dta.protocol.ui.UiEvent("1:$seq", seq, seq, 1_793_000_000_000 + seq, kind, source, window = w)
-        daemon.ops.uiJournal.ingest(io.yamsergey.dta.protocol.ui.UiJournalRead(1, listOf(
-            ev(1, io.yamsergey.dta.protocol.ui.UiEventKind.WINDOW_APPEARED, io.yamsergey.dta.protocol.ui.UiSource.WINDOW, dialog),
-            ev(2, io.yamsergey.dta.protocol.ui.UiEventKind.WINDOW_DISAPPEARED, io.yamsergey.dta.protocol.ui.UiSource.WINDOW, dialog).copy(durationMs = 1_210),
-            ev(3, io.yamsergey.dta.protocol.ui.UiEventKind.TOAST, io.yamsergey.dta.protocol.ui.UiSource.TOAST, null).copy(text = "Saved", durationMs = 2_000),
-        ), lastSeq = 3))
-        assertEquals(0, dta("ui", "events"), stderr)
+    fun `timeline events lists every source one line per event with causes and the next cursor`() {
+        daemon.ops.timeline.ingest(io.yamsergey.dta.protocol.timeline.TimelineRead(1, listOf(click, toast), lastSeq = 2))
+        assertEquals(0, dta("timeline", "events"), stderr)
         val lines = stdout.trim().lines()
-        assertTrue(lines[0].endsWith("dialog appeared  \"Delete item?\""), stdout)
-        assertTrue(lines[1].endsWith("dialog closed  \"Delete item?\"  after 1.21 s"), stdout)
-        assertTrue(lines[2].endsWith("toast  \"Saved\" (short)"), stdout)
-        assertEquals("next: t1:3", lines.last())
+        assertTrue(lines[0].endsWith("input    click \"Delete\""), stdout)
+        assertTrue(lines[1].endsWith("ui       toast  \"Saved\" (short)  · app.cart items → empty  ← click \"Delete\" (exact)"), stdout)
+        assertEquals("next: t1:2", lines.last())
+    }
+
+    @Test
+    fun `timeline causes prints the chain and state prints the facets`() {
+        daemon.ops.timeline.ingest(io.yamsergey.dta.protocol.timeline.TimelineRead(1, listOf(click, toast), lastSeq = 2))
+        assertEquals(0, dta("timeline", "causes", "1:2"), stderr)
+        assertTrue(stdout.lines()[1].startsWith("  ← exact issued-during:click  1:1  input"), stdout)
+        assertEquals(0, dta("state"), stderr)
+        assertTrue("app.cart = empty" in stdout, stdout)
+        assertEquals(0, dta("state", "graph", "--facets", "app.cart"), stderr)
+        assertTrue("items → empty" in stdout, stdout)
     }
 
     // --- Command tree (T025)

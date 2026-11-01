@@ -57,21 +57,15 @@ class UiModelTest {
     }
 
     @Test
-    fun `a page carries events, the next cursor and the capability`() {
-        val page = UiEventsPage(
-            events = listOf(appeared),
-            next = "s1:8",
-            more = false,
-            capability = UiCapability(
-                sources = listOf(
-                    UiSourceState(UiSource.WINDOW, SourceState.ON),
-                    UiSourceState(UiSource.ELEMENT, SourceState.DEGRADED, "backed off"),
-                ),
-                settleMs = 250, maxWaitMs = 1000, bufferSize = 500, hostBound = 5000,
+    fun `the capability of the ui source round-trips`() {
+        val capability = UiCapability(
+            sources = listOf(
+                UiSourceState(UiSource.WINDOW, SourceState.ON),
+                UiSourceState(UiSource.ELEMENT, SourceState.DEGRADED, "backed off"),
             ),
+            settleMs = 250, maxWaitMs = 1000, bufferSize = 1000, hostBound = 10000,
         )
-        val json = DtaJson.encodeToString(UiEventsPage.serializer(), page)
-        assertEquals(page, DtaJson.decodeFromString(UiEventsPage.serializer(), json))
+        assertEquals(capability, DtaJson.decodeFromString(UiCapability.serializer(), DtaJson.encodeToString(UiCapability.serializer(), capability)))
     }
 
     @Test

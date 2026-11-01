@@ -165,9 +165,18 @@ object Catalog {
         ParamSpec("intervened", ParamType.BOOLEAN, "true: only entries the network script touched; false: only untouched ones."),
     )
 
-    private val UI_KINDS = ParamSpec(
-        "kinds", ParamType.ENUM_LIST, "Event kinds to include.",
-        enumValues = listOf("window", "toast", "element", "screen-window", "gap", "process"),
+    private val TIMELINE_SOURCES = ParamSpec(
+        "sources", ParamType.STRING_LIST,
+        "Sources to include: input, ui, screen, network, nav, app (gaps and process ends always come).",
+    )
+
+    private val TIMELINE_KINDS = ParamSpec(
+        "kinds", ParamType.STRING_LIST, "Kinds to include, e.g. ui/toast, network/request, app/cart.removed.",
+    )
+
+    private val STATE_FACETS = ParamSpec(
+        "facets", ParamType.STRING_LIST,
+        "Facets that make a state, e.g. app.cart,nav.destination. Default: every available facet except nav.args and ui.windows.",
     )
 
     private val PART = ParamSpec(
@@ -361,23 +370,63 @@ object Catalog {
             cliPathOverride = listOf("links", "verification"),
         ),
         OperationSpec(
-            "ui.events",
-            "The app's journal of short-lived UI: windows that appeared and closed (dialogs, popups, bottom sheets), toasts, elements that came and went inside a window, and windows that are not the app's (permission prompts, system dialogs). Pass since (the next cursor of a previous read) to get only what happened after it.",
+            "timeline.events",
+            "Everything the app did, in order, from every source: clicks and back, windows, dialogs and toasts, elements that came and went, network requests, navigation, screen changes and the app's own events. Each event lists its known causes. Pass since (the next cursor of a previous read) to get only what happened after it.",
             Scope.APP,
             listOf(
-                ParamSpec("since", ParamType.STRING, "Cursor: the next value of a previous read. Omit to start from the oldest kept event."),
+                ParamSpec("since", ParamType.STRING, "Cursor: the next value of a previous read; end: only the cursor after everything kept. Omit to start from the oldest kept event."),
                 ParamSpec("sinceMs", ParamType.LONG, "Only events at or after this epoch millisecond (device clock)."),
-                UI_KINDS,
+                TIMELINE_SOURCES,
+                TIMELINE_KINDS,
                 ParamSpec("limit", ParamType.INT, "Page size, 1..500 (default 100)."),
             ),
         ),
         OperationSpec(
-            "ui.watch", "Follow the app's UI journal as it happens, until interrupted. With history=current, the kept events come first.", Scope.APP,
+            "timeline.watch", "Follow the app's timeline as it happens, until interrupted. With history=current, the kept events come first.", Scope.APP,
             listOf(
-                UI_KINDS,
+                TIMELINE_SOURCES,
+                TIMELINE_KINDS,
                 ParamSpec("history", ParamType.ENUM, "current: first the kept events, then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
             ),
             streaming = true, cliOnly = true,
+        ),
+        OperationSpec(
+            "timeline.causes",
+            "Why an event happened, and what it led to. Each link says how it is known: exact (from recorded data, e.g. a request issued while a click was handled), declared (stated by the app), or inferred (from timing and matching data, only with inferred=true). Events without a known cause say so, with how many inferred candidates exist.",
+            Scope.APP,
+            listOf(
+                ParamSpec("event", ParamType.STRING, "An event id from timeline events.", required = true, positional = true),
+                ParamSpec("direction", ParamType.ENUM, "causes (default): back to the roots; effects: forward to what followed from it.", enumValues = listOf("causes", "effects")),
+                ParamSpec("depth", ParamType.INT, "How many links to follow, 1..32 (default 8)."),
+                ParamSpec("inferred", ParamType.BOOLEAN, "Also follow inferred links (timing and matching data); they are marked inferred."),
+            ),
+        ),
+        OperationSpec(
+            "state.current",
+            "What the app is in now: every facet from every source that is on (the screen's structure, open windows, navigation, the app's own facets), with its source and when it changed, and each source's status.",
+            Scope.APP, cliPathOverride = listOf("state"),
+        ),
+        OperationSpec(
+            "state.graph",
+            "The states the app went through in this run and the transitions between them, grouped by the facets you choose (fewer facets give coarser states). Each transition names the events that triggered it and their causes; transitions without a known cause are marked.",
+            Scope.APP,
+            listOf(
+                STATE_FACETS,
+                ParamSpec("minHoldMs", ParamType.LONG, "Merge states held for less than this into the next one (default 0)."),
+                ParamSpec("inferred", ParamType.BOOLEAN, "Give inferred causes to transitions that have no known cause; they are marked inferred."),
+            ),
+            cliPathOverride = listOf("state", "graph"),
+        ),
+        OperationSpec(
+            "state.path",
+            "The shortest path the app was seen to take from one state to another (to the current state by default), with the events on each step.",
+            Scope.APP,
+            listOf(
+                ParamSpec("from", ParamType.STRING, "A state id or label from state graph.", required = true),
+                ParamSpec("to", ParamType.STRING, "A state id or label; the current state when omitted."),
+                STATE_FACETS,
+            ),
+            cliPathOverride = listOf("state", "path"),
         ),
         OperationSpec(
             "archive.list",

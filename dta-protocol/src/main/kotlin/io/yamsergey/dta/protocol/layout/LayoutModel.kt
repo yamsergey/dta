@@ -58,6 +58,15 @@ object DegradationCodes {
     const val UI_NOT_CONNECTED = "ui-not-connected"
     const val UI_FIELD_UNREADABLE = "ui-field-unreadable"
     const val UI_HISTORY_EVICTED = "ui-history-evicted"
+
+    // Feature 016 (timeline, causes and state).
+    const val TIMELINE_REJECTED_CAUSE = "timeline-rejected-cause"
+    const val TIMELINE_VALUE_CUT = "timeline-value-cut"
+    const val TIMELINE_RATE_DROPPED = "timeline-rate-dropped"
+    const val TIMELINE_CHAIN_CUT = "timeline-chain-cut"
+    const val STATE_FACET_UNAVAILABLE = "state-facet-unavailable"
+    const val STATE_WINDOW_PARTIAL = "state-window-partial"
+    const val STATE_SHORT_MERGED = "state-short-merged"
 }
 
 /** How much of the composition a Compose host contributes, ordered by

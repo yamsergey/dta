@@ -24,7 +24,7 @@ class HostWindowWatchTest {
     private var now = 1_000L
     private var dumps = ArrayDeque<String>()
     private var sampled = 0
-    private val journal = UiJournal("s", clock = { now })
+    private val journal = io.yamsergey.dta.daemon.timeline.Timeline("s", clock = { now })
     private val watch = HostWindowWatch(pkg, journal, dumpsys = { sampled++; dumps.removeFirst() }, clock = { now })
 
     @Test
@@ -36,7 +36,7 @@ class HostWindowWatchTest {
         watch.sampleOnce()
         now = 4_500
         watch.sampleOnce()
-        val events = journal.page(null, 10).events
+        val events = journal.page(null, 10).events.map { it.ui!! }
         assertEquals(listOf(UiEventKind.WINDOW_APPEARED, UiEventKind.WINDOW_DISAPPEARED), events.map { it.kind })
         val prompt = events.first()
         assertEquals(UiSource.SCREEN_WINDOW, prompt.source)

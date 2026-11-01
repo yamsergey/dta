@@ -105,11 +105,36 @@ class OperationDispatcher(
             buildJsonObject { put("removed", name); put("brokenMappings", encode(ListSerializer(BodyMapping.serializer()), ops.networkSchemaRemove(c.app, name))) }
         },
         "network.mapping.add" to { c -> encode(BodyMapping.serializer(), ops.networkMappingAdd(c.app, mapping(c))) },
-        "ui.events" to { c ->
+        "timeline.events" to { c ->
             encode(
-                io.yamsergey.dta.protocol.ui.UiEventsPage.serializer(),
-                ops.uiEvents(c.device, c.app, c.string("since"), c.long("sinceMs"), c.strings("kinds").orEmpty().toSet(), c.long("limit")?.toInt() ?: 100),
+                io.yamsergey.dta.protocol.timeline.TimelinePage.serializer(),
+                ops.timelineEvents(
+                    c.device, c.app, c.string("since"), c.long("sinceMs"),
+                    c.strings("sources").orEmpty().toSet(), c.strings("kinds").orEmpty().toSet(), c.long("limit")?.toInt() ?: 100,
+                ),
             )
+        },
+        "timeline.causes" to { c ->
+            val direction = when (c.string("direction")) {
+                null, "causes" -> io.yamsergey.dta.protocol.timeline.ChainDirection.CAUSES
+                "effects" -> io.yamsergey.dta.protocol.timeline.ChainDirection.EFFECTS
+                else -> invalid("direction must be causes or effects")
+            }
+            try {
+                encode(
+                    io.yamsergey.dta.protocol.timeline.CauseChain.serializer(),
+                    ops.timelineCauses(c.device, c.app, c.required("event"), direction, c.long("depth")?.toInt() ?: 8, c.bool("inferred")),
+                )
+            } catch (e: io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent) {
+                notFound("event", e.id)
+            }
+        },
+        "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
+        "state.graph" to { c ->
+            encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")))
+        },
+        "state.path" to { c ->
+            encode(io.yamsergey.dta.protocol.timeline.StatePath.serializer(), ops.statePath(c.device, c.app, c.required("from"), c.string("to"), c.strings("facets")))
         },
         "links.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, linksQuery(c.params))) },
         "links.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },

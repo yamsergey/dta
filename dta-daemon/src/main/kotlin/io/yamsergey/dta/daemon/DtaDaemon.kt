@@ -239,15 +239,15 @@ class DtaDaemon(
     suspend fun networkClear(serial: String, pkg: String): ClearResult =
         networkService(serial, pkg).clear()
 
-    private val uiServices = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.ui.UiService>()
+    private val timelineServices = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.timeline.TimelineService>()
 
-    /** One app's UI journal on the host, followed from its first use for the daemon's life (feature 015). */
-    private fun uiService(serial: String, pkg: String): io.yamsergey.dta.daemon.ui.UiService =
-        uiServices.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
-            val journal = io.yamsergey.dta.daemon.ui.UiJournal(session = "u${System.currentTimeMillis().toString(36)}${uiServices.size}")
-            io.yamsergey.dta.daemon.ui.UiService(
-                journal = journal,
-                windows = io.yamsergey.dta.daemon.ui.HostWindowWatch(pkg, journal, dumpsys = {
+    /** One app's timeline on the host, followed from its first use for the daemon's life (features 015/016). */
+    private fun timelineService(serial: String, pkg: String): io.yamsergey.dta.daemon.timeline.TimelineService =
+        timelineServices.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
+            val timeline = io.yamsergey.dta.daemon.timeline.Timeline(session = "u${System.currentTimeMillis().toString(36)}${timelineServices.size}")
+            io.yamsergey.dta.daemon.timeline.TimelineService(
+                journal = timeline,
+                windows = io.yamsergey.dta.daemon.ui.HostWindowWatch(pkg, timeline, dumpsys = {
                     val r = runAdb(listOf("-s", serial, "shell", "dumpsys", "window", "windows"))
                     check(r.exitCode == 0) { r.stderr.trim() }
                     r.stdout
@@ -258,22 +258,33 @@ class DtaDaemon(
             ).also { it.start(background) }
         }
 
-    /** The app's journal of short-lived UI after [since] (a cursor, or `end`), oldest first. */
-    suspend fun uiEvents(serial: String, pkg: String, since: String? = null, sinceMs: Long? = null, kinds: Set<String> = emptySet(), limit: Int = 100): io.yamsergey.dta.protocol.ui.UiEventsPage =
-        uiService(serial, pkg).page(since, limit.coerceIn(1, 500), sinceMs, kinds)
+    /** The app's timeline after [since] (a cursor, or `end`), oldest first. */
+    suspend fun timelineEvents(
+        serial: String,
+        pkg: String,
+        since: String? = null,
+        sinceMs: Long? = null,
+        sources: Set<String> = emptySet(),
+        kinds: Set<String> = emptySet(),
+        limit: Int = 100,
+    ): io.yamsergey.dta.protocol.timeline.TimelinePage =
+        timelineService(serial, pkg).page(since, limit.coerceIn(1, 500), sinceMs, sources, kinds)
 
-    /** UI events as the host's journal takes them in; with [history] the kept ones first. */
-    fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.ui.UiEvent> = kotlinx.coroutines.flow.flow {
-        val service = uiService(serial, pkg)
-        val first = service.page(null, 500, null, kinds)
+    /** Timeline events as the host takes them in; with [history] the kept ones first. */
+    fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.timeline.TimelineEvent> = kotlinx.coroutines.flow.flow {
+        val service = timelineService(serial, pkg)
+        val first = service.page(null, 500, null, sources, kinds)
         if (history) first.events.forEach { emit(it) }
         var cursor = first.next
-        // Live events are taken from the journal by cursor, so watching never skips or repeats;
+        // Live events are taken from the timeline by cursor, so watching never skips or repeats;
         // windows that are not the app's are sampled for as long as someone watches.
         val lease = background.launch { while (true) { service.windows?.touch(); kotlinx.coroutines.delay(30_000) } }
         try {
-            kotlinx.coroutines.flow.merge(service.events.let { e -> kotlinx.coroutines.flow.flow { e.collect { emit(Unit) } } }, kotlinx.coroutines.flow.flow { while (true) { kotlinx.coroutines.delay(1_000); emit(Unit) } }).collect {
-                val page = service.journal.page(cursor, 500, null, kinds)
+            kotlinx.coroutines.flow.merge(
+                kotlinx.coroutines.flow.flow { service.events.collect { emit(Unit) } },
+                kotlinx.coroutines.flow.flow { while (true) { kotlinx.coroutines.delay(1_000); emit(Unit) } },
+            ).collect {
+                val page = service.journal.page(cursor, 500, null, sources, kinds)
                 page.events.forEach { e -> emit(e) }
                 cursor = page.next
             }
@@ -281,6 +292,50 @@ class DtaDaemon(
             lease.cancel()
         }
     }
+
+    /** Why [event] happened, or what it led to (feature 016). Throws [io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent]. */
+    suspend fun timelineCauses(
+        serial: String,
+        pkg: String,
+        event: String,
+        direction: io.yamsergey.dta.protocol.timeline.ChainDirection = io.yamsergey.dta.protocol.timeline.ChainDirection.CAUSES,
+        depth: Int = io.yamsergey.dta.daemon.timeline.CauseGraph.DEFAULT_DEPTH,
+        inferred: Boolean = false,
+    ): io.yamsergey.dta.protocol.timeline.CauseChain {
+        val service = timelineService(serial, pkg)
+        service.refresh()
+        return io.yamsergey.dta.daemon.timeline.CauseGraph(service.journal.kept()).walk(event, direction, depth, inferred)
+    }
+
+    /** What the app is in now: every facet, and each source's status (feature 016). */
+    suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState {
+        val service = timelineService(serial, pkg)
+        service.refresh()
+        return service.journal.facets.current(service.sources())
+    }
+
+    /** States and transitions of the app's current process, grouped by [facets] (feature 016). */
+    suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long = 0, inferred: Boolean = false): io.yamsergey.dta.protocol.timeline.StateGraph {
+        val service = timelineService(serial, pkg)
+        service.refresh()
+        val timeline = service.journal
+        val events = timeline.currentEpochEvents()
+        val current = timeline.facets.snapshot()
+        val causes = io.yamsergey.dta.daemon.timeline.CauseGraph(events)
+        val available = current.map { it.name }.toSet() + events.flatMap { e -> e.facets.map { it.name } }
+        return io.yamsergey.dta.daemon.timeline.StateGrouper(
+            events,
+            io.yamsergey.dta.daemon.timeline.StateGrouper.initialValues(events, current),
+            available,
+            partial = timeline.currentEpochPartial(),
+            causesOf = { causes.causesOf(it, inferred) },
+            known = causes::hasKnownCause,
+        ).graph(facets?.takeIf { it.isNotEmpty() }, minHoldMs)
+    }
+
+    /** The shortest observed path between two states (feature 016). */
+    suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath =
+        io.yamsergey.dta.daemon.timeline.StatePaths(stateGraph(serial, pkg, facets)).path(from, to)
 
     /** Live entry events; collect for as long as needed. */
     fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> =
