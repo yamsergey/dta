@@ -137,7 +137,8 @@ data class NodeDetail(
     val callChain: List<String>,
     val statements: List<Statement>,
 ) {
-    data class Parameter(val name: String, val value: String, val type: String)
+    /** [note]: `cut` (the value was cut at its bound) or `default` (not passed by the caller), feature 018. */
+    data class Parameter(val name: String, val value: String, val type: String, val note: String? = null)
 
     companion object {
         fun of(tree: LayoutTree, path: List<Int>): NodeDetail? {
@@ -164,13 +165,24 @@ data class NodeDetail(
                 n.str("selected")?.let { add("Selected" to it) }
                 n.str("provenance")?.let { add("Provenance" to it) }
                 if (n.bool("library")) add("Library" to "true")
+                n.long("sameCallAs")?.let { add("Same call as" to "#$it (its parameters are there)") }
+                n.long("defaultParameters")?.let { add("Defaults" to "$it parameters at their defaults, not listed") }
             }
             return NodeDetail(
                 title = node.row.name,
                 breadcrumb = breadcrumb,
                 fields = fields,
                 source = n.str("sourceFile")?.let { f -> n.long("lineNumber")?.let { Source(f, it.toInt()) } },
-                parameters = n.arr("parameters").map { p -> (p as JsonObject).let { Parameter(it.str("name") ?: "", it.str("value") ?: "", it.str("type") ?: "") } },
+                parameters = n.arr("parameters").map { p ->
+                    (p as JsonObject).let {
+                        val note = when {
+                            it.bool("cut") -> "cut"
+                            it.bool("default") -> "default"
+                            else -> null
+                        }
+                        Parameter(it.str("name") ?: "", it.str("value") ?: "", it.str("type") ?: "", note)
+                    }
+                },
                 callChain = n.arr("callChain").map { f -> (f as JsonObject).let { "${it.str("name")}" + (it.str("sourceFile")?.let { s -> " ($s:${it.long("lineNumber") ?: "?"})" } ?: "") } },
                 statements = node.row.statements,
             )

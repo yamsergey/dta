@@ -49,7 +49,7 @@ class NodeDetailPane(
             if (detail.parameters.isNotEmpty()) {
                 add(heading("Parameters"))
                 val p = FormBuilder.createFormBuilder()
-                detail.parameters.forEach { p.addLabeledComponent("${it.name}:", JBLabel("${it.value}  ${it.type}").apply { setCopyable(true); toolTipText = it.type }) }
+                detail.parameters.forEach { p.addLabeledComponent("${it.name}:", JBLabel("${it.value}  ${it.type}" + (it.note?.let { n -> "  ($n)" } ?: "")).apply { setCopyable(true); toolTipText = it.type }) }
                 add(p.panel.left())
             }
             if (detail.callChain.isNotEmpty()) {

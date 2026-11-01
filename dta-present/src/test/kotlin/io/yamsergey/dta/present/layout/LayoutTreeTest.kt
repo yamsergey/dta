@@ -119,6 +119,26 @@ class LayoutTreeTest {
     }
 
     @Test
+    fun `a node of a call names where its parameters are, how many are at defaults, and what was cut`() {
+        val capture = Json.parseToJsonElement(
+            """{"screen":{"widthPx":100,"heightPx":100},"source":"sidekick","windows":[{"type":"application","zOrder":0,"root":
+               {"type":"compose","id":54,"bounds":{"left":0,"top":0,"right":10,"bottom":10},"name":"CenterAlignedTopAppBar",
+                "parameters":[{"name":"title","value":"<lambda>","type":"lambda"},
+                              {"name":"style","value":"TextStyle(color=…","type":"TextStyle","cut":true},
+                              {"name":"colors","value":"<TopAppBarColors>","type":"TopAppBarColors","default":true}],
+                "defaultParameters":3,
+                "children":[{"type":"compose","id":55,"bounds":{"left":0,"top":0,"right":10,"bottom":10},"name":"CenterAlignedTopAppBar","sameCallAs":54}]}}]}""",
+        ).jsonObject
+        val tree = LayoutTree.of(capture)
+        val owner = NodeDetail.of(tree, listOf(0))!!
+        assertTrue(owner.fields.contains("Defaults" to "3 parameters at their defaults, not listed"), "${owner.fields}")
+        assertEquals("cut", owner.parameters.single { it.name == "style" }.note)
+        assertEquals("default", owner.parameters.single { it.name == "colors" }.note)
+        val inner = NodeDetail.of(tree, listOf(0, 0))!!
+        assertTrue(inner.fields.contains("Same call as" to "#54 (its parameters are there)"), "${inner.fields}")
+    }
+
+    @Test
     fun `a view's detail has its class and resource id, no source`() {
         val d = NodeDetail.of(mixed, listOf(0, 0, 0, 0, 0))!!
         assertTrue(d.fields.contains("Class" to "android.widget.TextView"))
