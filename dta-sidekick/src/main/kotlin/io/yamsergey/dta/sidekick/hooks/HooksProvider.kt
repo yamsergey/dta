@@ -20,6 +20,7 @@ class HooksProvider : ContentProvider() {
         try {
             HookAttach.attach(context)
             NetworkRuntime.start(context)
+            io.yamsergey.dta.sidekick.ui.UiRuntime.start(context) { name, data -> io.yamsergey.dta.sidekick.server.SidekickServer.sessions.publish(name, data) }
         } catch (t: Throwable) {
             Log.w("DtaHooks", "hook attach crashed: $t")
         }

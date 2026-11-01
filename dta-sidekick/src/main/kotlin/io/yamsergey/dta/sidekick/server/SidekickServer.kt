@@ -61,6 +61,7 @@ object SidekickServer {
         capabilities.register(LayoutCapability.NAME) { LayoutCapability.status(composePresence) }
 
         capabilities.register(NetworkCapability.NAME) { NetworkRuntime.capability() }
+        capabilities.register(io.yamsergey.dta.sidekick.ui.UiRuntime.NAME) { io.yamsergey.dta.sidekick.ui.UiRuntime.capability() }
         capabilities.register(io.yamsergey.dta.sidekick.links.LinkRecorder.NAME) { io.yamsergey.dta.sidekick.links.LinkRecorder.capability() }
 
         val layoutMethod = LayoutCaptureMethod(
@@ -81,6 +82,7 @@ object SidekickServer {
                 DtaJson.encodeToJsonElement(LayoutCapture.serializer(), layoutMethod.capture(params))
             }
             DiagnosticMethods.install(this)
+            io.yamsergey.dta.sidekick.ui.UiMethods.install(this)
             // Diagnostic: proves JVMTI entry/exit hooks on app and boot classes (feature 004).
             register("hook_selftest") { HookSelfTest.run() }
             NetworkRuntime.store?.let { store ->

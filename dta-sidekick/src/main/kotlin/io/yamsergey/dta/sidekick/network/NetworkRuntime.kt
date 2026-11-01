@@ -54,7 +54,7 @@ object NetworkRuntime {
         val root = File(context.noBackupFilesDir, "dta/network")
         scriptStore = ScriptStore(root)
         val created = NetworkStore(StorageDir(root), pid = Process.myPid())
-        val recorder = NetworkRecorder(created) { name, data -> SidekickServer.sessions.publish(name, data) }
+        val recorder = NetworkRecorder(created, observe = io.yamsergey.dta.sidekick.ui.UiRuntime::observe) { name, data -> SidekickServer.sessions.publish(name, data) }
         store = created
         this.recorder = recorder
         restoreScript()

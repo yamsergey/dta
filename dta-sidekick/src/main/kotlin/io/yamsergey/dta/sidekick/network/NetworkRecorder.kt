@@ -35,6 +35,8 @@ class NetworkRecorder(
     private val store: NetworkStore,
     private val clock: () -> Long = System::currentTimeMillis,
     val bodyBound: Long? = store.bounds.bodyBytes,
+    /** Sees every entry as it is stored (the UI journal's network links, feature 015). */
+    private val observe: (NetworkEntry) -> Unit = {},
     private val publish: (String, JsonElement?) -> Unit,
 ) {
     private companion object {
@@ -322,6 +324,7 @@ class NetworkRecorder(
     private fun put(entry: NetworkEntry) {
         val change = store.upsert(entry)
         try {
+            observe(entry)
             publish(
                 NetworkEntryEvent.NAME,
                 DtaJson.encodeToJsonElement(NetworkEntryEvent.serializer(), NetworkEntryEvent(entry.summary(), change)),
