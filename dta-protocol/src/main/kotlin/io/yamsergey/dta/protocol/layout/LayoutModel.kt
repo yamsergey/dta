@@ -38,6 +38,16 @@ object DegradationCodes {
     // Feature 005.
     const val NETWORK_SCRIPT_UNAVAILABLE = "network-script-unavailable"
     const val NETWORK_SCRIPT_NOT_PERSISTED = "network-script-not-persisted"
+
+    // Feature 014 (data-model §Statements).
+    const val SCREEN_BLOCKED = "screen-blocked"
+    const val SCREEN_NOT_TAKEN = "screen-not-taken"
+    const val SCREEN_LOCKED = "screen-locked"
+    const val SCREEN_OFF = "screen-off"
+    const val SCREEN_CHANGED_DURING_CAPTURE = "screen-changed-during-capture"
+    const val SCREEN_SCALED = "screen-scaled"
+    const val SCREEN_NOT_ALIGNED = "screen-not-aligned"
+    const val SCREEN_DISPLAY_UNKNOWN = "screen-display-unknown"
 }
 
 /** How much of the composition a Compose host contributes, ordered by
@@ -246,4 +256,86 @@ data class LayoutCapture(
     val filtersApplied: Boolean = false,
     val matches: List<Match>? = null,
     val detail: DetailInfo? = null,
+    /** Feature 014: the screen as the host saw it, when asked for. */
+    val screenImage: ScreenImage? = null,
+    /** Feature 014: every window on the display, topmost first, when the screen was asked for. */
+    val screenWindows: List<ScreenWindow>? = null,
+)
+
+@Serializable
+enum class ScreenImageState {
+    @SerialName("present") PRESENT,
+    /** A secure window is visible: the picture would not show the screen. */
+    @SerialName("blocked") BLOCKED,
+    @SerialName("not-taken") NOT_TAKEN,
+}
+
+@Serializable
+enum class AlignmentKind {
+    @SerialName("aligned") ALIGNED,
+    @SerialName("offset") OFFSET,
+    @SerialName("scaled") SCALED,
+    @SerialName("not-aligned") NOT_ALIGNED,
+}
+
+/** How node bounds land on the image: image px = (bounds + (dx, dy)) × scale. */
+@Serializable
+data class Alignment(
+    val kind: AlignmentKind,
+    val dx: Int = 0,
+    val dy: Int = 0,
+    val scale: Float = 1f,
+    val reason: String? = null,
+)
+
+@Serializable
+data class FileRef(val path: String, val sizeBytes: Long, val sha256: String)
+
+/** The screen image taken by the host around the tree (research R1–R3). */
+@Serializable
+data class ScreenImage(
+    val state: ScreenImageState,
+    val widthPx: Int? = null,
+    val heightPx: Int? = null,
+    val displayId: Int? = null,
+    /** 0..3 quarter turns, as the system reports it. */
+    val rotation: Int? = null,
+    val takenAtMs: Long? = null,
+    val alignment: Alignment? = null,
+    val format: String = "png",
+    /** Base64 PNG, inline mode. */
+    val data: String? = null,
+    /** File mode: the PNG was written here instead. */
+    val file: FileRef? = null,
+    /** Downscale applied for a bounded surface (MCP). */
+    val scale: Float? = null,
+    val reason: String? = null,
+)
+
+@Serializable
+enum class ScreenWindowKind {
+    @SerialName("activity") ACTIVITY,
+    @SerialName("dialog") DIALOG,
+    @SerialName("popup") POPUP,
+    @SerialName("toast") TOAST,
+    @SerialName("keyboard") KEYBOARD,
+    @SerialName("system") SYSTEM,
+    @SerialName("other-app") OTHER_APP,
+}
+
+/** One window on the display at the moment of the capture, the app's or not. */
+@Serializable
+data class ScreenWindow(
+    val name: String,
+    val owner: String? = null,
+    val app: Boolean,
+    val kind: ScreenWindowKind,
+    /** The system's window type, verbatim (`BASE_APPLICATION`, `TOAST`, …). */
+    val type: String,
+    val bounds: Rect,
+    val secure: Boolean = false,
+    /** 0 is the topmost. */
+    val zOrder: Int,
+    /** Index into [LayoutCapture.windows] when this window is in the tree. */
+    val treeWindow: Int? = null,
 )

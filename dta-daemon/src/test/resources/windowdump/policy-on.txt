@@ -1,0 +1,57 @@
+WINDOW MANAGER POLICY STATE (dumpsys window policy)
+    mSafeMode=false mSystemReady=true mSystemBooted=true
+    mCameraLensCoverState=CAMERA_LENS_COVER_ABSENT
+    mWakeGestureEnabledSetting=true
+    mUiMode=UI_MODE_TYPE_NORMALmEnableCarDockHomeCapture=false
+    mLidKeyboardAccessibility=0 mLidNavigationAccessibility=0 getLidBehavior=LID_BEHAVIOR_NONE
+    mLongPressOnBackBehavior=LONG_PRESS_BACK_NOTHING
+    mLongPressOnHomeBehavior=LONG_PRESS_HOME_ASSIST
+    mDoubleTapOnHomeBehavior=DOUBLE_TAP_HOME_NOTHING
+    mShortPressOnPowerBehavior=SHORT_PRESS_POWER_GO_TO_SLEEP
+    mLongPressOnPowerBehavior=LONG_PRESS_POWER_ASSISTANT
+    mLongPressOnPowerAssistantTimeoutMs=500
+    mVeryLongPressOnPowerBehavior=VERY_LONG_PRESS_POWER_NOTHING
+    mDoublePressOnPowerBehavior=MULTI_PRESS_POWER_NOTHING
+    mTriplePressOnPowerBehavior=MULTI_PRESS_POWER_NOTHING
+    mSupportShortPressPowerWhenDefaultDisplayOn=false
+        mShortPressOnSleepBehavior=SHORT_PRESS_SLEEP_GO_TO_SLEEP
+    mShortPressOnWindowBehavior=SHORT_PRESS_WINDOW_PICTURE_IN_PICTURE
+    mShortPressOnStemPrimaryBehavior=SHORT_PRESS_PRIMARY_NOTHING
+    mDoublePressOnStemPrimaryBehavior=DOUBLE_PRESS_PRIMARY_NOTHING
+    mTriplePressOnStemPrimaryBehavior=TRIPLE_PRESS_PRIMARY_NOTHING
+    mLongPressOnStemPrimaryBehavior=LONG_PRESS_PRIMARY_NOTHING
+    mAllowStartActivityForLongPressOnPowerDuringSetup=false
+    mHasSoftInput=true
+    mDismissImeOnBackKeyPressed=false mIncallPowerBehavior=sleep
+    mIncallBackBehavior=<nothing> mEndcallBehavior=sleep
+    mDisplayHomeButtonHandlers=
+    mKeyguardOccluded=false mPendingKeyguardOccluded=false
+    mAllowLockscreenWhenOnDisplays=false mLockScreenTimeout=2147483647 mLockNowPosted=false mInactivityTimeoutPosted=false
+    mKidsModeEnabled=false
+    mKeyMapping.size=0
+    SingleKey rules:
+      KeyCode=KEYCODE_POWER, LongPress=true, VeryLongPress=false, MaxMultiPressCount=1
+      KeyCode=KEYCODE_STYLUS_BUTTON_TAIL, LongPress=false, VeryLongPress=false, MaxMultiPressCount=2
+    Deferred key action executor:
+      empty
+    WakeGestureListener
+      mTriggerRequested=false
+      mSensor=null
+    KeyguardServiceDelegate
+      showing=false
+      inputRestricted=false
+      occluded=false
+      trusted=false
+      simSecure=false
+      dreaming=false
+      systemReady=true
+      deviceHasKeyguard=true
+      enabled=true
+      userId=0
+      bootCompleted=true
+      screenState=SCREEN_STATE_ON
+      interactiveState=INTERACTIVE_STATE_AWAKE
+    Looper state:
+      Looper (android.ui, tid 22) {112bfd1}
+        (MessageQueue is using DeliQueue implementation)
+        (Total messages: 0, polling=true, quitting=false)

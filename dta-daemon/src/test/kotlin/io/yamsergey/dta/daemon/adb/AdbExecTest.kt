@@ -64,4 +64,17 @@ class AdbExecTest {
         }
         assertTrue("sleep" in e.message!!)
     }
+
+    @Test
+    fun `binary stdout comes back byte for byte`() {
+        val result = AdbExec(binaryPath = "/bin/sh").runBytes("-c", "printf '\\211PNG\\r\\n\\000\\377'; echo note >&2")
+        assertEquals(0, result.exitCode)
+        assertEquals(listOf(0x89, 'P'.code, 'N'.code, 'G'.code, 0x0d, 0x0a, 0x00, 0xff), result.stdout.map { it.toInt() and 0xff })
+        assertEquals("note", result.stderr.trim())
+    }
+
+    @Test
+    fun `binary command exceeding its timeout fails fast`() {
+        assertFailsWith<AdbTimeoutException> { AdbExec(binaryPath = "/bin/sleep").runBytes("5", timeout = 200.milliseconds) }
+    }
 }

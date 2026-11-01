@@ -37,6 +37,28 @@ class AdbExec(
         return Result(process.exitValue(), stdout.toString(), stderr.toString())
     }
 
+    class BytesResult(val exitCode: Int, val stdout: ByteArray, val stderr: String)
+
+    /** [run] for commands whose stdout is binary (`exec-out screencap -p`, feature 014). */
+    fun runBytes(vararg args: String, timeout: Duration = defaultTimeout): BytesResult {
+        val command = listOf(binaryPath) + args
+        val process = ProcessBuilder(command).start()
+
+        val stdout = java.io.ByteArrayOutputStream()
+        val stderr = StringBuilder()
+        val outReader = thread(isDaemon = true) { runCatching { process.inputStream.copyTo(stdout) } }
+        val errReader = thread(isDaemon = true) { process.errorStream.reader().copyTo(stderr) }
+
+        val finished = process.waitFor(timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            throw AdbTimeoutException("Timed out after $timeout: ${command.joinToString(" ")}")
+        }
+        outReader.join(5_000)
+        errReader.join(1_000)
+        return BytesResult(process.exitValue(), synchronized(stdout) { stdout.toByteArray() }, stderr.toString())
+    }
+
     private fun java.io.Reader.copyTo(target: StringBuilder) {
         try {
             forEachLine { target.appendLine(it) }
