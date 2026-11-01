@@ -46,7 +46,12 @@ class InputRecorder(
         hook("Activity#onBackPressed exit", Hooks.exit(Activity::class.java, "onBackPressed", "()V", ExitHandler { r -> guard { closeBack() }; r }))
     }
 
+    /** Why Compose clicks are not recorded, when they are not (set by the Compose recorder). */
+    @Volatile
+    var composeFailure: String? = null
+
     fun status(): SourceStatus {
+        composeFailure?.let { failures["Compose"] = it }
         val clicks = failures.filterKeys { it.startsWith("View") }
         return when {
             clicks.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.OFF, clicks.entries.joinToString("; ") { "${it.key}: ${it.value}" })
@@ -106,6 +111,6 @@ class InputRecorder(
     private companion object {
         const val DISPATCHER = "androidx.activity.OnBackPressedDispatcher"
         const val NAVIGATION_EVENT_INPUT = "androidx.navigationevent.NavigationEventInput"
-        const val DETAIL = "clicks on Views and back; work moved to another thread is not linked exactly unless the app declares it"
+        const val DETAIL = "clicks on Views and composables, and back; work moved to another thread is not linked exactly unless the app declares it"
     }
 }

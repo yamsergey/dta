@@ -75,6 +75,11 @@ object TimelineSources {
         try {
             val input = InputRecorder(buffer, scope) { root -> UiRuntime.windowIdOf(root) }
             input.install(context.classLoader)
+            if (io.yamsergey.dta.sidekick.layout.compose.ComposePresence().composePresent) {
+                val compose = io.yamsergey.dta.sidekick.input.ComposeClickRecorder(buffer, scope) { root -> UiRuntime.windowIdOf(root) }
+                compose.install(context.classLoader)
+                input.composeFailure = compose.failure
+            }
             TimelineRuntime.register(Sources.INPUT, input::status)
         } catch (t: Throwable) {
             Log.w(TAG, "input not recorded: $t")
