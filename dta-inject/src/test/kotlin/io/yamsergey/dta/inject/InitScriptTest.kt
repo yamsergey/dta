@@ -25,6 +25,13 @@ class InitScriptTest {
     }
 
     @Test
+    fun `a snapshot built on this machine wins over the published one - mavenLocal first`() {
+        for (block in listOf(snapshot.substringAfter("beforeSettings").substringBefore("allprojects"), snapshot.substringAfter("def dtaSnapshotRepositories"))) {
+            assertTrue(block.indexOf("mavenLocal()") in 0 until block.indexOf("maven-snapshots"), block)
+        }
+    }
+
+    @Test
     fun `a snapshot adds project-level repositories only to a project that declares its own`() {
         // In PREFER_PROJECT mode a project that declares any repository ignores the settings'
         // ones: adding ours to a project with none would hide google() and mavenCentral() from it.

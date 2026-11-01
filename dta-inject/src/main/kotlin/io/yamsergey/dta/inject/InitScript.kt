@@ -18,9 +18,10 @@ package io.yamsergey.dta.inject
 object InitScript {
 
     fun render(config: InjectionConfig): String {
+        // A snapshot built on this machine (publishToMavenLocal) wins over the published one.
         val snapshotSettingsRepos = if (config.snapshot) """
-                    maven { url = '$SNAPSHOT_REPOSITORY' }
-                    mavenLocal()""" else ""
+                    mavenLocal()
+                    maven { url = '$SNAPSHOT_REPOSITORY' }""" else ""
         val snapshotProjectSetup = if (config.snapshot) """
         dtaSnapshotRepositories(project)""" else ""
         val snapshotProbe = if (config.snapshot) """
@@ -41,8 +42,8 @@ def dtaSnapshotRepositories(Project project) {
         // Gradle without repositoriesMode: projects may declare repositories.
     }
     if (needed && !project.repositories.isEmpty()) {
-        project.repositories.maven { url = '$SNAPSHOT_REPOSITORY' }
         project.repositories.mavenLocal()
+        project.repositories.maven { url = '$SNAPSHOT_REPOSITORY' }
     }
     // A new snapshot is picked up on the next build, without clearing caches.
     project.configurations.configureEach { it.resolutionStrategy.cacheChangingModulesFor(0, 'seconds') }
