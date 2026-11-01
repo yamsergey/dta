@@ -304,7 +304,23 @@ class DtaDaemon(
     ): io.yamsergey.dta.protocol.timeline.CauseChain {
         val service = timelineService(serial, pkg)
         service.refresh()
-        return io.yamsergey.dta.daemon.timeline.CauseGraph(service.journal.kept()).walk(event, direction, depth, inferred)
+        val events = service.journal.kept()
+        return causeGraph(serial, pkg, events, inferred).walk(event, direction, depth, inferred)
+    }
+
+    /** The cause graph over [events]; with [inferred], recent response bodies are read for the text rule. */
+    private suspend fun causeGraph(serial: String, pkg: String, events: List<io.yamsergey.dta.protocol.timeline.TimelineEvent>, inferred: Boolean): io.yamsergey.dta.daemon.timeline.CauseGraph {
+        if (!inferred) return io.yamsergey.dta.daemon.timeline.CauseGraph(events)
+        val ids = events.filter { it.kind == io.yamsergey.dta.protocol.timeline.Kinds.NETWORK_RESPONSE }
+            .takeLast(io.yamsergey.dta.daemon.timeline.InferredRules.RECENT_RESPONSES)
+            .mapNotNull { it.network?.entryId }.distinct()
+        val bodies = ids.mapNotNull { id ->
+            runCatching {
+                networkService(serial, pkg).body(id, io.yamsergey.dta.protocol.network.BodyPart.RESPONSE, redact = true).text
+                    ?.takeIf { it.length <= MAX_MATCHED_BODY }?.let { id to it }
+            }.getOrNull()
+        }.toMap()
+        return io.yamsergey.dta.daemon.timeline.CauseGraph(events, io.yamsergey.dta.daemon.timeline.InferredRules(events, body = bodies::get))
     }
 
     /** What the app is in now: every facet, and each source's status (feature 016). */
@@ -321,7 +337,7 @@ class DtaDaemon(
         val timeline = service.journal
         val events = timeline.currentEpochEvents()
         val current = timeline.facets.snapshot()
-        val causes = io.yamsergey.dta.daemon.timeline.CauseGraph(events)
+        val causes = causeGraph(serial, pkg, events, inferred)
         val available = current.map { it.name }.toSet() + events.flatMap { e -> e.facets.map { it.name } }
         return io.yamsergey.dta.daemon.timeline.StateGrouper(
             events,
@@ -493,6 +509,9 @@ class DtaDaemon(
     fun openConnections(): List<ConnectionKey> = connections.openKeys()
 
     companion object {
+        /** Larger response bodies are not searched for a shown text (feature 016, inferred `text-match`). */
+        private const val MAX_MATCHED_BODY = 64 * 1024
+
         /** A daemon whose device operations fail with [reason] (adb not found); everything else works. */
         fun withoutAdb(reason: String, dataDir: java.io.File): DtaDaemon =
             DtaDaemon({ throw AdbUnavailableException(reason) }, null, dataDir = dataDir, adbUnavailableReason = reason)
