@@ -46,13 +46,16 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - Bounds are in screen pixels: the same coordinates `adb shell input tap` uses. A rotated or scaled view's bounds are its box on the screen; `renderOutline` has its four corners.
 - `screen: true` adds the screen image taken with the tree (one image item) and `screenWindows`: every window on screen, the app's or not (`kind`: toast, keyboard, system, other-app…). A toast or a system dialog is on the picture but not in the app's tree; `screenWindows` names it. `screenOutput: <file>` writes the PNG instead. Read the statements: `screen-changed-during-capture` (the picture and the tree may differ in the area it names), `screen-blocked` (a secure window, no picture), `screen-locked`, `screen-not-aligned`, `screen-scaled` (multiply bounds by `screenImage.scale`). Ask for the screen only when you need to see it; the tree alone is cheaper.
 
-## Short-lived UI
+## Timeline, causes and state
 
-- Every tool answer may end with "Since your last call: N UI events — …": dialogs, toasts, snackbars, permission prompts that appeared (and closed) since your previous call. Read it before deciding what happened after a tap.
-- `ui_events` gives the details: window kind, title, texts, buttons, lifetime, the network requests around it. Pass `since` (the `next` of the previous read) to get only newer events; `kinds` narrows to `window`, `toast`, `element`, `screen-window` (not the app's), `gap`, `process`.
-- Use it instead of re-reading the layout to catch a toast or a dialog that closed itself. The journal records structure and text, never pictures.
-- A `gap` event means some events were lost there (the app's buffer, a busy window, a reader too far behind). `process-ended` marks a crash or kill; what came before it is kept.
-- Windows that are not the app's are sampled every 500 ms while the journal is read; shorter ones may be missed.
+- Every tool answer may end with "Since your last call: N events — …": clicks, dialogs, toasts, requests, navigation, the app's own events since your previous call. Read it before deciding what happened after a tap.
+- `timeline_events` gives the details, oldest first, from every source: `input` (clicks, back), `ui` (windows, toasts, snackbars, permission prompts — structure and text, never pictures), `screen`, `network`, `nav`, `app`. Pass `since` (the `next` of the previous read) for newer events only; `sources` and `kinds` (e.g. `ui/toast`, `network/request`) narrow it.
+- Each event lists its known `causes`, each with a `basis`: `exact` (recorded data: issued while a click or back was handled, a response to its request, a window's closing to its opening), `declared` (the app said so). Neighbouring events are never linked silently.
+- `timeline_causes` walks the chain from an event back to its roots, or forward with `direction: effects`. An event without a known cause says so and how many inferred candidates exist; ask with `inferred: true` to get them, marked `inferred`, with the rule (`after-response`, `while-in-flight`, `text-match`). Treat inferred links as leads, not facts.
+- `state_current`: what the app is in now — every facet (`ui.windows`, `screen.fingerprint`, `nav.destination`, `app.*`…) with its source and when it changed, and each source's status (on, off or degraded, with why). A stale facet says why (the process ended, its source went off).
+- `state_graph` groups this run into states by the `facets` you choose (fewer facets, coarser states) with transitions, their triggers and causes; transitions without a known cause are marked. `state_path` gives the shortest path the app was seen to take to a state.
+- A gap event (`timeline/gap`) means events were lost there; `timeline/process-ended` marks a crash or kill — what came before it is kept, and no link crosses it.
+- Windows that are not the app's are sampled every 500 ms while the timeline is read; shorter ones may be missed. Work the app moves to another thread has no exact cause unless the app declares one with `dta-state`.
 
 ## Network
 

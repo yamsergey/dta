@@ -20,6 +20,7 @@ prototype lives on the `pre-refined` branch.
 | `dta-inject` | The Gradle init script that adds `dta-sidekick` to every debuggable build type of each Android application module (and Compose's tooling data where a Compose app lacks it), and its report (injected, project-provided, unresolved, unsupported, off; variants and application ids). In run mode it also selects the module and variant for `dta run`. Used by the plugin and by `dta run`. |
 | `dta-run` | `dta run` (feature 010): one session — resolve the device through the daemon, build and install with DTA injected in one Gradle invocation, launch, wait for the daemon to report the app connected — used by the CLI, the MCP tool `app_run` and the plugin's agent server. |
 | `dta-studio` | The Android Studio plugin (feature 009): the DTA tool window (Network, Layout, Script, Schemas, Daemon, Agents), DTA injection into debug builds run from the IDE, and the agent server over HTTP. Ships the daemon in its `daemon/` directory, so it works without the CLI. |
+| `dta-state`, `dta-state-noop` | The app's own source of the timeline (feature 016): `DtaState.facet/event/cause/during`, ending in a bridge the sidekick hooks; without the sidekick a call is one flag read. `dta-state-noop` is the same API with empty bodies, for release builds. Plain JVM, Java 11, no dependency on DTA. |
 | `dta-sidekick-shim` | Pure-Java hook dispatcher, dexed into the AAR's assets and put on the bootstrap class path by the agent, so boot classes (`java.net.URL`) can call it. Its `onEntry`/`onExit` signatures are a frozen ABI. |
 
 ## Android Studio plugin (feature 009)
@@ -102,15 +103,60 @@ Dialogs, popups, bottom sheets, toasts, snackbars and inline errors often go bef
   - a whole new screen.
 - **Windows that are not the app's:** permission prompts, system and crash dialogs, the keyboard, other apps on top. The computer reads them from the device's window list every 500 ms while someone reads the journal, so a shorter window can be missed.
 - **Links to network traffic:** each appearance names the requests in flight, or finished within the last 2 s, related by time only.
-- **History:** the computer keeps the journal per app: 5 000 events, including what led up to a crash and the end of the process.
+- **History:** the journal is the `ui` source of the timeline (feature 016), kept per app on the computer, including what led up to a crash and the end of the process.
 - **Gaps:** losses are stated in place. These include the app's buffer overflowing, a busy window being skipped for 5 s, and old events dropped on the computer.
 
 ```
-dta ui events                     # the journal, one line per event; --since <next> continues
-dta ui watch                      # follow it live; --history current: the kept events first
+dta timeline events --sources ui  # the journal, one line per event; --since <next> continues
+dta timeline watch --sources ui   # follow it live; --history current: the kept events first
 ```
 
-Agents get one line at the end of every tool answer: "Since your last call: 2 UI events — dialog "Delete item?" (closed after 1.2 s), toast "Saved"." The `ui_events` tool reads the details with a cursor.
+## Timeline, causes and state (feature 016)
+
+Everything the app does goes into one timeline per app run, from every source:
+
+| Source | What it reports |
+|---|---|
+| `input` | clicks on Views and composables, back — observed, never generated |
+| `ui` | the journal above; facet `ui.windows` (the app's open windows) |
+| `screen` | facet `screen.fingerprint`: the screen's structure without its data (a list of 2 and of 3 is the same screen) |
+| `network` | each HTTP request and its response or failure; bodies stay in `network entry` |
+| `nav` | AndroidX Navigation and Navigation 3: facets `nav.destination`, `nav.args`, `nav.key`; navigate and back |
+| `app` | the app's own facets, events and causes, through `dta-state` |
+
+Each link between two events says how it is known:
+
+- **exact** — from recorded data. What runs while a click or back is handled (a request issued, a dialog opened, a navigation) is caused by it; a response by its request; a window's closing by its opening.
+- **declared** — the app said so, through `dta-state`.
+- **inferred** — from timing and matching data (shown within 300 ms after a response; open while a request was in flight; a shown text found in a response body). Only when asked for, always marked.
+
+An event with neither exact nor declared cause says "no known cause", with how many inferred candidates exist. Work the app moves to another thread has no exact link unless the app declares it.
+
+A **state** is the values of the facets you choose; choosing fewer facets gives coarser states. No source is special: navigation is one facet among others.
+
+```
+dta timeline events               # every source; --sources network,app --kinds ui/toast
+dta timeline causes <id>          # why it happened; --effects: what it led to; --inferred
+dta state                         # every facet now, by source, and each source's status
+dta state graph --facets app.cart,nav.destination   # states, transitions, their triggers and causes
+dta state path --from items       # the shortest path the app was seen to take to the current state
+```
+
+Agents get one line at the end of every tool answer: "Since your last call: 4 events — click delete_button "Delete", DELETE /items/42 → 200 in 408 ms, toast "Deleted", app.cart items → empty." The tools `timeline_events`, `timeline_causes`, `state_current`, `state_graph` and `state_path` give the details.
+
+### The app's own source: `dta-state`
+
+```kotlin
+debugImplementation("io.github.yamsergey:dta-state:<version>")
+releaseImplementation("io.github.yamsergey:dta-state-noop:<version>")   // the same API, empty
+
+DtaState.facet("cart", if (items.isEmpty()) "empty" else "items")       // what the app is in
+val removed = DtaState.event("cart.removed", "id" to id)                 // what happened
+DtaState.event("cart.synced", causedBy = removed)                        // a cause only the app knows
+DtaState.during(removed) { scope.launch(Dispatchers.IO) { sync() } }     // what starts here is caused by it
+```
+
+Without the sidekick in the process every call returns at once (one flag read); DTA gets only the short strings passed, never the app's objects. At most 200 events a second; more is dropped and stated as a gap.
 
 ## Install and use (feature 008)
 
@@ -127,7 +173,8 @@ dta devices                       # connected devices
 dta apps                          # running apps with DTA inside, and the foreground app
 dta layout --text Pay             # screen tree (View + Compose), filtered
 dta layout --screen shot.png      # the tree plus the screen image it describes, and the windows on screen
-dta ui events                     # dialogs, toasts, snackbars that came and went (the UI journal)
+dta timeline events               # clicks, windows, toasts, requests, navigation, the app's events — with causes
+dta state                         # what the app is in now: every facet, by source
 dta network list --status 4xx     # captured HTTP + WebSocket traffic
 dta network entry <id>            # headers, timing, initiator
 dta network body <id> -o body.bin # a body as text or to a file
