@@ -244,8 +244,14 @@ class DtaDaemon(
     /** One app's UI journal on the host, followed from its first use for the daemon's life (feature 015). */
     private fun uiService(serial: String, pkg: String): io.yamsergey.dta.daemon.ui.UiService =
         uiServices.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
+            val journal = io.yamsergey.dta.daemon.ui.UiJournal(session = "u${System.currentTimeMillis().toString(36)}${uiServices.size}")
             io.yamsergey.dta.daemon.ui.UiService(
-                journal = io.yamsergey.dta.daemon.ui.UiJournal(session = "u${System.currentTimeMillis().toString(36)}${uiServices.size}"),
+                journal = journal,
+                windows = io.yamsergey.dta.daemon.ui.HostWindowWatch(pkg, journal, dumpsys = {
+                    val r = runAdb(listOf("-s", serial, "shell", "dumpsys", "window", "windows"))
+                    check(r.exitCode == 0) { r.stderr.trim() }
+                    r.stdout
+                }),
                 held = { connections.held(key) },
                 connect = { connections.connect(key) },
                 running = { discovery.listInstances().any { it.serial == key.serial && it.packageName == key.packageName } },
@@ -262,11 +268,17 @@ class DtaDaemon(
         val first = service.page(null, 500, null, kinds)
         if (history) first.events.forEach { emit(it) }
         var cursor = first.next
-        // Live events are taken from the journal by cursor, so watching never skips or repeats.
-        service.events.collect {
-            val page = service.journal.page(cursor, 500, null, kinds)
-            page.events.forEach { e -> emit(e) }
-            cursor = page.next
+        // Live events are taken from the journal by cursor, so watching never skips or repeats;
+        // windows that are not the app's are sampled for as long as someone watches.
+        val lease = background.launch { while (true) { service.windows?.touch(); kotlinx.coroutines.delay(30_000) } }
+        try {
+            kotlinx.coroutines.flow.merge(service.events.let { e -> kotlinx.coroutines.flow.flow { e.collect { emit(Unit) } } }, kotlinx.coroutines.flow.flow { while (true) { kotlinx.coroutines.delay(1_000); emit(Unit) } }).collect {
+                val page = service.journal.page(cursor, 500, null, kinds)
+                page.events.forEach { e -> emit(e) }
+                cursor = page.next
+            }
+        } finally {
+            lease.cancel()
         }
     }
 

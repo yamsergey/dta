@@ -30,20 +30,29 @@ class UiService(
     private val held: suspend () -> AppConnection?,
     private val connect: suspend () -> AppConnection,
     private val running: suspend () -> Boolean,
+    /** Windows that are not the app's (US5); null when the host cannot sample them. */
+    val windows: HostWindowWatch? = null,
 ) {
     private val catchUpLock = Mutex()
+    /** A reader just connected to the app: the follower subscribes now instead of at its next look. */
+    private val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     private val live = MutableSharedFlow<UiEvent>(extraBufferCapacity = 1_000)
 
     /** Events as the journal takes them in, for `ui.watch`. */
     val events: Flow<UiEvent> = live.asSharedFlow()
 
-    fun start(scope: CoroutineScope) = scope.launch {
+    fun start(scope: CoroutineScope) {
+        windows?.start(scope)
+        follow(scope)
+    }
+
+    private fun follow(scope: CoroutineScope) = scope.launch {
         while (isActive) {
             val app = held()
             if (app == null || !app.isOpen) {
                 journal.connectionLost()
                 if (!runCatching { running() }.getOrDefault(true)) journal.processEnded()
-                delay(1_000)
+                kotlinx.coroutines.withTimeoutOrNull(1_000) { wake.receive() }
                 continue
             }
             val follow = launch {
@@ -63,8 +72,25 @@ class UiService(
 
     /** The page a reader asked for, after catching up with the app when it can be reached. */
     suspend fun page(since: String?, limit: Int, sinceMs: Long?, kinds: Set<String>): UiEventsPage {
+        windows?.touch()
+        return withHostSources(read(since, limit, sinceMs, kinds))
+    }
+
+    /** The app's sources plus the host's own (US5). */
+    private fun withHostSources(page: UiEventsPage): UiEventsPage {
+        val state = if (windows == null) {
+            io.yamsergey.dta.protocol.ui.UiSourceState(io.yamsergey.dta.protocol.ui.UiSource.SCREEN_WINDOW, io.yamsergey.dta.protocol.ui.SourceState.OFF, "the host cannot read the device's window list")
+        } else {
+            io.yamsergey.dta.protocol.ui.UiSourceState(io.yamsergey.dta.protocol.ui.UiSource.SCREEN_WINDOW, io.yamsergey.dta.protocol.ui.SourceState.ON, "sampled every ${windows.intervalMs} ms while the journal is read; shorter windows may be missed")
+        }
+        val c = page.capability
+        return page.copy(capability = c.copy(sources = c.sources + state, samplingMs = windows?.intervalMs, hostBound = UiJournal.BOUND))
+    }
+
+    private suspend fun read(since: String?, limit: Int, sinceMs: Long?, kinds: Set<String>): UiEventsPage {
         val app = held() ?: runCatching { connect() }.getOrNull()
         if (app != null && app.isOpen) {
+            wake.trySend(Unit)
             runCatching { catchUp(app) }
         } else {
             // Not reachable: if the process is gone, the reader learns it now, not on the next poll.

@@ -85,6 +85,15 @@ class UiJournal(
         appendEnd(lostAt ?: clock())
     }
 
+    /** A window that is not the app's, seen by the host (US5); returns the event's id. */
+    @Synchronized
+    fun hostWindow(appeared: Boolean, window: io.yamsergey.dta.protocol.ui.WindowRef, at: Long, durationMs: Long?, appearedId: String?): String {
+        val event = synthetic(if (appeared) UiEventKind.WINDOW_APPEARED else UiEventKind.WINDOW_DISAPPEARED, at, null)
+            .copy(source = UiSource.SCREEN_WINDOW, window = window, durationMs = durationMs, appearedId = appearedId)
+        keep(event)
+        return event.id
+    }
+
     /** A cursor after everything kept: what an agent reads from on its first call. */
     @Synchronized
     fun end(): String = "$session:$hostSeq"
