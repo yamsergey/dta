@@ -9,6 +9,7 @@ import io.yamsergey.dta.protocol.timeline.ChainDirection
 import io.yamsergey.dta.protocol.timeline.ChainLink
 import io.yamsergey.dta.protocol.timeline.Cut
 import io.yamsergey.dta.protocol.timeline.CutReason
+import io.yamsergey.dta.protocol.timeline.Kinds
 import io.yamsergey.dta.protocol.timeline.Sources
 import io.yamsergey.dta.protocol.timeline.TimelineEvent
 
@@ -36,8 +37,13 @@ class CauseGraph(
     init {
         val kept = HashMap<String, List<CauseLink>>()
         val rejects = HashMap<String, List<DegradationMarker>>()
+        // A cause the app declared after both events belongs to its effect.
+        val later = events.filter { it.kind == Kinds.DECLARED_CAUSE }
+            .mapNotNull { d -> d.app?.attrs?.get("to")?.let { it to d.causes } }
+            .groupBy({ it.first }, { it.second }).mapValues { (_, l) -> l.flatten() }
         for (e in events) {
-            val (ok, bad) = e.causes.partition { l -> forwardOk(l, e) }
+            if (e.kind == Kinds.DECLARED_CAUSE) continue
+            val (ok, bad) = (e.causes + later[e.id].orEmpty()).partition { l -> forwardOk(l, e) }
             kept[e.id] = ok
             if (bad.isNotEmpty()) {
                 rejects[e.id] = bad.map { DegradationMarker("timeline", "${DegradationCodes.TIMELINE_REJECTED_CAUSE}: the cause ${it.from} comes after this event") }
@@ -60,7 +66,8 @@ class CauseGraph(
     }
 
     /** The event has an exact or declared cause, or is a root (the user's input, the timeline's own). */
-    private fun known(e: TimelineEvent) = e.source == Sources.INPUT || e.source == Sources.TIMELINE || causes[e.id].orEmpty().isNotEmpty()
+    private fun known(e: TimelineEvent) =
+        e.source == Sources.INPUT || e.source == Sources.TIMELINE || e.kind == Kinds.DECLARED_CAUSE || causes[e.id].orEmpty().isNotEmpty()
 
     fun walk(id: String, direction: ChainDirection, depth: Int = DEFAULT_DEPTH, inferred: Boolean = false): CauseChain {
         val root = byId[id] ?: throw UnknownEvent(id, evicted(id))

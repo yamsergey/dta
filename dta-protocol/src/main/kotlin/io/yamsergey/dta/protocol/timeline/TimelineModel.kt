@@ -37,6 +37,8 @@ object Kinds {
     const val NAV_BACK = "nav/back"
     const val FACET_CHANGED = "facet/changed"
     const val FACET_SNAPSHOT = "facet/snapshot"
+    /** The app declared that one of its events caused another, after both (`app.attrs["to"]` is the effect). */
+    const val DECLARED_CAUSE = "cause/declared"
     const val GAP = "timeline/gap"
     const val PROCESS_ENDED = "timeline/process-ended"
 

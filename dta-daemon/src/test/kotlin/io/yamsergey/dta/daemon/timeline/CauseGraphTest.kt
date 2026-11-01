@@ -96,4 +96,16 @@ class CauseGraphTest {
         val e = assertFailsWith<CauseGraph.UnknownEvent> { CauseGraph(flow.drop(2)).walk(id(1), ChainDirection.CAUSES) }
         assertTrue(e.evicted)
     }
+
+    @Test
+    fun `a cause the app declared afterwards links its two events`() {
+        val declared = io.yamsergey.dta.protocol.timeline.TimelineEvent(
+            id(8), 8, 600, 1_600, io.yamsergey.dta.protocol.timeline.Sources.APP, io.yamsergey.dta.protocol.timeline.Kinds.DECLARED_CAUSE,
+            app = io.yamsergey.dta.protocol.timeline.AppPayload("cause", mapOf("to" to toast.id)),
+            causes = listOf(CauseLink(response.id, Basis.DECLARED, CauseRules.APP_DECLARED, declaredBy = "app")),
+        )
+        val chain = CauseGraph(flow + declared).walk(toast.id, ChainDirection.CAUSES)
+        assertEquals(listOf(toast.id, response.id, request.id, click.id), chain.nodes.map { it.id })
+        assertEquals(emptyList(), chain.noKnownCause)
+    }
 }

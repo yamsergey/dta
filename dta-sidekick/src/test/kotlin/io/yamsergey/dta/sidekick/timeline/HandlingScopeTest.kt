@@ -53,6 +53,25 @@ class HandlingScopeTest {
     }
 
     @Test
+    fun `an app scope on another thread is that thread's own`() {
+        main = false
+        scope.enterDeclared("7:5")
+        assertEquals("7:5", scope.current()!!.from)
+        main = true
+        assertNull(scope.current(), "the main thread does not see it")
+        main = false
+        scope.exit()
+        assertNull(scope.current())
+    }
+
+    @Test
+    fun `a click opens no scope off the main thread`() {
+        main = false
+        scope.enter("7:1", Kinds.CLICK)
+        assertNull(scope.current())
+    }
+
+    @Test
     fun `a scope whose exit never came goes stale and is dropped, counted`() {
         scope.enter("7:1", Kinds.CLICK)
         now += HandlingScope.STALE_MS + 1

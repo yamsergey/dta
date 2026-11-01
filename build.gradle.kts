@@ -23,6 +23,8 @@ val publishedModules = mapOf(
     "dta-sidekick-rhino" to ("DTA Sidekick Rhino" to "Mozilla Rhino relocated for the DTA sidekick's network scripts"),
     "dta-daemon" to ("DTA Daemon" to "Host-side DTA daemon: device connections, layout, network, scripts, protobuf decoding"),
     "dta-client" to ("DTA Client" to "Client of the DTA daemon process: launcher and RPC client"),
+    "dta-state" to ("DTA State" to "An app's own facets, events and causes for the DTA timeline; does nothing without the sidekick"),
+    "dta-state-noop" to ("DTA State (no-op)" to "The dta-state API with empty bodies, for release builds"),
 )
 
 subprojects {

@@ -47,13 +47,14 @@ class StateGrouper(
         var visits = mutableListOf(Visit(tuple(), start, null))
         val selfLoops = ArrayList<Pair<Int, TimelineEvent>>()
         for (e in events) {
-            if (e.facets.isEmpty() && e.source != Sources.APP) continue
+            val appEvent = e.source == Sources.APP && e.kind.startsWith("app/")
+            if (e.facets.isEmpty() && !appEvent) continue
             val before = tuple()
             e.facets.forEach { values[it.name] = it.value }
             val after = tuple()
             when {
                 after != before -> visits += Visit(after, e.monoMs, e)
-                e.source == Sources.APP -> selfLoops += visits.lastIndex to e
+                appEvent -> selfLoops += visits.lastIndex to e
             }
         }
 
