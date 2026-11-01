@@ -17,7 +17,30 @@ data class LayoutFilter(
     fun apply(root: Node, windowIndex: Int): List<Match> {
         val out = mutableListOf<Match>()
         walk(root, ArrayDeque(), inScope = rootId == null, windowIndex, out)
-        return out
+        return withCallParameters(root, out)
+    }
+
+    /**
+     * Feature 018: a match whose call's parameters are on a node that did not match takes them,
+     * so filtering never loses a parameter; when that node matched too, the reference stays.
+     */
+    private fun withCallParameters(root: Node, matches: List<Match>): List<Match> {
+        val pointing = matches.mapNotNull { (it.node as? ComposeNode)?.sameCallAs }.toSet()
+        if (pointing.isEmpty()) return matches
+        val matched = matches.mapNotNull { it.node.id }.toSet()
+        val owners = HashMap<Long, ComposeNode>()
+        fun find(n: Node) {
+            if (n is ComposeNode && n.id in pointing) owners[n.id!!] = n
+            n.children.forEach(::find)
+        }
+        find(root)
+        return matches.map { m ->
+            val node = m.node as? ComposeNode ?: return@map m
+            val ownerId = node.sameCallAs ?: return@map m
+            if (ownerId in matched) return@map m
+            val owner = owners[ownerId] ?: return@map m
+            m.copy(node = node.copy(parameters = owner.parameters, defaultParameters = owner.defaultParameters, sameCallAs = null))
+        }
     }
 
     private fun walk(

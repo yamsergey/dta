@@ -11,6 +11,8 @@ data class EnrichmentEntry(
     val lineNumber: Int?,
     val parameters: List<Parameter>,
     val library: Boolean,
+    /** The call this entry's node belongs to (feature 018): one per user or library frame. */
+    val callKey: Int? = null,
 )
 
 /**
@@ -37,6 +39,7 @@ object EnrichmentOverlay {
                     lineNumber = entry.lineNumber,
                     parameters = entry.parameters.ifEmpty { null },
                     library = entry.library,
+                    callKey = entry.callKey,
                     children = mapped,
                 )
             }

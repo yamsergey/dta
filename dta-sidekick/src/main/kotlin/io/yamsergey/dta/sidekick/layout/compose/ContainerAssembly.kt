@@ -80,6 +80,7 @@ object ContainerAssembly {
             sourceFile = label?.sourceFile,
             lineNumber = label?.lineNumber,
             library = label?.library,
+            callKey = label?.callKey,
             provenance = Provenance.TOOLING,
             visible = if (!record.placed || !record.onScreen || record.bounds.area == 0) false else null,
             children = children,

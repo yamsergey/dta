@@ -224,6 +224,12 @@ data class ComposeNode(
     val lineNumber: Int? = null,
     val library: Boolean? = null,
     val parameters: List<Parameter>? = null,
+    /** Feature 018: another node of the same call carries the parameters — this one's id. */
+    val sameCallAs: Long? = null,
+    /** Feature 018: how many of the call's parameters are at their defaults and not listed. */
+    val defaultParameters: Int? = null,
+    /** Feature 018: the call this node belongs to, within one capture; never on the wire. */
+    @kotlinx.serialization.Transient val callKey: Int? = null,
     @EncodeDefault val provenance: Provenance = Provenance.SEMANTICS,
     val visible: Boolean? = null,
     val callChain: List<Frame>? = null,

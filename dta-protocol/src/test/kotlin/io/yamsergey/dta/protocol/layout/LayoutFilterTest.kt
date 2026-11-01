@@ -21,6 +21,21 @@ class LayoutFilterTest {
     )
 
     @Test
+    fun `a matched node of a call takes the call's parameters when the node carrying them is not matched`() {
+        val p = listOf(Parameter("title", "<lambda>", "lambda"))
+        val root = ComposeNode(
+            id = 54, bounds = Rect(0, 0, 10, 10), name = "CenterAlignedTopAppBar", parameters = p, defaultParameters = 3,
+            children = listOf(ComposeNode(id = 59, bounds = Rect(0, 0, 10, 10), name = "CenterAlignedTopAppBar", text = "Now in Android", sameCallAs = 54)),
+        )
+        val match = LayoutFilter(text = "now in").apply(root, 0).single().node as ComposeNode
+        assertEquals(p, match.parameters)
+        assertEquals(3, match.defaultParameters)
+        assertEquals(null, match.sameCallAs)
+        val both = LayoutFilter(type = "CenterAlignedTopAppBar").apply(root, 0).map { it.node as ComposeNode }
+        assertEquals(54, both[1].sameCallAs, "when its owner is matched too, the reference stays")
+    }
+
+    @Test
     fun `text filter matches over text case-insensitively with ancestor chain`() {
         val matches = LayoutFilter(text = "submit").apply(tree, windowIndex = 0)
         assertEquals(setOf(3L, 5L), matches.map { it.node.id }.toSet())

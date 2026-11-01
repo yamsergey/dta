@@ -44,6 +44,8 @@ object ToolingTree {
         val line: Int?,
         val parameters: List<Parameter>,
         val library: Boolean,
+        /** One per call (feature 018): every layout node the call owns shares it. */
+        val callKey: Int,
     )
 
     /**
@@ -53,6 +55,7 @@ object ToolingTree {
      */
     fun label(roots: List<ToolingGroup>): Map<Long, EnrichmentEntry> {
         val out = HashMap<Long, EnrichmentEntry>()
+        var calls = 0
         fun walk(group: ToolingGroup, nearest: Frame?, nearestUser: Frame?) {
             val frame = if (ComposableClassifier.isMeaningful(group.name)) {
                 Frame(
@@ -61,6 +64,7 @@ object ToolingTree {
                     group.line,
                     group.parameters,
                     ComposableClassifier.isLibrary(group.sourceFile, group.packageHash),
+                    ++calls,
                 )
             } else {
                 null
@@ -71,7 +75,7 @@ object ToolingTree {
             val id = group.layoutId
             if (id != null && id !in out) {
                 (userContext ?: context)?.let {
-                    out[id] = EnrichmentEntry(it.name, it.sourceFile, it.line, it.parameters, it.library)
+                    out[id] = EnrichmentEntry(it.name, it.sourceFile, it.line, it.parameters, it.library, it.callKey)
                 }
             }
             group.children.forEach { walk(it, context, userContext) }

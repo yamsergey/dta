@@ -59,6 +59,21 @@ class ToolingTreeTest {
     }
 
     @Test
+    fun `each call has its own key, shared by every node it owns - loop iterations differ`() {
+        val p = listOf(Parameter("label", "Home", "String"))
+        val tree = listOf(
+            call("Bar", "Ref.kt", 10, p, node(1, node(2)), node(3)),
+            call("Item", "Ref.kt", 20, p, node(4), node(5)),
+            call("Item", "Ref.kt", 20, p, node(6)),
+        )
+        val labels = ToolingTree.label(tree)
+        assertEquals(setOf(labels[1]!!.callKey), setOf(labels[2]!!.callKey, labels[3]!!.callKey))
+        assertEquals(labels[4]!!.callKey, labels[5]!!.callKey)
+        assertTrue(labels[4]!!.callKey != labels[6]!!.callKey, "two iterations are two calls")
+        assertTrue(labels[1]!!.callKey != labels[4]!!.callKey)
+    }
+
+    @Test
     fun `parameters come from the chosen frame`() {
         val tree = listOf(
             call(

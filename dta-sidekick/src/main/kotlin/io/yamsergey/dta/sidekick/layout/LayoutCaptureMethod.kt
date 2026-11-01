@@ -44,7 +44,9 @@ class LayoutCaptureMethod(
         degraded += result.degraded
 
         val detail = DetailInfo(requested = params.detail, delivered = result.delivered)
-        val windows = result.windows
+        // Feature 018: each call's parameters once; the full signature only at composition.
+        val keepDefaults = result.delivered == io.yamsergey.dta.protocol.layout.DetailLevel.COMPOSITION
+        val windows = result.windows.map { it.copy(root = io.yamsergey.dta.protocol.layout.CallParameters.finish(it.root, keepDefaults)) }
         if (filter != null) {
             val matches = windows.flatMapIndexed { i, w -> filter.apply(w.root, i) }
             LevelResolution.filterHint(filter, matches, result.delivered)?.let { degraded += it }
