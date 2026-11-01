@@ -11,11 +11,9 @@ import io.yamsergey.dta.protocol.ui.UiCapability
 import io.yamsergey.dta.protocol.ui.UiSource
 import io.yamsergey.dta.protocol.ui.UiSourceState
 import io.yamsergey.dta.sidekick.hooks.HookAttach
-import io.yamsergey.dta.sidekick.timeline.TimelineMethods
 import io.yamsergey.dta.sidekick.timeline.TimelineRuntime
 import io.yamsergey.dta.protocol.timeline.SourceStatus
 import io.yamsergey.dta.protocol.timeline.Sources
-import io.yamsergey.dta.protocol.timeline.TimelineCosts
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
 
 /**
@@ -50,7 +48,7 @@ object UiRuntime {
         val created = UiJournalBuffer(TimelineRuntime.start(publish)) { TimelineRuntime.scopeCause() }
         buffer = created
         TimelineRuntime.register(Sources.UI, ::sourceStatus)
-        TimelineMethods.costs = { TimelineCosts(summaries = costs()) }
+
         if (!HookAttach.attached) {
             hooksReason = HookAttach.reason ?: "hooks not attached"
             return
@@ -73,6 +71,9 @@ object UiRuntime {
     }
 
     fun costs() = windows?.costs()
+
+    /** The journal's id of the window [root] is the root view of, when it follows it. */
+    fun windowIdOf(root: android.view.View): String? = windows?.windowIdOf(root)
 
     fun journalCapability(): UiCapability {
         fun state(failure: String?, recorder: Any?) = when {

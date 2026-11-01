@@ -15,15 +15,22 @@ import java.util.WeakHashMap
  */
 class Initiators(
     private val stackOf: () -> Array<StackTraceElement> = { Thread.currentThread().stackTrace },
+    /** What the app is handling on this thread right now (016): the request's cause. */
+    private val scope: () -> io.yamsergey.dta.protocol.timeline.CauseLink? = { io.yamsergey.dta.sidekick.timeline.TimelineRuntime.scopeCause() },
 ) {
     private val scheduled: MutableMap<Any, Initiator> = Collections.synchronizedMap(WeakHashMap())
 
     fun capture(site: InitiatorSite): Initiator {
         val thread = Thread.currentThread().name
+        val cause = try {
+            scope()
+        } catch (_: Throwable) {
+            null
+        }
         return try {
-            FrameClassifier.initiator(thread, site, stackOf().asList())
+            FrameClassifier.initiator(thread, site, stackOf().asList()).copy(cause = cause)
         } catch (t: Throwable) {
-            Initiator(thread = thread, site = site, missing = "stack capture failed: ${t.message ?: t.javaClass.simpleName}")
+            Initiator(thread = thread, site = site, missing = "stack capture failed: ${t.message ?: t.javaClass.simpleName}", cause = cause)
         }
     }
 

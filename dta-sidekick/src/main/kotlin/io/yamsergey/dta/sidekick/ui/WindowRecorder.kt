@@ -94,6 +94,9 @@ class WindowRecorder(
         return failure
     }
 
+    /** The id of the window whose root view is [root] (016: a click's window). */
+    fun windowIdOf(root: View): String? = windows[root]?.ref?.windowId
+
     /** The windows already open when recording starts (research R12). */
     fun presentAtStart() = onMain {
         val wmg = Class.forName("android.view.WindowManagerGlobal")

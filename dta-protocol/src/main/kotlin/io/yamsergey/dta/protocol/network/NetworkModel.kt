@@ -131,6 +131,8 @@ data class Initiator(
     val truncatedFrames: Int? = null,
     /** Why there are no frames (FR-012); set iff [frames] is null. */
     val missing: String? = null,
+    /** What the app was handling when it issued the call — a click, a back, an app scope (feature 016). */
+    val cause: io.yamsergey.dta.protocol.timeline.CauseLink? = null,
 ) {
     init {
         require(frames != null || missing != null) { "Initiator without frames must state why (FR-012)" }
