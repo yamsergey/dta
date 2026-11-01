@@ -26,7 +26,7 @@ prototype lives on the `pre-refined` branch.
 
 Install **DTA - Development Tools for Android** from the JetBrains Marketplace (Settings › Plugins; development builds are on the EAP channel), or from disk: `./gradlew :dta-studio:buildPlugin`, then Settings › Plugins › ⚙ › Install Plugin from Disk… with `dta-studio/build/distributions/dta-studio-<version>.zip`. Android Studio 2025.2.2 or newer. The plugin starts (or joins) the same daemon as the CLI and agents from its own `daemon/` directory, on the IDE's Java and with the adb Android Studio uses; the CLI does not need to be installed.
 
-- **The DTA tool window** (bottom): the device and app it shows, with the app's connection; tabs Network (HTTP and WebSocket in one live list, filters, entry detail, bodies with protobuf decoding and redaction), Layout (View and Compose tree, detail levels, open the source), Script, Schemas, Daemon and Agents. Nothing degraded is hidden: every gap is marked with its cause and what to do.
+- **The DTA tool window** (bottom): the device and app it shows, with the app's connection; tabs Network (HTTP and WebSocket in one live list, filters, entry detail, bodies with protobuf decoding and redaction), Layout (View and Compose tree beside the screen it was captured from: the selected element outlined, click the picture to pick an element; detail levels, open the source), Script, Schemas, Daemon and Agents. Nothing degraded is hidden: every gap is marked with its cause and what to do.
 - **Injection.** Debug builds run from Android Studio get `dta-sidekick` without project changes: a Gradle init script (the one `dta run` uses) adds it to every debuggable build type of each application module (never to release builds), unless the project declares it itself; Compose apps without Compose's tooling data get that too (a separate switch). Turn it off in Settings › Tools › DTA or with the tool window's title action; the Daemon tab says what the last build did.
 - **Agent server.** The Agents tab serves the same tools as `dta mcp` over HTTP at `http://127.0.0.1:12321/mcp` (port configurable, off by default), loopback only, with a credential kept in the IDE's password safe. It shows the configuration for Claude Code, Cursor, Gemini in Android Studio, Claude Desktop and VS Code to copy — or a prompt to paste into the agent so it sets the server up itself.
 
@@ -102,6 +102,7 @@ scripts/install-local.sh          # builds and links ~/.local/bin/dta (or $DTA_B
 dta devices                       # connected devices
 dta apps                          # running apps with DTA inside, and the foreground app
 dta layout --text Pay             # screen tree (View + Compose), filtered
+dta layout --screen shot.png      # the tree plus the screen image it describes, and the windows on screen
 dta network list --status 4xx     # captured HTTP + WebSocket traffic
 dta network entry <id>            # headers, timing, initiator
 dta network body <id> -o body.bin # a body as text or to a file
@@ -144,6 +145,17 @@ dta daemon status | stop
   The `layout` capability lists the servable `levels`. Tooling is read with
   ui-tooling-data `mapTree` (reflective); framework vs. user frames are told
   apart by call-site package hash.
+- **layout with the screen** (feature 014): `layout.tree` with `screen` (inline,
+  for agents and the plugin) or `screenOutput` (a file; CLI `--screen <file>`).
+  The daemon takes the window list, an image, the tree, a second image and the
+  window list again (`dumpsys window`, `screencap`; nothing runs in the app), and
+  states when the picture may not be the screen the tree describes: a window
+  appeared or the app's pixels changed during the capture, a secure window, the
+  lock screen, the screen off, bounds that do not line up. `screenWindows` lists
+  every window on screen, the app's or not (toasts, keyboard, system bars). The
+  plugin's Layout shows tree | screen | detail: the selection outlined, the
+  element under the pointer named, a click picks the deepest element, N climbs
+  to its parents.
 
 - **network** (feature 004): HTTP and WebSocket traffic in **one** list —
   `network_list`, `network_entry`, `network_body`, `network_clear`, and live

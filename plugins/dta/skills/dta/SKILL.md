@@ -43,7 +43,8 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - `layout_tree` returns windows with nodes (`kind`: view, compose, fallback), bounds in screen pixels, text, interactions.
 - Prefer filters to whole trees: `text`, `type` (simple class or composable name), `resourceId`, `rootId` (a subtree). Matches come with their ancestors.
 - `detail`: `semantic` (default), `layout` (adds layout containers), `composition` (adds the call chain per node). Ask for more only when you need it.
-- Bounds are in screen pixels: the same coordinates `adb shell input tap` uses.
+- Bounds are in screen pixels: the same coordinates `adb shell input tap` uses. A rotated or scaled view's bounds are its box on the screen; `renderOutline` has its four corners.
+- `screen: true` adds the screen image taken with the tree (one image item) and `screenWindows`: every window on screen, the app's or not (`kind`: toast, keyboard, system, other-app…). A toast or a system dialog is on the picture but not in the app's tree; `screenWindows` names it. `screenOutput: <file>` writes the PNG instead. Read the statements: `screen-changed-during-capture` (the picture and the tree may differ in the area it names), `screen-blocked` (a secure window, no picture), `screen-locked`, `screen-not-aligned`, `screen-scaled` (multiply bounds by `screenImage.scale`). Ask for the screen only when you need to see it; the tree alone is cheaper.
 
 ## Network
 
