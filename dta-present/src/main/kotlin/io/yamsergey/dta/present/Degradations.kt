@@ -80,6 +80,22 @@ object Degradations {
             "if it persists, report it with the device model and Android version.",
         Codes.SCREEN_DISPLAY_UNKNOWN to
             "The display the app is on could not be determined, so the picture may show another display.",
+        Codes.UI_NOT_SETTLED to
+            "The window went before it settled: its content is what it held when it was added.",
+        Codes.UI_SECURE_WINDOW to
+            "The window is secure (the app blocks screen capture), so its texts are not recorded.",
+        Codes.UI_CONTENT_TRUNCATED to
+            "The content summary is cut at its bound; the number of elements left out is given.",
+        Codes.UI_EVENTS_DROPPED to
+            "Events were lost: the app's journal buffer overflowed, or a reader fell behind. The count or interval is given.",
+        Codes.UI_BACKED_OFF to
+            "The app was busy, so elements inside windows were not compared for a while; ones that came and went then may be missing.",
+        Codes.UI_NOT_CONNECTED to
+            "DTA was not connected to the app for this interval; anything beyond the app's own buffer is missing.",
+        Codes.UI_FIELD_UNREADABLE to
+            "The framework did not let DTA read this value on this Android version; the event is recorded without it.",
+        Codes.UI_HISTORY_EVICTED to
+            "Older events were dropped from the computer's journal to stay within its size; the reader was behind them.",
     )
 
     /** The sentence for [code]; null for a code this client does not know. */

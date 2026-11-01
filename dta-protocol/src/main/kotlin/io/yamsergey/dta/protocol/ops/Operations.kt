@@ -165,6 +165,11 @@ object Catalog {
         ParamSpec("intervened", ParamType.BOOLEAN, "true: only entries the network script touched; false: only untouched ones."),
     )
 
+    private val UI_KINDS = ParamSpec(
+        "kinds", ParamType.ENUM_LIST, "Event kinds to include.",
+        enumValues = listOf("window", "toast", "element", "screen-window", "gap", "process"),
+    )
+
     private val PART = ParamSpec(
         "part", ParamType.ENUM,
         "Which body: request, response or message; app-* is what the app saw when a script changed it. Default response (message for WebSocket messages).",
@@ -354,6 +359,25 @@ object Catalog {
             "The app's App Links: every host it declares for automatic verification, whether Android verified it (and why not), and whether the user allowed the app to open it. Why an https link opens in the browser instead of the app.",
             Scope.APP,
             cliPathOverride = listOf("links", "verification"),
+        ),
+        OperationSpec(
+            "ui.events",
+            "The app's journal of short-lived UI: windows that appeared and closed (dialogs, popups, bottom sheets), toasts, elements that came and went inside a window, and windows that are not the app's (permission prompts, system dialogs). Pass since (the next cursor of a previous read) to get only what happened after it.",
+            Scope.APP,
+            listOf(
+                ParamSpec("since", ParamType.STRING, "Cursor: the next value of a previous read. Omit to start from the oldest kept event."),
+                ParamSpec("sinceMs", ParamType.LONG, "Only events at or after this epoch millisecond (device clock)."),
+                UI_KINDS,
+                ParamSpec("limit", ParamType.INT, "Page size, 1..500 (default 100)."),
+            ),
+        ),
+        OperationSpec(
+            "ui.watch", "Follow the app's UI journal as it happens, until interrupted. With history=current, the kept events come first.", Scope.APP,
+            listOf(
+                UI_KINDS,
+                ParamSpec("history", ParamType.ENUM, "current: first the kept events, then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
+            ),
+            streaming = true, cliOnly = true,
         ),
         OperationSpec(
             "archive.list",

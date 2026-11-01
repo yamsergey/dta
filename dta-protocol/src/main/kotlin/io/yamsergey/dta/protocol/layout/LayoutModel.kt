@@ -48,6 +48,16 @@ object DegradationCodes {
     const val SCREEN_SCALED = "screen-scaled"
     const val SCREEN_NOT_ALIGNED = "screen-not-aligned"
     const val SCREEN_DISPLAY_UNKNOWN = "screen-display-unknown"
+
+    // Feature 015 (journal of short-lived UI).
+    const val UI_NOT_SETTLED = "ui-not-settled"
+    const val UI_SECURE_WINDOW = "ui-secure-window"
+    const val UI_CONTENT_TRUNCATED = "ui-content-truncated"
+    const val UI_EVENTS_DROPPED = "ui-events-dropped"
+    const val UI_BACKED_OFF = "ui-backed-off"
+    const val UI_NOT_CONNECTED = "ui-not-connected"
+    const val UI_FIELD_UNREADABLE = "ui-field-unreadable"
+    const val UI_HISTORY_EVICTED = "ui-history-evicted"
 }
 
 /** How much of the composition a Compose host contributes, ordered by

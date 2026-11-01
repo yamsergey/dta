@@ -38,6 +38,7 @@ class OperationCatalogTest {
                 "network.mapping.add", "network.mapping.list", "network.mapping.remove",
                 "links.list", "links.entry", "links.open", "links.verification",
                 "archive.list", "archive.delete",
+                "ui.events", "ui.watch",
                 "daemon.status", "daemon.stop",
             ),
             Catalog.all.map { it.name }.toSet(),
@@ -52,13 +53,16 @@ class OperationCatalogTest {
         assertEquals(listOf("layout"), Catalog["layout.tree"].cliPath)
         assertEquals(listOf("capability"), Catalog["capability.report"].cliPath)
         assertEquals(listOf("network", "list"), Catalog["network.list"].cliPath)
+        assertEquals("ui_events", Catalog["ui.events"].toolName)
+        assertEquals(listOf("ui", "events"), Catalog["ui.events"].cliPath)
+        assertEquals(listOf("ui", "watch"), Catalog["ui.watch"].cliPath)
     }
 
     @Test
     fun `agent tools exclude stop and the watches`() {
         val tools = Catalog.agentTools.map { it.name }
-        assertTrue("daemon.stop" !in tools && "network.watch" !in tools && "apps.watch" !in tools)
-        assertEquals(Catalog.all.size - 3, tools.size)
+        assertTrue("daemon.stop" !in tools && "network.watch" !in tools && "apps.watch" !in tools && "ui.watch" !in tools)
+        assertEquals(Catalog.all.size - 4, tools.size)
     }
 
     @Test
