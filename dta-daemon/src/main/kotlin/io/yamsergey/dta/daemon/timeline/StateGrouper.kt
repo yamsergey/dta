@@ -58,6 +58,14 @@ class StateGrouper(
             }
         }
 
+        // Before a source first reports, its facets are unknown: that is not a state the app was in.
+        var unknown = 0
+        while (visits.size > 1 && visits.first().values.all { it == null }) {
+            visits.removeAt(0)
+            unknown++
+        }
+        val loops = selfLoops.filter { it.first >= unknown }.map { (at, e) -> (at - unknown) to e }
+
         var merged = 0
         if (minHoldMs > 0) {
             val kept = mutableListOf<Visit>()
@@ -89,7 +97,7 @@ class StateGrouper(
             edges.getOrPut(Triple(ref(visits[i - 1].values).id, ref(visits[i].values).id, false)) { mutableListOf() } += visits[i].trigger!!
         }
         if (minHoldMs == 0L) {
-            for ((at, e) in selfLoops) {
+            for ((at, e) in loops) {
                 val id = ref(visits[at].values).id
                 edges.getOrPut(Triple(id, id, true)) { mutableListOf() } += e
             }

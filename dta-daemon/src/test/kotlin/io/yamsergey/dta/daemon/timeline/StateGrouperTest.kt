@@ -121,6 +121,13 @@ class StateGrouperTest {
     }
 
     @Test
+    fun `before a source first reports, its unknown values are not a state`() {
+        val late = StateGrouper(events, initial = start.filter { it.name != "app.cart" }, available = start.map { it.name }.toSet())
+            .graph(listOf("app.cart"))
+        assertTrue(late.nodes.none { it.state.label == "—" }, late.nodes.map { it.state.label }.toString())
+    }
+
+    @Test
     fun `the shortest observed path`() {
         val g = group(listOf("nav.destination"))
         val path = StatePaths(g).path(from = "catalog", to = "cart")
