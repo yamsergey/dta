@@ -152,7 +152,15 @@ data class Quad(
 )
 
 @Serializable
-data class Parameter(val name: String, val value: String, val type: String)
+data class Parameter(
+    val name: String,
+    val value: String,
+    val type: String,
+    /** The value was cut at its bound (feature 018). */
+    val cut: Boolean = false,
+    /** The caller did not pass it (listed at the composition level only, feature 018). */
+    val default: Boolean = false,
+)
 
 @Serializable
 data class Screen(

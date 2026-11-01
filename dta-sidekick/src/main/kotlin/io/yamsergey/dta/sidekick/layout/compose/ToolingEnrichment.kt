@@ -75,8 +75,8 @@ class ToolingEnrichment {
     private fun parametersOf(api: Api, context: Any): List<Parameter> = try {
         (api.parameters.invoke(context) as? Iterable<Any>)?.mapNotNull { p ->
             val n = p.call("getName") as? String ?: return@mapNotNull null
-            val v = p.call("getValue")
-            Parameter(n, v?.toString() ?: "null", v?.let { it::class.simpleName } ?: "null")
+            // Feature 018: readable values; null left out; defaults marked; packed inline classes decoded.
+            ParameterValues.render(n, p.call("getValue"), p.call("getInlineClass") as? String, p.call("getFromDefault") == true)
         } ?: emptyList()
     } catch (_: Throwable) {
         emptyList()
