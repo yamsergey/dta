@@ -108,6 +108,12 @@ class DaemonClient private constructor(private val timeout: Duration) {
      */
     fun appEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.APPS_SUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, setOf(DaemonEvents.APP_CONNECTION), params)
 
+    /**
+     * The app's UI journal as it happens (`ui.watch`, feature 015). The first element is
+     * `{"selection": Selected}`; then each `ui.event`'s data (`subscription`, `device`, `app`, `event`).
+     */
+    fun uiEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.UI_SUBSCRIBE, DaemonMethods.UI_UNSUBSCRIBE, setOf(DaemonEvents.UI_EVENT), params)
+
     private fun subscription(subscribe: String, unsubscribe: String, eventNames: Set<String>, params: JsonObject): Flow<JsonObject> = callbackFlow {
         val subscribed = DtaJson.decodeFromJsonElement(Selected.serializer(), request(subscribe, params))
         val id = (subscribed.result.jsonObject["subscription"] as JsonPrimitive).content

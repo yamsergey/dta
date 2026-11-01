@@ -98,7 +98,12 @@ class Runner(
     private suspend fun watch(spec: OperationSpec, client: DaemonClient, params: JsonObject, globals: Globals): Int {
         val formatters = formatters(globals)
         val apps = spec.name == "apps.watch"
-        val events = if (apps) client.appEvents(params) else client.networkEvents(params)
+        val ui = spec.name == "ui.watch"
+        val events = when {
+            apps -> client.appEvents(params)
+            ui -> client.uiEvents(params)
+            else -> client.networkEvents(params)
+        }
         return try {
             events.collect { data ->
                 val selection = data["selection"]
@@ -112,11 +117,12 @@ class Runner(
                             err.println("Watching app connections; Ctrl-C to stop.")
                             formatters.appsSnapshot(selected.result).takeIf { it.isNotEmpty() }?.let(out::println)
                         } else {
-                            err.println("Watching network traffic; Ctrl-C to stop.")
+                            err.println(if (ui) "Watching the UI journal; Ctrl-C to stop." else "Watching network traffic; Ctrl-C to stop.")
                         }
                     }
                     globals.json -> out.println(LINE.encodeToString(JsonElement.serializer(), data))
                     apps -> out.println(formatters.appEventLine(data))
+                    ui -> out.println(formatters.uiEventLine(data))
                     else -> out.println(formatters.watchLine(data))
                 }
                 out.flush()

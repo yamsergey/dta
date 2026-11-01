@@ -239,6 +239,37 @@ class DtaDaemon(
     suspend fun networkClear(serial: String, pkg: String): ClearResult =
         networkService(serial, pkg).clear()
 
+    private val uiServices = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.ui.UiService>()
+
+    /** One app's UI journal on the host, followed from its first use for the daemon's life (feature 015). */
+    private fun uiService(serial: String, pkg: String): io.yamsergey.dta.daemon.ui.UiService =
+        uiServices.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
+            io.yamsergey.dta.daemon.ui.UiService(
+                journal = io.yamsergey.dta.daemon.ui.UiJournal(session = "u${System.currentTimeMillis().toString(36)}${uiServices.size}"),
+                held = { connections.held(key) },
+                connect = { connections.connect(key) },
+                running = { discovery.listInstances().any { it.serial == key.serial && it.packageName == key.packageName } },
+            ).also { it.start(background) }
+        }
+
+    /** The app's journal of short-lived UI after [since] (a cursor, or `end`), oldest first. */
+    suspend fun uiEvents(serial: String, pkg: String, since: String? = null, sinceMs: Long? = null, kinds: Set<String> = emptySet(), limit: Int = 100): io.yamsergey.dta.protocol.ui.UiEventsPage =
+        uiService(serial, pkg).page(since, limit.coerceIn(1, 500), sinceMs, kinds)
+
+    /** UI events as the host's journal takes them in; with [history] the kept ones first. */
+    fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.ui.UiEvent> = kotlinx.coroutines.flow.flow {
+        val service = uiService(serial, pkg)
+        val first = service.page(null, 500, null, kinds)
+        if (history) first.events.forEach { emit(it) }
+        var cursor = first.next
+        // Live events are taken from the journal by cursor, so watching never skips or repeats.
+        service.events.collect {
+            val page = service.journal.page(cursor, 500, null, kinds)
+            page.events.forEach { e -> emit(e) }
+            cursor = page.next
+        }
+    }
+
     /** Live entry events; collect for as long as needed. */
     fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> =
         networkService(serial, pkg).events(onSubscribed)

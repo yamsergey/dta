@@ -39,26 +39,52 @@ class McpTools(
 
     fun byTool(name: String): OperationSpec? = tools.firstOrNull { it.toolName == name }
 
-    suspend fun invoke(toolName: String, arguments: JsonObject): ToolOutcome {
+    /**
+     * Runs one tool; [session] is the MCP session (null for the stdio server's one client). The
+     * answer ends with what UI came and went since that session's previous call (feature 015).
+     */
+    suspend fun invoke(toolName: String, arguments: JsonObject, session: String? = null): ToolOutcome {
         unusable()?.let { return ToolOutcome(it, isError = true) }
         val spec = byTool(toolName) ?: return ToolOutcome("Unknown tool '$toolName'. Tools: ${tools.joinToString(", ") { it.toolName }}", true)
-        return try {
-            val (selected, image) = call(spec.name, arguments).let { s ->
+        val outcome = runTool(spec, arguments)
+        if (spec.name == "ui.events") return outcome.toolOutcome
+        val line = uiSummary.after(session, outcome.selection ?: selectionOf(arguments))
+        return if (line == null) outcome.toolOutcome else outcome.toolOutcome.copy(text = outcome.toolOutcome.text + "\n\n" + line)
+    }
+
+    private class Ran(val toolOutcome: ToolOutcome, val selection: Pair<String?, String?>? = null)
+
+    private val uiSummary = UiSummary(call)
+
+    private fun selectionOf(arguments: JsonObject): Pair<String?, String?>? {
+        val device = (arguments["device"] as? JsonPrimitive)?.content
+        val app = (arguments["app"] as? JsonPrimitive)?.content
+        return if (device == null && app == null) null else device to app
+    }
+
+    private suspend fun runTool(spec: OperationSpec, arguments: JsonObject): Ran {
+        var selected: Selected? = null
+        val outcome = try {
+            val (result, image) = call(spec.name, arguments).let { s ->
+                selected = s
                 if (spec.name == "layout.tree") ScreenImageBound.split(s.result).let { (r, i) -> s.copy(result = r) to i } else s to null
             }
-            val text = bound.apply(spec.name, selected)
+            if (spec.name == "ui.events") uiSummary.read(arguments, result.result)
+            val text = bound.apply(spec.name, result)
             if (spec.name == "network.body" && "truncated" in text && arguments["output"] == null) {
                 // A body too large for the response goes to a file instead (contract mcp.md).
                 val file = File.createTempFile("dta-body-", ".bin", tempDir)
                 val written = call(spec.name, JsonObject(arguments + ("output" to JsonPrimitive(file.absolutePath))))
-                return ToolOutcome(bound.apply(spec.name, written), isError = false)
+                ToolOutcome(bound.apply(spec.name, written), isError = false)
+            } else {
+                ToolOutcome(text, isError = false, images = listOfNotNull(image))
             }
-            ToolOutcome(text, isError = false, images = listOfNotNull(image))
         } catch (e: DaemonCallException) {
             ToolOutcome(errorText(spec, e) + (autoSync(spec, arguments, e)?.let { "\n$it" } ?: ""), isError = true)
         } catch (e: DaemonGoneException) {
             ToolOutcome("${e.reason}. Call the tool again to reconnect.", isError = true)
         }
+        return Ran(outcome, selected?.selection?.let { it.device to it.app })
     }
 
     /**

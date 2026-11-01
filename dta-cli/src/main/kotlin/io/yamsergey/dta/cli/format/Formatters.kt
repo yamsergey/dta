@@ -51,6 +51,7 @@ class Formatters(private val style: Style) {
         "links.entry" -> linkEntry(result.obj.obj("entry") ?: JsonObject(emptyMap()))
         "links.open" -> linkOpen(result.obj)
         "links.verification" -> verification(result.obj)
+        "ui.events" -> uiEvents(result)
         "archive.list" -> archiveList(result.obj)
         "archive.delete" -> archiveDelete(result.obj)
         "daemon.status" -> status(result.obj)
@@ -65,6 +66,34 @@ class Formatters(private val style: Style) {
         val line = entryRow(entry, absolute = true)
         val dropped = event["degraded"]?.let { "\n" + style.mark(StatementKind.DEGRADED, "events dropped: this terminal fell behind") }
         return line + (dropped ?: "")
+    }
+
+    // --- UI journal (feature 015)
+
+    private fun uiEvents(result: JsonElement): String {
+        val page = io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.ui.UiEventsPage.serializer(), result)
+        val off = page.capability.sources.filter { it.state != io.yamsergey.dta.protocol.ui.SourceState.ON }
+            .map { style.mark(StatementKind.DEGRADED, "${it.source.name.lowercase().replace('_', '-')} not recorded: ${it.reason}") }
+        val lines = page.events.map(::uiLine)
+        val body = lines.ifEmpty { listOf("No UI events.") }
+        val more = if (page.more) listOf(style.paint("more: --since ${page.next}", Token.INK_MUTED)) else emptyList()
+        return (off + body + more + style.paint("next: ${page.next}", Token.INK_MUTED)).joinToString("\n")
+    }
+
+    /** One live event line for `ui watch`. */
+    fun uiEventLine(event: JsonObject): String {
+        val e = event["event"] ?: return ""
+        return uiLine(io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.ui.UiEvent.serializer(), e))
+    }
+
+    private fun uiLine(e: io.yamsergey.dta.protocol.ui.UiEvent): String {
+        val text = io.yamsergey.dta.present.ui.UiEventText.line(e)
+        val shown = when (e.kind) {
+            io.yamsergey.dta.protocol.ui.UiEventKind.GAP, io.yamsergey.dta.protocol.ui.UiEventKind.PROCESS_ENDED -> style.paint(text, Token.CAVEAT)
+            io.yamsergey.dta.protocol.ui.UiEventKind.WINDOW_SETTLED -> style.paint(text, Token.INK_MUTED)
+            else -> text
+        }
+        return style.paint(TIME.format(Instant.ofEpochMilli(e.wallMs)), Token.INK_MUTED) + "  " + shown
     }
 
     // --- Devices and apps

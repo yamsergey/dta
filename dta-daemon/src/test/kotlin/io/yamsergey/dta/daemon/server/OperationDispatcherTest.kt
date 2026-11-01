@@ -116,6 +116,17 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `the UI journal is read with a cursor, filters and a limit`() {
+        call("ui.events", buildJsonObject {
+            put("since", "s:3"); put("sinceMs", 5L); put("limit", 20)
+            put("kinds", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("toast")) })
+        })
+        assertEquals(listOf("s:3", 5L, setOf("toast"), 20), fake.lastUi)
+        call("ui.events")
+        assertEquals(listOf(null, null, emptySet<String>(), 100), fake.lastUi)
+    }
+
+    @Test
     fun `layout takes the screen only when asked, inline or to a file`() {
         call("layout.tree")
         assertEquals(null, fake.lastScreen)
@@ -189,7 +200,7 @@ class OperationDispatcherTest {
 
     @Test
     fun `every catalog operation except the server's own has a handler`() {
-        val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch", "apps.watch")
+        val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch", "apps.watch", "ui.watch")
         assertEquals(Catalog.all.map { it.name }.toSet() - serverOwned, dispatcher.handled)
     }
 }

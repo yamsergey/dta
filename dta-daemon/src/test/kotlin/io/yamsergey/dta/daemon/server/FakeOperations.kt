@@ -134,6 +134,13 @@ class FakeOperations : DaemonOperations {
     override suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean) =
         io.yamsergey.dta.protocol.network.LinkOpenResult(io.yamsergey.dta.protocol.network.LinkOpenOutcome.NOT_HANDLED, reason = "fake")
     override fun linksVerification(serial: String, pkg: String) = io.yamsergey.dta.protocol.network.AppLinksState(available = true)
+    var lastUi: List<Any?>? = null
+    override suspend fun uiEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.ui.UiEventsPage {
+        calls += "uiEvents"
+        lastUi = listOf(since, sinceMs, kinds, limit)
+        return io.yamsergey.dta.protocol.ui.UiEventsPage(emptyList(), next = "s:0")
+    }
+    override fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>) = kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.ui.UiEvent>()
     override fun archiveList() = io.yamsergey.dta.protocol.network.ArchiveListing(emptyList(), 0)
     override fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean) =
         io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, io.yamsergey.dta.protocol.network.ArchiveDeleted(0, 0, 0, 0))

@@ -105,6 +105,12 @@ class OperationDispatcher(
             buildJsonObject { put("removed", name); put("brokenMappings", encode(ListSerializer(BodyMapping.serializer()), ops.networkSchemaRemove(c.app, name))) }
         },
         "network.mapping.add" to { c -> encode(BodyMapping.serializer(), ops.networkMappingAdd(c.app, mapping(c))) },
+        "ui.events" to { c ->
+            encode(
+                io.yamsergey.dta.protocol.ui.UiEventsPage.serializer(),
+                ops.uiEvents(c.device, c.app, c.string("since"), c.long("sinceMs"), c.strings("kinds").orEmpty().toSet(), c.long("limit")?.toInt() ?: 100),
+            )
+        },
         "links.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, linksQuery(c.params))) },
         "links.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
         "links.open" to { c ->

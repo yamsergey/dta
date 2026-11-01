@@ -61,6 +61,9 @@ interface DaemonOperations {
     fun linksVerification(serial: String, pkg: String): io.yamsergey.dta.protocol.network.AppLinksState
     /** Replaces one origin's schema set and derived mappings (feature 013). */
     fun networkSchemaSync(pkg: String, origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin, files: Map<String, String>, mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>, notes: List<String>): io.yamsergey.dta.daemon.network.proto.SyncResult
+    /** The app's journal of short-lived UI (feature 015). */
+    suspend fun uiEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.ui.UiEventsPage
+    fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.ui.UiEvent>
     /** The host's network archive (feature 011). */
     fun archiveList(): ArchiveListing
     fun archiveDelete(target: DeleteTarget, confirm: Boolean): ArchiveDeletion
@@ -68,6 +71,8 @@ interface DaemonOperations {
 
 /** Adapts [DtaDaemon] (whose methods carry defaults) to [DaemonOperations]. */
 class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
+    override suspend fun uiEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, kinds: Set<String>, limit: Int) = daemon.uiEvents(serial, pkg, since, sinceMs, kinds, limit)
+    override fun uiWatch(serial: String, pkg: String, history: Boolean, kinds: Set<String>) = daemon.uiWatch(serial, pkg, history, kinds)
     override fun archiveList() = daemon.archiveList()
     override suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean) = daemon.linksOpen(serial, uri, pkg)
     override fun linksVerification(serial: String, pkg: String) = daemon.linksVerification(serial, pkg)

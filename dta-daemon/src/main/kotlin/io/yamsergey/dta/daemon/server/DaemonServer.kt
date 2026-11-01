@@ -151,7 +151,8 @@ class DaemonServer(
                 DaemonMethods.REPLACE -> replace(request)
                 DaemonMethods.NETWORK_SUBSCRIBE -> scope.launch { subscribe(request) }
                 DaemonMethods.APPS_SUBSCRIBE -> scope.launch { subscribeApps(request) }
-                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE -> {
+                DaemonMethods.UI_SUBSCRIBE -> scope.launch { subscribeUi(request) }
+                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.UI_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
                     id?.let { networkTargets.remove(it) }
@@ -331,6 +332,49 @@ class DaemonServer(
                 respond(
                     request.id,
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("subscription", id); put("apps", JsonArray(apps)) })),
+                )
+            } catch (e: ClientException) {
+                error(request.id, e.code, e.message ?: "failed", e.data)
+            } catch (e: Exception) {
+                error(request.id, ErrorCodes.INTERNAL, "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+
+        /** `ui.watch` (feature 015): the app's UI journal as the host takes it in, optionally the kept events first. */
+        private suspend fun subscribeUi(request: Request) {
+            val params = request.params ?: JsonObject(emptyMap())
+            try {
+                val resolution = selector.resolve(
+                    Scope.APP,
+                    (params["device"] as? JsonPrimitive)?.content,
+                    (params["app"] as? JsonPrimitive)?.content,
+                )
+                val serial = resolution.serial!!
+                val pkg = resolution.pkg!!
+                val kinds = (params["kinds"] as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().toSet()
+                val history = (params["history"] as? JsonPrimitive)?.content == "current"
+                val id = "s${subscriptionIds.incrementAndGet()}"
+                val events = ops.uiWatch(serial, pkg, history, kinds)
+                val job = scope.launch {
+                    events.collect { e ->
+                        send(
+                            Event(
+                                name = DaemonEvents.UI_EVENT,
+                                seq = seq.incrementAndGet(),
+                                data = buildJsonObject {
+                                    put("subscription", id)
+                                    put("device", serial)
+                                    put("app", pkg)
+                                    put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.ui.UiEvent.serializer(), e))
+                                },
+                            ),
+                        )
+                    }
+                }
+                subscriptions[id] = job
+                respond(
+                    request.id,
+                    DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })),
                 )
             } catch (e: ClientException) {
                 error(request.id, e.code, e.message ?: "failed", e.data)
