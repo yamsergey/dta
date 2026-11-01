@@ -63,6 +63,20 @@ object Facets {
 
     /** The source a facet name belongs to: its first segment. */
     fun sourceOf(facet: String): String = facet.substringBefore('.')
+
+    /**
+     * The facet values at the start of [events] (features 016/017): a value's first change says
+     * what it was before; a facet that never changes in [events] has its [current] value.
+     */
+    fun initialValues(events: List<TimelineEvent>, current: List<FacetValue>): List<FacetValue> {
+        val firstChange = LinkedHashMap<String, String?>()
+        for (e in events) for (c in e.facets) if (c.name !in firstChange) firstChange[c.name] = c.previous
+        val byName = current.associateBy { it.name }.toMutableMap()
+        for ((name, before) in firstChange) {
+            byName[name] = (byName[name] ?: FacetValue(name, null, sourceOf(name), 0, 0)).copy(value = before)
+        }
+        return byName.values.toList()
+    }
 }
 
 object CauseRules {

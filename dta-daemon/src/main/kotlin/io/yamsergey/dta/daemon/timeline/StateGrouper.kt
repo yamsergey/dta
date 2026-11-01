@@ -130,16 +130,8 @@ class StateGrouper(
     companion object {
         const val MAX_TRIGGERS = 5
 
-        /** The facet values at the start of [events]: a value's first change says what it was before. */
-        fun initialValues(events: List<TimelineEvent>, current: List<FacetValue>): List<FacetValue> {
-            val firstChange = LinkedHashMap<String, String?>()
-            for (e in events) for (c in e.facets) if (c.name !in firstChange) firstChange[c.name] = c.previous
-            val byName = current.associateBy { it.name }.toMutableMap()
-            for ((name, before) in firstChange) {
-                byName[name] = (byName[name] ?: FacetValue(name, null, Facets.sourceOf(name), 0, 0)).copy(value = before)
-            }
-            return byName.values.toList()
-        }
+        /** The facet values at the start of [events] (the shared rule, [Facets.initialValues]). */
+        fun initialValues(events: List<TimelineEvent>, current: List<FacetValue>): List<FacetValue> = Facets.initialValues(events, current)
 
         fun stateRef(facets: List<String>, values: List<String?>): StateRef {
             val pairs = facets.zip(values)
