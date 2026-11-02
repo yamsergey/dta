@@ -45,7 +45,7 @@ internal object UrlConnectionCapture {
         val failure = listOf(
             Hooks.exit(URL::class.java, "openConnection", "()Ljava/net/URLConnection;", handler),
             Hooks.exit(URL::class.java, "openConnection", "(Ljava/net/Proxy;)Ljava/net/URLConnection;", handler),
-        ).filterIsInstance<Hooks.Install.Failed>().firstOrNull()?.reason
+        ).firstOrNull { it !is Hooks.Install.Installed }?.describe()
         return LibraryState(NetworkLibraries.URLCONNECTION, present = true, installFailure = failure)
     }
 }

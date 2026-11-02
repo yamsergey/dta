@@ -72,6 +72,12 @@ object HookSelfTest {
                     put("returnedEarly", early == "early")
                     put("observed", "$rewritten / $early")
                 }
+                // Feature 019: an absent method is found absent without a class reload, and the
+                // class's other hooks (installed before it) keep firing.
+                putJsonObject("absent-probe") {
+                    put("install", installed.getValue("absent"))
+                    put("othersStillFire", probeEntry && probeExit && rewritten == "echo-bb")
+                }
                 putJsonObject("java.net.URL#openConnection") {
                     put("install", installed.getValue("url"))
                     put("entry", urlEntry)
@@ -132,6 +138,9 @@ object HookSelfTest {
                 }
             }),
         )
-        return mapOf("app-probe" to probe, "url" to url, "control" to control)
+        val absent = Hooks.entry(SelfTestProbe::class.java, "missing", "()V", object : EntryHandler {
+            override fun onEntry(self: Any?, params: Array<Any?>) {}
+        }).code
+        return mapOf("app-probe" to probe, "url" to url, "control" to control, "absent" to absent)
     }
 }

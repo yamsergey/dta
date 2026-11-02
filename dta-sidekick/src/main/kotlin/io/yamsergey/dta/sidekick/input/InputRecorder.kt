@@ -97,7 +97,7 @@ class InputRecorder(
         when (result) {
             is Hooks.Install.Installed -> Unit
             is Hooks.Install.ClassAbsent -> failures[name] = "class absent"
-            is Hooks.Install.Failed -> failures[name] = result.reason
+            else -> failures[name] = result.describe()
         }
     }
 

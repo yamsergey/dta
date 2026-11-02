@@ -48,7 +48,7 @@ internal object OkHttpCapture {
             Hooks.exit(client, "interceptors", "()Ljava/util/List;", object : ExitHandler {
                 override fun onExit(result: Any?): Any? = withInterceptor(result, app, last = false)
             }),
-        )).filterIsInstance<Hooks.Install.Failed>().firstOrNull()?.reason
+        )).firstOrNull { it !is Hooks.Install.Installed }?.describe()
         return LibraryState(NetworkLibraries.OKHTTP3, present = true, installFailure = failure)
     }
 

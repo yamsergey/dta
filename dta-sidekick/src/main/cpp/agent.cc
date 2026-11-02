@@ -157,9 +157,41 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeAddToBootstrap(JNIEnv* en
   return nullptr;
 }
 
+// Whether [target] declares [method][signature] in a form a hook can instrument (feature
+// 019): 0 present, 1 absent, 2 abstract, 3 native, 4 the class's methods could not be read.
+// Asked before any retransform, so an absent method never reaches ART (which would try to
+// redefine the class from its whole original dex and fail with ILLEGAL_ARGUMENT).
+extern "C" JNIEXPORT jint JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeMethodState(JNIEnv* env, jclass,
+                                                                   jclass target, jstring method,
+                                                                   jstring signature) {
+  if (g_jvmti == nullptr) return 4;
+  std::string want_name = ToString(env, method);
+  std::string want_sig = ToString(env, signature);
+  jint count = 0;
+  jmethodID* methods = nullptr;
+  if (g_jvmti->GetClassMethods(target, &count, &methods) != JVMTI_ERROR_NONE) return 4;
+  jint state = 1;
+  for (jint i = 0; i < count && state == 1; i++) {
+    char* name = nullptr;
+    char* sig = nullptr;
+    if (g_jvmti->GetMethodName(methods[i], &name, &sig, nullptr) != JVMTI_ERROR_NONE) continue;
+    if (name != nullptr && sig != nullptr && want_name == name && want_sig == sig) {
+      jint modifiers = 0;
+      g_jvmti->GetMethodModifiers(methods[i], &modifiers);
+      state = (modifiers & 0x0400) != 0 ? 2 : (modifiers & 0x0100) != 0 ? 3 : 0;
+    }
+    if (name != nullptr) g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(name));
+    if (sig != nullptr) g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(sig));
+  }
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(methods));
+  return state;
+}
+
 // Registers one hook on an already-loaded class and retransforms it. Returns null on
-// success, otherwise the reason; on failure the hook is unregistered again so the class
-// keeps (or regains) its previous, working form.
+// success, otherwise "<our reason>\x1f<runtime detail>" (either part may be empty). On
+// failure the hook is unregistered again so the class keeps (or regains) its previous,
+// working form.
 extern "C" JNIEXPORT jstring JNICALL
 Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
                                                             jclass target, jstring method,
@@ -186,11 +218,14 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
   error = g_jvmti->RetransformClasses(1, &target);
   t_transform_error = nullptr;
 
+  // Our transform's reason comes first: when it fails, ART's own error (if any) is only its
+  // consequence. ART's code follows after a unit separator as the raw detail (feature 019).
   std::string reason;
-  if (error != JVMTI_ERROR_NONE) {
-    reason = "RetransformClasses: " + JvmtiErrorName(error);
-  } else if (!transform_error.empty()) {
+  if (!transform_error.empty()) {
     reason = transform_error;
+    if (error != JVMTI_ERROR_NONE) reason += "\x1f" "RetransformClasses: " + JvmtiErrorName(error);
+  } else if (error != JVMTI_ERROR_NONE) {
+    reason = "\x1f" "RetransformClasses: " + JvmtiErrorName(error);
   }
   if (reason.empty()) return nullptr;
 

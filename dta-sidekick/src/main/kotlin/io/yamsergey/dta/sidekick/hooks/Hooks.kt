@@ -12,10 +12,59 @@ import io.yamsergey.dta.shim.HookRegistry
  */
 object Hooks {
 
+    /**
+     * The outcome of one hook. [code] is a stable token (diagnostics, tests); [describe] is the
+     * plain text a reason is built from (feature 019): what was tried and why it did not install.
+     */
     sealed interface Install {
-        data object Installed : Install
-        data class ClassAbsent(val className: String) : Install
-        data class Failed(val reason: String) : Install
+        val code: String
+        fun describe(): String
+
+        data object Installed : Install {
+            override val code = "installed"
+            override fun describe() = "installed"
+        }
+
+        data class ClassAbsent(val className: String) : Install {
+            override val code = "class-absent"
+            override fun describe() = "${HookNames.simple(className)} is not in the app"
+        }
+
+        /** The class is there, but declares no such method (checked before any class reload). */
+        data class MethodAbsent(val className: String, val method: String, val descriptor: String) : Install {
+            override val code = "method-absent"
+            override fun describe() = "${HookNames.method(className, method, descriptor)} is not in the app's version of ${HookNames.simple(className)}"
+        }
+
+        /** The method exists but has no code of its own to hook ([why]: abstract or native). */
+        data class NotHookable(val className: String, val method: String, val descriptor: String, val why: String) : Install {
+            override val code = "not-hookable"
+            override fun describe() = "${HookNames.method(className, method, descriptor)} is $why, so it has no code to hook"
+        }
+
+        /** Tried and refused: [reason] is plain, [detail] the raw cause (runtime code, transform text). */
+        data class Failed(val reason: String, val detail: String? = null) : Install {
+            override val code = "failed"
+            override fun describe() = reason
+        }
+
+        companion object {
+            /**
+             * nativeHook's "<our transform's reason>\u001f<runtime detail>": our reason means DTA
+             * could not rewrite the method; only a runtime detail means Android refused the
+             * rewritten class.
+             */
+            fun refused(native: String): Failed {
+                val ours = native.substringBefore('\u001f').trim()
+                val runtime = native.substringAfter('\u001f', "").trim()
+                val detail = listOf(ours, runtime).filter { it.isNotEmpty() }.joinToString("; ").ifEmpty { null }
+                return if (ours.isNotEmpty()) {
+                    Failed("DTA could not add its hook to the method's code", detail)
+                } else {
+                    Failed("Android refused to reload the class with the hook", detail)
+                }
+            }
+        }
     }
 
     private val nativelyInstalled = HashSet<String>()
@@ -52,18 +101,24 @@ object Hooks {
 
     @Synchronized
     private fun install(cls: Class<*>, method: String, descriptor: String, kind: Int, register: (String) -> Unit): Install {
-        if (!HookAttach.attached) return Install.Failed(HookAttach.reason ?: "hooks not attached")
+        if (!HookAttach.attached) return Install.Failed("hooks are off in this app", HookAttach.reason)
         return try {
             val label = HookRegistry.label(cls.name, method, descriptor)
             val key = "$kind $label"
             if (key !in nativelyInstalled) {
-                NativeAgent.nativeHook(cls, method, descriptor, kind)?.let { return Install.Failed(it) }
+                // Feature 019: an absent method is found here, never by a class reload.
+                when (NativeAgent.nativeMethodState(cls, method, descriptor)) {
+                    NativeAgent.ABSENT -> return Install.MethodAbsent(cls.name, method, descriptor)
+                    NativeAgent.ABSTRACT -> return Install.NotHookable(cls.name, method, descriptor, "abstract")
+                    NativeAgent.NATIVE -> return Install.NotHookable(cls.name, method, descriptor, "native")
+                }
+                NativeAgent.nativeHook(cls, method, descriptor, kind)?.let { return Install.refused(it) }
                 nativelyInstalled += key
             }
             register(label)
             Install.Installed
         } catch (t: Throwable) {
-            Install.Failed("${t.javaClass.simpleName}: ${t.message}")
+            Install.Failed("DTA could not add the hook", "${t.javaClass.name}: ${t.message}")
         }
     }
 }

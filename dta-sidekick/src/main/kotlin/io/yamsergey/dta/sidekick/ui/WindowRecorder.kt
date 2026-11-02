@@ -89,8 +89,7 @@ class WindowRecorder(
         failure = listOf("addView" to added, "removeView" to removing, "doRemoveView" to removed).mapNotNull { (name, result) ->
             when (result) {
                 is Hooks.Install.Installed -> null
-                is Hooks.Install.ClassAbsent -> "$name: class absent"
-                is Hooks.Install.Failed -> "$name: ${result.reason}"
+                else -> "$name: ${result.describe()}"
             }
         }.takeIf { it.isNotEmpty() }?.joinToString("; ")
         return failure

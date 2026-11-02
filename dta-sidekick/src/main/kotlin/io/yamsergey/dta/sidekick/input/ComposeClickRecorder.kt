@@ -44,7 +44,7 @@ class ComposeClickRecorder(
         }.flatten()
         failure = when {
             results.isEmpty() -> "Compose clicks: this Compose foundation version has no handleUpEvent to observe"
-            results.none { it is Hooks.Install.Installed } -> "Compose clicks: " + results.filterIsInstance<Hooks.Install.Failed>().joinToString("; ") { it.reason }
+            results.none { it is Hooks.Install.Installed } -> "Compose clicks: " + results.filterNot { it is Hooks.Install.Installed }.joinToString("; ") { it.describe() }
             else -> null
         }
     }

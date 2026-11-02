@@ -29,7 +29,7 @@ internal class EntryHooks(private val target: Class<*>) {
     }
 
     fun state(library: String) =
-        LibraryState(library, present = true, installFailure = results.filterIsInstance<Hooks.Install.Failed>().firstOrNull()?.reason)
+        LibraryState(library, present = true, installFailure = results.firstOrNull { it !is Hooks.Install.Installed }?.describe())
 
     companion object {
         val PROCEED: Any get() = HookDispatcher.PROCEED

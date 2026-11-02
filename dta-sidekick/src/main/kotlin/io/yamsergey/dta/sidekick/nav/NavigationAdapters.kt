@@ -97,7 +97,7 @@ class NavigationAdapters(private val events: NavigationEvents) {
     private fun installed(what: String, result: Hooks.Install): Boolean = when (result) {
         is Hooks.Install.Installed -> true
         is Hooks.Install.ClassAbsent -> false
-        is Hooks.Install.Failed -> false.also { notes += "$what: ${result.reason}" }
+        else -> false.also { notes += "$what: ${result.describe()}" }
     }
 
     private fun load(name: String, loader: ClassLoader?): Class<*>? = runCatching { Class.forName(name, false, loader) }.getOrNull()

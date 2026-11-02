@@ -49,7 +49,7 @@ class AppStateBridge(private val buffer: TimelineBuffer, private val facets: Fac
                 )
             }
             is Hooks.Install.ClassAbsent -> SourceStatus(Sources.APP, SourceState.OFF, "dta-state bridge not found")
-            is Hooks.Install.Failed -> SourceStatus(Sources.APP, SourceState.OFF, "dta-state bridge not hooked: ${result.reason}")
+            else -> SourceStatus(Sources.APP, SourceState.OFF, "dta-state bridge not hooked: ${result.describe()}")
         }
         decoder = created
     }
