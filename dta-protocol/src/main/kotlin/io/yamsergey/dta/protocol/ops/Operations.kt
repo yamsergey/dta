@@ -282,6 +282,19 @@ object Catalog {
             listOf(ParamSpec("since", ParamType.LONG, "Only lines after this sequence number (the next value of a previous call).")),
         ),
         OperationSpec(
+            "network.ws.push",
+            "Push a message into an open WebSocket connection of the app, as if the server sent it: the app's listener receives it through the library. " +
+                "It is delivered on the library's reading thread when a frame arrives (DTA pings the server where the library allows), otherwise from DTA's thread after waitMs; " +
+                "the history shows it as an incoming message marked injected. Blocks until delivered.",
+            Scope.APP,
+            listOf(
+                ParamSpec("connection", ParamType.STRING, "WebSocket connection id (network_list, type ws-connection). Optional when the app has exactly one open connection."),
+                ParamSpec("text", ParamType.STRING, "Text message.", positional = true),
+                ParamSpec("base64", ParamType.STRING, "Binary message, base64. Give text or base64."),
+                ParamSpec("waitMs", ParamType.LONG, "How long to wait for a frame on the library's reading thread before delivering from DTA's thread (default 1000; 0 delivers now)."),
+            ),
+        ),
+        OperationSpec(
             "network.schema.add",
             "Add (or replace) a protobuf schema set for the app, from .proto sources (no protoc needed) or a compiled descriptor set, so its binary bodies decode to JSON. Give paths or sources.",
             Scope.APP,

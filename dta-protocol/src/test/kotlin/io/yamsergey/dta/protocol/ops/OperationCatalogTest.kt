@@ -34,6 +34,7 @@ class OperationCatalogTest {
                 "devices.list", "apps.list", "apps.watch", "capability.report", "layout.tree",
                 "network.list", "network.entry", "network.body", "network.clear", "network.watch",
                 "network.script.set", "network.script.clear", "network.script.status", "network.script.logs",
+                "network.ws.push",
                 "network.schema.add", "network.schema.list", "network.schema.remove", "network.schema.sync",
                 "network.mapping.add", "network.mapping.list", "network.mapping.remove",
                 "links.list", "links.entry", "links.open", "links.verification",
@@ -60,6 +61,11 @@ class OperationCatalogTest {
         assertEquals(listOf("state"), Catalog["state.current"].cliPath)
         assertEquals(listOf("state", "graph"), Catalog["state.graph"].cliPath)
         assertEquals("state_graph", Catalog["state.graph"].toolName)
+        assertEquals("network_ws_push", Catalog["network.ws.push"].toolName)
+        assertEquals(listOf("network", "ws", "push"), Catalog["network.ws.push"].cliPath)
+        val push = Catalog["network.ws.push"]
+        assertEquals(listOf("connection", "text", "base64", "waitMs"), push.params.map { it.name })
+        assertTrue(push.param("text")!!.positional)
     }
 
     @Test

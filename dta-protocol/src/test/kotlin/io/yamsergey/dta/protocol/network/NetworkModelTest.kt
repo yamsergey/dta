@@ -202,7 +202,7 @@ class NetworkModelTest {
         assertEquals(message, roundTrip(message))
         assertTrue("\"app-message\"" in DtaJson.encodeToString(NetworkEntry.serializer(), message))
         assertEquals(
-            listOf("request", "response", "ws-send", "ws-receive"),
+            listOf("request", "response", "ws-send", "ws-receive", "timer"),
             ScriptHandler.entries.map { DtaJson.encodeToJsonElement(ScriptHandler.serializer(), it).jsonPrimitive.content },
         )
     }
@@ -250,5 +250,27 @@ class NetworkModelTest {
         kotlin.test.assertEquals(status, io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromString(LibraryStatus.serializer(), json))
         val old = io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromString(LibraryStatus.serializer(), """{"name":"okhttp3","status":"available"}""")
         kotlin.test.assertEquals(null, old.notCaptured)
+    }
+
+    // ---- feature 020: pushed messages ----
+
+    @Test
+    fun `a pushed message carries its marker with wire names`() {
+        val pushed = wsMessage.copy(
+            opcode = MessageOpcode.TEXT,
+            injected = WsInjection(InjectionSource.SCRIPT, scriptId = "3fa2", handler = ScriptHandler.TIMER, delivery = InjectionDelivery.READING_THREAD, waitedMs = 12),
+        )
+        val json = DtaJson.encodeToString(NetworkEntry.serializer(), pushed)
+        assertTrue("\"injected\":{\"by\":\"script\",\"scriptId\":\"3fa2\",\"handler\":\"timer\",\"delivery\":\"reading-thread\",\"waitedMs\":12}" in json, json)
+        assertEquals(pushed, roundTrip(pushed))
+        val client = WsInjection(InjectionSource.CLIENT, delivery = InjectionDelivery.DTA_THREAD, waitedMs = 1000)
+        assertEquals("""{"by":"client","delivery":"dta-thread","waitedMs":1000}""", DtaJson.encodeToString(WsInjection.serializer(), client))
+        assertFalse("injected" in DtaJson.encodeToString(NetworkEntry.serializer(), wsMessage), "absent when not pushed")
+    }
+
+    @Test
+    fun `push result round-trips`() {
+        val result = WsPushResult(entryId = "r1-42:9", connectionId = "r1-42:2", delivery = InjectionDelivery.DTA_THREAD, waitedMs = 1000, listenerError = "IllegalStateException: boom")
+        assertEquals(result, DtaJson.decodeFromString(WsPushResult.serializer(), DtaJson.encodeToString(WsPushResult.serializer(), result)))
     }
 }

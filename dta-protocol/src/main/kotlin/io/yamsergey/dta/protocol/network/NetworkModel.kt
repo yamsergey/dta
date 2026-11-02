@@ -238,9 +238,52 @@ data class WsMessageEntry(
     val appPayload: BodyInfo? = null,
     /** The connection's URL, so a message names its socket without the connection entry. */
     val url: String? = null,
+    /** Pushed by DTA (feature 020): the server never sent it; [payload] is what the app received. */
+    val injected: WsInjection? = null,
 ) : NetworkEntry {
     override fun summary() = this
 }
+
+// ---- feature 020: messages pushed to the app ---------------------------------------------
+
+@Serializable
+enum class InjectionSource {
+    /** An agent or a person, through `network.ws.push`. */
+    @SerialName("client") CLIENT,
+    /** The network script (`push`, `conn.push`, a timer). */
+    @SerialName("script") SCRIPT,
+}
+
+@Serializable
+enum class InjectionDelivery {
+    /** On the library's reading thread, where real messages arrive. */
+    @SerialName("reading-thread") READING_THREAD,
+    /** From DTA's thread: no frame arrived within the wait. */
+    @SerialName("dta-thread") DTA_THREAD,
+}
+
+/** How a pushed message reached the app: never mistakable for a server message (FR-005). */
+@Serializable
+data class WsInjection(
+    val by: InjectionSource,
+    val scriptId: String? = null,
+    /** Where in the script it was pushed; null for the script's top level. */
+    val handler: ScriptHandler? = null,
+    val delivery: InjectionDelivery,
+    /** From the push (after any delay) to its delivery. */
+    val waitedMs: Long,
+)
+
+/** Result of `network.ws.push`. */
+@Serializable
+data class WsPushResult(
+    val entryId: String,
+    val connectionId: String,
+    val delivery: InjectionDelivery,
+    val waitedMs: Long,
+    /** The app's listener threw on the message (only seen when delivered from DTA's thread). */
+    val listenerError: String? = null,
+)
 
 // ---- feature 012: a link that reached the app ------------------------------------------
 
@@ -330,6 +373,8 @@ enum class ScriptHandler {
     @SerialName("response") RESPONSE,
     @SerialName("ws-send") WS_SEND,
     @SerialName("ws-receive") WS_RECEIVE,
+    /** A script timer (feature 020): log lines and pushes from `every`/`after`. */
+    @SerialName("timer") TIMER,
 }
 
 @Serializable
