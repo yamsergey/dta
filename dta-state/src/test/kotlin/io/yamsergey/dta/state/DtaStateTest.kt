@@ -25,13 +25,18 @@ class DtaStateTest {
 
     @Test
     fun `without DTA nothing is built and calls cost almost nothing`() {
-        val started = System.nanoTime()
-        repeat(10_000) {
-            DtaState.facet("cart", "items")
-            DtaState.event("cart.removed", "id" to it)
+        fun run(): Long {
+            val started = System.nanoTime()
+            repeat(10_000) {
+                DtaState.facet("cart", "items")
+                DtaState.event("cart.removed", "id" to it)
+            }
+            return (System.nanoTime() - started) / 1_000_000
         }
-        val ms = (System.nanoTime() - started) / 1_000_000
-        assertTrue(ms < 5, "10 000 calls took $ms ms")
+        // Warmed up, the best of five: a cold JVM or a busy CI runner says nothing about the call's cost.
+        run()
+        val ms = (1..5).minOf { run() }
+        assertTrue(ms < 5, "10 000 calls took $ms ms (best of five)")
         assertSame(DtaEvent.NONE, DtaState.event("x"))
         assertEquals(42, DtaState.during(DtaEvent.NONE) { 42 })
         assertEquals(emptyList(), calls)

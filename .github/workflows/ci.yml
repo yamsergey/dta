@@ -27,4 +27,4 @@ jobs:
       - name: IDE layout index (retried, see the script)
         run: .github/scripts/ide-layout-index.sh
       - name: Check (compile, tests, lint, plugin version)
-        run: ./gradlew check --no-configuration-cache
+        run: ./gradlew check --continue --no-configuration-cache
