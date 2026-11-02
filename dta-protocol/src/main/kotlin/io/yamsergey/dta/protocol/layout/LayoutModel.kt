@@ -28,6 +28,8 @@ object DegradationCodes {
     // Feature 004 (data-model §Degradation codes).
     const val NETWORK_HOOKS_UNAVAILABLE = "network-hooks-unavailable"
     const val NETWORK_LIBRARY_UNAVAILABLE = "network-library-unavailable"
+    /** Feature 019: a library is captured only in part (some of its events); the capability names which. */
+    const val NETWORK_LIBRARY_PARTIAL = "network-library-partial"
     const val NETWORK_HISTORY_EVICTED = "network-history-evicted"
     const val NETWORK_HISTORY_NOT_PERSISTED = "network-history-not-persisted"
     const val NETWORK_EVENTS_DROPPED = "network-events-dropped"

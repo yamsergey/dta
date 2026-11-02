@@ -170,12 +170,12 @@ object Statements {
 
     /** A `capability.report` result: every capability or library that is not fully available. */
     fun forCapability(report: JsonObject): List<Statement> = buildList {
-        fun gap(name: String, status: String, reason: String?) {
+        fun gap(name: String, status: String, reason: String?, known: String? = null) {
             if (status == "available") return
             if (name == "grpc") {
                 add(Statement(StatementKind.NOT_CAPTURED, detail = listOfNotNull("$name not captured", reason).joinToString(": "), subject = name))
             } else {
-                val code = Degradations.codeIn(reason)
+                val code = known ?: Degradations.codeIn(reason)
                 add(Statement(StatementKind.DEGRADED, word = status, detail = listOfNotNull("$name $status", reason).joinToString(": "), subject = name,
                     code = code, explanation = Degradations.explain(code)))
             }
@@ -183,7 +183,17 @@ object Statements {
         report.arr("capabilities").forEach { c ->
             val cap = c.asObj()
             gap(cap.str("name") ?: "?", cap.str("status") ?: "?", cap.str("reason"))
-            cap.arr("libraries").forEach { l -> l.asObj().let { gap(it.str("name") ?: "?", it.str("status") ?: "?", it.str("reason")) } }
+            cap.arr("libraries").forEach { l ->
+                l.asObj().let {
+                    // Feature 019: a library missing some events is partial; one missing all of them is unavailable.
+                    val known = when {
+                        it["notCaptured"] == null -> null
+                        it.str("status") == "degraded" -> io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_LIBRARY_PARTIAL
+                        else -> io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_LIBRARY_UNAVAILABLE
+                    }
+                    gap(it.str("name") ?: "?", it.str("status") ?: "?", it.str("reason"), known)
+                }
+            }
         }
     }.ordered()
 

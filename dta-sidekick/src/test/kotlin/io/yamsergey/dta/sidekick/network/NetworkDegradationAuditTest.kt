@@ -69,6 +69,27 @@ class NetworkDegradationAuditTest {
     }
 
     @Test
+    fun `a partly captured library is marked partial, not unavailable`() = withStore { store, _ ->
+        val sig = HookSignature("failWebSocket", "(Ljava/lang/Exception;)V")
+        val partial = NetworkCapability.status(
+            null,
+            listOf(
+                LibraryState(
+                    "okhttp3-ws", present = true, installFailure = null,
+                    events = listOf(
+                        EventResult.of("connections", sig.copy(method = "connect"), io.yamsergey.dta.sidekick.hooks.Hooks.Install.Installed),
+                        EventResult.of("failures", sig, io.yamsergey.dta.sidekick.hooks.Hooks.Install.MethodAbsent("C", sig.method, sig.descriptor)),
+                    ),
+                ),
+            ),
+            store.bounds,
+        )
+        val got = codes(NetworkMethods(store) { partial }.list(null))
+        assertTrue(DegradationCodes.NETWORK_LIBRARY_PARTIAL in got, "$got")
+        assertTrue(DegradationCodes.NETWORK_LIBRARY_UNAVAILABLE !in got, "$got")
+    }
+
+    @Test
     fun `with no limit set, nothing is evicted however much is stored`() = withStore(bounds = StoreBounds(segmentBytes = 500)) { store, recorder ->
         repeat(6) { completeGet(recorder, bodyBytes = 1_000); store.flush() }
         store.evictIfNeeded()

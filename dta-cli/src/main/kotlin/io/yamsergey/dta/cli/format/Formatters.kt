@@ -167,6 +167,12 @@ class Formatters(private val style: Style) {
             cap.arr("libraries").forEach { l ->
                 val lib = l.obj
                 appendLine("  " + capLine(lib.str("name")!!, lib.str("status")!!, lib.str("reason")))
+                // Feature 019: the events a partly captured library misses, at a glance; the raw detail stays in --json.
+                if (lib.str("status") == "degraded") {
+                    lib.arr("notCaptured").map { it.toString().trim('"') }.takeIf { it.isNotEmpty() }?.let {
+                        appendLine("    " + style.paint("not captured: ${it.joinToString(", ")}", Token.INK_MUTED))
+                    }
+                }
             }
             cap.obj("tooling")?.let { t ->
                 val origin = if (t.str("source") == "dta") "added by DTA injection" + (t.str("version")?.let { " ($it)" } ?: "") else "declared by the project"

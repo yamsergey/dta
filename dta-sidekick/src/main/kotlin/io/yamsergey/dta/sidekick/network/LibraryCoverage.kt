@@ -13,11 +13,12 @@ import io.yamsergey.dta.sidekick.hooks.Hooks.Install
 object LibraryCoverage {
 
     const val ABSENT = "the app does not include this library"
+    const val ALL_TRAFFIC = "all of its traffic"
 
     fun of(state: LibraryState): LibraryStatus {
         if (!state.present) return LibraryStatus(state.name, Status.UNAVAILABLE, ABSENT)
         state.installFailure?.let {
-            return LibraryStatus(state.name, Status.UNAVAILABLE, "nothing is captured: $it", detail = state.installFailureDetail)
+            return LibraryStatus(state.name, Status.UNAVAILABLE, "nothing is captured: $it", notCaptured = listOf(ALL_TRAFFIC), detail = state.installFailureDetail)
         }
         state.unsupported?.let { return LibraryStatus(state.name, Status.UNAVAILABLE, it) }
 

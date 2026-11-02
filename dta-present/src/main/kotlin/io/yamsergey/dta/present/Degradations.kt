@@ -41,7 +41,10 @@ object Degradations {
             "Network capture could not attach in this process, so no traffic is captured. Run the app's debug build; " +
             "the capability report says why it failed.",
         Codes.NETWORK_LIBRARY_UNAVAILABLE to
-            "A network library could not be captured, so its traffic is missing. The capability report names the library and why.",
+            "A network library the app uses is not captured at all, so its traffic is missing. The capability report names the library and why.",
+        Codes.NETWORK_LIBRARY_PARTIAL to
+            "A network library is captured only in part: some of its events (for example handshake headers or failures) are missing, " +
+            "the rest is captured. The capability report names the events and why.",
         Codes.NETWORK_HISTORY_EVICTED to
             "Older entries were removed by the history size limit.",
         Codes.NETWORK_HISTORY_NOT_PERSISTED to

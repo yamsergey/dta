@@ -175,4 +175,15 @@ class StatementsTest {
         assertEquals("History cleared by mcp: 3 entries removed.", st.detail)
         assertEquals(null, Statements.forCleared(kotlinx.serialization.json.JsonObject(emptyMap())))
     }
+
+    @Test
+    fun `a partly captured library is explained as partial`() {
+        val report = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"capabilities":[{"name":"network","status":"degraded","reason":"x","libraries":[
+               {"name":"okhttp3-ws","status":"degraded","reason":"failures is not captured","notCaptured":["failures"],"captured":["connections"]}]}]}""",
+        ) as kotlinx.serialization.json.JsonObject
+        val ws = Statements.forCapability(report).single { it.subject == "okhttp3-ws" }
+        kotlin.test.assertEquals(io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_LIBRARY_PARTIAL, ws.code)
+        kotlin.test.assertTrue("only in part" in ws.sentence, ws.sentence)
+    }
 }

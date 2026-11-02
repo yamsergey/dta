@@ -239,4 +239,16 @@ class NetworkModelTest {
         assertEquals("network-script-unavailable", DegradationCodes.NETWORK_SCRIPT_UNAVAILABLE)
         assertEquals("network-script-not-persisted", DegradationCodes.NETWORK_SCRIPT_NOT_PERSISTED)
     }
+
+    @Test
+    fun `a library status carries its events not captured, and old JSON without them still reads`() {
+        val status = LibraryStatus(
+            "okhttp3-ws", io.yamsergey.dta.protocol.rpc.CapabilityStatus.Status.DEGRADED, "failures is not captured",
+            notCaptured = listOf("failures"), captured = listOf("connections"), detail = "RetransformClasses: X",
+        )
+        val json = io.yamsergey.dta.protocol.rpc.DtaJson.encodeToString(LibraryStatus.serializer(), status)
+        kotlin.test.assertEquals(status, io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromString(LibraryStatus.serializer(), json))
+        val old = io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromString(LibraryStatus.serializer(), """{"name":"okhttp3","status":"available"}""")
+        kotlin.test.assertEquals(null, old.notCaptured)
+    }
 }

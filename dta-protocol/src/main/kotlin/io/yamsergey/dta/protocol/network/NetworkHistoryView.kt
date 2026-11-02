@@ -114,7 +114,15 @@ class NetworkHistoryView(
         val codes = buildList {
             when (ctx.capture.status) {
                 CapabilityStatus.Status.UNAVAILABLE -> add(DegradationCodes.NETWORK_HOOKS_UNAVAILABLE)
-                CapabilityStatus.Status.DEGRADED -> add(DegradationCodes.NETWORK_LIBRARY_UNAVAILABLE)
+                CapabilityStatus.Status.DEGRADED -> {
+                    // Feature 019: a library captured in part is "partial"; one losing everything
+                    // (notCaptured set) is "unavailable". Without the library list, as before.
+                    val libraries = ctx.capture.libraries
+                    if (libraries == null || libraries.any { it.status == CapabilityStatus.Status.UNAVAILABLE && it.notCaptured != null }) {
+                        add(DegradationCodes.NETWORK_LIBRARY_UNAVAILABLE)
+                    }
+                    if (libraries?.any { it.status == CapabilityStatus.Status.DEGRADED } == true) add(DegradationCodes.NETWORK_LIBRARY_PARTIAL)
+                }
                 CapabilityStatus.Status.AVAILABLE -> Unit
             }
             if (ctx.coverage.dropped > 0) add(DegradationCodes.NETWORK_EVENTS_DROPPED)
