@@ -126,10 +126,12 @@ class DaemonServerTest {
         val pending = HttpEntry("r1-1:2", "r1-1", 2, "okhttp3", method = "GET", url = "https://api.example.com/2", state = HttpState.PENDING)
         fake.history = listOf(entry(1).entry, pending)
         // Traffic between the subscription and the snapshot: the snapshot already has entry 1 as is.
-        fake.duringHistory = { fake.events.emit(entry(1)); fake.events.emit(entry(3)) }
+        // The watch subscribes before it reads the history: once the history is read, a live event reaches it.
+        val historyRead = kotlinx.coroutines.CompletableDeferred<Unit>()
+        fake.duringHistory = { fake.events.emit(entry(1)); fake.events.emit(entry(3)); historyRead.complete(Unit) }
         val watcher = connect()
         val got = async { withTimeout(5_000) { watcher.networkEvents(buildJsonObject { put("history", "current") }).take(5).toList() } }
-        delay(300)
+        withTimeout(5_000) { historyRead.await() }
         fake.events.emit(entry(2)) // the pending one completes
         fun id(o: JsonObject) = o["event"]!!.jsonObject["entry"]!!.jsonObject["id"]!!.jsonPrimitive.content
         fun state(o: JsonObject) = o["event"]!!.jsonObject["entry"]!!.jsonObject["state"]!!.jsonPrimitive.content
