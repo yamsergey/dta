@@ -38,7 +38,7 @@ class NetworkCapabilityTest {
         assertEquals(
             listOf(
                 LibraryStatus("okhttp3", Status.AVAILABLE),
-                LibraryStatus("nv-websocket", Status.UNAVAILABLE, "library not present in app"),
+                LibraryStatus("nv-websocket", Status.UNAVAILABLE, NetworkCapability.ABSENT),
             ),
             status.libraries,
         )
@@ -46,21 +46,29 @@ class NetworkCapabilityTest {
     }
 
     @Test
-    fun `a present library whose hook failed degrades the capability`() {
+    fun `a present library with an event not captured degrades the capability, naming the event`() {
+        val connect = HookSignature("connect", "()V")
+        val fail = HookSignature("failWebSocket", "(Ljava/lang/Exception;)V")
         val status = NetworkCapability.status(
             attachFailure = null,
             libraries = listOf(
-                LibraryState("okhttp3", present = true, installFailure = "RetransformClasses: JVMTI_ERROR_INTERNAL"),
+                LibraryState(
+                    "okhttp3-ws", present = true, installFailure = null,
+                    events = listOf(
+                        EventResult.of("connections", connect, io.yamsergey.dta.sidekick.hooks.Hooks.Install.Installed),
+                        EventResult.of("failures", fail, io.yamsergey.dta.sidekick.hooks.Hooks.Install.MethodAbsent("okhttp3.internal.ws.RealWebSocket", fail.method, fail.descriptor)),
+                    ),
+                ),
                 LibraryState("urlconnection", present = true, installFailure = null),
             ),
             bounds = bounds,
         )
         assertEquals(Status.DEGRADED, status.status)
-        assertTrue("okhttp3" in status.reason!!)
-        assertEquals(
-            LibraryStatus("okhttp3", Status.UNAVAILABLE, "RetransformClasses: JVMTI_ERROR_INTERNAL"),
-            status.libraries!!.first(),
-        )
+        assertTrue(status.reason!!.startsWith("okhttp3-ws: failures is not captured"), status.reason)
+        val ws = status.libraries!!.first()
+        assertEquals(Status.DEGRADED, ws.status)
+        assertEquals(listOf("failures"), ws.notCaptured)
+        assertEquals(Status.AVAILABLE, status.libraries!![1].status)
     }
 
     @Test

@@ -6,6 +6,7 @@ import io.yamsergey.dta.protocol.network.InitiatorSite
 import io.yamsergey.dta.protocol.network.MessageOpcode
 import io.yamsergey.dta.protocol.network.NetworkLibraries
 import io.yamsergey.dta.sidekick.network.EntryHooks
+import io.yamsergey.dta.sidekick.network.NetworkEvents
 import io.yamsergey.dta.sidekick.network.Initiators
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
@@ -36,13 +37,13 @@ internal object NvWebSocketCapture {
         fun idOfListeners(listeners: Any) = sockets[owner.get(listeners)]
 
         val socketHooks = EntryHooks(socketClass)
-        socketHooks.on("connect", "()L${SOCKET.replace('.', '/')};") { self, _ ->
+        socketHooks.on(NetworkEvents.CONNECTIONS, "connect", "()L${SOCKET.replace('.', '/')};") { self, _ ->
             if (sockets[self] != null) return@on
             val uri = self.javaClass.getMethod("getURI").invoke(self)
             sockets.put(self, recorder.wsStarted(NetworkLibraries.NV_WEBSOCKET, uri.toString(), emptyList(), initiators.capture(InitiatorSite.CONNECT)))
         }
         val frameClass = EntryHooks.load(FRAME_CLASS, loader)
-        socketHooks.control("sendFrame", "($FRAME)L${SOCKET.replace('.', '/')};") { self, params ->
+        socketHooks.control(NetworkEvents.SENT, "sendFrame", "($FRAME)L${SOCKET.replace('.', '/')};") { self, params ->
             val id = sockets[self] ?: return@control EntryHooks.PROCEED
             val frame = params[0] ?: return@control EntryHooks.PROCEED
             val opcode = when {
@@ -62,14 +63,14 @@ internal object NvWebSocketCapture {
         }
 
         val listenerHooks = EntryHooks(listenersClass)
-        listenerHooks.on("callOnConnected", "(Ljava/util/Map;)V") { self, params ->
+        listenerHooks.on(NetworkEvents.OPEN, "callOnConnected", "(Ljava/util/Map;)V") { self, params ->
             val id = idOfListeners(self) ?: return@on
             val headers = (params[0] as? Map<*, *>)?.flatMap { (name, values) ->
                 if (name == null) emptyList() else (values as? List<*>).orEmpty().map { Header(name.toString(), it.toString()) }
             }
             recorder.wsOpened(id, headers)
         }
-        listenerHooks.control("callOnTextMessage", "(Ljava/lang/String;)V") { self, params ->
+        listenerHooks.control(NetworkEvents.RECEIVED_TEXT, "callOnTextMessage", "(Ljava/lang/String;)V") { self, params ->
             val id = idOfListeners(self) ?: return@control EntryHooks.PROCEED
             val text = params[0] as? String ?: return@control EntryHooks.PROCEED
             val d = scripting.handle(id, Direction.IN, MessageOpcode.TEXT, text, null, initiator = null)
@@ -77,7 +78,7 @@ internal object NvWebSocketCapture {
             d.text?.let { params[0] = it }
             EntryHooks.PROCEED
         }
-        listenerHooks.control("callOnBinaryMessage", "([B)V") { self, params ->
+        listenerHooks.control(NetworkEvents.RECEIVED_BINARY, "callOnBinaryMessage", "([B)V") { self, params ->
             val id = idOfListeners(self) ?: return@control EntryHooks.PROCEED
             val bytes = params[0] as? ByteArray ?: return@control EntryHooks.PROCEED
             val d = scripting.handle(id, Direction.IN, MessageOpcode.BINARY, null, bytes, initiator = null)
@@ -85,18 +86,17 @@ internal object NvWebSocketCapture {
             d.bytes?.let { params[0] = it }
             EntryHooks.PROCEED
         }
-        listenerHooks.on("callOnDisconnected", "(${FRAME}${FRAME}Z)V") { self, params ->
+        listenerHooks.on(NetworkEvents.CLOSE, "callOnDisconnected", "(${FRAME}${FRAME}Z)V") { self, params ->
             val id = idOfListeners(self) ?: return@on
             val closeFrame = params[0] ?: params[1]
             recorder.wsClosed(id, closeFrame?.call("getCloseCode") as? Int, closeFrame?.call("getCloseReason") as? String)
         }
-        listenerHooks.on("callOnConnectError", "(Lcom/neovisionaries/ws/client/WebSocketException;)V") { self, params ->
+        listenerHooks.on(NetworkEvents.FAILURES, "callOnConnectError", "(Lcom/neovisionaries/ws/client/WebSocketException;)V") { self, params ->
             val id = idOfListeners(self) ?: return@on
             recorder.wsFailed(id, params[0] as? Throwable ?: IllegalStateException("connect error"))
         }
 
-        val failure = listOf(socketHooks, listenerHooks).firstNotNullOfOrNull { it.state(NetworkLibraries.NV_WEBSOCKET).installFailure }
-        return LibraryState(NetworkLibraries.NV_WEBSOCKET, present = true, installFailure = failure)
+        return EntryHooks.state(NetworkLibraries.NV_WEBSOCKET, socketHooks, listenerHooks)
     }
 
     private fun Any.call(method: String): Any? = javaClass.getMethod(method).invoke(this)

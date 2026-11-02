@@ -5,7 +5,10 @@ import io.yamsergey.dta.protocol.network.NetworkLibraries
 import io.yamsergey.dta.shim.EntryHandler
 import io.yamsergey.dta.shim.ExitHandler
 import io.yamsergey.dta.sidekick.hooks.Hooks
+import io.yamsergey.dta.sidekick.network.EventResult
+import io.yamsergey.dta.sidekick.network.HookSignature
 import io.yamsergey.dta.sidekick.network.Initiators
+import io.yamsergey.dta.sidekick.network.NetworkEvents
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
 import io.yamsergey.dta.sidekick.network.script.ScriptRuntime
@@ -33,23 +36,25 @@ internal object OkHttpCapture {
         val contexts = CallContexts()
         val network = DtaInterceptor(recorder, contexts, initiators)
         val app = ScriptInterceptor(recorder, contexts, initiators, scripts, recorder.bodyBound)
-        val callSites = REAL_CALLS.mapNotNull { name ->
-            runCatching { Class.forName(name, false, loader) }.getOrNull()
-        }.flatMap { realCall ->
-            listOf(
-                Hooks.entry(realCall, "enqueue", "(Lokhttp3/Callback;)V", remember(initiators, InitiatorSite.ENQUEUE)),
-                Hooks.entry(realCall, "execute", "()Lokhttp3/Response;", remember(initiators, InitiatorSite.CALL)),
-            )
-        }
-        val failure = (callSites + listOf(
-            Hooks.exit(client, "networkInterceptors", "()Ljava/util/List;", object : ExitHandler {
+        // RealCall moved package in OkHttp 4; one of the two names is in every app.
+        val realCall = REAL_CALLS.firstNotNullOfOrNull { name -> runCatching { Class.forName(name, false, loader) }.getOrNull() }
+        val enqueue = HookSignature("enqueue", "(Lokhttp3/Callback;)V")
+        val execute = HookSignature("execute", "()Lokhttp3/Response;")
+        val networkInterceptors = HookSignature("networkInterceptors", "()Ljava/util/List;")
+        val interceptors = HookSignature("interceptors", "()Ljava/util/List;")
+        val events = listOf(
+            EventResult.of(NetworkEvents.REQUESTS, networkInterceptors, Hooks.exit(client, networkInterceptors.method, networkInterceptors.descriptor, object : ExitHandler {
                 override fun onExit(result: Any?): Any? = withInterceptor(result, network, last = true)
-            }),
-            Hooks.exit(client, "interceptors", "()Ljava/util/List;", object : ExitHandler {
+            })),
+            EventResult.of(NetworkEvents.SCRIPT_AND_EARLY_FAILURES, interceptors, Hooks.exit(client, interceptors.method, interceptors.descriptor, object : ExitHandler {
                 override fun onExit(result: Any?): Any? = withInterceptor(result, app, last = false)
-            }),
-        )).firstOrNull { it !is Hooks.Install.Installed }?.describe()
-        return LibraryState(NetworkLibraries.OKHTTP3, present = true, installFailure = failure)
+            })),
+            realCall?.let { EventResult.of(NetworkEvents.ASYNC_CALL_SITES, enqueue, Hooks.entry(it, enqueue.method, enqueue.descriptor, remember(initiators, InitiatorSite.ENQUEUE))) }
+                ?: EventResult.classAbsent(NetworkEvents.ASYNC_CALL_SITES, REAL_CALLS.first(), enqueue),
+            realCall?.let { EventResult.of(NetworkEvents.SYNC_CALL_SITES, execute, Hooks.entry(it, execute.method, execute.descriptor, remember(initiators, InitiatorSite.CALL))) }
+                ?: EventResult.classAbsent(NetworkEvents.SYNC_CALL_SITES, REAL_CALLS.first(), execute),
+        )
+        return LibraryState(NetworkLibraries.OKHTTP3, present = true, installFailure = null, events = events)
     }
 
     private val REAL_CALLS = listOf("okhttp3.internal.connection.RealCall", "okhttp3.RealCall")

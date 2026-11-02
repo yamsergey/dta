@@ -76,10 +76,16 @@ object NetworkRuntime {
             try {
                 install()
             } catch (t: Throwable) {
-                LibraryState(name, present = true, installFailure = "${t.javaClass.simpleName}: ${t.message}")
+                LibraryState(name, present = true, installFailure = "DTA could not set up its capture of this library", installFailureDetail = "${t.javaClass.name}: ${t.message}")
             }
         }
-        libraries.filter { it.installFailure != null }.forEach { Log.w(TAG, "${it.name} not captured: ${it.installFailure}") }
+        // One line per library not fully captured, naming each hook not installed (FR-011).
+        libraries.forEach { lib ->
+            lib.installFailure?.let { Log.w(TAG, "${lib.name}: nothing is captured: $it (${lib.installFailureDetail})") }
+            lib.events.filterNot { it.captured }.forEach { e ->
+                Log.w(TAG, "${lib.name}: ${e.event} not captured: " + e.tried.joinToString("; ") { (sig, r) -> "${sig.method}${sig.descriptor}: ${r.code} ${r.describe()}" + ((r as? io.yamsergey.dta.sidekick.hooks.Hooks.Install.Failed)?.detail?.let { " ($it)" } ?: "") })
+            }
+        }
     }
 
     /**

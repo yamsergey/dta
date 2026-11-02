@@ -513,12 +513,20 @@ data class NetworkEntryEvent(val entry: NetworkEntry, val change: EntryChange) {
     }
 }
 
-/** Per-library capture status in the `network` capability. */
+/**
+ * Per-library capture status in the `network` capability. A library is captured through several
+ * events (feature 019): [notCaptured] names those that are not (degraded or unavailable),
+ * [captured] those that are when only some are (degraded). [reason] is plain text: what is not
+ * captured, why, and what to do; [detail] keeps the raw causes (runtime codes) for diagnosis.
+ */
 @Serializable
 data class LibraryStatus(
     val name: String,
     val status: CapabilityStatus.Status,
     val reason: String? = null,
+    val notCaptured: List<String>? = null,
+    val captured: List<String>? = null,
+    val detail: String? = null,
 )
 
 /** Storage bounds stated by the `network` capability; null is no limit (the default). */

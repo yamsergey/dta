@@ -4,7 +4,10 @@ import io.yamsergey.dta.protocol.network.InitiatorSite
 import io.yamsergey.dta.protocol.network.NetworkLibraries
 import io.yamsergey.dta.shim.ExitHandler
 import io.yamsergey.dta.sidekick.hooks.Hooks
+import io.yamsergey.dta.sidekick.network.EventResult
+import io.yamsergey.dta.sidekick.network.HookSignature
 import io.yamsergey.dta.sidekick.network.Initiators
+import io.yamsergey.dta.sidekick.network.NetworkEvents
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
 import io.yamsergey.dta.sidekick.network.script.ScriptRuntime
@@ -42,10 +45,12 @@ internal object UrlConnectionCapture {
                 else -> result
             }
         }
-        val failure = listOf(
-            Hooks.exit(URL::class.java, "openConnection", "()Ljava/net/URLConnection;", handler),
-            Hooks.exit(URL::class.java, "openConnection", "(Ljava/net/Proxy;)Ljava/net/URLConnection;", handler),
-        ).firstOrNull { it !is Hooks.Install.Installed }?.describe()
-        return LibraryState(NetworkLibraries.URLCONNECTION, present = true, installFailure = failure)
+        val direct = HookSignature("openConnection", "()Ljava/net/URLConnection;")
+        val proxied = HookSignature("openConnection", "(Ljava/net/Proxy;)Ljava/net/URLConnection;")
+        val events = listOf(
+            EventResult.of(NetworkEvents.CONNECTIONS, direct, Hooks.exit(URL::class.java, direct.method, direct.descriptor, handler)),
+            EventResult.of(NetworkEvents.PROXY_CONNECTIONS, proxied, Hooks.exit(URL::class.java, proxied.method, proxied.descriptor, handler)),
+        )
+        return LibraryState(NetworkLibraries.URLCONNECTION, present = true, installFailure = null, events = events)
     }
 }
