@@ -116,11 +116,15 @@ class DaemonClient private constructor(private val timeout: Duration) {
         subscription(DaemonMethods.TIMELINE_SUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, setOf(DaemonEvents.TIMELINE_EVENT), params)
 
     private fun subscription(subscribe: String, unsubscribe: String, eventNames: Set<String>, params: JsonObject): Flow<JsonObject> = callbackFlow {
+        // Listen before asking: the subscription's first events (a history replay) may follow the
+        // answer at once, before a collector started afterwards would be listening.
+        val early = kotlinx.coroutines.channels.Channel<Event>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val listening = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { events.collect { early.send(it) } }
         val subscribed = DtaJson.decodeFromJsonElement(Selected.serializer(), request(subscribe, params))
         val id = (subscribed.result.jsonObject["subscription"] as JsonPrimitive).content
         send(buildJsonObject { put("selection", DtaJson.encodeToJsonElement(Selected.serializer(), subscribed)) })
         val job = launch {
-            events.collect { event ->
+            for (event in early) {
                 val data = event.data as? JsonObject
                 when (event.name) {
                     in eventNames -> if ((data?.get("subscription") as? JsonPrimitive)?.content == id) send(data)
@@ -131,6 +135,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
         // A connection that drops without a lifecycle event (the daemon was killed) ends the stream too.
         val dropped = launch { close(DaemonGoneException(gone.filterNotNull().first())) }
         awaitClose {
+            listening.cancel()
             job.cancel()
             dropped.cancel()
             runCatching { send(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), unsubscribe, buildJsonObject { put("subscription", id) }))) }

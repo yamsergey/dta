@@ -234,7 +234,7 @@ class DaemonServer(
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
                 val subscribed = kotlinx.coroutines.CompletableDeferred<Unit>()
                 val events = ops.networkEvents(serial, pkg) { subscribed.complete(Unit) }
-                val job = scope.launch {
+                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     launch {
                         for (event in buffer) {
                             val marker = if (dropped.getAndSet(false)) {
@@ -300,6 +300,8 @@ class DaemonServer(
                     request.id,
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })),
                 )
+                // Started after the answer: a client knows its subscription before the first event.
+                job.start()
             } catch (e: ClientException) {
                 error(request.id, e.code, e.message ?: "failed", e.data)
             } catch (e: Exception) {
@@ -320,7 +322,7 @@ class DaemonServer(
                 val apps = serials.map { DtaJson.encodeToJsonElement(AppList.serializer(), ops.apps(it)) }
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val events = ops.appEvents(device)
-                val job = scope.launch {
+                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     events.collect { e ->
                         if ((device == null || e.device == device) && (app == null || e.app == app)) {
                             val data = DtaJson.encodeToJsonElement(AppConnectionEvent.serializer(), e) as JsonObject
@@ -333,6 +335,8 @@ class DaemonServer(
                     request.id,
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("subscription", id); put("apps", JsonArray(apps)) })),
                 )
+                // Started after the answer: a client knows its subscription before the first event.
+                job.start()
             } catch (e: ClientException) {
                 error(request.id, e.code, e.message ?: "failed", e.data)
             } catch (e: Exception) {
@@ -356,7 +360,7 @@ class DaemonServer(
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val events = ops.timelineWatch(serial, pkg, history, sources, kinds)
-                val job = scope.launch {
+                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     events.collect { e ->
                         send(
                             Event(
@@ -377,6 +381,8 @@ class DaemonServer(
                     request.id,
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })),
                 )
+                // Started after the answer: a client knows its subscription before the first event.
+                job.start()
             } catch (e: ClientException) {
                 error(request.id, e.code, e.message ?: "failed", e.data)
             } catch (e: Exception) {
