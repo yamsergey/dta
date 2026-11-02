@@ -5,6 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Debug
 import android.util.Log
+import io.yamsergey.dta.sidekick.capability.Reasons
 import java.io.File
 import java.util.zip.ZipFile
 
@@ -25,9 +26,14 @@ object HookAttach {
     var attached: Boolean = false
         private set
 
-    /** Null while attached or before any attempt; the stated reason otherwise. */
+    /** Null while attached; otherwise why hooks are off, in plain words with what to do (feature 019). */
     @Volatile
-    var reason: String? = "hooks not attached yet"
+    var reason: String? = Reasons.HOOKS_STARTING
+        private set
+
+    /** The raw cause behind [reason] (runtime words, exception text), for diagnosis only. */
+    @Volatile
+    var detail: String? = null
         private set
 
     @Synchronized
@@ -47,22 +53,24 @@ object HookAttach {
                     System.load(pre.agentPath)
                     @Suppress("NewApi") // AttachPreconditions returns Attempt only on API 28+
                     Debug.attachJvmtiAgent(pre.agentPath, null, HookAttach::class.java.classLoader)
-                    if (!NativeAgent.nativeIsAttached()) return fail("JVMTI agent did not attach (see logcat DtaAgent)")
+                    if (!NativeAgent.nativeIsAttached()) return fail(Reasons.AGENT_REFUSED, NativeAgent.nativeAttachError())
                     val shim = extractShim(context)
-                    NativeAgent.nativeAddToBootstrap(shim.absolutePath)?.let { return fail(it) }
+                    NativeAgent.nativeAddToBootstrap(shim.absolutePath)?.let { return fail(Reasons.SHIM_FAILED, it) }
                 }
             }
             attached = true
             reason = null
+            detail = null
             return true
         } catch (t: Throwable) {
-            return fail("${t.javaClass.simpleName}: ${t.message}")
+            return fail(Reasons.HOOKS_SETUP_FAILED, "${t.javaClass.name}: ${t.message}")
         }
     }
 
-    private fun fail(why: String): Boolean {
+    private fun fail(why: String, raw: String? = null): Boolean {
         reason = why
-        Log.w(TAG, "hooks unavailable: $why")
+        detail = raw
+        Log.w(TAG, "hooks are off: $why" + (raw?.let { " ($it)" } ?: ""))
         return false
     }
 

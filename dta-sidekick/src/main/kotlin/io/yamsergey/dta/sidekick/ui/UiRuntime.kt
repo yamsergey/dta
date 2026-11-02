@@ -14,6 +14,7 @@ import io.yamsergey.dta.sidekick.hooks.HookAttach
 import io.yamsergey.dta.sidekick.timeline.TimelineRuntime
 import io.yamsergey.dta.protocol.timeline.SourceStatus
 import io.yamsergey.dta.protocol.timeline.Sources
+import io.yamsergey.dta.sidekick.capability.Reasons
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
 
 /**
@@ -33,7 +34,8 @@ object UiRuntime {
 
     private var windows: WindowRecorder? = null
     private var toasts: ToastRecorder? = null
-    private var hooksReason: String? = "not started"
+    private var hooksReason: String? = null
+    private var startFailure: String? = null
 
     /** For the network recorder: every stored entry, to link UI events to traffic by time. */
     fun observe(entry: NetworkEntry) {
@@ -55,7 +57,7 @@ object UiRuntime {
         }
 
         if (!HookAttach.attached) {
-            hooksReason = HookAttach.reason ?: "hooks not attached"
+            hooksReason = HookAttach.reason ?: Reasons.HOOKS_STARTING
             return
         }
         hooksReason = null
@@ -71,8 +73,8 @@ object UiRuntime {
             toasts = toastRecorder
             windows = windowRecorder
         } catch (t: Throwable) {
-            hooksReason = "${t.javaClass.simpleName}: ${t.message}"
-            Log.w(TAG, "UI journal not started: $hooksReason")
+            startFailure = Reasons.SOURCE_FAILED
+            Log.w(TAG, "UI journal not started", t)
         }
     }
 
@@ -82,19 +84,23 @@ object UiRuntime {
     fun windowIdOf(root: android.view.View): String? = windows?.windowIdOf(root)
 
     fun journalCapability(): UiCapability {
-        fun state(failure: String?, recorder: Any?) = when {
-            hooksReason != null -> SourceState.OFF to "hooks unavailable: $hooksReason"
-            recorder == null -> SourceState.OFF to "not started"
+        // Feature 019: each source says what it does not record and why; hooks-off is told once,
+        // by the capability, so the sources only point to it.
+        fun state(lost: String, failure: String?, recorder: Any?) = when {
+            hooksReason != null -> SourceState.OFF to Reasons.partOffBecauseHooks(lost)
+            startFailure != null -> SourceState.OFF to "$lost: $startFailure"
+            recorder == null -> SourceState.OFF to Reasons.JOURNAL_STARTING
             failure != null -> SourceState.OFF to failure
             else -> SourceState.ON to null
         }
-        val (w, wr) = state(windows?.failure, windows)
-        val (t, tr) = state(toasts?.failure, toasts)
+        val (w, wr) = state(Reasons.WINDOWS, windows?.failure, windows)
+        val (t, tr) = state(Reasons.TOASTS, toasts?.failure, toasts)
+        val (e, er) = state(Reasons.ELEMENTS, windows?.failure?.let { "${Reasons.ELEMENTS} (they come with windows)" }, windows)
         return UiCapability(
             sources = listOf(
                 UiSourceState(UiSource.WINDOW, w, wr),
                 UiSourceState(UiSource.TOAST, t, tr),
-                UiSourceState(UiSource.ELEMENT, w, wr),
+                UiSourceState(UiSource.ELEMENT, e, er),
             ),
             settleMs = Settle.QUIET_MS,
             maxWaitMs = Settle.MAX_WAIT_MS,
@@ -114,7 +120,7 @@ object UiRuntime {
         }
         return SourceStatus(
             Sources.UI, state,
-            off.takeIf { it.isNotEmpty() }?.joinToString("; ") { "${it.source.name.lowercase()}: ${it.reason}" },
+            off.takeIf { it.isNotEmpty() }?.let(::offReason),
             "settle ${Settle.QUIET_MS} ms, max wait ${Settle.MAX_WAIT_MS} ms, summaries up to ${ContentSummaries.MAX_ELEMENTS} elements",
         )
     }
@@ -122,9 +128,17 @@ object UiRuntime {
     fun capability(): CapabilityStatus {
         val off = journalCapability().sources.filter { it.state != SourceState.ON }
         return when {
-            off.size == journalCapability().sources.size -> CapabilityStatus(NAME, CapabilityStatus.Status.UNAVAILABLE, off.joinToString("; ") { "${it.source.name.lowercase()}: ${it.reason}" })
-            off.isNotEmpty() -> CapabilityStatus(NAME, CapabilityStatus.Status.DEGRADED, off.joinToString("; ") { "${it.source.name.lowercase()}: ${it.reason}" })
+            off.size == journalCapability().sources.size -> CapabilityStatus(NAME, CapabilityStatus.Status.UNAVAILABLE, offReason(off), detail = HookAttach.detail.takeIf { hooksReason != null })
+            off.isNotEmpty() -> CapabilityStatus(NAME, CapabilityStatus.Status.DEGRADED, offReason(off))
             else -> CapabilityStatus(NAME, CapabilityStatus.Status.AVAILABLE)
         }
+    }
+
+    /** Hooks-off is said once, with why; otherwise each source's own reason, without repeats. */
+    private fun offReason(off: List<UiSourceState>): String {
+        hooksReason?.let { why ->
+            return Reasons.offBecauseHooks("window opens and closes, toasts and element changes are not recorded", why)
+        }
+        return off.mapNotNull { it.reason }.distinct().joinToString("; ")
     }
 }

@@ -33,7 +33,7 @@ class NetworkScriptMethods(
         val source = (params?.get("source") as? JsonPrimitive)?.takeIf { it.isString }?.content
             ?: throw InvalidParamsException("network_script_set requires a string 'source'")
         if (source.length > MAX_SOURCE_CHARS) throw InvalidParamsException("script is ${source.length} characters; the limit is $MAX_SOURCE_CHARS")
-        unavailable()?.let { throw IllegalStateException("network intervention unavailable: $it") }
+        unavailable()?.let { throw IllegalStateException(io.yamsergey.dta.sidekick.capability.Reasons.offBecauseHooks("the network script cannot be applied", it)) }
         val status = try {
             runtime.install(source)
         } catch (e: ScriptCompileException) {

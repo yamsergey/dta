@@ -1,6 +1,7 @@
 package io.yamsergey.dta.sidekick.hooks
 
 import kotlin.test.Test
+import io.yamsergey.dta.sidekick.capability.Reasons
 import kotlin.test.assertEquals
 
 class AttachPreconditionsTest {
@@ -10,13 +11,13 @@ class AttachPreconditionsTest {
 
     @Test
     fun `api below 28 is unavailable with the device level`() {
-        assertEquals(AttachPreconditions.Result.Unavailable("requires API 28+ (device is API 27)"), check(sdk = 27))
+        assertEquals(AttachPreconditions.Result.Unavailable(Reasons.hooksNeedApi28(27)), check(sdk = 27))
     }
 
     @Test
     fun `non-debuggable app is unavailable`() {
         assertEquals(
-            AttachPreconditions.Result.Unavailable("app is not debuggable (add the sidekick with debugImplementation)"),
+            AttachPreconditions.Result.Unavailable(Reasons.NOT_DEBUGGABLE),
             check(debuggable = false),
         )
     }
@@ -24,7 +25,7 @@ class AttachPreconditionsTest {
     @Test
     fun `missing agent library names the abis searched`() {
         assertEquals(
-            AttachPreconditions.Result.Unavailable("libdta-agent.so not found for ABIs x86_64, arm64-v8a"),
+            AttachPreconditions.Result.Unavailable(Reasons.agentMissing(listOf("x86_64", "arm64-v8a"))),
             check(agentPath = null),
         )
     }

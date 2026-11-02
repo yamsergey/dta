@@ -18,7 +18,7 @@ import io.yamsergey.dta.sidekick.timeline.TimelineBuffer
  */
 class AppStateBridge(private val buffer: TimelineBuffer, private val facets: FacetState, private val scope: HandlingScope) {
     @Volatile
-    private var status = SourceStatus(Sources.APP, SourceState.OFF, "not started")
+    private var status = SourceStatus(Sources.APP, SourceState.OFF, "${io.yamsergey.dta.sidekick.capability.Reasons.APP_SOURCE} yet: the app is still starting; ask again in a moment")
 
     @Volatile
     var decoder: AppStateDecoder? = null
@@ -28,12 +28,12 @@ class AppStateBridge(private val buffer: TimelineBuffer, private val facets: Fac
         val bridge = try {
             Class.forName(BRIDGE, false, loader)
         } catch (_: Throwable) {
-            status = SourceStatus(Sources.APP, SourceState.OFF, "not used by the app (no dta-state library)")
+            status = SourceStatus(Sources.APP, SourceState.OFF, "not used by the app: it does not include the dta-state library")
             return
         }
         val version = runCatching { bridge.getField("VERSION").getInt(null) }.getOrNull()
         if (version != VERSION) {
-            status = SourceStatus(Sources.APP, SourceState.DEGRADED, "dta-state bridge version $version; this DTA reads version $VERSION")
+            status = SourceStatus(Sources.APP, SourceState.DEGRADED, "${io.yamsergey.dta.sidekick.capability.Reasons.APP_SOURCE}: the app's dta-state bridge is version $version and this DTA reads version $VERSION; use matching versions of dta-state and DTA")
             return
         }
         val created = AppStateDecoder(buffer, facets, scope, mono = SystemClock::uptimeMillis, wall = System::currentTimeMillis)
@@ -45,11 +45,11 @@ class AppStateBridge(private val buffer: TimelineBuffer, private val facets: Fac
             is Hooks.Install.Installed -> {
                 runCatching { bridge.getField("on").setBoolean(null, true) }.fold(
                     onSuccess = { SourceStatus(Sources.APP, SourceState.ON, detail = "the app's facets, events and causes through dta-state, at most 200 events a second") },
-                    onFailure = { SourceStatus(Sources.APP, SourceState.OFF, "could not switch the dta-state bridge on: ${it.message}") },
+                    onFailure = { SourceStatus(Sources.APP, SourceState.OFF, "${io.yamsergey.dta.sidekick.capability.Reasons.APP_SOURCE}: DTA could not switch the dta-state bridge on; restarting the app may help") },
                 )
             }
-            is Hooks.Install.ClassAbsent -> SourceStatus(Sources.APP, SourceState.OFF, "dta-state bridge not found")
-            else -> SourceStatus(Sources.APP, SourceState.OFF, "dta-state bridge not hooked: ${result.describe()}")
+            is Hooks.Install.ClassAbsent -> SourceStatus(Sources.APP, SourceState.OFF, "${io.yamsergey.dta.sidekick.capability.Reasons.APP_SOURCE}: the dta-state bridge is not in the app")
+            else -> SourceStatus(Sources.APP, SourceState.OFF, "${io.yamsergey.dta.sidekick.capability.Reasons.APP_SOURCE}: ${result.describe()}")
         }
         decoder = created
     }

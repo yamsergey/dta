@@ -60,8 +60,8 @@ object Degradations {
         Codes.NETWORK_REDACTION_WITHHELD to
             "Part of the content was withheld by redaction. Turn redaction off to see it.",
         Codes.NETWORK_SCRIPT_UNAVAILABLE to
-            "The network script cannot apply in this process (its hooks are not attached); traffic passes unchanged. " +
-            "Run the app's debug build.",
+            "The network script is not applied in this process, so traffic passes unchanged. The capability report " +
+            "says why: DTA's hooks are off, or the saved script no longer compiles.",
         Codes.NETWORK_SCRIPT_NOT_PERSISTED to
             "The network script could not be saved on the device, so it stops applying when the app restarts. Set it again after a restart.",
         Codes.SCREEN_BLOCKED to

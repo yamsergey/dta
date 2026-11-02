@@ -53,9 +53,17 @@ class InputRecorder(
     fun status(): SourceStatus {
         composeFailure?.let { failures["Compose"] = it }
         val clicks = failures.filterKeys { it.startsWith("View") }
+        // Feature 019: say what is not recorded, then why (each distinct cause once).
+        fun lost(keys: Map<String, String>): String = keys.entries.groupBy { (k, _) ->
+            when {
+                k.startsWith("View") -> "clicks on Views are not recorded"
+                k == "Compose" -> "clicks on composables are not recorded"
+                else -> "back presses are not recorded"
+            }
+        }.entries.joinToString("; ") { (what, causes) -> "$what: " + causes.map { it.value }.distinct().joinToString("; ") }
         return when {
-            clicks.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.OFF, clicks.entries.joinToString("; ") { "${it.key}: ${it.value}" })
-            failures.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.DEGRADED, failures.entries.joinToString("; ") { "${it.key}: ${it.value}" }, DETAIL)
+            clicks.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.OFF, lost(failures))
+            failures.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.DEGRADED, lost(failures), DETAIL)
             else -> SourceStatus(Sources.INPUT, SourceState.ON, detail = DETAIL)
         }
     }
@@ -96,7 +104,6 @@ class InputRecorder(
     private fun hook(name: String, result: Hooks.Install) {
         when (result) {
             is Hooks.Install.Installed -> Unit
-            is Hooks.Install.ClassAbsent -> failures[name] = "class absent"
             else -> failures[name] = result.describe()
         }
     }

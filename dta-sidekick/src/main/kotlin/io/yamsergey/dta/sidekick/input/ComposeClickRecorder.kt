@@ -43,8 +43,8 @@ class ComposeClickRecorder(
             )
         }.flatten()
         failure = when {
-            results.isEmpty() -> "Compose clicks: this Compose foundation version has no handleUpEvent to observe"
-            results.none { it is Hooks.Install.Installed } -> "Compose clicks: " + results.filterNot { it is Hooks.Install.Installed }.joinToString("; ") { it.describe() }
+            results.isEmpty() -> "this Compose foundation version has no handleUpEvent for DTA to observe; a newer DTA may cover it"
+            results.none { it is Hooks.Install.Installed } -> results.filterNot { it is Hooks.Install.Installed }.map { it.describe() }.distinct().joinToString("; ")
             else -> null
         }
     }

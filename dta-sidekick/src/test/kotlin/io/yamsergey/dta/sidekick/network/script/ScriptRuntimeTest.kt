@@ -135,7 +135,7 @@ class ScriptRuntimeTest {
         assertNull(runtime.current())
         val summary = runtime.summary()!!
         assertEquals(ScriptRuntime.idOf("function ("), summary.id)
-        assertTrue("does not compile" in summary.unavailable!!, summary.unavailable)
+        assertTrue("no longer compiles" in summary.unavailable!!, summary.unavailable)
         assertEquals(listOf(io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SCRIPT_UNAVAILABLE), runtime.degradations())
     }
 

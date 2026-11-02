@@ -77,7 +77,7 @@ class WindowRecorder(
         val wmg = try {
             Class.forName("android.view.WindowManagerGlobal")
         } catch (t: Throwable) {
-            return "WindowManagerGlobal not found".also { failure = it }
+            return "${io.yamsergey.dta.sidekick.capability.Reasons.WINDOWS}: this Android version has no WindowManagerGlobal, where DTA watches windows".also { failure = it }
         }
         val known = runCatching { ShimReflect.descriptors(wmg, "addView").toList() }.getOrDefault(emptyList())
         val add = ADD_VIEW.firstOrNull { it in known } ?: ADD_VIEW.first()
@@ -89,9 +89,9 @@ class WindowRecorder(
         failure = listOf("addView" to added, "removeView" to removing, "doRemoveView" to removed).mapNotNull { (name, result) ->
             when (result) {
                 is Hooks.Install.Installed -> null
-                else -> "$name: ${result.describe()}"
+                else -> result.describe()
             }
-        }.takeIf { it.isNotEmpty() }?.joinToString("; ")
+        }.takeIf { it.isNotEmpty() }?.let { "${io.yamsergey.dta.sidekick.capability.Reasons.WINDOWS}: " + it.joinToString("; ") }
         return failure
     }
 

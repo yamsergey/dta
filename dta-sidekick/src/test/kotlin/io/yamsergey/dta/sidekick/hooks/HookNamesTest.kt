@@ -23,7 +23,7 @@ class HookNamesTest {
     fun `an absent method names the method and the class`() {
         val absent = Hooks.Install.MethodAbsent("okhttp3.internal.ws.RealWebSocket", "failWebSocket", "(Ljava/lang/Exception;Lokhttp3/Response;)V")
         assertEquals("method-absent", absent.code)
-        assertEquals("RealWebSocket.failWebSocket(Exception, Response) is not in the app's version of RealWebSocket", absent.describe())
+        assertEquals("RealWebSocket.failWebSocket(Exception, Response) is not in this version of RealWebSocket", absent.describe())
     }
 
     @Test

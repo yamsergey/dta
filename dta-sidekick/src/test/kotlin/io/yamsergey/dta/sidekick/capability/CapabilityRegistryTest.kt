@@ -35,7 +35,8 @@ class CapabilityRegistryTest {
         assertEquals(CapabilityStatus.Status.AVAILABLE, statuses["channel"]!!.status)
         val layout = statuses["layout"]!!
         assertEquals(CapabilityStatus.Status.DEGRADED, layout.status)
-        assertTrue("reflection target moved" in layout.reason!!)
+        assertEquals(Reasons.STATUS_UNREADABLE, layout.reason)
+        assertTrue("reflection target moved" in layout.detail!!, layout.detail)
     }
 
     @Test

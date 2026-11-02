@@ -27,13 +27,13 @@ object Hooks {
 
         data class ClassAbsent(val className: String) : Install {
             override val code = "class-absent"
-            override fun describe() = "${HookNames.simple(className)} is not in the app"
+            override fun describe() = "${HookNames.simple(className)} is not in the app or this Android version"
         }
 
         /** The class is there, but declares no such method (checked before any class reload). */
         data class MethodAbsent(val className: String, val method: String, val descriptor: String) : Install {
             override val code = "method-absent"
-            override fun describe() = "${HookNames.method(className, method, descriptor)} is not in the app's version of ${HookNames.simple(className)}"
+            override fun describe() = "${HookNames.method(className, method, descriptor)} is not in this version of ${HookNames.simple(className)}"
         }
 
         /** The method exists but has no code of its own to hook ([why]: abstract or native). */
@@ -101,7 +101,7 @@ object Hooks {
 
     @Synchronized
     private fun install(cls: Class<*>, method: String, descriptor: String, kind: Int, register: (String) -> Unit): Install {
-        if (!HookAttach.attached) return Install.Failed("hooks are off in this app", HookAttach.reason)
+        if (!HookAttach.attached) return Install.Failed("DTA's hooks are off in this app", HookAttach.reason)
         return try {
             val label = HookRegistry.label(cls.name, method, descriptor)
             val key = "$kind $label"

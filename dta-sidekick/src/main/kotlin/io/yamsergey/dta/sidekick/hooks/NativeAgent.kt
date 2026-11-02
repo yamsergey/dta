@@ -4,6 +4,9 @@ package io.yamsergey.dta.sidekick.hooks
 internal object NativeAgent {
     @JvmStatic external fun nativeIsAttached(): Boolean
 
+    /** Why the agent's last attach failed (the runtime's own words); null when it did not. */
+    @JvmStatic external fun nativeAttachError(): String?
+
     /** @return null on success, otherwise the reason. */
     @JvmStatic external fun nativeAddToBootstrap(jarPath: String): String?
 

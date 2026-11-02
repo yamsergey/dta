@@ -76,7 +76,7 @@ object NetworkRuntime {
             try {
                 install()
             } catch (t: Throwable) {
-                LibraryState(name, present = true, installFailure = "DTA could not set up its capture of this library", installFailureDetail = "${t.javaClass.name}: ${t.message}")
+                LibraryState(name, present = true, installFailure = io.yamsergey.dta.sidekick.capability.Reasons.LIBRARY_SETUP_FAILED, installFailureDetail = "${t.javaClass.name}: ${t.message}")
             }
         }
         // One line per library not fully captured, naming each hook not installed (FR-011).
@@ -106,6 +106,6 @@ object NetworkRuntime {
 
     fun capability(): CapabilityStatus {
         val bounds = store?.bounds ?: io.yamsergey.dta.sidekick.network.store.StoreBounds()
-        return NetworkCapability.status(HookAttach.reason, libraries, bounds, scripts.summary())
+        return NetworkCapability.status(HookAttach.reason, libraries, bounds, scripts.summary(), HookAttach.detail)
     }
 }

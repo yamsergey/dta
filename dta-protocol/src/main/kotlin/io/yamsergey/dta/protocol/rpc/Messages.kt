@@ -93,6 +93,8 @@ data class CapabilityStatus(
     val script: io.yamsergey.dta.protocol.network.ScriptSummary? = null,
     /** layout capability only: where Compose's tooling data came from, when DTA's injection knows (feature 010). */
     val tooling: ToolingSource? = null,
+    /** The raw cause behind [reason] (runtime words, exception text), for diagnosis; never the reason itself (feature 019). */
+    val detail: String? = null,
 ) {
     @Serializable
     enum class Status {

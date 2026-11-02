@@ -104,7 +104,7 @@ class TimelineService(
         }
         val ui = app.firstOrNull { it.name == io.yamsergey.dta.protocol.timeline.Sources.UI }
         val merged = ui?.copy(detail = listOfNotNull(ui.detail, host).joinToString("; "))
-            ?: SourceStatus(io.yamsergey.dta.protocol.timeline.Sources.UI, if (windows == null) SourceState.OFF else SourceState.DEGRADED, "the app's journal is not connected", host)
+            ?: SourceStatus(io.yamsergey.dta.protocol.timeline.Sources.UI, if (windows == null) SourceState.OFF else SourceState.DEGRADED, "the app's own windows, toasts and element changes are not recorded: the app's journal is not connected; open the app again if it stopped", host)
         return listOf(merged) + app.filter { it.name != merged.name }
     }
 

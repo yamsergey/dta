@@ -37,7 +37,7 @@ class ToastRecorder(
         val result = Hooks.entry(Toast::class.java, "show", "()V", EntryHandler { self, _ -> runCatching { onShow(self as Toast) } })
         failure = when (result) {
             is Hooks.Install.Installed -> null
-            else -> "Toast#show: ${result.describe()}"
+            else -> "${io.yamsergey.dta.sidekick.capability.Reasons.TOASTS}: ${result.describe()}"
         }
         return failure
     }

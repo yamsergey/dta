@@ -130,13 +130,28 @@ std::string ToString(JNIEnv* env, jstring value) {
 
 }  // namespace
 
+// Why the last attach failed (empty when it did not): read back as the raw detail of the
+// "hooks are off" reason (feature 019), so it is not only in the device log.
+std::mutex g_attach_error_mutex;
+std::string g_attach_error;
+
 extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char*, void*) {
   std::string error = Attach(vm);
+  {
+    std::lock_guard<std::mutex> lock(g_attach_error_mutex);
+    g_attach_error = error;
+  }
   if (!error.empty()) {
     LOGW("attach failed: %s", error.c_str());
     return JNI_ERR;
   }
   return JNI_OK;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeAttachError(JNIEnv* env, jclass) {
+  std::lock_guard<std::mutex> lock(g_attach_error_mutex);
+  return g_attach_error.empty() ? nullptr : env->NewStringUTF(g_attach_error.c_str());
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

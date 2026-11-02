@@ -43,7 +43,7 @@ class NavigationAdapters(private val events: NavigationEvents) {
             it.name.startsWith("dispatchOnDestinationChanged") && it.parameterTypes.isEmpty() && it.returnType == Boolean::class.javaPrimitiveType
         }?.name
         if (method == null) {
-            notes += "AndroidX Navigation: no dispatchOnDestinationChanged in ${cls.simpleName} of this version"
+            notes += "AndroidX Navigation is not read: ${cls.simpleName} of this version has no dispatchOnDestinationChanged for DTA to observe; a newer DTA may cover it"
             return false
         }
         // The back queue is current when listeners are told; the public back stack flow is not yet.
@@ -79,7 +79,7 @@ class NavigationAdapters(private val events: NavigationEvents) {
         val display = load("androidx.navigation3.ui.NavDisplayKt", loader) ?: return false
         val overloads = display.declaredMethods.filter { it.name == "NavDisplay" && it.parameterTypes.firstOrNull() == List::class.java }
         if (overloads.isEmpty()) {
-            notes += "Navigation 3: no NavDisplay(backStack: List) in this version"
+            notes += "Navigation 3 is not read: this version has no NavDisplay(backStack: List) for DTA to observe; a newer DTA may cover it"
             return false
         }
         val results = overloads.map { m ->
@@ -97,7 +97,7 @@ class NavigationAdapters(private val events: NavigationEvents) {
     private fun installed(what: String, result: Hooks.Install): Boolean = when (result) {
         is Hooks.Install.Installed -> true
         is Hooks.Install.ClassAbsent -> false
-        else -> false.also { notes += "$what: ${result.describe()}" }
+        else -> false.also { notes += "$what is not read: ${result.describe()}" }
     }
 
     private fun load(name: String, loader: ClassLoader?): Class<*>? = runCatching { Class.forName(name, false, loader) }.getOrNull()

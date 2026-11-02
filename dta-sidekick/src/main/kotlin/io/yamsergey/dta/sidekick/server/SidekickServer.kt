@@ -104,7 +104,8 @@ object SidekickServer {
                     CapabilityStatus(
                         "channel",
                         CapabilityStatus.Status.UNAVAILABLE,
-                        "server socket failed: ${e.message}",
+                        io.yamsergey.dta.sidekick.capability.Reasons.CHANNEL_FAILED,
+                        detail = "${e.javaClass.name}: ${e.message}",
                     )
                 }
                 return@thread

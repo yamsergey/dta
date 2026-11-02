@@ -12,7 +12,7 @@ class CapabilityFormatTest {
     fun `a degraded library lists its events not captured and keeps the raw detail out`() {
         val report = """{"packageName":"io.example","sidekickVersion":"1","capabilities":[{"name":"network","status":"degraded",
             "reason":"okhttp3-ws: failures is not captured (…).","libraries":[
-            {"name":"okhttp3-ws","status":"degraded","reason":"failures is not captured (RealWebSocket.failWebSocket(Exception, Response) is not in the app's version of RealWebSocket).",
+            {"name":"okhttp3-ws","status":"degraded","reason":"failures is not captured (RealWebSocket.failWebSocket(Exception, Response) is not in this version of RealWebSocket).",
              "notCaptured":["failures"],"captured":["connections","close"],"detail":"RetransformClasses: JVMTI_ERROR_X"}]}]}"""
         val text = f.format("capability.report", Json.parseToJsonElement(report))
         assertTrue("not captured: failures" in text, text)

@@ -64,7 +64,7 @@ class NetworkCapabilityTest {
             bounds = bounds,
         )
         assertEquals(Status.DEGRADED, status.status)
-        assertTrue(status.reason!!.startsWith("okhttp3-ws: failures is not captured"), status.reason)
+        assertTrue(status.reason!!.startsWith("okhttp3-ws: not captured: failures ("), status.reason)
         val ws = status.libraries!!.first()
         assertEquals(Status.DEGRADED, ws.status)
         assertEquals(listOf("failures"), ws.notCaptured)
@@ -97,7 +97,7 @@ class NetworkCapabilityTest {
         assertEquals(Status.AVAILABLE, status.status)
         assertEquals(null, status.reason)
         assertEquals(LibraryStatus("grpc", Status.UNAVAILABLE, NetworkCapability.GRPC_UNSUPPORTED), status.libraries!![1])
-        assertTrue("present in app" in NetworkCapability.GRPC_UNSUPPORTED)
+        assertTrue("includes gRPC" in NetworkCapability.GRPC_UNSUPPORTED)
     }
 
     @Test

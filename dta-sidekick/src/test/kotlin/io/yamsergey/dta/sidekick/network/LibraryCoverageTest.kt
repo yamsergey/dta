@@ -50,10 +50,10 @@ class LibraryCoverageTest {
         assertEquals(listOf("handshake headers", "failures"), status.notCaptured)
         assertEquals(listOf("connections", "received text messages"), status.captured)
         val reason = status.reason!!
-        assertTrue(reason.startsWith("handshake headers and failures are not captured"), reason)
+        assertTrue(reason.startsWith("not captured: handshake headers ("), reason)
         assertTrue("RealWebSocket.checkUpgradeSuccess\$okhttp(Response, Exchange)" in reason, reason)
         assertTrue("RealWebSocket.failWebSocket(Exception, Response, boolean)" in reason && "failWebSocket(Exception, Response)" in reason, reason)
-        assertTrue("connections and received text messages are captured" in reason, reason)
+        assertTrue("Captured: connections and received text messages." in reason, reason)
         assertTrue("update DTA" in reason, "an absent method names the action: $reason")
         assertFalse("JVMTI" in reason, reason)
     }
@@ -66,7 +66,7 @@ class LibraryCoverageTest {
         assertEquals(Status.UNAVAILABLE, status.status)
         assertEquals(listOf("connections"), status.notCaptured)
         assertNull(status.captured)
-        assertTrue(status.reason!!.startsWith("nothing is captured: "), status.reason)
+        assertTrue(status.reason!!.startsWith("nothing is captured; missing: connections ("), status.reason)
     }
 
     @Test

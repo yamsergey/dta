@@ -5,6 +5,7 @@ import io.yamsergey.dta.protocol.network.NetworkBounds
 import io.yamsergey.dta.protocol.network.NetworkLibraries
 import io.yamsergey.dta.protocol.network.ScriptSummary
 import io.yamsergey.dta.protocol.rpc.CapabilityStatus
+import io.yamsergey.dta.sidekick.capability.Reasons
 import io.yamsergey.dta.sidekick.network.store.StoreBounds
 
 /**
@@ -32,7 +33,7 @@ data class LibraryState(
 object NetworkCapability {
     const val NAME = "network"
     const val ABSENT = LibraryCoverage.ABSENT
-    const val GRPC_UNSUPPORTED = "present in app; gRPC uses its own transport, which network capture does not cover"
+    const val GRPC_UNSUPPORTED = "gRPC calls are not captured: the app includes gRPC, which uses its own transport that network capture does not cover"
 
     /** gRPC is only detected, never hooked (feature 006, FR-019). */
     fun probeGrpc(loader: ClassLoader): LibraryState {
@@ -47,11 +48,17 @@ object NetworkCapability {
         return LibraryState(NetworkLibraries.GRPC, present, installFailure = null, unsupported = if (present) GRPC_UNSUPPORTED else null)
     }
 
-    fun status(attachFailure: String?, libraries: List<LibraryState>, bounds: StoreBounds, script: ScriptSummary? = null): CapabilityStatus {
+    fun status(
+        attachFailure: String?,
+        libraries: List<LibraryState>,
+        bounds: StoreBounds,
+        script: ScriptSummary? = null,
+        attachDetail: String? = null,
+    ): CapabilityStatus {
         val statuses = libraries.map { lib ->
             when {
                 lib.present && lib.unsupported == null && attachFailure != null ->
-                    LibraryStatus(lib.name, CapabilityStatus.Status.UNAVAILABLE, "hooks unavailable: $attachFailure")
+                    LibraryStatus(lib.name, CapabilityStatus.Status.UNAVAILABLE, Reasons.partOffBecauseHooks(Reasons.LIBRARY_NOT_CAPTURED), notCaptured = listOf(LibraryCoverage.ALL_TRAFFIC))
                 else -> LibraryCoverage.of(lib)
             }
         }
@@ -59,9 +66,9 @@ object NetworkCapability {
         val uncovered = libraries.filter { !it.present || it.unsupported != null }.map { it.name }.toSet()
         val problems = statuses.filter { it.name !in uncovered && it.status != CapabilityStatus.Status.AVAILABLE }
             .map { "${it.name}: ${it.reason}" } +
-            listOfNotNull(script?.unavailable?.let { "network script ${script.id} not applied: $it" })
+            listOfNotNull(script?.unavailable?.let { Reasons.scriptNotApplied(script.id, it) })
         val (status, reason) = when {
-            attachFailure != null -> CapabilityStatus.Status.UNAVAILABLE to "hooks unavailable: $attachFailure"
+            attachFailure != null -> CapabilityStatus.Status.UNAVAILABLE to Reasons.offBecauseHooks(Reasons.NO_TRAFFIC, attachFailure)
             problems.isNotEmpty() -> CapabilityStatus.Status.DEGRADED to problems.joinToString("; ")
             else -> CapabilityStatus.Status.AVAILABLE to null
         }
@@ -72,6 +79,7 @@ object NetworkCapability {
             libraries = statuses,
             bounds = NetworkBounds(historyBytes = bounds.historyBytes, bodyBytes = bounds.bodyBytes),
             script = script,
+            detail = attachDetail.takeIf { attachFailure != null },
         )
     }
 }

@@ -27,19 +27,18 @@ object LibraryCoverage {
         val captured = state.events.filter { it.captured }
         val detail = missing.flatMap { e -> e.tried.mapNotNull { (_, r) -> (r as? Install.Failed)?.detail } }
             .distinct().joinToString("; ").ifEmpty { null }
-        val why = missing.groupBy { why(it) }.entries.joinToString("; ") { (text, events) -> "${list(events.map { it.event })}: $text" }
+        val why = missing.groupBy { why(it) }.entries.joinToString("; ") { (text, events) -> "${list(events.map { it.event })} ($text)" }
         val action = if (missing.any { e -> e.tried.all { it.second is Install.MethodAbsent } }) {
             " The app's version of this library is not one DTA knows; update DTA."
         } else {
             ""
         }
         return if (captured.isEmpty()) {
-            LibraryStatus(state.name, Status.UNAVAILABLE, "nothing is captured: $why.$action", notCaptured = missing.map { it.event }, detail = detail)
+            LibraryStatus(state.name, Status.UNAVAILABLE, "nothing is captured; missing: $why.$action", notCaptured = missing.map { it.event }, detail = detail)
         } else {
             LibraryStatus(
                 state.name, Status.DEGRADED,
-                "${list(missing.map { it.event })} ${if (missing.size == 1) "is" else "are"} not captured ($why). " +
-                    "${list(captured.map { it.event })} ${if (captured.size == 1) "is" else "are"} captured.$action",
+                "not captured: $why. Captured: ${list(captured.map { it.event })}.$action",
                 notCaptured = missing.map { it.event },
                 captured = captured.map { it.event },
                 detail = detail,

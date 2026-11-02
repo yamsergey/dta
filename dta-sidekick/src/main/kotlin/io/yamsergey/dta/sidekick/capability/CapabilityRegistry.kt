@@ -27,8 +27,8 @@ class CapabilityRegistry {
             CapabilityStatus(
                 name = name,
                 status = CapabilityStatus.Status.DEGRADED,
-                reason = e.message?.lineSequence()?.firstOrNull()?.trim()
-                    ?: "${e.javaClass.simpleName} while reading status",
+                reason = Reasons.STATUS_UNREADABLE,
+                detail = "${e.javaClass.name}: ${e.message?.lineSequence()?.firstOrNull()?.trim()}",
             )
         }
     }

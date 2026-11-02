@@ -2,6 +2,7 @@ package io.yamsergey.dta.sidekick.layout
 
 import io.yamsergey.dta.protocol.layout.DetailLevel
 import io.yamsergey.dta.protocol.rpc.CapabilityStatus
+import io.yamsergey.dta.sidekick.capability.Reasons
 import io.yamsergey.dta.sidekick.layout.compose.CapabilityOutcome
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
 
@@ -20,7 +21,10 @@ object LayoutCapability {
                 CapabilityStatus(
                     NAME,
                     CapabilityStatus.Status.DEGRADED,
-                    "compose present, enrichment unavailable: ${presence.tier2Skip}",
+                    when (val code = presence.tier2Skip) {
+                        io.yamsergey.dta.protocol.layout.DegradationCodes.COMPOSE_TOOLING_VERSION_SKEW -> Reasons.composeToolingSkew(code)
+                        else -> Reasons.composeToolingAbsent(code ?: io.yamsergey.dta.protocol.layout.DegradationCodes.COMPOSE_TOOLING_ABSENT)
+                    },
                     levels = levels(presence),
                 )
         }

@@ -46,10 +46,10 @@ object TimelineSources {
             TimelineCosts(UiRuntime.costs(), count, median * 1_000, max * 1_000, scope.staleDropped, app?.decoder?.calls ?: 0)
         }
         if (!HookAttach.attached) {
-            val reason = HookAttach.reason ?: "hooks not attached"
-            TimelineRuntime.register(Sources.INPUT) { SourceStatus(Sources.INPUT, SourceState.OFF, "hooks unavailable: $reason") }
-            TimelineRuntime.register(Sources.APP) { SourceStatus(Sources.APP, SourceState.OFF, "hooks unavailable: $reason") }
-            TimelineRuntime.register(Sources.NAV) { SourceStatus(Sources.NAV, SourceState.OFF, "hooks unavailable: $reason") }
+            val reason = HookAttach.reason ?: io.yamsergey.dta.sidekick.capability.Reasons.HOOKS_STARTING
+            TimelineRuntime.register(Sources.INPUT) { SourceStatus(Sources.INPUT, SourceState.OFF, io.yamsergey.dta.sidekick.capability.Reasons.offBecauseHooks(io.yamsergey.dta.sidekick.capability.Reasons.INPUT, reason)) }
+            TimelineRuntime.register(Sources.APP) { SourceStatus(Sources.APP, SourceState.OFF, io.yamsergey.dta.sidekick.capability.Reasons.offBecauseHooks(io.yamsergey.dta.sidekick.capability.Reasons.APP_SOURCE, reason)) }
+            TimelineRuntime.register(Sources.NAV) { SourceStatus(Sources.NAV, SourceState.OFF, io.yamsergey.dta.sidekick.capability.Reasons.offBecauseHooks(io.yamsergey.dta.sidekick.capability.Reasons.NAVIGATION, reason)) }
             return
         }
         try {
@@ -61,7 +61,7 @@ object TimelineSources {
             TimelineRuntime.register(Sources.NAV, nav::status)
         } catch (t: Throwable) {
             Log.w(TAG, "navigation not read: $t")
-            TimelineRuntime.register(Sources.NAV) { SourceStatus(Sources.NAV, SourceState.OFF, "${t.javaClass.simpleName}: ${t.message}") }
+            TimelineRuntime.register(Sources.NAV) { SourceStatus(Sources.NAV, SourceState.OFF, "${io.yamsergey.dta.sidekick.capability.Reasons.NAVIGATION}: ${io.yamsergey.dta.sidekick.capability.Reasons.SOURCE_FAILED}") }
         }
         try {
             val bridge = AppStateBridge(buffer, TimelineRuntime.facets, scope)
@@ -70,7 +70,7 @@ object TimelineSources {
             TimelineRuntime.register(Sources.APP, bridge::status)
         } catch (t: Throwable) {
             Log.w(TAG, "the app's own source not read: $t")
-            TimelineRuntime.register(Sources.APP) { SourceStatus(Sources.APP, SourceState.OFF, "${t.javaClass.simpleName}: ${t.message}") }
+            TimelineRuntime.register(Sources.APP) { SourceStatus(Sources.APP, SourceState.OFF, "${io.yamsergey.dta.sidekick.capability.Reasons.APP_SOURCE}: ${io.yamsergey.dta.sidekick.capability.Reasons.SOURCE_FAILED}") }
         }
         try {
             val input = InputRecorder(buffer, scope) { root -> UiRuntime.windowIdOf(root) }
@@ -83,7 +83,7 @@ object TimelineSources {
             TimelineRuntime.register(Sources.INPUT, input::status)
         } catch (t: Throwable) {
             Log.w(TAG, "input not recorded: $t")
-            TimelineRuntime.register(Sources.INPUT) { SourceStatus(Sources.INPUT, SourceState.OFF, "${t.javaClass.simpleName}: ${t.message}") }
+            TimelineRuntime.register(Sources.INPUT) { SourceStatus(Sources.INPUT, SourceState.OFF, "${io.yamsergey.dta.sidekick.capability.Reasons.INPUT}: ${io.yamsergey.dta.sidekick.capability.Reasons.SOURCE_FAILED}") }
         }
     }
 

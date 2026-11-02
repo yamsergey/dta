@@ -1,5 +1,7 @@
 package io.yamsergey.dta.sidekick.hooks
 
+import io.yamsergey.dta.sidekick.capability.Reasons
+
 /**
  * Whether the JVMTI agent may be attached, and if not, the reason the network
  * capability reports (constitution III). Pure, so the reasons are tested without a device.
@@ -15,9 +17,9 @@ object AttachPreconditions {
     const val MIN_SDK = 28
 
     fun check(sdkInt: Int, debuggable: Boolean, agentPath: String?, abis: List<String>): Result = when {
-        sdkInt < MIN_SDK -> Result.Unavailable("requires API $MIN_SDK+ (device is API $sdkInt)")
-        !debuggable -> Result.Unavailable("app is not debuggable (add the sidekick with debugImplementation)")
-        agentPath == null -> Result.Unavailable("libdta-agent.so not found for ABIs ${abis.joinToString(", ")}")
+        sdkInt < MIN_SDK -> Result.Unavailable(Reasons.hooksNeedApi28(sdkInt))
+        !debuggable -> Result.Unavailable(Reasons.NOT_DEBUGGABLE)
+        agentPath == null -> Result.Unavailable(Reasons.agentMissing(abis))
         else -> Result.Attempt(agentPath)
     }
 }

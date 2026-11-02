@@ -79,7 +79,7 @@ class ScriptRuntime(
     fun restore(stored: StoredScript, hooksUnavailable: String?) {
         if (hooksUnavailable != null) {
             unappliedId = idOf(stored.source)
-            unavailable = "hooks unavailable: $hooksUnavailable"
+            unavailable = io.yamsergey.dta.sidekick.capability.Reasons.scriptHooksOff(hooksUnavailable)
             return
         }
         try {
@@ -88,7 +88,7 @@ class ScriptRuntime(
             unappliedId = null
         } catch (e: ScriptCompileException) {
             unappliedId = idOf(stored.source)
-            unavailable = "persisted script does not compile: ${e.message}"
+            unavailable = io.yamsergey.dta.sidekick.capability.Reasons.scriptDoesNotCompile(e.message)
         }
     }
 
