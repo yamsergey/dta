@@ -43,6 +43,8 @@ jobs:
           echo "maven=${{ inputs.version }}" >> $GITHUB_OUTPUT
           echo "unique=${{ inputs.version }}.${{ github.run_number }}" >> $GITHUB_OUTPUT
 
+      - name: IDE layout index (retried, see the script)
+        run: .github/scripts/ide-layout-index.sh
       - name: Publish libraries to the snapshot repository
         run: ./gradlew publishAllPublicationsToMavenCentral -PdtaVersion=${{ steps.versions.outputs.maven }} --no-configuration-cache
         env:

@@ -26,6 +26,8 @@ jobs:
         # One identity for every part of the release: the CLI and the plugin's daemon then never replace each other.
         run: echo "DTA_BUILD_TIME=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
 
+      - name: IDE layout index (retried, see the script)
+        run: .github/scripts/ide-layout-index.sh
       - name: Check
         run: ./gradlew check -PdtaVersion=${{ github.ref_name }} --no-configuration-cache
 
