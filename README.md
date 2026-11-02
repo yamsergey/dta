@@ -217,6 +217,7 @@ dta daemon status | stop
   The `layout` capability lists the servable `levels`. Tooling is read with
   ui-tooling-data `mapTree` (reflective); framework vs. user frames are told
   apart by call-site package hash.
+- **composable parameters** (feature 018): once per call — the first node of a call carries them, the call's other nodes point to it (`sameCallAs`); readable values (`#AARRGGBB`, `16.0.dp`, `22.0.sp`, `Unspecified`, `<lambda>`, `<ClassName>`; null left out; long values cut and marked); defaults left out and counted below `composition`. Checked in the harness against `android preview render --component-tree` as an independent reference, on the fixture's previews and on Now in Android.
 - **layout with the screen** (feature 014): `layout.tree` with `screen` (inline,
   for agents and the plugin) or `screenOutput` (a file; CLI `--screen <file>`).
   The daemon takes the window list, an image, the tree, a second image and the
