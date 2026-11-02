@@ -33,11 +33,17 @@ object ScriptEngine {
         ScriptHandler.WS_RECEIVE to "onWsReceive",
     )
 
-    fun compile(source: String, log: ScriptLogSink): CompiledScript {
+    /** [host] reaches the app's WebSocket connections (feature 020); null where there are none. */
+    fun compile(
+        source: String,
+        host: () -> ScriptHost? = { null },
+        scheduler: io.yamsergey.dta.sidekick.util.TaskScheduler? = null,
+        log: ScriptLogSink,
+    ): CompiledScript {
         val cx = enter()
         try {
             val scope = cx.initStandardObjects()
-            val globals = ScriptGlobals(log)
+            val globals = ScriptGlobals(log, host, ScriptRuntime.idOf(source), scheduler)
             globals.install(scope)
             val script = try {
                 cx.compileString(source, NAME, 1, null)
@@ -47,11 +53,17 @@ object ScriptEngine {
             try {
                 script.exec(cx, scope)
             } catch (e: RhinoException) {
+                globals.close()
                 throw ScriptCompileException("script failed while loading: ${e.details()} at line ${e.lineNumber()}", e.lineNumber(), e.columnNumber())
+            } catch (e: RuntimeException) {
+                // A global (every, after, push) refused its arguments while the script loaded.
+                globals.close()
+                throw ScriptCompileException("script failed while loading: ${e.message}", 0, 0)
             }
             val handlers = HANDLERS.filter { (_, name) -> ScriptableObject.getProperty(scope, name) is Function }.keys
-            if (handlers.isEmpty()) {
-                throw ScriptCompileException("script defines none of ${HANDLERS.values.joinToString(", ")}", 0, 0)
+            if (handlers.isEmpty() && !globals.hasTimers) {
+                globals.close()
+                throw ScriptCompileException("script defines none of ${HANDLERS.values.joinToString(", ")} and sets no timer (every, after)", 0, 0)
             }
             return CompiledScript(scope, globals, handlers, HANDLERS)
         } finally {
@@ -72,10 +84,33 @@ internal class CallState(val handler: ScriptHandler) {
     val description = mutableListOf<String>()
 }
 
-/** `sleep`, `throttle`, `description`, `log`, `state`, `respond`, `drop`. */
-internal class ScriptGlobals(private val log: ScriptLogSink) {
+/** `sleep`, `throttle`, `description`, `log`, `state`, `respond`, `drop`, `push`, `connections`, `every`, `after`, `cancel`. */
+internal class ScriptGlobals(
+    private val log: ScriptLogSink,
+    private val host: () -> ScriptHost?,
+    private val scriptId: String,
+    private val scheduler: io.yamsergey.dta.sidekick.util.TaskScheduler?,
+) {
     val current = ThreadLocal<CallState?>()
     private val state = HashMap<String, Any?>()
+
+    // Feature 020: timers of this script; all cancelled when it is closed.
+    private val timers = HashMap<Int, () -> Unit>()
+    private var nextTimer = 1
+    private var everSet = false
+
+    @Volatile
+    private var closed = false
+
+    val hasTimers: Boolean get() = synchronized(timers) { everSet }
+
+    fun close() {
+        closed = true
+        synchronized(timers) {
+            timers.values.forEach { it() }
+            timers.clear()
+        }
+    }
 
     fun install(scope: ScriptableObject) {
         fn(scope, "sleep") { args ->
@@ -112,12 +147,101 @@ internal class ScriptGlobals(private val log: ScriptLogSink) {
                 if (spec != null) for (key in spec.ids) ScriptableObject.putProperty(m, key.toString(), ScriptableObject.getProperty(spec, key.toString()))
             }
         }
+        fn(scope, "push") { args ->
+            val target = args.getOrNull(0)
+            val id = (target as? Scriptable)?.let { ScriptableObject.getProperty(it, "id") }?.takeIf { it is CharSequence }?.toString()
+                ?: Context.toString(target)
+            push(id, args.getOrNull(1), args.getOrNull(2))
+        }
+        scopedFn(scope, "every") { _, s, args -> timer("every", s, args, repeat = true) }
+        scopedFn(scope, "after") { _, s, args -> timer("after", s, args, repeat = false) }
+        fn(scope, "cancel") { args ->
+            val id = Context.toNumber(args.getOrNull(0)).toInt()
+            synchronized(timers) { timers.remove(id) }?.invoke()
+            Undefined.instance
+        }
+        scopedFn(scope, "connections") { cx, s, _ ->
+            cx.newArray(s, (host()?.connections() ?: emptyList()).map { connection(it) }.toTypedArray<Any?>())
+        }
         val stateObj = NativeObject()
         fn(stateObj, "get") { args -> synchronized(state) { state[Context.toString(args.getOrNull(0))] } ?: Undefined.instance }
         fn(stateObj, "set") { args -> synchronized(state) { state[Context.toString(args.getOrNull(0))] = args.getOrNull(1) }; Undefined.instance }
         fn(stateObj, "delete") { args -> synchronized(state) { state.remove(Context.toString(args.getOrNull(0))) }; Undefined.instance }
         fn(stateObj, "clear") { synchronized(state) { state.clear() }; Undefined.instance }
         ScriptableObject.putProperty(scope, "state", stateObj)
+    }
+
+    /** `every(ms, fn)` / `after(ms, fn)`: runs [fn] on the scheduler thread, as handler `timer`. */
+    private fun timer(name: String, scope: Scriptable, args: Array<Any?>, repeat: Boolean): Any {
+        val ms = Context.toNumber(args.getOrNull(0))
+        if (ms.isNaN() || ms < 1) throw IllegalArgumentException("$name needs an interval of 1 ms or more")
+        val fn = args.getOrNull(1) as? Function ?: throw IllegalArgumentException("$name needs a function")
+        val scheduler = scheduler ?: throw IllegalStateException("timers are not available in this app (DTA's network capture is not running)")
+        val id = synchronized(timers) { everSet = true; nextTimer++ }
+        fun arm() {
+            val cancel = scheduler.schedule(ms.toLong()) {
+                if (closed || synchronized(timers) { id !in timers }) return@schedule
+                run(fn, scope)
+                if (repeat) arm() else synchronized(timers) { timers.remove(id) }
+            }
+            synchronized(timers) { if (!closed) timers[id] = cancel else cancel() }
+        }
+        arm()
+        return id
+    }
+
+    private fun run(fn: Function, scope: Scriptable) {
+        val cx = ScriptEngine.enter()
+        current.set(CallState(io.yamsergey.dta.protocol.network.ScriptHandler.TIMER))
+        try {
+            fn.call(cx, scope, scope, emptyArray())
+        } catch (t: Throwable) {
+            log(ScriptLogLevel.ERROR, io.yamsergey.dta.protocol.network.ScriptHandler.TIMER, "timer: ${describe(t)}")
+        } finally {
+            current.remove()
+            Context.exit()
+        }
+    }
+
+    /** A connection's JS view: url, library, id and `push(message, options)`. */
+    fun connection(connection: ScriptConnection): NativeObject = NativeObject().also { obj ->
+        ScriptableObject.putProperty(obj, "url", connection.url)
+        ScriptableObject.putProperty(obj, "library", connection.library)
+        ScriptableObject.putProperty(obj, "id", connection.id)
+        fn(obj, "push") { args -> push(connection.id ?: "", args.getOrNull(0), args.getOrNull(1)) }
+    }
+
+    /**
+     * Feature 020: pushes [message] to [connectionId] as if the server sent it. Never throws into
+     * the script: a push that cannot start, or fails later, goes to the log (FR-010); returns
+     * whether it started.
+     */
+    private fun push(connectionId: String, message: Any?, options: Any?): Boolean {
+        val handler = current.get()?.handler
+        fun failed(reason: String) = log(ScriptLogLevel.ERROR, handler, "push to $connectionId failed: $reason")
+        val host = host() ?: return false.also { failed("WebSocket pushes are not available in this app (DTA's network capture is not running)") }
+        val delayMs = (options as? Scriptable)?.let { ScriptableObject.getProperty(it, "delayMs") as? Number }?.toLong()?.coerceAtLeast(0) ?: 0
+        return try {
+            val (text, bytes) = pushPayload(message)
+            host.push(connectionId, text, bytes, scriptId, handler, delayMs) { failed(it) }
+            true
+        } catch (e: Exception) {
+            failed(e.message ?: e.toString())
+            false
+        }
+    }
+
+    /** A string is text; bytes or an array of numbers binary; any other value JSON text (contract §4). */
+    private fun pushPayload(value: Any?): Pair<String?, ByteArray?> {
+        val cx = Context.getCurrentContext()
+        return when (value) {
+            null, Undefined.instance -> throw IllegalArgumentException("push needs a message")
+            is CharSequence -> value.toString() to null
+            is NativeJavaArray -> null to (value.unwrap() as? ByteArray ?: throw IllegalArgumentException("push takes bytes, not ${value.unwrap().javaClass.simpleName}"))
+            is NativeArray -> null to value.toArray().map { Context.toNumber(it).toInt().toByte() }.toByteArray()
+            is Scriptable -> (NativeJSON.stringify(cx, value.parentScope ?: value, value, null, null) as CharSequence).toString() to null
+            else -> Context.toString(value) to null
+        }
     }
 
     private fun marker(kind: String) = NativeObject().also { ScriptableObject.putProperty(it, MARKER, kind) }
@@ -132,6 +256,18 @@ internal class ScriptGlobals(private val log: ScriptLogSink) {
             text.isEmpty() -> null
             text.length <= DESCRIPTION_MAX -> text
             else -> text.take(DESCRIPTION_MAX - 1) + "…"
+        }
+
+        fun describe(t: Throwable): String = when (t) {
+            is WrappedException -> t.wrappedException.message ?: t.wrappedException.toString()
+            is RhinoException -> "${t.details()} (line ${t.lineNumber()})"
+            else -> t.message ?: t.toString()
+        }
+
+        fun scopedFn(target: Scriptable, name: String, body: (Context, Scriptable, Array<Any?>) -> Any?) {
+            ScriptableObject.putProperty(target, name, object : BaseFunction() {
+                override fun call(cx: Context, scope: Scriptable, thisObj: Scriptable?, args: Array<Any?>): Any? = body(cx, scope, args)
+            })
         }
 
         fun fn(target: Scriptable, name: String, body: (Array<Any?>) -> Any?) {
@@ -167,7 +303,7 @@ class CompiledScript internal constructor(
     fun onWsReceive(message: ScriptMessage, connection: ScriptConnection): ScriptResult<MessageChange> = message(ScriptHandler.WS_RECEIVE, message, connection)
 
     private fun message(handler: ScriptHandler, message: ScriptMessage, connection: ScriptConnection) =
-        call(handler, { cx, s -> arrayOf(Views.message(cx, s, message), Views.connection(connection)) }) { cx, s, result, args ->
+        call(handler, { cx, s -> arrayOf(Views.message(cx, s, message), globals.connection(connection)) }) { cx, s, result, args ->
             Views.readMessage(cx, s, result, args[0] as NativeObject, message)
         }
 
@@ -208,11 +344,10 @@ class CompiledScript internal constructor(
         )
     }
 
-    private fun describe(t: Throwable): String = when (t) {
-        is WrappedException -> t.wrappedException.message ?: t.wrappedException.toString()
-        is RhinoException -> "${t.details()} (line ${t.lineNumber()})"
-        else -> t.message ?: t.toString()
-    }
+    private fun describe(t: Throwable): String = ScriptGlobals.describe(t)
+
+    /** Cancels the script's timers (feature 020): it was replaced or cleared. */
+    fun close() = globals.close()
 }
 
 /** JS views of traffic, and reading the script's changes back. */
@@ -271,12 +406,6 @@ internal object Views {
         ScriptableObject.putProperty(obj, "text", message.text)
         ScriptableObject.putProperty(obj, "binary", message.binary)
         ScriptGlobals.fn(obj, "bytes") { Context.javaToJS(message.bytes ?: message.text?.toByteArray(Charsets.UTF_8) ?: ByteArray(0), scope) }
-    }
-
-    fun connection(connection: ScriptConnection): NativeObject = NativeObject().also { obj ->
-        ScriptableObject.putProperty(obj, "url", connection.url)
-        ScriptableObject.putProperty(obj, "library", connection.library)
-        ScriptableObject.putProperty(obj, "id", connection.id)
     }
 
     private fun marker(result: Any?): String? =

@@ -10,9 +10,15 @@ import io.yamsergey.dta.sidekick.network.NetworkEvents
 import io.yamsergey.dta.sidekick.network.Initiators
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
+import io.yamsergey.dta.sidekick.network.PushMessage
+import io.yamsergey.dta.sidekick.network.WsDelivery
+import io.yamsergey.dta.sidekick.network.WsInjector
 import io.yamsergey.dta.sidekick.network.WsScripting
 import io.yamsergey.dta.sidekick.network.WsSockets
+import io.yamsergey.dta.shim.HookDispatcher
+import java.lang.ref.WeakReference
 import java.lang.reflect.Field
+import java.lang.reflect.Method
 
 /**
  * nv-websocket-client capture: entry hooks on `WebSocket#connect`, `WebSocket#sendFrame`
@@ -26,7 +32,7 @@ internal object NvWebSocketCapture {
     private const val FRAME = "Lcom/neovisionaries/ws/client/WebSocketFrame;"
     private const val FRAME_CLASS = "com.neovisionaries.ws.client.WebSocketFrame"
 
-    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting): LibraryState {
+    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting, injector: WsInjector): LibraryState {
         val socketClass = EntryHooks.load(SOCKET, loader)
         val listenersClass = EntryHooks.load(LISTENERS, loader)
         if (socketClass == null || listenersClass == null) {
@@ -40,7 +46,9 @@ internal object NvWebSocketCapture {
         socketHooks.on(NetworkEvents.CONNECTIONS, "connect", "()L${SOCKET.replace('.', '/')};") { self, _ ->
             if (sockets[self] != null) return@on
             val uri = self.javaClass.getMethod("getURI").invoke(self)
-            sockets.put(self, recorder.wsStarted(NetworkLibraries.NV_WEBSOCKET, uri.toString(), emptyList(), initiators.capture(InitiatorSite.CONNECT)))
+            val id = recorder.wsStarted(NetworkLibraries.NV_WEBSOCKET, uri.toString(), emptyList(), initiators.capture(InitiatorSite.CONNECT))
+            sockets.put(self, id)
+            injector.attach(id, Delivery(self, socketClass, listenersClass))
         }
         val frameClass = EntryHooks.load(FRAME_CLASS, loader)
         socketHooks.control(NetworkEvents.SENT, "sendFrame", "($FRAME)L${SOCKET.replace('.', '/')};") { self, params ->
@@ -96,7 +104,37 @@ internal object NvWebSocketCapture {
             recorder.wsFailed(id, params[0] as? Throwable ?: IllegalStateException("connect error"))
         }
 
+        // Feature 020: ReadingThread reports every frame to callOnFrame before handling it,
+        // outside any lock: pushed messages go to the app there (research R2).
+        listenerHooks.on(NetworkEvents.PUSH_ON_READER, "callOnFrame", "($FRAME)V") { self, _ ->
+            idOfListeners(self)?.let(injector::flush)
+        }
+
         return EntryHooks.state(NetworkLibraries.NV_WEBSOCKET, socketHooks, listenerHooks)
+    }
+
+    /** `ListenerManager.callOnTextMessage/callOnBinaryMessage`, as ReadingThread calls them; ping by `sendPing()`. */
+    private class Delivery(socket: Any, socketClass: Class<*>, listenersClass: Class<*>) : WsDelivery {
+        private val ref = WeakReference(socket)
+        private val listeners: Method = socketClass.getDeclaredMethod("getListenerManager").apply { isAccessible = true }
+        private val onText: Method = listenersClass.getDeclaredMethod("callOnTextMessage", String::class.java).apply { isAccessible = true }
+        private val onBinary: Method = listenersClass.getDeclaredMethod("callOnBinaryMessage", ByteArray::class.java).apply { isAccessible = true }
+        private val sendPing: Method = socketClass.getMethod("sendPing")
+
+        override fun alive() = ref.get() != null
+
+        override fun ping(): Boolean {
+            sendPing.invoke(ref.get() ?: return false)
+            return true
+        }
+
+        override fun deliver(message: PushMessage) {
+            val socket = ref.get() ?: throw IllegalStateException("the socket was collected")
+            val manager = listeners.invoke(socket)
+            HookDispatcher.unguarded {
+                if (message.text != null) onText.invoke(manager, message.text) else onBinary.invoke(manager, message.bytes)
+            }
+        }
     }
 
     private fun Any.call(method: String): Any? = javaClass.getMethod(method).invoke(this)

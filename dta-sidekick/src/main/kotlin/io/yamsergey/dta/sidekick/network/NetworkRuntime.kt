@@ -38,6 +38,11 @@ object NetworkRuntime {
     var recorder: NetworkRecorder? = null
         private set
 
+    /** Pushes messages into the app's WebSocket connections (feature 020); null without hooks. */
+    @Volatile
+    var injector: WsInjector? = null
+        private set
+
     /** The one network script of this process (feature 005). */
     val scripts = ScriptRuntime()
 
@@ -65,12 +70,15 @@ object NetworkRuntime {
         val loader = context.classLoader
         val initiators = Initiators()
         val wsScripting = WsScripting(recorder, scripts)
+        val injector = WsInjector(recorder.pushRecorder(), io.yamsergey.dta.sidekick.util.ThreadScheduler("dta-ws-push"))
+        this.injector = injector
+        scripts.host = ScriptPushes(injector)
         libraries = listOf(
             { OkHttpCapture.install(loader, recorder, initiators, scripts) },
             { UrlConnectionCapture.install(recorder, initiators, scripts) },
-            { OkHttpWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
-            { NvWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
-            { JavaWebSocketCapture.install(loader, recorder, initiators, wsScripting) },
+            { OkHttpWebSocketCapture.install(loader, recorder, initiators, wsScripting, injector) },
+            { NvWebSocketCapture.install(loader, recorder, initiators, wsScripting, injector) },
+            { JavaWebSocketCapture.install(loader, recorder, initiators, wsScripting, injector) },
             { NetworkCapability.probeGrpc(loader) },
         ).zip(NetworkLibraries.ALL).map { (install, name) ->
             try {

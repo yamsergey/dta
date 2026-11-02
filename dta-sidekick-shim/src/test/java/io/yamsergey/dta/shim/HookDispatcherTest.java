@@ -284,4 +284,35 @@ class HookDispatcherTest {
         assertSame(HookDispatcher.PROCEED, HookDispatcher.onEntryControl(new Object[] {LABEL, null, "a"}));
         assertEquals(1, calls[0]);
     }
+
+    /** Feature 020: a message DTA hands to the app from inside a hook lets the app's own calls be hooked. */
+    @Test
+    void unguardedLetsAHandlerReachHooksAndRestoresTheGuard() {
+        final String other = HookRegistry.label("a.B", "send", "(Ljava/lang/String;)Z");
+        final int[] sends = {0};
+        HookRegistry.entry(other, new EntryHandler() {
+            @Override
+            public void onEntry(Object self, Object[] params) {
+                sends[0]++;
+            }
+        });
+        final int[] calls = {0};
+        HookRegistry.entry(LABEL, new EntryHandler() {
+            @Override
+            public void onEntry(Object self, Object[] params) {
+                calls[0]++;
+                HookDispatcher.onEntry(new Object[] {other, null, "guarded"});
+                HookDispatcher.unguarded(new Runnable() {
+                    @Override
+                    public void run() {
+                        HookDispatcher.onEntry(new Object[] {other, null, "unguarded"});
+                    }
+                });
+                HookDispatcher.onEntry(new Object[] {other, null, "guarded again"});
+            }
+        });
+        HookDispatcher.onEntry(new Object[] {LABEL, null, 1});
+        assertEquals(1, calls[0]);
+        assertEquals(1, sends[0], "only the unguarded call was dispatched");
+    }
 }

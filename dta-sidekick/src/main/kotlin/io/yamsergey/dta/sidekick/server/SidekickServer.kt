@@ -91,6 +91,9 @@ object SidekickServer {
             NetworkScriptMethods(NetworkRuntime.scripts, NetworkRuntime.scriptStore) {
                 if (io.yamsergey.dta.sidekick.hooks.HookAttach.attached) null else io.yamsergey.dta.sidekick.hooks.HookAttach.reason
             }.install(this)
+            io.yamsergey.dta.sidekick.network.WsPushMethods({ NetworkRuntime.injector }) {
+                if (io.yamsergey.dta.sidekick.hooks.HookAttach.attached) null else io.yamsergey.dta.sidekick.hooks.HookAttach.reason
+            }.install(this)
         }
         val identity = SessionIdentity(packageName = packageName, serverVersion = sidekickVersion)
         val socketName = "dta_sidekick_$packageName"

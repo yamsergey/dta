@@ -22,6 +22,8 @@ internal class WsScripting(private val recorder: NetworkRecorder, private val sc
     data class Decision(val text: String? = null, val bytes: ByteArray? = null, val dropped: Boolean = false)
 
     fun handle(connectionId: String, direction: Direction, opcode: MessageOpcode, text: String?, bytes: ByteArray?, initiator: Initiator?): Decision {
+        // Feature 020: a message DTA is pushing; the injector recorded it, and pushes skip onWsReceive.
+        if (direction == Direction.IN && WsPushGuard.delivering) return Decision()
         val payload = bytes ?: text?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
         val active = scripts.current()
         val handler = if (direction == Direction.OUT) ScriptHandler.WS_SEND else ScriptHandler.WS_RECEIVE

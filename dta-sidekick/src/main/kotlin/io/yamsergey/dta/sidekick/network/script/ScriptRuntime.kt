@@ -29,9 +29,15 @@ class ActiveScript internal constructor(
 class ScriptRuntime(
     private val clock: () -> Long = System::currentTimeMillis,
     private val logCapacity: Int = 1000,
+    /** Runs the script's timers (feature 020); its thread starts with the first timer. */
+    private val timers: io.yamsergey.dta.sidekick.util.TaskScheduler = io.yamsergey.dta.sidekick.util.ThreadScheduler("dta-script-timers"),
 ) {
     @Volatile
     private var active: ActiveScript? = null
+
+    /** Where the script's pushes go (feature 020): set once the process's WebSocket capture runs. */
+    @Volatile
+    var host: ScriptHost? = null
 
     /** Why a script cannot apply (hooks unavailable, persisted script no longer compiles). */
     @Volatile
@@ -49,7 +55,12 @@ class ScriptRuntime(
     /** Compiles and activates [source]; an invalid script throws and leaves the current one. */
     @Synchronized
     fun install(source: String, installedAtMs: Long = clock()): ScriptStatus {
-        val compiled = ScriptEngine.compile(source) { level, handler, message -> log(level, handler, null, message) }
+        val compiled = ScriptEngine.compile(source, host = { host }, scheduler = timers) { level, handler, message ->
+            // Timer and push failures arrive here, not through account(): count them as errors.
+            if (level == ScriptLogLevel.ERROR) errors.incrementAndGet()
+            log(level, handler, null, message)
+        }
+        active?.script?.close()
         active = ActiveScript(idOf(source), source, installedAtMs, compiled)
         unavailable = null
         invocations.set(0)
@@ -61,6 +72,7 @@ class ScriptRuntime(
     @Synchronized
     fun clear(): Boolean {
         val had = active != null
+        active?.script?.close()
         active = null
         unavailable = null
         unappliedId = null

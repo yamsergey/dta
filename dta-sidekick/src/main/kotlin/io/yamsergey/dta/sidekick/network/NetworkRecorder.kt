@@ -110,7 +110,14 @@ class NetworkRecorder(
     }
 
     /** Stores the payload (bounded) and returns the message id; null if the connection is unknown. */
-    fun wsMessage(connectionId: String, direction: Direction, opcode: MessageOpcode, payload: ByteArray, initiator: Initiator?): String? =
+    fun wsMessage(
+        connectionId: String,
+        direction: Direction,
+        opcode: MessageOpcode,
+        payload: ByteArray,
+        initiator: Initiator?,
+        injected: io.yamsergey.dta.protocol.network.WsInjection? = null,
+    ): String? =
         guardOrNull {
             val connection = store.get(connectionId) as? WsConnectionEntry ?: return@guardOrNull null
             val id = store.nextId()
@@ -127,7 +134,7 @@ class NetworkRecorder(
                 accept(payload, 0, payload.size)
                 finish(endOfStream = true)
             }
-            put(WsMessageEntry(id, store.runId, time, connection.library, initiator, connectionId, direction, opcode, info!!, url = connection.url))
+            put(WsMessageEntry(id, store.runId, time, connection.library, initiator, connectionId, direction, opcode, info!!, url = connection.url, injected = injected))
             updateWs(connectionId) { it.copy(messageCount = it.messageCount + 1) }
             id
         }
@@ -148,6 +155,14 @@ class NetworkRecorder(
 
     /** The library a connection id belongs to, for adapters that map sockets to ids. */
     fun connection(id: String): WsConnectionEntry? = store.get(id) as? WsConnectionEntry
+
+    /** The history as the push injector sees it (feature 020): pushes are incoming messages, marked. */
+    fun pushRecorder(): PushRecorder = object : PushRecorder {
+        override val runId: String get() = store.runId
+        override fun connection(id: String) = this@NetworkRecorder.connection(id)
+        override fun record(connectionId: String, message: PushMessage, injection: io.yamsergey.dta.protocol.network.WsInjection) =
+            wsMessage(connectionId, Direction.IN, message.opcode, message.payload, initiator = null, injected = injection)
+    }
 
     // ---- interventions (feature 005) ----------------------------------------------------
 

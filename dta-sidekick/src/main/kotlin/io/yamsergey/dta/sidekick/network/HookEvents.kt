@@ -38,6 +38,8 @@ object NetworkEvents {
     const val RECEIVED_BINARY = "received binary messages"
     const val CLOSE = "close"
     const val FAILURES = "failures"
+    /** Feature 020: where pushed messages go to the app on the library's reading thread. */
+    const val PUSH_ON_READER = "pushed messages on the reading thread"
 
     const val REQUESTS = "requests and responses"
     const val SCRIPT_AND_EARLY_FAILURES = "network script and failures before connecting"

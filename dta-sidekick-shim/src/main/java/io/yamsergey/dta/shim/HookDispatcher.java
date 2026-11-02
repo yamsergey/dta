@@ -40,6 +40,22 @@ public final class HookDispatcher {
     private HookDispatcher() {}
 
     /**
+     * Runs {@code task} with this thread's re-entry guard lifted, then restores it (feature 020):
+     * a message DTA delivers to the app from inside a hook runs the app's code, whose own hooked
+     * calls (a reply it sends) must be seen. Not part of the bytecode ABI. Throws what the task throws.
+     */
+    public static void unguarded(Runnable task) {
+        boolean[] inHook = IN_HOOK.get();
+        boolean was = inHook[0];
+        inHook[0] = false;
+        try {
+            task.run();
+        } finally {
+            inHook[0] = was;
+        }
+    }
+
+    /**
      * Control entry: {@code args = [label, this-or-null, params...]}. Each handler gets a copy
      * of the current params; its rewrites are adopted only if it does not throw. The first
      * result other than {@link #PROCEED} is returned (an early return). Never throws.

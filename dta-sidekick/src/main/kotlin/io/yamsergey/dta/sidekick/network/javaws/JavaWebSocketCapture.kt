@@ -9,8 +9,14 @@ import io.yamsergey.dta.sidekick.network.NetworkEvents
 import io.yamsergey.dta.sidekick.network.Initiators
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
+import io.yamsergey.dta.sidekick.network.PushMessage
+import io.yamsergey.dta.sidekick.network.WsDelivery
+import io.yamsergey.dta.sidekick.network.WsInjector
 import io.yamsergey.dta.sidekick.network.WsScripting
 import io.yamsergey.dta.sidekick.network.WsSockets
+import io.yamsergey.dta.shim.HookDispatcher
+import java.lang.ref.WeakReference
+import java.lang.reflect.Method
 import java.nio.ByteBuffer
 
 /**
@@ -25,7 +31,7 @@ internal object JavaWebSocketCapture {
     private const val IMPL = "org.java_websocket.WebSocketImpl"
     private const val CONN = "Lorg/java_websocket/WebSocket;"
 
-    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting): LibraryState {
+    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting, injector: WsInjector): LibraryState {
         val clientClass = EntryHooks.load(CLIENT, loader)
         val implClass = EntryHooks.load(IMPL, loader)
         if (clientClass == null || implClass == null) {
@@ -40,6 +46,7 @@ internal object JavaWebSocketCapture {
             val id = recorder.wsStarted(NetworkLibraries.JAVA_WEBSOCKET, uri.toString(), emptyList(), initiators.capture(InitiatorSite.CONNECT))
             sockets.put(self, id)
             self.javaClass.getMethod("getConnection").invoke(self)?.let { sockets.put(it, id) }
+            injector.attach(id, Delivery(self, clientClass, loader))
         }
         client.on(NetworkEvents.OPEN, "onWebsocketOpen", "(${CONN}Lorg/java_websocket/handshake/Handshakedata;)V") { self, _ ->
             sockets[self]?.let { recorder.wsOpened(it) }
@@ -85,7 +92,37 @@ internal object JavaWebSocketCapture {
             EntryHooks.PROCEED
         }
 
+        // Feature 020: the client's reading thread hands every chunk it read to decode, outside
+        // any lock of the library: pushed messages go to the app there (research R2).
+        impl.on(NetworkEvents.PUSH_ON_READER, "decode", "(Ljava/nio/ByteBuffer;)V") { self, _ ->
+            sockets[self]?.let(injector::flush)
+        }
+
         return EntryHooks.state(NetworkLibraries.JAVA_WEBSOCKET, client, impl)
+    }
+
+    /** `WebSocketClient.onWebsocketMessage(engine, …)`, as the engine calls it for a server message; ping by `sendPing()`. */
+    private class Delivery(client: Any, clientClass: Class<*>, loader: ClassLoader?) : WsDelivery {
+        private val ref = WeakReference(client)
+        private val conn: Class<*> = Class.forName("org.java_websocket.WebSocket", false, loader ?: clientClass.classLoader)
+        private val onText: Method = clientClass.getMethod("onWebsocketMessage", conn, String::class.java)
+        private val onBinary: Method = clientClass.getMethod("onWebsocketMessage", conn, ByteBuffer::class.java)
+
+        override fun alive() = ref.get() != null
+
+        override fun ping(): Boolean {
+            val client = ref.get() ?: return false
+            client.javaClass.getMethod("sendPing").invoke(client)
+            return true
+        }
+
+        override fun deliver(message: PushMessage) {
+            val client = ref.get() ?: throw IllegalStateException("the socket was collected")
+            val engine = client.javaClass.getMethod("getConnection").invoke(client)
+            HookDispatcher.unguarded {
+                if (message.text != null) onText.invoke(client, engine, message.text) else onBinary.invoke(client, engine, ByteBuffer.wrap(message.bytes!!))
+            }
+        }
     }
 
     /** Reads without moving the app's buffer position. */

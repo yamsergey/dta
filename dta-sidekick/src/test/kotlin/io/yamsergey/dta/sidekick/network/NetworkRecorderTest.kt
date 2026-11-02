@@ -163,6 +163,26 @@ class NetworkRecorderTest {
     }
 
     @Test
+    fun `a pushed message is an incoming message with its marker, through the push recorder`() {
+        val id = recorder.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)
+        recorder.wsOpened(id)
+        val push = recorder.pushRecorder()
+        assertEquals(store.runId, push.runId)
+        assertEquals(id, push.connection(id)!!.id)
+        val injection = io.yamsergey.dta.protocol.network.WsInjection(
+            io.yamsergey.dta.protocol.network.InjectionSource.CLIENT,
+            delivery = io.yamsergey.dta.protocol.network.InjectionDelivery.READING_THREAD, waitedMs = 5,
+        )
+        val m = entry(push.record(id, PushMessage("snap", null), injection)!!) as WsMessageEntry
+        assertEquals(Direction.IN, m.direction)
+        assertEquals(MessageOpcode.TEXT, m.opcode)
+        assertEquals("snap", m.payload.preview)
+        assertEquals(injection, m.injected)
+        assertNull(m.initiator)
+        assertEquals(1, (entry(id) as WsConnectionEntry).messageCount)
+    }
+
+    @Test
     fun `a message payload over the bound is truncated, stated`() {
         val small = NetworkRecorder(store, clock = { now }, bodyBound = 4) { _, _ -> }
         val id = small.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)

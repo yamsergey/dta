@@ -11,8 +11,14 @@ import io.yamsergey.dta.sidekick.network.NetworkEvents
 import io.yamsergey.dta.sidekick.network.Initiators
 import io.yamsergey.dta.sidekick.network.LibraryState
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
+import io.yamsergey.dta.sidekick.network.PushMessage
+import io.yamsergey.dta.sidekick.network.WsDelivery
+import io.yamsergey.dta.sidekick.network.WsInjector
 import io.yamsergey.dta.sidekick.network.WsScripting
 import io.yamsergey.dta.sidekick.network.WsSockets
+import io.yamsergey.dta.sidekick.hooks.Hooks
+import io.yamsergey.dta.shim.HookDispatcher
+import java.lang.ref.WeakReference
 import okhttp3.Response
 import okhttp3.WebSocket
 import okio.ByteString
@@ -25,8 +31,9 @@ import okio.ByteString.Companion.toByteString
 internal object OkHttpWebSocketCapture {
 
     private const val SOCKET = "okhttp3.internal.ws.RealWebSocket"
+    private const val READER = "okhttp3.internal.ws.WebSocketReader"
 
-    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting): LibraryState {
+    fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting, injector: WsInjector): LibraryState {
         val socketClass = EntryHooks.load(SOCKET, loader)
             ?: return LibraryState(NetworkLibraries.OKHTTP3_WS, present = false, installFailure = null)
         val sockets = WsSockets()
@@ -36,7 +43,9 @@ internal object OkHttpWebSocketCapture {
             hooks.on(NetworkEvents.CONNECTIONS, "connect", "(Lokhttp3/OkHttpClient;)V") { self, _ ->
                 val request = (self as WebSocket).request()
                 val headers = (0 until request.headers.size).map { Header(request.headers.name(it), request.headers.value(it)) }
-                sockets.put(self, recorder.wsStarted(NetworkLibraries.OKHTTP3_WS, wsUrl(request.url.toString()), headers, initiators.capture(InitiatorSite.CONNECT)))
+                val id = recorder.wsStarted(NetworkLibraries.OKHTTP3_WS, wsUrl(request.url.toString()), headers, initiators.capture(InitiatorSite.CONNECT))
+                sockets.put(self, id)
+                injector.attach(id, Delivery(self))
             }
             // The response is params[0] in every form (research R1).
             hooks.on(NetworkEvents.HANDSHAKE, *HANDSHAKE) { self, params ->
@@ -91,7 +100,41 @@ internal object OkHttpWebSocketCapture {
                 recorder.wsFailed(id, params[0] as? Throwable ?: IllegalStateException("websocket failed"))
             }
         }
-        return hooks.state(NetworkLibraries.OKHTTP3_WS)
+        // Feature 020: the reader loop enters processNextFrame after each frame, before the next
+        // blocking read, outside any OkHttp lock: pushed messages go to the app there (research R2).
+        val readerHooks = EntryHooks.load(READER, loader)?.let { readerClass ->
+            EntryHooks(readerClass).apply {
+                val callback = readerClass.declaredFields.firstOrNull { it.name == "frameCallback" }?.apply { isAccessible = true }
+                if (callback == null) {
+                    missing(NetworkEvents.PUSH_ON_READER, HookSignature("processNextFrame", "()V"), Hooks.Install.Failed("WebSocketReader has no frameCallback field in this OkHttp version"))
+                } else {
+                    on(NetworkEvents.PUSH_ON_READER, "processNextFrame", "()V") { self, _ ->
+                        sockets[callback.get(self)]?.let(injector::flush)
+                    }
+                }
+            }
+        }
+        return EntryHooks.state(NetworkLibraries.OKHTTP3_WS, *listOfNotNull(hooks, readerHooks).toTypedArray())
+    }
+
+    /**
+     * Hands a pushed message to `RealWebSocket.onReadMessage`, the method the reader calls for a
+     * server message (research R1). No ping: OkHttp writes pings on its writer task only (R3).
+     */
+    private class Delivery(socket: Any) : WsDelivery {
+        private val ref = WeakReference(socket)
+        override fun alive() = ref.get() != null
+        override fun ping() = false
+        override fun deliver(message: PushMessage) {
+            val socket = ref.get() ?: throw IllegalStateException("the socket was collected")
+            HookDispatcher.unguarded {
+                if (message.text != null) {
+                    socket.javaClass.getMethod("onReadMessage", String::class.java).invoke(socket, message.text)
+                } else {
+                    socket.javaClass.getMethod("onReadMessage", ByteString::class.java).invoke(socket, message.bytes!!.toByteString())
+                }
+            }
+        }
     }
 
     /** `RealWebSocket` method forms by OkHttp version, newest first (feature 019, research R1). */

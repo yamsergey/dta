@@ -69,6 +69,11 @@ internal class EntryHooks(private val target: Class<*>, private val installer: H
         results += EventResult(event, installed, tried)
     }
 
+    /** An event that cannot be hooked because something it needs is not there ([why] says what). */
+    fun missing(event: String, signature: HookSignature, why: Hooks.Install) {
+        results += EventResult(event, null, listOf(signature to why))
+    }
+
     fun state(library: String) = state(library, this)
 
     companion object {

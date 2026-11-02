@@ -144,4 +144,23 @@ class ScriptRuntimeTest {
         runtime.restore(StoredScript("function onRequest(r) {}", 7), hooksUnavailable = "requires API 28+")
         assertTrue("API 28" in runtime.summary()!!.unavailable!!)
     }
+
+    /** Feature 020: a script's timers live as long as it is the installed one. */
+    @Test
+    fun `timers stop when the script is replaced or cleared, and their errors are counted and logged`() {
+        val scheduler = io.yamsergey.dta.sidekick.util.ManualScheduler()
+        val timed = ScriptRuntime(clock = { now }, timers = scheduler)
+        timed.install("""every(100, function () { log("a"); });""")
+        scheduler.advance(250)
+        assertEquals(listOf("a", "a"), timed.logs(0).lines.map { it.message })
+        timed.install("""every(100, function () { throw new Error("b"); });""")
+        scheduler.advance(100)
+        assertEquals(listOf("a", "a", "timer: Error: b (line 1)"), timed.logs(0).lines.map { it.message }, "the first script's timer stopped")
+        assertEquals(ScriptHandler.TIMER, timed.logs(0).lines.last().handler)
+        assertEquals(1, timed.status().errors)
+        timed.clear()
+        scheduler.advance(1000)
+        assertEquals(3, timed.logs(0).lines.size)
+        assertEquals(0, scheduler.pending)
+    }
 }

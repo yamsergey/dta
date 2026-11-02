@@ -7,6 +7,18 @@ import io.yamsergey.dta.protocol.network.ScriptLogLevel
 /** Receives `log(...)` output of a script. */
 typealias ScriptLogSink = (level: ScriptLogLevel, handler: ScriptHandler?, message: String) -> Unit
 
+/**
+ * What a script's `push`, `conn.push` and `connections()` reach (feature 020): the WebSocket
+ * injector of the process.
+ */
+interface ScriptHost {
+    /** Starts a push; throws with the plain reason when it cannot start. [onFailure] hears a later failure. */
+    fun push(connectionId: String, text: String?, bytes: ByteArray?, scriptId: String, handler: ScriptHandler?, delayMs: Long, onFailure: (String) -> Unit)
+
+    /** The app's open WebSocket connections. */
+    fun connections(): List<ScriptConnection>
+}
+
 /** A script that does not compile, or defines no handler; [line]/[column] are 1-based (0 = unknown). */
 class ScriptCompileException(message: String, val line: Int, val column: Int) : Exception(message)
 
