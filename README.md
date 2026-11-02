@@ -303,6 +303,28 @@ dta daemon status | stop
   - Known limitation (also of capture): a shaded or separately loaded copy of a
     supported library is neither captured nor scripted.
 
+- **WebSocket push** (feature 020): a client (`network.ws.push`, MCP
+  `network_ws_push`, `dta network ws push`) or the network script (`conn.push`,
+  `push`, `connections()`, timers `every`/`after`/`cancel`) makes the app receive a
+  message on an open connection as if the server sent it.
+  - The message goes through the library's own receive method (OkHttp
+    `RealWebSocket.onReadMessage`, Java-WebSocket `onWebsocketMessage`, nv
+    `ListenerManager.callOnTextMessage/BinaryMessage`), on the library's reading
+    thread at a once-per-frame point (OkHttp `WebSocketReader.processNextFrame`,
+    Java-WebSocket `WebSocketImpl.decode`, nv `ListenerManager.callOnFrame`),
+    queued per connection and delivered in order. DTA pings the server for a
+    frame on Java-WebSocket and nv; OkHttp waits for the next frame. Without a
+    frame within `waitMs` (default 1000) the message is delivered from DTA's
+    thread (`dta-ws-push`), and the entry says so.
+  - Every pushed message is an incoming `ws-message` with `injected` (client or
+    script with id and handler/timer, delivery, wait); statement `injected`.
+    Pushed messages skip `onWsReceive`; what the app's listener sends in reply is
+    captured and scripted as usual.
+  - The flush point is an event of each library's coverage ("pushed messages on
+    the reading thread"); without it pushes still arrive, from DTA's thread.
+  - Only open connections of the running process; DTA does not open connections
+    or act as a whole server.
+
 - **protobuf bodies** (feature 006): binary protobuf bodies read as JSON. All
   decoding is in the daemon (host); nothing is added to the app.
   - Built in: OpenTelemetry exports over OTLP/HTTP (`POST …/v1/traces|metrics|logs`

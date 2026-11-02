@@ -79,6 +79,10 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 
 `network_script_set` installs JavaScript that runs inside the app for every request, response and WebSocket message. It persists across app restarts until `network_script_clear`. Check `network_script_status` and `network_script_logs` after installing. See [scripting.md](scripting.md) for the API and recipes.
 
+## Pushing WebSocket messages
+
+`network_ws_push` makes the app receive a message on an open WebSocket connection as if the server sent it (`text`, or `base64` for binary; `connection` from `network_list`, optional when only one is open). It is delivered on the library's reading thread when a frame arrives (DTA pings the server for one where the library allows), otherwise from DTA's thread after `waitMs` (default 1000); the result says which. The history shows it as an incoming message marked `injected` — never mistake it for a server message. To answer the app's own messages, or push on a schedule, use `conn.push`, `push` and `every` in the network script.
+
 ## Protobuf
 
 OTLP (OpenTelemetry) exports decode automatically. For the app's own protobuf, add the `.proto` files with `network_schema_add` and map a message type to traffic with `network_mapping_add`. See [protobuf.md](protobuf.md).

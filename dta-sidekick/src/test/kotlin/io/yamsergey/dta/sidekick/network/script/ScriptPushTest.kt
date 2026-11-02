@@ -102,4 +102,35 @@ class ScriptPushTest {
         script.onWsSend(ScriptMessage.text("a"), conn)
         assertEquals("push to r1-1:5 failed: WebSocket pushes are not available in this app (DTA's network capture is not running)", logs.single().third)
     }
+
+    @Test
+    fun `the documented push recipes work as written`() {
+        compile(
+            """
+            function onWsSend(msg, conn) {
+              if (msg.text && msg.text.startsWith("sub:")) conn.push({topic: msg.text.substring(4), items: []}, {delayMs: 200});
+            }
+            """,
+        ).onWsSend(ScriptMessage.text("sub:prices"), conn)
+        assertEquals("""{"topic":"prices","items":[]}""", pushes.single().text)
+        assertEquals(200, pushes.single().delayMs)
+
+        pushes.clear()
+        val dropped = compile("""function onWsSend(msg, conn) { if (msg.text === "sub:prices") { conn.push("snapshot:prices"); return drop(); } }""")
+            .onWsSend(ScriptMessage.text("sub:prices"), conn)
+        assertEquals(Effect.Drop, dropped.effect)
+        assertEquals("snapshot:prices", pushes.single().text)
+
+        pushes.clear()
+        val scheduler = io.yamsergey.dta.sidekick.util.ManualScheduler()
+        ScriptEngine.compile(
+            """
+            let price = 100;
+            every(1000, () => { price++; connections().forEach(c => push(c, {price: price})); });
+            """,
+            host = { host }, scheduler = scheduler,
+        ) { level, handler, message -> logs += Triple(level, handler, message) }
+        scheduler.advance(2000)
+        assertEquals(listOf("""{"price":101}""", """{"price":101}""", """{"price":102}""", """{"price":102}"""), pushes.map { it.text }, "one price per tick, on both connections")
+    }
 }
