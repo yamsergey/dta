@@ -33,7 +33,7 @@ data class LibraryState(
 object NetworkCapability {
     const val NAME = "network"
     const val ABSENT = LibraryCoverage.ABSENT
-    const val GRPC_UNSUPPORTED = "gRPC calls are not captured: the app includes gRPC, which uses its own transport that network capture does not cover"
+    const val GRPC_UNSUPPORTED = "the app includes gRPC, which uses its own transport that network capture does not cover"
 
     /** gRPC is only detected, never hooked (feature 006, FR-019). */
     fun probeGrpc(loader: ClassLoader): LibraryState {

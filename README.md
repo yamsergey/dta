@@ -239,6 +239,16 @@ dta daemon status | stop
     library's status, gRPC included: detected and listed as not captured (it
     has its own transport), so an empty list is not mistaken for no traffic.
     Presence alone does not degrade the capability.
+  - Each library is captured through named events (connections, handshake
+    headers, connection open, sent and received messages, close, failures for
+    WebSockets; requests and responses and call sites for OkHttp). A library is
+    `available` when every event is captured, `degraded` when only some are —
+    `notCaptured` and `captured` name them and the reason says why (for example a
+    method not in the app's library version) — and `unavailable` when none are.
+    Results then carry `network-library-partial`. Known method forms are kept
+    per library version, OkHttp 4.x and 5.0–5.5 included (feature 019).
+  - Every capability reason says what is not seen, why and what to do; raw
+    runtime causes are in `detail`, never the reason itself.
   - Every request, connection and outgoing message carries an **initiator**
     stack, app frames marked, `firstAppFrame` set; async OkHttp calls show the
     `enqueue` site, not the dispatcher thread.
@@ -261,7 +271,7 @@ dta daemon status | stop
     undecodable binary included, are withheld unless `allowUnredacted`. Off by
     default.
   - Requirements: API 28+ and a debuggable app; otherwise the capability says
-    why. Reductions use eight `network-*` degradation codes.
+    why. Reductions use nine `network-*` degradation codes.
 
 - **network script** (feature 005): one JavaScript script per app intervenes in
   the traffic network capture sees — delay, rewrite, mock, drop, throttle, for

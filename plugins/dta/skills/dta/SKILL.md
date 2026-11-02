@@ -24,6 +24,7 @@ After changing the app's code, `app_run` builds, installs and launches it with D
 Results say how each value was obtained. Never ignore them:
 - `layout_tree` with `source: uiautomator` and `fallbackReason`: the system fallback captured the screen (no Compose names, no source lines). Tell the user.
 - `degraded` markers (`compose-tooling-absent`, `network-body-incomplete`, …): something is partial; the reason says what.
+- `capability_report`: a network library `degraded` is captured in part — its `notCaptured` events (for example handshake headers, failures) are missing and its `captured` ones are there, so read its traffic and say what is missing. Only `unavailable` means none of it is captured.
 - Bodies with `completeness` other than `complete` (`truncated`, `partially-observed`, `omitted`, `dropped`) are not the whole body.
 - `intervention` on an entry: the network script changed it; `appRequest`/`appResponse` show what the app saw.
 - A result with `truncated` was cut to fit; it says what was left out and how to get it.
