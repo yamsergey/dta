@@ -49,6 +49,7 @@ interface DaemonOperations {
     suspend fun networkScriptClear(serial: String, pkg: String): Boolean
     suspend fun networkScriptStatus(serial: String, pkg: String): ScriptStatus
     suspend fun networkScriptLogs(serial: String, pkg: String, since: Long): ScriptLogPage
+    suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?): io.yamsergey.dta.protocol.network.WsPushResult
     fun networkSchemaAdd(pkg: String, name: String, input: SchemaInput): SchemaSet
     fun networkSchemas(pkg: String): List<SchemaSet>
     fun networkSchemaRemove(pkg: String, name: String): List<BodyMapping>
@@ -105,6 +106,8 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override suspend fun networkScriptClear(serial: String, pkg: String) = daemon.networkScriptClear(serial, pkg)
     override suspend fun networkScriptStatus(serial: String, pkg: String) = daemon.networkScriptStatus(serial, pkg)
     override suspend fun networkScriptLogs(serial: String, pkg: String, since: Long) = daemon.networkScriptLogs(serial, pkg, since)
+    override suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?) =
+        daemon.networkWsPush(serial, pkg, connection, text, base64, waitMs)
     override fun networkSchemaAdd(pkg: String, name: String, input: SchemaInput) = daemon.networkSchemaAdd(pkg, name, input)
     override fun networkSchemas(pkg: String) = daemon.networkSchemas(pkg)
     override fun networkSchemaRemove(pkg: String, name: String) = daemon.networkSchemaRemove(pkg, name)

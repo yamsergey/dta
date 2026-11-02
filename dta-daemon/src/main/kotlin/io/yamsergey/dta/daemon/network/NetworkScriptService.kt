@@ -23,6 +23,21 @@ class NetworkScriptService(private val connection: suspend () -> AppConnection) 
     suspend fun status(): ScriptStatus =
         DtaJson.decodeFromJsonElement(ScriptStatus.serializer(), connection().request("network_script_status"))
 
+    /** Feature 020: a message pushed into an open connection of the app, as if the server sent it. */
+    suspend fun push(connection: String?, text: String?, base64: String?, waitMs: Long?): io.yamsergey.dta.protocol.network.WsPushResult =
+        DtaJson.decodeFromJsonElement(
+            io.yamsergey.dta.protocol.network.WsPushResult.serializer(),
+            connection().request(
+                "network_ws_push",
+                buildJsonObject {
+                    connection?.let { put("connection", it) }
+                    text?.let { put("text", it) }
+                    base64?.let { put("base64", it) }
+                    waitMs?.let { put("waitMs", it) }
+                },
+            ),
+        )
+
     suspend fun logs(since: Long = 0): ScriptLogPage =
         DtaJson.decodeFromJsonElement(
             ScriptLogPage.serializer(),

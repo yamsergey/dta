@@ -117,6 +117,9 @@ class FakeOperations : DaemonOperations {
     override suspend fun networkScriptClear(serial: String, pkg: String) = true
     override suspend fun networkScriptStatus(serial: String, pkg: String) = ScriptStatus(active = false)
     override suspend fun networkScriptLogs(serial: String, pkg: String, since: Long) = ScriptLogPage(emptyList(), next = since)
+    override suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?) =
+        io.yamsergey.dta.protocol.network.WsPushResult("r1-1:9", connection ?: "r1-1:4", io.yamsergey.dta.protocol.network.InjectionDelivery.READING_THREAD, 3)
+            .also { calls += "push:$connection|$text|$base64|$waitMs" }
     override fun networkSchemaAdd(pkg: String, name: String, input: SchemaInput): SchemaSet {
         lastSchemaInput = input
         return SchemaSet(name, SchemaSource.PROTO_SOURCES, emptyList(), emptyList(), 0)

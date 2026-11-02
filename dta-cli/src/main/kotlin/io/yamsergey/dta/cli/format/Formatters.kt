@@ -42,6 +42,7 @@ class Formatters(private val style: Style) {
         "network.script.set", "network.script.status" -> scriptStatus(result.obj)
         "network.script.clear" -> if (result.obj.bool("cleared")) "Network script removed." else "No network script was active."
         "network.script.logs" -> scriptLogs(result.obj)
+        "network.ws.push" -> wsPush(result.obj)
         "network.schema.add" -> schemaSet(result.obj)
         "network.schema.list" -> result.arr.joinToString("\n\n") { schemaSet(it.obj) }.ifEmpty { "No schema sets. Add one with 'dta network schema add'." }
         "network.schema.remove" -> schemaRemoved(result.obj)
@@ -63,6 +64,14 @@ class Formatters(private val style: Style) {
         "daemon.status" -> status(result.obj)
         "daemon.stop" -> "The DTA daemon is stopping."
         else -> PRETTY.encodeToString(JsonElement.serializer(), result)
+    }
+
+    /** Feature 020: where a pushed message went and how it reached the app. */
+    private fun wsPush(r: JsonObject): String {
+        val how = if (r.str("delivery") == "dta-thread") "from DTA's thread after ${r.long("waitedMs")} ms (no frame arrived)"
+        else "on the library's reading thread after ${r.long("waitedMs")} ms"
+        return "Pushed to ${r.str("connectionId")} as entry ${r.str("entryId")}, delivered $how." +
+            (r.str("listenerError")?.let { "\nThe app's listener threw: $it" } ?: "")
     }
 
     /** One live entry line for `network watch` (same columns as the list). */

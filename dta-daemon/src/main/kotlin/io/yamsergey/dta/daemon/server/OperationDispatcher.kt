@@ -96,6 +96,9 @@ class OperationDispatcher(
         "network.script.clear" to { c -> buildJsonObject { put("cleared", ops.networkScriptClear(c.device, c.app)) } },
         "network.script.status" to { c -> encode(ScriptStatus.serializer(), ops.networkScriptStatus(c.device, c.app)) },
         "network.script.logs" to { c -> encode(ScriptLogPage.serializer(), ops.networkScriptLogs(c.device, c.app, c.long("since") ?: 0)) },
+        "network.ws.push" to { c ->
+            encode(io.yamsergey.dta.protocol.network.WsPushResult.serializer(), ops.networkWsPush(c.device, c.app, c.string("connection"), c.string("text"), c.string("base64"), c.long("waitMs")))
+        },
         "network.schema.add" to { c -> encode(SchemaSet.serializer(), ops.networkSchemaAdd(c.app, c.required("name"), schemaInput(c))) },
         "network.schema.sync" to { c -> encode(SyncResult.serializer(), schemaSync(c)) },
         "network.schema.list" to { c -> encode(ListSerializer(SchemaSet.serializer()), ops.networkSchemas(c.app)) },

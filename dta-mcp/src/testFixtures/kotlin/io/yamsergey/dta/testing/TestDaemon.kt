@@ -92,6 +92,8 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override suspend fun networkScriptClear(serial: String, pkg: String) = true
     override suspend fun networkScriptStatus(serial: String, pkg: String) = ScriptStatus(active = false)
     override suspend fun networkScriptLogs(serial: String, pkg: String, since: Long) = ScriptLogPage(emptyList(), next = since)
+    override suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?) =
+        io.yamsergey.dta.protocol.network.WsPushResult("r1-1:9", connection ?: "r1-1:4", io.yamsergey.dta.protocol.network.InjectionDelivery.READING_THREAD, 3)
     override fun networkSchemaAdd(pkg: String, name: String, input: SchemaInput) = SchemaSet(name, io.yamsergey.dta.daemon.network.proto.SchemaSource.PROTO_SOURCES, listOf("a.proto"), listOf("fixture.v1.Order"), 0)
     override fun networkSchemas(pkg: String) = emptyList<SchemaSet>()
     override fun networkSchemaRemove(pkg: String, name: String) = emptyList<BodyMapping>()

@@ -188,6 +188,15 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `a websocket push forwards its params and returns the delivery`() {
+        val result = call("network.ws.push", buildJsonObject { put("connection", "r1-1:4"); put("text", "hi"); put("waitMs", 250) })
+        assertTrue("push:r1-1:4|hi|null|250" in fake.calls, fake.calls.toString())
+        assertEquals("reading-thread", (result.result as kotlinx.serialization.json.JsonObject)["delivery"]!!.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
+        call("network.ws.push", buildJsonObject { put("base64", "AQ==") })
+        assertTrue("push:null|null|AQ==|null" in fake.calls, fake.calls.toString())
+    }
+
+    @Test
     fun `script and schema inputs are read from paths on this machine`() {
         val dir = Files.createTempDirectory("dta-ops").toFile()
         val script = File(dir, "s.js").apply { writeText("function onRequest(r) { return r }") }

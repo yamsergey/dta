@@ -397,6 +397,9 @@ class DtaDaemon(
     suspend fun networkScriptLogs(serial: String, pkg: String, since: Long = 0): ScriptLogPage =
         scriptService(serial, pkg).logs(since)
 
+    suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?): io.yamsergey.dta.protocol.network.WsPushResult =
+        scriptService(serial, pkg).push(connection, text, base64, waitMs)
+
     private fun scriptService(serial: String, pkg: String) =
         NetworkScriptService { connections.connect(ConnectionKey(serial, pkg)) }
 

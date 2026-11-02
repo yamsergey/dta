@@ -37,7 +37,7 @@ class StatementsTest {
     @Test
     fun `kinds follow the statements table with its glyphs, ASCII forms and tokens`() {
         assertEquals(
-            listOf("fallback", "degraded", "reduced detail", "incomplete", "evicted", "auto", "inferred", "scripted", "redacted", "decoded", "binary", "failed", "pending", "process ended", "not captured"),
+            listOf("fallback", "degraded", "reduced detail", "incomplete", "evicted", "auto", "inferred", "scripted", "injected", "redacted", "decoded", "binary", "failed", "pending", "process ended", "not captured"),
             StatementKind.entries.map { it.word },
         )
         assertEquals("▲" to "!", FALLBACK.glyph to FALLBACK.ascii)
@@ -185,5 +185,21 @@ class StatementsTest {
         val ws = Statements.forCapability(report).single { it.subject == "okhttp3-ws" }
         kotlin.test.assertEquals(io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_LIBRARY_PARTIAL, ws.code)
         kotlin.test.assertTrue("only in part" in ws.sentence, ws.sentence)
+    }
+
+    /** Feature 020: a pushed message never reads as a server message. */
+    @Test
+    fun `a pushed message says who pushed it and how it reached the app`() {
+        fun message(injected: String) = Json.parseToJsonElement(
+            """{"type":"ws-message","id":"r1-1:9","direction":"in","opcode":"text","payload":{"part":"message","storedBytes":2,"completeness":"complete"},"injected":$injected}""",
+        ).jsonObject
+        val client = Statements.forEntry(message("""{"by":"client","delivery":"reading-thread","waitedMs":12}""")).single()
+        assertEquals(StatementKind.INJECTED, client.kind)
+        assertEquals("pushed by the client, not sent by the server; delivered on the library's reading thread after 12 ms", client.detail)
+        val script = Statements.forEntry(message("""{"by":"script","scriptId":"3fa2","handler":"ws-send","delivery":"dta-thread","waitedMs":1000}""")).single()
+        assertEquals("pushed by script 3fa2 (ws-send), not sent by the server; delivered from DTA's thread after 1000 ms (no frame arrived)", script.detail)
+        val topLevel = Statements.forEntry(message("""{"by":"script","scriptId":"3fa2","delivery":"reading-thread","waitedMs":0}""")).single()
+        assertEquals("pushed by script 3fa2, not sent by the server; delivered on the library's reading thread after 0 ms", topLevel.detail)
+        assertEquals("intervened", StatementKind.INJECTED.token)
     }
 }

@@ -24,6 +24,8 @@ enum class StatementKind(val word: String, val glyph: String, val ascii: String,
     AUTO("auto", "◌", "?", "inferred"),
     INFERRED("inferred", "◌", "?", "inferred"),
     SCRIPTED("scripted", "✎", "*", "intervened"),
+    /** Feature 020: a message DTA pushed to the app; the server never sent it. */
+    INJECTED("injected", "⇣", "+", "intervened"),
     REDACTED("redacted", "▒", "#", "ink-muted"),
     DECODED("decoded", "⇢", ">", "ink-muted"),
     BINARY("binary", "⧉", "b", "ink-muted"),
@@ -77,6 +79,7 @@ object Statements {
             add(Statement(StatementKind.SCRIPTED, detail = "script ${i.str("scriptId")} changed $changed" + (i.long("delayMs")?.let { ", delayed $it ms" } ?: "") +
                 (i.str("description")?.let { " — $it" } ?: "")))
         }
+        entry.obj("injected")?.let { add(injected(it)) }
         if (bodies.any { it.bool("binary") }) add(Statement(StatementKind.BINARY))
         when (entry.str("state")) {
             "failed" -> add(Statement(StatementKind.FAILED, detail = entry.str("failure") ?: "failed"))
@@ -84,6 +87,18 @@ object Statements {
             "process-ended" -> add(Statement(StatementKind.PROCESS_ENDED, code = "process-ended", explanation = "The app process ended before this entry finished."))
         }
     }.ordered()
+
+    /** Who pushed a message and how it reached the app (feature 020). */
+    private fun injected(i: JsonObject): Statement {
+        val who = if (i.str("by") == "script") "script ${i.str("scriptId")}" + (i.str("handler")?.let { " ($it)" } ?: "") else "the client"
+        val how = if (i.str("delivery") == "dta-thread") "from DTA's thread after ${i.long("waitedMs") ?: 0} ms (no frame arrived)"
+        else "on the library's reading thread after ${i.long("waitedMs") ?: 0} ms"
+        return Statement(
+            StatementKind.INJECTED,
+            detail = "pushed by $who, not sent by the server; delivered $how",
+            explanation = "DTA pushed this message to the app; the server never sent it.",
+        )
+    }
 
     /** A `network.entry` result: the entry's statements plus redaction and degradation. */
     fun forEntryDetail(detail: JsonObject): List<Statement> =
