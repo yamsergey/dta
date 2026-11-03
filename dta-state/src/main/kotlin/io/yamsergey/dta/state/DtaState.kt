@@ -43,7 +43,8 @@ object DtaState {
     }
 
     fun event(name: String, vararg attrs: Pair<String, Any?>, causedBy: DtaEvent? = null): DtaEvent =
-        event(name, attrs.toMap(), causedBy)
+        // The flag first: without DTA not even the map is built.
+        if (!DtaStateBridge.on) DtaEvent.NONE else event(name, attrs.toMap(), causedBy)
 
     /** [from] caused [to], learned after both happened. */
     @JvmStatic

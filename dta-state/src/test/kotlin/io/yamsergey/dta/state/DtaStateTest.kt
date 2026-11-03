@@ -25,18 +25,24 @@ class DtaStateTest {
 
     @Test
     fun `without DTA nothing is built and calls cost almost nothing`() {
-        fun run(): Long {
-            val started = System.nanoTime()
+        @Suppress("DEPRECATION") val thread = Thread.currentThread().id
+        val attrs = arrayOf("id" to 1) // the caller's own pair: built before the call, not by it
+        fun allocated(): Long {
+            val mx = java.lang.management.ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
+            val before = mx.getThreadAllocatedBytes(thread)
             repeat(10_000) {
                 DtaState.facet("cart", "items")
-                DtaState.event("cart.removed", "id" to it)
+                DtaState.event("cart.removed", *attrs)
+                DtaState.event("cart.synced", mapOf<String, Any?>())
             }
-            return (System.nanoTime() - started) / 1_000_000
+            return mx.getThreadAllocatedBytes(thread) - before
         }
-        // Warmed up, the best of five: a cold JVM or a busy CI runner says nothing about the call's cost.
-        run()
-        val ms = (1..5).minOf { run() }
-        assertTrue(ms < 5, "10 000 calls took $ms ms (best of five)")
+        // Allocation, not time: a busy CI runner changes the time, never what is built. The spread of
+        // `attrs` copies the array (the caller's), 10 000 times; nothing else may be allocated.
+        allocated()
+        val bytes = (1..3).minOf { allocated() }
+        val spread = 10_000L * 32
+        assertTrue(bytes <= spread + 4_096, "10 000 calls allocated $bytes bytes (the spread copies alone are about $spread)")
         assertSame(DtaEvent.NONE, DtaState.event("x"))
         assertEquals(42, DtaState.during(DtaEvent.NONE) { 42 })
         assertEquals(emptyList(), calls)
