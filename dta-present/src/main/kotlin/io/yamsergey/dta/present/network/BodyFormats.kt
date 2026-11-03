@@ -3,13 +3,10 @@ package io.yamsergey.dta.present.network
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.w3c.dom.Document
-import org.w3c.dom.Element
-import org.w3c.dom.Node
 import java.io.StringReader
 import java.net.URLDecoder
-import javax.xml.XMLConstants
-import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.stream.XMLInputFactory
+import javax.xml.stream.XMLStreamConstants
 
 /** What a body is, for showing it (feature 022). */
 enum class BodyFormat(val extension: String) {
@@ -41,29 +38,23 @@ object BodyFormats {
         }
     }
 
-    /** Re-indented XML; null when it does not parse or declares a DOCTYPE (never resolved). */
-    fun prettyXml(text: String): String? {
-        val doc = parseXml(text) ?: return null
-        return buildString { write(doc.documentElement, 0) }.trimEnd()
-    }
+    /** Re-indented XML, attributes in their order; null when it does not parse or declares a DOCTYPE (never resolved). */
+    fun prettyXml(text: String): String? = parseXml(text)?.let(::prettyXmlOf)
 
-    internal fun prettyXmlOf(e: Element): String = buildString { write(e, 0) }.trimEnd()
+    internal fun prettyXmlOf(e: XmlElement): String = buildString { write(e, 0) }.trimEnd()
 
-    private fun StringBuilder.write(e: Element, depth: Int) {
+    private fun StringBuilder.write(e: XmlElement, depth: Int) {
         val pad = "  ".repeat(depth)
-        append(pad).append('<').append(e.tagName)
-        val attrs = e.attributes
-        for (i in 0 until attrs.length) attrs.item(i).let { append(' ').append(it.nodeName).append("=\"").append(escape(it.nodeValue, true)).append('"') }
-        val elements = e.childElements()
-        val text = e.ownText()
+        append(pad).append('<').append(e.name)
+        e.attributes.forEach { (k, v) -> append(' ').append(k).append("=\"").append(escape(v, true)).append('"') }
         when {
-            elements.isEmpty() && text.isEmpty() -> append("/>\n")
-            elements.isEmpty() -> append('>').append(escape(text, false)).append("</").append(e.tagName).append(">\n")
+            e.children.isEmpty() && e.text.isEmpty() -> append("/>\n")
+            e.children.isEmpty() -> append('>').append(escape(e.text, false)).append("</").append(e.name).append(">\n")
             else -> {
                 append(">\n")
-                if (text.isNotEmpty()) append(pad).append("  ").append(escape(text, false)).append('\n')
-                elements.forEach { write(it, depth + 1) }
-                append(pad).append("</").append(e.tagName).append(">\n")
+                if (e.text.isNotEmpty()) append(pad).append("  ").append(escape(e.text, false)).append('\n')
+                e.children.forEach { write(it, depth + 1) }
+                append(pad).append("</").append(e.name).append(">\n")
             }
         }
     }
@@ -89,30 +80,45 @@ object BodyFormats {
         return GraphqlRequest(query, variables)
     }
 
-    internal fun parseXml(text: String): Document? = runCatching {
-        val factory = DocumentBuilderFactory.newInstance().apply {
-            // No DOCTYPE, so no entities of any kind: the body is data from the network.
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-            isExpandEntityReferences = false
-            isXIncludeAware = false
+    /**
+     * The document's elements in order, with attributes (namespace declarations included) in
+     * the order written. A DOCTYPE refuses the document: the body is data from the network and
+     * no entity of any kind is resolved.
+     */
+    internal fun parseXml(text: String): XmlElement? = runCatching {
+        val factory = XMLInputFactory.newFactory().apply {
+            setProperty(XMLInputFactory.SUPPORT_DTD, false)
+            setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false)
+            setProperty(XMLInputFactory.IS_NAMESPACE_AWARE, false)
+            setProperty(XMLInputFactory.IS_COALESCING, true)
         }
-        val builder = factory.newDocumentBuilder().apply { setErrorHandler(null) }
-        builder.parse(org.xml.sax.InputSource(StringReader(text)))
+        val reader = factory.createXMLStreamReader(StringReader(text))
+        val stack = ArrayDeque<Triple<String, List<Pair<String, String>>, Pair<MutableList<XmlElement>, StringBuilder>>>()
+        var root: XmlElement? = null
+        try {
+            while (reader.hasNext()) {
+                when (reader.next()) {
+                    XMLStreamConstants.DTD -> return@runCatching null
+                    XMLStreamConstants.START_ELEMENT -> {
+                        val attrs = (0 until reader.attributeCount).map { name(reader.getAttributePrefix(it), reader.getAttributeLocalName(it)) to reader.getAttributeValue(it) }
+                        stack.addLast(Triple(name(reader.prefix, reader.localName), attrs, mutableListOf<XmlElement>() to StringBuilder()))
+                    }
+                    XMLStreamConstants.CHARACTERS, XMLStreamConstants.CDATA, XMLStreamConstants.SPACE -> stack.lastOrNull()?.third?.second?.append(reader.text)
+                    XMLStreamConstants.END_ELEMENT -> {
+                        val (n, attrs, body) = stack.removeLast()
+                        val element = XmlElement(n, attrs, body.first, body.second.toString().trim())
+                        if (stack.isEmpty()) root = element else stack.last().third.first += element
+                    }
+                }
+            }
+        } finally {
+            reader.close()
+        }
+        root
     }.getOrNull()
 
-    internal fun Element.childElements(): List<Element> {
-        val out = ArrayList<Element>()
-        val nodes = childNodes
-        for (i in 0 until nodes.length) (nodes.item(i) as? Element)?.let(out::add)
-        return out
-    }
-
-    /** The element's own text (not its children's), trimmed. */
-    internal fun Element.ownText(): String {
-        val sb = StringBuilder()
-        val nodes = childNodes
-        for (i in 0 until nodes.length) nodes.item(i).let { if (it.nodeType == Node.TEXT_NODE || it.nodeType == Node.CDATA_SECTION_NODE) sb.append(it.nodeValue) }
-        return sb.toString().trim()
-    }
+    private fun name(prefix: String?, local: String) = if (prefix.isNullOrEmpty()) local else "$prefix:$local"
 }
+
+/** One XML element as written: attributes in order (namespace declarations among them), child elements, own text. */
+data class XmlElement(val name: String, val attributes: List<Pair<String, String>>, val children: List<XmlElement>, val text: String)

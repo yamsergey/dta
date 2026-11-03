@@ -30,6 +30,8 @@ class BodyFormatsTest {
         assertEquals("<a>\n  <b x=\"1\">t</b>\n  <c/>\n</a>", BodyFormats.prettyXml("<a><b x=\"1\">t</b><c/></a>"))
         assertNull(BodyFormats.prettyXml("<!DOCTYPE a [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><a>&e;</a>"))
         assertNull(BodyFormats.prettyXml("<a>"))
+        // Attributes keep the order they were written in.
+        assertEquals("<f xmlns=\"urn:x\" lang=\"en\" a=\"1\"/>", BodyFormats.prettyXml("<f xmlns=\"urn:x\" lang=\"en\" a=\"1\"/>"))
     }
 
     @Test

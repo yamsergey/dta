@@ -1,7 +1,5 @@
 package io.yamsergey.dta.present.network
 
-import io.yamsergey.dta.present.network.BodyFormats.childElements
-import io.yamsergey.dta.present.network.BodyFormats.ownText
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -70,29 +68,24 @@ object DataTrees {
         if (SIMPLE_KEY.matches(key)) "$path.$key" else "$path[\"${key.replace("\\", "\\\\").replace("\"", "\\\"")}\"]"
 
     fun xml(text: String): DataNode? {
-        val doc = BodyFormats.parseXml(text) ?: return null
-        val root = doc.documentElement
-        return element(root, "/${root.tagName}")
+        val root = BodyFormats.parseXml(text) ?: return null
+        return element(root, "/${root.name}")
     }
 
-    private fun element(e: org.w3c.dom.Element, path: String): DataNode {
+    private fun element(e: XmlElement, path: String): DataNode {
         val children = ArrayList<DataNode>()
-        val attrs = e.attributes
-        for (i in 0 until attrs.length) attrs.item(i).let {
-            children += DataNode("@${it.nodeName}", NodeKind.ATTRIBUTE, quote(it.nodeValue), emptyList(), "$path/@${it.nodeName}", it.nodeValue)
-        }
-        val elements = e.childElements()
-        val counts = elements.groupingBy { it.tagName }.eachCount()
+        e.attributes.forEach { (k, v) -> children += DataNode("@$k", NodeKind.ATTRIBUTE, quote(v), emptyList(), "$path/@$k", v) }
+        val counts = e.children.groupingBy { it.name }.eachCount()
         val seen = HashMap<String, Int>()
-        elements.forEach { child ->
-            val n = seen.merge(child.tagName, 1, Int::plus)!!
-            val step = if (counts.getValue(child.tagName) > 1) "${child.tagName}[$n]" else child.tagName
+        e.children.forEach { child ->
+            val n = seen.merge(child.name, 1, Int::plus)!!
+            val step = if (counts.getValue(child.name) > 1) "${child.name}[$n]" else child.name
             children += element(child, "$path/$step")
         }
-        val text = e.ownText()
-        val value = if (text.isNotEmpty()) quote(text) else null
-        if (text.isNotEmpty() && elements.isNotEmpty()) children += DataNode("#text", NodeKind.STRING, quote(text), emptyList(), "$path/text()", text)
-        return DataNode(e.tagName, NodeKind.ELEMENT, if (elements.isEmpty()) value else null, children, path, if (elements.isEmpty() && attrs.length == 0) text else BodyFormats.prettyXmlOf(e))
+        val value = if (e.text.isNotEmpty()) quote(e.text) else null
+        if (e.text.isNotEmpty() && e.children.isNotEmpty()) children += DataNode("#text", NodeKind.STRING, value, emptyList(), "$path/text()", e.text)
+        val copy = if (e.children.isEmpty() && e.attributes.isEmpty()) e.text else BodyFormats.prettyXmlOf(e)
+        return DataNode(e.name, NodeKind.ELEMENT, if (e.children.isEmpty()) value else null, children, path, copy)
     }
 
     fun form(text: String): DataNode? {
