@@ -70,6 +70,14 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - Files: `data_files_list`, `data_files_read` (text inline up to 1 MiB, else `output`), `data_files_write` (`text`, `base64` or `input` file), `data_files_mkdir`, `data_files_delete` (folders with everything in them).
 - Every write appears on the timeline as source `dta` (`data/write`), so a cause chain can show that a screen changed because DTA wrote something.
 
+## App runtime
+
+- `runtime_activities`: activities with lifecycle state, task, focus, intent and fragments. `runtime_memory` (heap, native, PSS, GCs; `gc: true` runs one first), `runtime_threads` (with stacks; `filter` by name), `runtime_hilt` (components and bindings: declared type → runtime class, or not created yet).
+- `runtime_navigation`: every NavController (Compose NavHost too) with its back stack (top last; route, arguments, lifecycle) and graph (routes, arguments, deep links, start), and Navigation 3 back stacks. `runtime_navigate` (`route` or `uri`) and `runtime_back` move the app; with several hosts pass `host`.
+- `runtime_viewmodels` lists live ViewModels with their properties — StateFlow, LiveData, Compose State, fields — as JSON, and SavedStateHandle entries; `editable` ones can be set. `runtime_vm_set` takes the ViewModel `id`, a `path` (`state`, or a field inside a data-class value like `state.coupon`, rebuilt with copy) and a JSON `value` (`"text"`, `3`, `true`, `null`, `{…}`). `runtime_saved_set` sets a SavedStateHandle key. The app's observers see the change.
+- `runtime_functions` lists functions the app registered with `DtaState.function(name, description) { args -> … }` (invocable) and AndroidX AppFunctions in the APK (listed only); `runtime_invoke` runs one with string `args` and returns its result.
+- Every change appears on the timeline as source `dta`, kind `runtime/write`.
+
 ## Network
 
 - `network_list` is one chronological list of HTTP exchanges, WebSocket connections and messages. Filters: `url`, `method`, `status` (`404`, `4xx`, `failed`, `pending`), `kinds`, `sinceMs`/`untilMs`, `bodyContains` (also inside binary bodies), `runs` (`current` = this process only), `intervened`.
