@@ -86,4 +86,44 @@ class BodyViewTest {
         val e = kotlin.test.assertFailsWith<IllegalStateException> { BodyView.fetch(16, binary = false, inline = { throw IllegalStateException("gone") }, toFile = { file }) }
         assertEquals("gone", e.message)
     }
+
+    private fun body(contentType: String, text: String, binary: Boolean = false) =
+        BodyView.of(json("""{"body":{"part":"response","storedBytes":${text.length},"contentType":"$contentType","binary":$binary,"completeness":"complete"},"text":${kotlinx.serialization.json.JsonPrimitive(text)},"bytes":${text.length}}"""))
+
+    @Test
+    fun `JSON, XML and forms offer tree and graph beside formatted, raw and hex`() {
+        val json = body("application/json", """{"a":[1,2]}""")
+        assertEquals(BodyFormat.JSON, json.format)
+        assertEquals(listOf(BodyMode.FORMATTED, BodyMode.TREE, BodyMode.GRAPH, BodyMode.RAW, BodyMode.HEX), json.modes)
+        assertEquals("$.a", json.tree()!!.children.single().path)
+
+        val xml = body("application/xml", "<a><b>1</b></a>")
+        assertEquals(listOf(BodyMode.FORMATTED, BodyMode.TREE, BodyMode.GRAPH, BodyMode.RAW, BodyMode.HEX), xml.modes)
+        assertEquals("<a>\n  <b>1</b>\n</a>", xml.render(BodyMode.FORMATTED))
+
+        val form = body("application/x-www-form-urlencoded", "q=a+b&n=1")
+        assertEquals("q = a b\nn = 1", form.render(BodyMode.FORMATTED))
+        assertEquals(BodyMode.FORMATTED, form.defaultMode)
+        assertTrue(BodyMode.TREE in form.modes)
+
+        // Highlighted as what it is, but nothing to structure.
+        val html = body("text/html", "<html><body>hi</body></html>")
+        assertEquals(BodyFormat.HTML, html.format)
+        assertEquals(listOf(BodyMode.RAW, BodyMode.HEX), html.modes)
+        val broken = body("application/xml", "<a>")
+        assertEquals(listOf(BodyMode.RAW, BodyMode.HEX), broken.modes)
+        assertNull(broken.tree())
+    }
+
+    @Test
+    fun `a GraphQL request also offers its query, and an image its picture`() {
+        val gql = body("application/json", """{"query":"{ feed { id } }","variables":{"n":1}}""")
+        assertEquals(listOf(BodyMode.FORMATTED, BodyMode.TREE, BodyMode.GRAPH, BodyMode.QUERY, BodyMode.RAW, BodyMode.HEX), gql.modes)
+        assertEquals("{ feed { id } }\n\n# variables\n{\n  \"n\": 1\n}", gql.render(BodyMode.QUERY))
+
+        val image = BodyView.of(json("""{"body":{"part":"response","storedBytes":300,"contentType":"image/png","binary":true,"completeness":"complete"},"file":"/tmp/i.png","sha256":"ab","bytes":300}"""))
+        assertEquals(listOf(BodyMode.IMAGE, BodyMode.HEX), image.modes)
+        assertEquals(BodyMode.IMAGE, image.defaultMode)
+        assertFalse(image.tooLarge)
+    }
 }

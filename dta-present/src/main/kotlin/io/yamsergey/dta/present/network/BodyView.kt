@@ -7,7 +7,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-enum class BodyMode { FORMATTED, RAW, HEX }
+/** How a body can be shown (feature 022 added tree, graph, query and image). */
+enum class BodyMode(val label: String) {
+    FORMATTED("Formatted"), TREE("Tree"), GRAPH("Graph"), QUERY("Query"), IMAGE("Image"), RAW("Raw"), HEX("Hex"),
+}
 
 /** The fixed header above a body (patterns.md body viewer): facts in one line, statements beside it. */
 data class BodyHeader(val line: String, val statements: List<Statement>)
@@ -24,16 +27,36 @@ sealed interface BodyContent {
  * otherwise, hex for binary that did not decode. Nothing is decoded here: the text is the
  * daemon's, formatting only re-indents it.
  */
-data class BodyView(val header: BodyHeader, val content: BodyContent, val defaultMode: BodyMode, val modes: List<BodyMode>) {
+data class BodyView(
+    val header: BodyHeader,
+    val content: BodyContent,
+    val defaultMode: BodyMode,
+    val modes: List<BodyMode>,
+    /** What the body is, for highlighting and structure (feature 022). */
+    val format: BodyFormat = BodyFormat.TEXT,
+    /** The body read as data, parsed once when the view is made (off the UI thread). */
+    private val structure: DataNode? = null,
+) {
     val text: String? get() = (content as? BodyContent.Text)?.text
     val tooLarge: Boolean get() = content is BodyContent.File && !binaryFile
 
-    private val binaryFile: Boolean get() = modes == listOf(BodyMode.HEX)
+    private val binaryFile: Boolean get() = BodyMode.RAW !in modes
+
+    /** The body as data for Tree and Graph; null when it has no structure to show. */
+    fun tree(): DataNode? = structure
 
     fun render(mode: BodyMode, bytes: ByteArray? = null): String = when (mode) {
-        BodyMode.FORMATTED -> text?.let { PrettyJson.format(it) ?: it } ?: ""
+        BodyMode.FORMATTED -> text?.let {
+            when (format) {
+                BodyFormat.XML -> BodyFormats.prettyXml(it)
+                BodyFormat.FORM -> BodyFormats.formLines(it)
+                else -> PrettyJson.format(it)
+            } ?: it
+        } ?: ""
+        BodyMode.QUERY -> text?.let(BodyFormats::graphql)?.let { q -> q.query + (q.variables?.let { "\n\n# variables\n$it" } ?: "") } ?: ""
         BodyMode.RAW -> text ?: ""
         BodyMode.HEX -> Hex.dump(bytes ?: text?.toByteArray() ?: ByteArray(0))
+        BodyMode.TREE, BodyMode.GRAPH, BodyMode.IMAGE -> ""
     }
 
     companion object {
@@ -66,13 +89,30 @@ data class BodyView(val header: BodyHeader, val content: BodyContent, val defaul
             val file = result.str("file")
             val content = if (file != null) BodyContent.File(file, result.str("sha256"), result.long("bytes") ?: 0) else BodyContent.Text(text ?: "")
             val binary = info.bool("binary") && !decoded
-            val json = decoded || info.str("contentType")?.contains("json") == true || (text != null && PrettyJson.format(text) != null)
+            // Decoded protobuf comes as JSON text whatever the content type says.
+            val format = if (decoded) BodyFormat.JSON else BodyFormats.detect(info.str("contentType"), text)
+            val structure = text?.let {
+                when (format) {
+                    BodyFormat.JSON -> DataTrees.json(it)
+                    BodyFormat.XML -> DataTrees.xml(it)
+                    BodyFormat.FORM -> DataTrees.form(it)
+                    else -> null
+                }
+            }
+            val structured = structure != null
             val modes = when {
+                binary && format == BodyFormat.IMAGE -> listOf(BodyMode.IMAGE, BodyMode.HEX)
                 binary -> listOf(BodyMode.HEX)
-                json -> listOf(BodyMode.FORMATTED, BodyMode.RAW, BodyMode.HEX)
+                structured -> listOfNotNull(
+                    BodyMode.FORMATTED, BodyMode.TREE, BodyMode.GRAPH,
+                    BodyMode.QUERY.takeIf { format == BodyFormat.JSON && BodyFormats.graphql(text!!) != null },
+                    BodyMode.RAW, BodyMode.HEX,
+                )
+                // A large JSON body comes as a file: formatted in the editor tab.
+                format == BodyFormat.JSON && text == null -> listOf(BodyMode.FORMATTED, BodyMode.RAW, BodyMode.HEX)
                 else -> listOf(BodyMode.RAW, BodyMode.HEX)
             }
-            return BodyView(BodyHeader(line, Statements.forBody(result)), content, modes.first(), modes)
+            return BodyView(BodyHeader(line, Statements.forBody(result)), content, modes.first(), modes, format, structure)
         }
     }
 }
