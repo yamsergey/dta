@@ -158,6 +158,18 @@ class BodyGraph(private val root: DataNode, private val onSelect: (String) -> Un
             repaint()
         }
 
+        /** Fit when that keeps the text readable; otherwise full size, the root at the left, middle high. */
+        fun start() {
+            if (width == 0 || graph.cards.isEmpty()) return
+            fit()
+            if (scale >= 0.6) return
+            val root = graph.cards.first()
+            scale = 1.0
+            dx = JBUI.scale(16).toDouble()
+            dy = (height / 2.0 - (root.y + root.height / 2.0)).coerceAtMost(JBUI.scale(16).toDouble())
+            repaint()
+        }
+
         fun reveal(path: String) {
             val card = graph.cards.firstOrNull { c -> c.path == path || c.rows.any { it.path == path } } ?: return
             val cx = card.x + card.width / 2.0
@@ -191,13 +203,15 @@ class BodyGraph(private val root: DataNode, private val onSelect: (String) -> Un
         }
 
         override fun paintComponent(g: Graphics) {
-            if (!fitted && width > 0) { fitted = true; if (graph.width * 1.0 > width || graph.height > height) fit() }
+            if (!fitted && width > 0) { fitted = true; start() }
             val g2 = g.create() as Graphics2D
             try {
                 g2.color = EditorColorsManager.getInstance().globalScheme.defaultBackground
                 g2.fillRect(0, 0, width, height)
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                UIUtil.applyRenderingHints(g2)
+                // Text as the editor draws it; no platform helper, so no API that a newer IDE drops.
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+                g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
                 g2.translate(dx, dy)
                 g2.scale(scale, scale)
                 paintEdges(g2)
@@ -280,8 +294,7 @@ class BodyGraph(private val root: DataNode, private val onSelect: (String) -> Un
             return s.substring(0, end) + "…"
         }
 
-        private fun color(key: com.intellij.openapi.editor.colors.TextAttributesKey): Color =
-            EditorColorsManager.getInstance().globalScheme.getAttributes(key)?.foregroundColor ?: JBColor.foreground()
+        private fun color(key: com.intellij.openapi.editor.colors.TextAttributesKey): Color = BodyTree.foreground(key)
 
         private fun blend(a: Color, b: Color, t: Double) = Color(
             (a.red * t + b.red * (1 - t)).toInt(), (a.green * t + b.green * (1 - t)).toInt(), (a.blue * t + b.blue * (1 - t)).toInt(),

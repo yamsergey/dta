@@ -72,8 +72,12 @@ class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
         created.setCaretVisible(false)
         editor = created
         add(created.component, BorderLayout.CENTER)
-        // Fold regions come from the file's language (objects, arrays, elements); a new document is already committed.
-        runCatching { CodeFoldingManager.getInstance(project).updateFoldRegions(created) }
+        // Fold regions come from the file's language (objects, arrays, elements), computed off the UI thread.
+        com.intellij.openapi.application.ReadAction
+            .nonBlocking<Runnable?> { CodeFoldingManager.getInstance(project).updateFoldRegionsAsync(created, true) }
+            .expireWhen { created.isDisposed }
+            .finishOnUiThread(com.intellij.openapi.application.ModalityState.any()) { apply -> if (!created.isDisposed) apply?.run() }
+            .submit(com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService())
         revalidate()
         repaint()
     }

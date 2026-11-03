@@ -10,7 +10,7 @@ data class GraphStyle(
     val minWidth: Int = 96,
     val maxWidth: Int = 360,
     /** Rows a card shows before "+N more". */
-    val maxRows: Int = 50,
+    val maxRows: Int = 20,
 )
 
 /** One row of a card: a member and its value, or the summary of a nested object/array/element. */
@@ -58,6 +58,12 @@ object GraphLayout {
     /** Marks a card showing all its rows: `path + MORE`. */
     const val MORE = "#all"
     const val MAX_CARDS = 200
+
+    /** Cards open when a body is first shown: enough to read, few enough to see at full size. */
+    const val DEFAULT_CARDS = 40
+
+    /** Items of an array opened at first; the rest are rows to click. */
+    const val ARRAY_ITEMS = 3
 
     fun moreKey(path: String) = path + MORE
 
@@ -112,8 +118,11 @@ object GraphLayout {
         return DataGraph(ordered, edges.sortedWith(compareBy({ rank.getValue(it.from) }, { it.row })), width, bottom - style.gapY)
     }
 
-    /** Two levels under the root expanded, breadth first, at most [maxCards] cards with the root. */
-    fun defaultExpanded(root: DataNode, depth: Int = 2, maxCards: Int = MAX_CARDS, maxRows: Int = GraphStyle().maxRows): Set<String> =
+    /**
+     * Two levels under the root expanded, breadth first: an array's first [ARRAY_ITEMS] items
+     * only, at most [maxCards] cards with the root.
+     */
+    fun defaultExpanded(root: DataNode, depth: Int = 2, maxCards: Int = DEFAULT_CARDS, maxRows: Int = GraphStyle().maxRows): Set<String> =
         expand(root, depth, maxCards, maxRows, all = false).paths
 
     /** Everything expanded, all rows shown, until [maxCards] cards. */
@@ -127,7 +136,8 @@ object GraphLayout {
             val (node, d) = queue.removeFirst()
             if (all && node.children.size > GraphStyle().maxRows) paths += moreKey(node.path)
             if (d >= depth) continue
-            for (child in node.children.take(maxRows)) {
+            val members = if (!all && node.kind == NodeKind.ARRAY) node.children.take(minOf(maxRows, ARRAY_ITEMS)) else node.children.take(maxRows)
+            for (child in members) {
                 if (!child.container) continue
                 if (cards >= maxCards) return Expansion(paths, truncated = true)
                 paths += child.path

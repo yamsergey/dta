@@ -59,8 +59,8 @@ class GraphLayoutTest {
         val big = DataTrees.json((1..120).joinToString(",", "[", "]"))!!
         val collapsed = GraphLayout.layout(big, emptySet(), measure, style).card("$")!!
         assertEquals(style.maxRows + 1, collapsed.rows.size)
-        assertEquals("+70 more", collapsed.rows.last().text)
-        assertEquals(70, collapsed.rows.last().more)
+        assertEquals("+100 more", collapsed.rows.last().text)
+        assertEquals(100, collapsed.rows.last().more)
         val all = GraphLayout.layout(big, GraphLayout.toggle(emptySet(), GraphLayout.moreKey("$")), measure, style).card("$")!!
         assertEquals(120, all.rows.size)
     }
@@ -74,6 +74,14 @@ class GraphLayoutTest {
         assertTrue(expansion.truncated)
         assertEquals(199, expansion.paths.count { !it.endsWith(GraphLayout.MORE) }) // + the root card = 200
         assertTrue(GraphLayout.defaultExpanded(wide, maxCards = 10).size <= 9)
+    }
+
+    @Test
+    fun `by default an array opens only its first items, and so many cards in all`() {
+        val catalog = DataTrees.json("""{"items":[${(1..60).joinToString(",") { "{\"id\":$it,\"tags\":[\"a\"]}" }}],"page":{"n":1}}""")!!
+        val open = GraphLayout.defaultExpanded(catalog)
+        assertEquals(setOf("$.items", "$.items[0]", "$.items[1]", "$.items[2]", "$.page"), open)
+        assertTrue(GraphLayout.defaultExpanded(catalog, depth = 5).size <= GraphLayout.DEFAULT_CARDS)
     }
 
     @Test

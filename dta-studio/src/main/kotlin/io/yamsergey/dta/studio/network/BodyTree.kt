@@ -53,7 +53,7 @@ class BodyTree(root: DataNode, private val onSelect: (String) -> Unit) : JPanel(
             action("Copy Path") { it.path },
         )
         PopupHandler.installPopupMenu(tree, group, "DtaBodyTree")
-        tree.registerKeyboardAction({ copy { it.copyValue } }, KeyStroke.getKeyStroke(KeyEvent.VK_C, java.awt.Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx), JComponent.WHEN_FOCUSED)
+        tree.registerKeyboardAction({ copy { it.copyValue } }, KeyStroke.getKeyStroke(KeyEvent.VK_C, if (com.intellij.openapi.util.SystemInfo.isMac) java.awt.event.InputEvent.META_DOWN_MASK else java.awt.event.InputEvent.CTRL_DOWN_MASK), JComponent.WHEN_FOCUSED)
     }
 
     /** Selects and reveals the node at [path] without telling [onSelect]. */
@@ -115,7 +115,29 @@ class BodyTree(root: DataNode, private val onSelect: (String) -> Unit) : JPanel(
 
         fun valueAttributes(kind: NodeKind) = attributes(valueKey(kind))
 
-        fun attributes(key: TextAttributesKey): SimpleTextAttributes =
-            EditorColorsManager.getInstance().globalScheme.getAttributes(key)?.let { SimpleTextAttributes.fromTextAttributes(it) } ?: SimpleTextAttributes.REGULAR_ATTRIBUTES
+        fun attributes(key: TextAttributesKey): SimpleTextAttributes = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, foreground(key))
+
+        /**
+         * The colour the editor gives [key]: the scheme's own, else along the key's fallbacks as the
+         * editor resolves it, else a fixed colour per kind (a scheme may define none of them).
+         */
+        fun foreground(key: TextAttributesKey): java.awt.Color {
+            val scheme = EditorColorsManager.getInstance().globalScheme
+            var k: TextAttributesKey? = key
+            while (k != null) {
+                (scheme.getAttributes(k)?.foregroundColor ?: k.defaultAttributes?.foregroundColor)?.let { return it }
+                k = k.fallbackAttributeKey
+            }
+            return FALLBACK[key] ?: com.intellij.ui.JBColor.foreground()
+        }
+
+        private val FALLBACK = mapOf(
+            DefaultLanguageHighlighterColors.STRING to com.intellij.ui.JBColor(0x067D17, 0x6AAB73),
+            DefaultLanguageHighlighterColors.NUMBER to com.intellij.ui.JBColor(0x1750EB, 0x2AACB8),
+            DefaultLanguageHighlighterColors.KEYWORD to com.intellij.ui.JBColor(0x0033B3, 0xCF8E6D),
+            DefaultLanguageHighlighterColors.INSTANCE_FIELD to com.intellij.ui.JBColor(0x871094, 0xC77DBB),
+            DefaultLanguageHighlighterColors.MARKUP_TAG to com.intellij.ui.JBColor(0x0033B3, 0xD5B778),
+            DefaultLanguageHighlighterColors.MARKUP_ATTRIBUTE to com.intellij.ui.JBColor(0x174AD4, 0xBABABA),
+        )
     }
 }
