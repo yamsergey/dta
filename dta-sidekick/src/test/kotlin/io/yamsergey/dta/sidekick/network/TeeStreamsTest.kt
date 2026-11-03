@@ -76,20 +76,121 @@ class TeeStreamsTest {
     fun `closing before end of stream is partially observed`() {
         val sink = MemorySink()
         val (rec, result) = recorder(sink)
-        TeeInputStream(ByteArrayInputStream(data), rec).use { s -> s.read(ByteArray(100)) }
+        TeeInputStream(Arrived(data, 100), rec).use { s -> s.read(ByteArray(100)) }
         val capture = result()!!
         assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
         assertEquals(100, capture.observedBytes)
         assertNotNull(capture.reason)
     }
 
+    /** A network stream: [arrived] bytes are in its buffer; reading past them would wait for the network. */
+    private class Arrived(private val bytes: ByteArray, private var arrived: Int) : java.io.InputStream() {
+        var pos = 0
+        var closed = false
+        var waited = false
+        override fun available() = arrived - pos
+        override fun read(): Int {
+            if (pos >= arrived) { waited = true; throw IOException("would wait for the network") }
+            return bytes[pos++].toInt() and 0xFF
+        }
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (len == 0) return 0
+            if (pos >= arrived) { waited = true; throw IOException("would wait for the network") }
+            val n = minOf(len, arrived - pos)
+            System.arraycopy(bytes, pos, b, off, n)
+            pos += n
+            return n
+        }
+        override fun close() { closed = true }
+    }
+
     @Test
-    fun `closing without reading a byte says the app read none of the body`() {
-        val (rec, result) = recorder(MemorySink(), declared = 1256)
-        TeeInputStream(ByteArrayInputStream(data), rec).close()
+    fun `a body the app closes unread is captured from what already arrived`() {
+        val sink = MemorySink()
+        val (rec, result) = recorder(sink, declared = 41)
+        val body = data.copyOf(41)
+        val stream = Arrived(body, 41)
+        TeeInputStream(stream, rec).close()
+        assertEquals(BodyCapture(41, 41, Completeness.COMPLETE, null), result())
+        assertContentEquals(body, sink.bytes.toByteArray())
+        assertTrue(stream.closed)
+        assertTrue(!stream.waited)
+    }
+
+    @Test
+    fun `a body the app read in part is completed from what already arrived`() {
+        val sink = MemorySink()
+        val (rec, result) = recorder(sink, declared = 1000)
+        TeeInputStream(Arrived(data.copyOf(1000), 1000), rec).use { it.read(ByteArray(100)) }
+        assertEquals(BodyCapture(1000, 1000, Completeness.COMPLETE, null), result())
+        assertContentEquals(data.copyOf(1000), sink.bytes.toByteArray())
+    }
+
+    @Test
+    fun `what arrived is still bounded`() {
+        val (rec, result) = recorder(MemorySink(), bound = 4096, declared = 10_000)
+        TeeInputStream(Arrived(data, 10_000), rec).close()
+        val capture = result()!!
+        assertEquals(Completeness.TRUNCATED, capture.completeness)
+        assertEquals(4096, capture.storedBytes)
+    }
+
+    @Test
+    fun `closing before any of the body arrived never waits and says so`() {
+        val (rec, result) = recorder(MemorySink(), declared = 41)
+        val stream = Arrived(data.copyOf(41), 0)
+        TeeInputStream(stream, rec).close()
         val capture = result()!!
         assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
-        assertEquals("the app read none of the body", capture.reason)
+        assertEquals("the app closed the body without reading it; 0 of 41 bytes had arrived", capture.reason)
+        assertTrue(!stream.waited)
+        assertTrue(stream.closed)
+    }
+
+    @Test
+    fun `closing with part of the body arrived counts it`() {
+        val (rec, result) = recorder(MemorySink(), declared = 1000)
+        TeeInputStream(Arrived(data.copyOf(1000), 300), rec).use { it.read(ByteArray(100)) }
+        val capture = result()!!
+        assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
+        assertEquals(300, capture.observedBytes)
+        assertEquals("the app stopped reading after 100 bytes; 300 of 1000 bytes had arrived", capture.reason)
+    }
+
+    @Test
+    fun `a body of unknown length closed early keeps what arrived and says the end was not seen`() {
+        val sink = MemorySink()
+        val (rec, result) = recorder(sink)
+        TeeInputStream(Arrived(data, 500), rec).close()
+        val capture = result()!!
+        assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
+        assertEquals(500, capture.storedBytes)
+        assertEquals("the app closed the body without reading it; 500 bytes had arrived, the end was not seen", capture.reason)
+    }
+
+    @Test
+    fun `a decompressing stream is not read at close`() {
+        val zipped = ByteArrayOutputStream().also { out -> java.util.zip.GZIPOutputStream(out).use { it.write(data) } }.toByteArray()
+        val (rec, result) = recorder(MemorySink(), declared = 10_000)
+        TeeInputStream(java.util.zip.GZIPInputStream(ByteArrayInputStream(zipped)), rec).close()
+        val capture = result()!!
+        assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
+        assertEquals(0, capture.observedBytes)
+    }
+
+    @Test
+    fun `a failure while taking what arrived is contained`() {
+        val failing = object : java.io.InputStream() {
+            var closed = false
+            override fun available() = 10
+            override fun read(): Int = throw IOException("reset")
+            override fun read(b: ByteArray, off: Int, len: Int): Int = throw IOException("reset")
+            override fun close() { closed = true }
+        }
+        val (rec, result) = recorder(MemorySink(), declared = 10)
+        TeeInputStream(failing, rec).close()
+        assertTrue(failing.closed)
+        assertEquals(Completeness.PARTIALLY_OBSERVED, result()!!.completeness)
     }
 
     @Test
