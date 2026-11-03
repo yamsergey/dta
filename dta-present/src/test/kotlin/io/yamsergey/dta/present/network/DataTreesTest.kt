@@ -62,6 +62,15 @@ class DataTreesTest {
     }
 
     @Test
+    fun `JSON Lines becomes one top-level node per line`() {
+        val tree = DataTrees.jsonLines("{\"a\":1}\n{\"b\":{\"c\":true}}")!!
+        assertEquals(NodeKind.ARRAY, tree.kind)
+        assertEquals(listOf("[0]", "[1]"), tree.children.map { it.key })
+        assertEquals("$[1].b.c", tree.children[1].children.single().children.single().path)
+        assertEquals(null, DataTrees.jsonLines("nope"))
+    }
+
+    @Test
     fun `nothing to show for text that is not the format`() {
         assertNull(DataTrees.json("{oops"))
         assertNull(DataTrees.json("42"))

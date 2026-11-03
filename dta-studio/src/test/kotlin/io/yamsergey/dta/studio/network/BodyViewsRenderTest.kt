@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.yamsergey.dta.present.network.DataTrees
+import kotlinx.serialization.json.jsonObject
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
@@ -69,6 +70,15 @@ class BodyViewsRenderTest : BasePlatformTestCase() {
             repeat(50) { PlatformTestUtil.dispatchAllEventsInIdeEventQueue(); Thread.sleep(20) }
             val xml = EditorFactory.getInstance().allEditors.last()
             assertEquals("xml", xml.virtualFile?.extension ?: com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(xml.document)?.extension)
+
+            // Feature 024: JSON Lines, highlighted and foldable like JSON.
+            val lines = io.yamsergey.dta.present.network.BodyView.of(kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"body":{"part":"request","storedBytes":90,"contentType":"application/x-sentry-envelope","completeness":"complete"},"text":${kotlinx.serialization.json.JsonPrimitive("{\"event_id\":\"9f\",\"sdk\":{\"name\":\"fixture\"}}\n{\"type\":\"event\",\"length\":42}\n{\"level\":\"error\",\"tags\":{\"a\":1}}")}}""").jsonObject)
+            editor.show(lines.render(io.yamsergey.dta.present.network.BodyMode.FORMATTED), lines.format.extension)
+            repeat(50) { PlatformTestUtil.dispatchAllEventsInIdeEventQueue(); Thread.sleep(20) }
+            val jsonl = EditorFactory.getInstance().allEditors.last()
+            assertTrue("JSON Lines fold regions: ${jsonl.foldingModel.allFoldRegions.size}", jsonl.foldingModel.allFoldRegions.size >= 3)
+            render(editor, "editor-jsonl", 900, 400)
         } finally {
             editor.removeNotify()
         }

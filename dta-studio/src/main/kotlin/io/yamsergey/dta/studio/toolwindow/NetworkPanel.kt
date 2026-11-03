@@ -84,7 +84,7 @@ class NetworkPanel(
     }
     private val scroll = JBScrollPane(table)
     private val chips = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
-    private val caption = JBLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
+    private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     // The IDE's own segmented control: a plain JToggleButton's pressed state barely shows in the new UI.
     private lateinit var kinds: SegmentedButton<KindChoice>
@@ -214,6 +214,8 @@ class NetworkPanel(
             chips.removeAll()
             s.filters.chips.forEach { chip -> chips.add(ActionLink("${chip.label} ×") { network.removeFilter(chip.name) }) }
         }
+        // The caption keeps its width while traffic arrives (024); it starts over on new filters or a cleared list.
+        if (s.filters != previous.filters || s.list.total < previous.list.total) caption.reset()
         caption.text = s.filters.caption(s.list.shown, s.list.total)
         statements.removeAll()
         (s.statements + listOfNotNull(

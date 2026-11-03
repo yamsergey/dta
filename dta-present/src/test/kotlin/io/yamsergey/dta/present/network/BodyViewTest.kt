@@ -106,6 +106,12 @@ class BodyViewTest {
         assertEquals(BodyMode.FORMATTED, form.defaultMode)
         assertTrue(BodyMode.TREE in form.modes)
 
+        val lines = body("application/x-sentry-envelope", "{\"id\":\"9f\"}\n{\"type\":\"event\"}")
+        assertEquals(BodyFormat.JSON_LINES, lines.format)
+        assertEquals(listOf(BodyMode.FORMATTED, BodyMode.TREE, BodyMode.GRAPH, BodyMode.RAW, BodyMode.HEX), lines.modes)
+        assertEquals("{\n  \"id\": \"9f\"\n}\n\n{\n  \"type\": \"event\"\n}", lines.render(BodyMode.FORMATTED))
+        assertEquals("$[1].type", lines.tree()!!.children[1].children.single().path)
+
         // Highlighted as what it is, but nothing to structure.
         val html = body("text/html", "<html><body>hi</body></html>")
         assertEquals(BodyFormat.HTML, html.format)

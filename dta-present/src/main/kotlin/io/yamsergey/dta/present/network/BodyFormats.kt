@@ -11,6 +11,8 @@ import javax.xml.stream.XMLStreamConstants
 /** What a body is, for showing it (feature 022). */
 enum class BodyFormat(val extension: String) {
     JSON("json"), XML("xml"), HTML("html"), FORM("txt"), IMAGE("bin"), TEXT("txt"),
+    /** Feature 024: one JSON document per line (JSON Lines, NDJSON, SDK envelopes). */
+    JSON_LINES("jsonl"),
 }
 
 /** A GraphQL request: its query text and its variables, re-indented. */
@@ -29,12 +31,28 @@ object BodyFormats {
             type.startsWith("image/") -> BodyFormat.IMAGE
             type == "application/x-www-form-urlencoded" -> BodyFormat.FORM
             type.contains("html") -> BodyFormat.HTML
-            type.contains("json") || start.startsWith("{") || start.startsWith("[") ->
-                if (text != null && PrettyJson.format(text) != null) BodyFormat.JSON else BodyFormat.TEXT
+            type.contains("json") || start.startsWith("{") || start.startsWith("[") -> when {
+                text != null && PrettyJson.format(text) != null -> BodyFormat.JSON
+                text != null && jsonLines(text) != null -> BodyFormat.JSON_LINES
+                else -> BodyFormat.TEXT
+            }
             type.contains("xml") -> BodyFormat.XML
             start.startsWith("<!doctype html", ignoreCase = true) || start.startsWith("<html", ignoreCase = true) -> BodyFormat.HTML
             start.startsWith("<?xml") -> BodyFormat.XML
             else -> BodyFormat.TEXT
+        }
+    }
+
+    /**
+     * The documents of JSON Lines text: two or more non-blank lines, each a JSON object or array;
+     * null otherwise (one line is plain JSON; any other line keeps the body text).
+     */
+    fun jsonLines(text: String): List<kotlinx.serialization.json.JsonElement>? {
+        val lines = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        if (lines.size < 2) return null
+        return lines.map { line ->
+            if (line[0] != '{' && line[0] != '[') return null
+            runCatching { Json.parseToJsonElement(line) }.getOrNull() ?: return null
         }
     }
 

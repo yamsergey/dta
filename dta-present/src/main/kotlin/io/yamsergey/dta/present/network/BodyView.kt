@@ -50,6 +50,7 @@ data class BodyView(
             when (format) {
                 BodyFormat.XML -> BodyFormats.prettyXml(it)
                 BodyFormat.FORM -> BodyFormats.formLines(it)
+                BodyFormat.JSON_LINES -> BodyFormats.jsonLines(it)?.joinToString("\n\n") { d -> PrettyJson.format(d.toString()) ?: d.toString() }
                 else -> PrettyJson.format(it)
             } ?: it
         } ?: ""
@@ -94,6 +95,7 @@ data class BodyView(
             val structure = text?.let {
                 when (format) {
                     BodyFormat.JSON -> DataTrees.json(it)
+                    BodyFormat.JSON_LINES -> DataTrees.jsonLines(it)
                     BodyFormat.XML -> DataTrees.xml(it)
                     BodyFormat.FORM -> DataTrees.form(it)
                     else -> null

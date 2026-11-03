@@ -26,6 +26,19 @@ class BodyFormatsTest {
     }
 
     @Test
+    fun `one JSON document per line is JSON Lines, whatever the type says`() {
+        val envelope = "{\"event_id\":\"9f\",\"sent_at\":\"2026-11-03\"}\n{\"type\":\"event\",\"length\":42}\r\n\n{\"level\":\"error\",\"tags\":[1,2]}\n"
+        assertEquals(BodyFormat.JSON_LINES, BodyFormats.detect("application/x-sentry-envelope", envelope))
+        assertEquals(BodyFormat.JSON_LINES, BodyFormats.detect("application/x-ndjson", "[1]\n[2]"))
+        assertEquals(3, BodyFormats.jsonLines(envelope)!!.size)
+        // One document is JSON; a line that is not JSON (a binary attachment) keeps it text.
+        assertEquals(BodyFormat.JSON, BodyFormats.detect(null, "{\"a\":1}\n"))
+        assertEquals(BodyFormat.TEXT, BodyFormats.detect("application/x-sentry-envelope", "{\"a\":1}\n{\"type\":\"attachment\"}\nPNG\u0001"))
+        assertEquals(BodyFormat.TEXT, BodyFormats.detect(null, "1\n2"))
+        assertNull(BodyFormats.jsonLines("{\"a\":1}"))
+    }
+
+    @Test
     fun `XML is re-indented, and a DOCTYPE is never parsed`() {
         assertEquals("<a>\n  <b x=\"1\">t</b>\n  <c/>\n</a>", BodyFormats.prettyXml("<a><b x=\"1\">t</b><c/></a>"))
         assertNull(BodyFormats.prettyXml("<!DOCTYPE a [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><a>&e;</a>"))

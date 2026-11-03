@@ -53,6 +53,12 @@ object DataTrees {
         return json("$", element, "$")
     }
 
+    /** JSON Lines (024): a root array with one element per line. */
+    fun jsonLines(text: String): DataNode? {
+        val documents = BodyFormats.jsonLines(text) ?: return null
+        return json("$", kotlinx.serialization.json.JsonArray(documents), "$")
+    }
+
     private fun json(key: String, e: JsonElement, path: String): DataNode = when (e) {
         is JsonObject -> DataNode(key, NodeKind.OBJECT, null, e.entries.map { (k, v) -> json(k, v, member(path, k)) }, path, e.toString())
         is JsonArray -> DataNode(key, NodeKind.ARRAY, null, e.mapIndexed { i, v -> json("[$i]", v, "$path[$i]") }, path, e.toString())
