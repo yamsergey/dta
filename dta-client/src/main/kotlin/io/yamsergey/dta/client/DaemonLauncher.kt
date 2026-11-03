@@ -99,7 +99,8 @@ class ClasspathSpawner(private val launch: DaemonLaunch = DaemonLaunch.currentPr
         val launch = this.launch.pinned(runtime)
         runCatching { DaemonLaunch.pruneRuntime(runtime, keep = launch.classpath.split(File.pathSeparator).map { File(it).parentFile }.toSet()) }
         val process = ProcessBuilder(
-            launch.java.path, "-cp", launch.classpath, MAIN,
+            // The marker first: Linux shows only the first 4 KB of a command line, and the classpath is longer.
+            launch.java.path, marker(home), "-cp", launch.classpath, MAIN,
             "--home", home.absolutePath, "--version", identity.version, "--build", identity.build,
         )
             .apply { environment().putAll(launch.env) }
@@ -112,6 +113,16 @@ class ClasspathSpawner(private val launch: DaemonLaunch = DaemonLaunch.currentPr
 
     companion object {
         const val MAIN = "io.yamsergey.dta.daemon.server.DaemonMain"
+
+        /** Names the daemon and its home ahead of the classpath. */
+        fun marker(home: File) = "-Ddta.daemon.home=${home.absolutePath}"
+
+        /**
+         * Whether [command] is the daemon of [home]: by the [marker], or (daemons started before it)
+         * by the main class and the home, which a long classpath may push out of a truncated line.
+         */
+        fun isDaemonOf(command: String, home: File): Boolean =
+            "${marker(home)} " in "$command " || (MAIN in command && home.absolutePath in command)
     }
 }
 
@@ -213,7 +224,7 @@ class DaemonLauncher(
     private suspend fun retire(pid: Long, why: String): String? {
         val process = ProcessHandle.of(pid).orElse(null)?.takeIf { it.isAlive } ?: return null
         val command = process.info().commandLine().orElse("")
-        if (ClasspathSpawner.MAIN !in command || home.root.absolutePath !in command) return null
+        if (!ClasspathSpawner.isDaemonOf(command, home.root)) return null
         process.destroy()
         if (!waitUntil(5.seconds) { !process.isAlive }) {
             process.destroyForcibly()

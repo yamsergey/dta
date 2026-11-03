@@ -131,6 +131,16 @@ class DaemonLauncherTest {
     }
 
     @Test
+    fun `the daemon is recognised from a command line cut at 4 KB, as Linux shows it`() {
+        val home = java.io.File("/tmp/dta-home")
+        val classpath = (1..200).joinToString(":") { "/tmp/dta-home/daemon/runtime/0123abcd/lib-$it.jar" }
+        val full = "/usr/bin/java ${io.yamsergey.dta.client.ClasspathSpawner.marker(home)} -cp $classpath ${io.yamsergey.dta.client.ClasspathSpawner.MAIN} --home ${home.path}"
+        assertTrue(io.yamsergey.dta.client.ClasspathSpawner.isDaemonOf(full.take(4096), home))
+        assertTrue(!io.yamsergey.dta.client.ClasspathSpawner.isDaemonOf(full.take(4096), java.io.File("/tmp/dta-hom")), "another home")
+        assertTrue(!io.yamsergey.dta.client.ClasspathSpawner.isDaemonOf("/usr/bin/sleep 60", home))
+    }
+
+    @Test
     fun `a process that is not this home's daemon is never stopped`() = runBlocking<Unit> {
         // The state file names a live process that is not a DTA daemon (a reused pid): it is left alone.
         val other = ProcessBuilder("sleep", "60").start()
