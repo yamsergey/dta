@@ -141,7 +141,7 @@ class TeeStreamsTest {
         val stream = Arrived(data.copyOf(41), 0)
         TeeInputStream(stream, rec).close()
         val capture = result()!!
-        assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
+        assertEquals(Completeness.NOT_READ, capture.completeness)
         assertEquals("the app closed the body without reading it; 0 of 41 bytes were captured by the close", capture.reason)
         assertTrue(!stream.waited)
         assertTrue(stream.closed)
@@ -163,7 +163,7 @@ class TeeStreamsTest {
         val (rec, result) = recorder(sink)
         TeeInputStream(Arrived(data, 500), rec).close()
         val capture = result()!!
-        assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
+        assertEquals(Completeness.NOT_READ, capture.completeness)
         assertEquals(500, capture.storedBytes)
         assertEquals("the app closed the body without reading it; 500 bytes were captured by the close, the end was not seen", capture.reason)
     }
@@ -220,7 +220,7 @@ class TeeStreamsTest {
         val (rec, result) = recorder(MemorySink(), declared = 10_000)
         TeeInputStream(java.util.zip.GZIPInputStream(ByteArrayInputStream(zipped)), rec).close()
         val capture = result()!!
-        assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
+        assertEquals(Completeness.NOT_READ, capture.completeness)
         assertEquals(0, capture.observedBytes)
     }
 
@@ -236,7 +236,7 @@ class TeeStreamsTest {
         val (rec, result) = recorder(MemorySink(), declared = 10)
         TeeInputStream(failing, rec).close()
         assertTrue(failing.closed)
-        assertEquals(Completeness.PARTIALLY_OBSERVED, result()!!.completeness)
+        assertEquals(Completeness.NOT_READ, result()!!.completeness)
     }
 
     @Test

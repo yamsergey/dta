@@ -100,6 +100,7 @@ class NetworkServiceTest {
         "struct" to (BodyInfo(BodyPart.REQUEST, struct.size.toLong(), contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to struct),
         "chat" to (BodyInfo(BodyPart.MESSAGE, ts.size.toLong(), binary = true, completeness = Completeness.COMPLETE) to ts),
         "cut" to (BodyInfo(BodyPart.RESPONSE, 2, contentType = "text/plain", completeness = Completeness.TRUNCATED, completenessReason = "bound") to "ab".toByteArray()),
+        "unread" to (BodyInfo(BodyPart.RESPONSE, 2, declaredBytes = 2, contentType = "text/plain", completeness = Completeness.NOT_READ, completenessReason = "the app closed the body without reading it; 2 of 2 bytes were captured by the close") to "ok".toByteArray()),
     )
 
     @org.junit.jupiter.api.io.TempDir
@@ -299,6 +300,9 @@ class NetworkServiceTest {
         val cut = service.body("cut", BodyPart.RESPONSE)
         assertEquals("ab", cut.text)
         assertTrue(io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_BODY_INCOMPLETE in cut.degraded!!.map { it.reason })
+        val unread = service.body("unread", BodyPart.RESPONSE)
+        assertEquals("ok", unread.text)
+        assertEquals(null, unread.degraded, "a body the app did not read is not a gap (023)")
     }
 
     private fun sha256(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }

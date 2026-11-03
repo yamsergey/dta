@@ -69,6 +69,16 @@ enum class Completeness {
     @SerialName("omitted") OMITTED,
     /** Stored bytes were lost (eviction, I/O failure, storage unavailable). */
     @SerialName("dropped") DROPPED,
+    /**
+     * Feature 023: the app closed the body without reading it (SDKs reading only the status,
+     * `Unit` API calls); what the close let DTA take is stored. Not a capture gap: DTA saw all
+     * the app saw, so nothing marks it.
+     */
+    @SerialName("not-read") NOT_READ,
+    ;
+
+    /** Part of the body the app saw is missing from the capture: marked incomplete everywhere. */
+    val isGap: Boolean get() = this != COMPLETE && this != NOT_READ
 }
 
 @Serializable

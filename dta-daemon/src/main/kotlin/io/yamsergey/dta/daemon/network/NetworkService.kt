@@ -15,7 +15,6 @@ import io.yamsergey.dta.protocol.network.BodyCodec
 import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.ClearResult
-import io.yamsergey.dta.protocol.network.Completeness
 import io.yamsergey.dta.protocol.network.NetworkBodyResult
 import io.yamsergey.dta.protocol.network.NetworkEntry
 import io.yamsergey.dta.protocol.network.RedactionInfo
@@ -115,7 +114,7 @@ class NetworkService(
             DtaJson.decodeFromJsonElement(NetworkBodyResult.serializer(), response.result).body to
                 ByteArrayOutputStream().apply { response.binaryPayloads.forEach { write(it) } }.toByteArray()
         }
-        val degraded = if (info.completeness == Completeness.COMPLETE) null
+        val degraded = if (!info.completeness.isGap) null
         else listOf(DegradationMarker("network", DegradationCodes.NETWORK_BODY_INCOMPLETE))
 
         val structured = structured(id, part, info, wire)

@@ -78,7 +78,9 @@ class BodyRecorder(
                 "per-body bound of $bound bytes reached; $observed bytes observed",
             )
             !endOfStream && observed != declaredBytes -> BodyCapture(
-                stored, observed, Completeness.PARTIALLY_OBSERVED,
+                stored, observed,
+                // The app never read it: DTA saw all it saw, so this is not a gap (023).
+                if (appRead == 0L) Completeness.NOT_READ else Completeness.PARTIALLY_OBSERVED,
                 (if (appRead == 0L) "the app closed the body without reading it" else "the app stopped reading after $appRead bytes") +
                     if (declaredBytes != null) "; $observed of $declaredBytes bytes were captured by the close"
                     else "; $observed bytes were captured by the close, the end was not seen",

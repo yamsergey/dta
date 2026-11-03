@@ -69,6 +69,14 @@ class StatementsTest {
     }
 
     @Test
+    fun `a body the app did not read states nothing`() {
+        val body = """{"part":"response","storedBytes":41,"declaredBytes":41,"completeness":"not-read","completenessReason":"the app closed the body without reading it; 41 of 41 bytes were captured by the close"}"""
+        val entry = kotlinx.serialization.json.Json.parseToJsonElement("""{"id":"r1","type":"http","responseBody":$body}""").jsonObject
+        assertEquals(emptyList(), Statements.forEntry(entry))
+        assertEquals(emptyList(), Statements.forBody(kotlinx.serialization.json.Json.parseToJsonElement("""{"body":$body}""").jsonObject).kinds())
+    }
+
+    @Test
     fun `a list states eviction, unsearched runs and degradation codes verbatim`() {
         val statements = Statements.forNetworkList(list)
         assertEquals(listOf(DEGRADED, DEGRADED, EVICTED), statements.kinds())

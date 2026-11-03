@@ -127,7 +127,7 @@ class NetworkHistoryView(
             }
             if (ctx.coverage.dropped > 0) add(DegradationCodes.NETWORK_EVENTS_DROPPED)
             if (entries.any { it.initiator?.missing != null }) add(DegradationCodes.NETWORK_INITIATOR_MISSING)
-            if (entries.any { e -> bodiesOf(e).any { it.completeness != Completeness.COMPLETE } }) add(DegradationCodes.NETWORK_BODY_INCOMPLETE)
+            if (entries.any { e -> bodiesOf(e).any { it.completeness.isGap } }) add(DegradationCodes.NETWORK_BODY_INCOMPLETE)
             addAll(ctx.scriptCodes)
         }
         return codes.map { DegradationMarker(CAPABILITY, it) }.ifEmpty { null }

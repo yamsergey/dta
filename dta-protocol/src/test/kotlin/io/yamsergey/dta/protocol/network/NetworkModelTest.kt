@@ -81,10 +81,17 @@ class NetworkModelTest {
             assertEquals(body, DtaJson.decodeFromString(BodyInfo.serializer(), DtaJson.encodeToString(BodyInfo.serializer(), body)))
         }
         assertEquals(
-            listOf("complete", "truncated", "partially-observed", "omitted", "dropped"),
+            listOf("complete", "truncated", "partially-observed", "omitted", "dropped", "not-read"),
             Completeness.entries.map { DtaJson.encodeToJsonElement(Completeness.serializer(), it).jsonPrimitive.content },
         )
         assertFailsWith<IllegalArgumentException> { BodyInfo(BodyPart.RESPONSE, storedBytes = 1, completeness = Completeness.TRUNCATED) }
+    }
+
+    @Test
+    fun `a body the app did not read is not a capture gap`() {
+        // Feature 023: DTA saw everything the app saw; nothing marks it.
+        assertEquals(listOf(Completeness.TRUNCATED, Completeness.PARTIALLY_OBSERVED, Completeness.OMITTED, Completeness.DROPPED),
+            Completeness.entries.filter { it.isGap })
     }
 
     @Test

@@ -73,7 +73,7 @@ object Statements {
     /** A network entry (HTTP exchange, WebSocket connection or message) as listed. */
     fun forEntry(entry: JsonObject): List<Statement> = buildList {
         val bodies = listOfNotNull(entry.obj("requestBody"), entry.obj("responseBody"), entry.obj("payload"))
-        bodies.firstOrNull { it.str("completeness") != "complete" }?.let { add(incomplete(it)) }
+        bodies.firstOrNull { isGap(it) }?.let { add(incomplete(it)) }
         entry.obj("intervention")?.let { i ->
             val changed = i.arr("changed").joinToString(",") { it.content }.ifEmpty { "nothing" }
             add(Statement(StatementKind.SCRIPTED, detail = "script ${i.str("scriptId")} changed $changed" + (i.long("delayMs")?.let { ", delayed $it ms" } ?: "") +
@@ -150,7 +150,7 @@ object Statements {
     /** A `network.body` result: decoding, completeness, binary, redaction, notes. */
     fun forBody(result: JsonObject): List<Statement> = buildList {
         val info = result.obj("body") ?: JsonObject(emptyMap())
-        if (info.str("completeness").let { it != null && it != "complete" }) add(incomplete(info))
+        if (isGap(info)) add(incomplete(info))
         val decoding = result.obj("decoding")
         when (decoding?.str("outcome")) {
             "decoded" -> add(Statement(StatementKind.DECODED, detail = "decoded as ${decoding.str("format")}" +
@@ -234,6 +234,9 @@ object Statements {
         val withheld = r.arr("withheld").takeIf { it.isNotEmpty() }?.let { "; withheld: " + it.joinToString(", ") { w -> w.content } } ?: ""
         return listOf(Statement(StatementKind.REDACTED, detail = "redacted: $masked$withheld"))
     }
+
+    /** A capture gap; a body the app did not read (023) states nothing. */
+    private fun isGap(body: JsonObject) = body.str("completeness").let { it != null && it != "complete" && it != "not-read" }
 
     private fun incomplete(body: JsonObject): Statement {
         val completeness = body.str("completeness")!!

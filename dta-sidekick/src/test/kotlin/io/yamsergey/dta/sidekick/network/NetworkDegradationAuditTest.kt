@@ -134,6 +134,17 @@ class NetworkDegradationAuditTest {
         assertTrue(DegradationCodes.NETWORK_BODY_INCOMPLETE in methods.entry(Json.parseToJsonElement("""{"id":"$id"}""").jsonObject).degraded!!.map { it.reason })
     }
 
+    @Test
+    fun `a body the app closed unread raises no code`() = withStore { store, recorder ->
+        // Feature 023: DTA saw everything the app saw.
+        val id = recorder.httpStarted("urlconnection", "POST", "http://h/unread", emptyList(), withStack)
+        recorder.httpResponse(id, 200, emptyList(), null)
+        recorder.httpResponseBody(id, "application/json", null, 41).finish(endOfStream = false)
+        val methods = NetworkMethods(store) { available }
+        assertTrue(DegradationCodes.NETWORK_BODY_INCOMPLETE !in codes(methods.list(null)))
+        assertTrue(DegradationCodes.NETWORK_BODY_INCOMPLETE !in methods.entry(Json.parseToJsonElement("""{"id":"$id"}""").jsonObject).degraded.orEmpty().map { it.reason })
+    }
+
     // ---- feature 005 ----
 
     private fun withScripts(runtime: io.yamsergey.dta.sidekick.network.script.ScriptRuntime) = withStore { store, recorder ->
