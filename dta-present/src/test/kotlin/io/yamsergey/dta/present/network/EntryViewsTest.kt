@@ -128,4 +128,25 @@ class EntryViewsTest {
         assertEquals("1 more message not shown", d.messagesMore)
         assertEquals("captured without a stack (process restarted)", d.initiator!!.missing)
     }
+
+    @Test
+    fun `a connection's messages link to themselves, a message links to its connection (025)`() {
+        val d = EntryDetail.of(canned("entry-ws"))
+        assertEquals(listOf("r2-1:7", "r2-1:8"), d.messages.map { it.id })
+        assertEquals(null, d.connection)
+
+        val message = d.let { _ ->
+            val m = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"entry":{"type":"ws-message","id":"r2-1:7","runId":"r2-1","timeMs":1700000006200,"library":"okhttp3-ws","connectionId":"r2-1:6","url":"wss://ws.example.com/feed","direction":"out","opcode":"text","payload":{"part":"message","storedBytes":11,"completeness":"complete"}}}""",
+            ).jsonObject
+            EntryDetail.of(m)
+        }
+        assertEquals(EntryLink("r2-1:6", "wss://ws.example.com/feed"), message.connection)
+        assertEquals(Field("Message", "out text"), message.summary.first())
+
+        val noUrl = EntryDetail.of(kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"entry":{"type":"ws-message","id":"r2-1:7","runId":"r2-1","timeMs":1,"library":"okhttp3-ws","connectionId":"r2-1:6","direction":"in","opcode":"binary","payload":{"part":"message","storedBytes":1,"completeness":"complete"}}}""",
+        ).jsonObject)
+        assertEquals(EntryLink("r2-1:6", "connection r2-1:6"), noUrl.connection)
+    }
 }

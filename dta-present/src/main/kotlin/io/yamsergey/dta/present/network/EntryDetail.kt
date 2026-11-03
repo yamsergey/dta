@@ -33,6 +33,9 @@ data class FrameLine(
     val line: Int? = null,
 )
 
+/** Another entry this one names (feature 025): a message's connection. */
+data class EntryLink(val id: String, val label: String)
+
 data class InitiatorView(val header: String, val frames: List<FrameLine>, val missing: String?, val truncated: Int?)
 
 /** [description] is the script's own words for what it did; [summary] is what DTA recorded. */
@@ -54,6 +57,8 @@ data class EntryDetail(
     val messages: List<EntryRow>,
     val messagesMore: String?,
     val sections: List<String>,
+    /** A WebSocket message's connection, to jump to (025). */
+    val connection: EntryLink? = null,
 ) {
     companion object {
         /** From a `network.entry` result. */
@@ -73,7 +78,7 @@ data class EntryDetail(
                         add(Field("State", listOfNotNull(e.str("state"), e.long("closeCode")?.let { "code $it" }, e.str("closeReason")).joinToString(" · ")))
                         e.str("failure")?.let { add(Field("Failure", it)) }
                     }
-                    else -> add(Field("Message", "${e.str("direction")} ${e.str("opcode")} on ${e.str("connectionId")}"))
+                    else -> add(Field("Message", "${e.str("direction")} ${e.str("opcode")}"))
                 }
                 add(Field("Started", EntryRows.of(e, zone).time))
                 e.long("durationMs")?.let { add(Field("Duration", Units.millis(it))) }
@@ -127,6 +132,7 @@ data class EntryDetail(
                     "Summary", intervention?.let { "Script" }, request?.title, response?.title, initiator?.let { "Initiator" },
                     if (type == "ws-connection") "Messages" else null,
                 ),
+                connection = if (type == "ws-message") e.str("connectionId")?.let { EntryLink(it, e.str("url") ?: "connection $it") } else null,
             )
         }
 

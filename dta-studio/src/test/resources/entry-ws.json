@@ -1,0 +1,7 @@
+{"entry":{"type":"ws-connection","id":"r2-1:6","runId":"r2-1","timeMs":1700000006000,"library":"okhttp3-ws","url":"wss://ws.example.com/feed","state":"open","openedAtMs":1700000006100,"messageCount":3,
+  "handshakeHeaders":[{"name":"Sec-WebSocket-Protocol","value":"v1"}],
+  "initiator":{"thread":"main","site":"connect","missing":"captured without a stack (process restarted)"}},
+ "messages":[
+  {"type":"ws-message","id":"r2-1:7","runId":"r2-1","timeMs":1700000006200,"library":"okhttp3-ws","connectionId":"r2-1:6","direction":"out","opcode":"text","payload":{"part":"message","storedBytes":11,"completeness":"complete","preview":"{\"sub\":1}"}},
+  {"type":"ws-message","id":"r2-1:8","runId":"r2-1","timeMs":1700000006300,"library":"okhttp3-ws","connectionId":"r2-1:6","direction":"in","opcode":"binary","payload":{"part":"message","storedBytes":300,"binary":true,"completeness":"complete"}}],
+ "messagesTruncated":1}

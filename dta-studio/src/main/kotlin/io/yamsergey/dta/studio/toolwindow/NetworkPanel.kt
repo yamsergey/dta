@@ -97,7 +97,7 @@ class NetworkPanel(
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
     private val orderLink = ActionLink("") { setOrder(model.order.toggled()) }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
-    private val detail = EntryDetailPane(project, scope)
+    private val detail = EntryDetailPane(project, scope) { id -> network.reveal(id) }
     // The list gets most of the width; the person's own split is remembered.
     private val splitter = JBSplitter(false, "dta.network.split", 0.68f)
     private var programmaticScroll = false
@@ -232,7 +232,11 @@ class NetworkPanel(
             else -> ""
         }
         val target = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())
-        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone)
+        val selectedRow = s.list.selectedId?.let(model::indexOf)
+        // Reached by a link (025): bring the row into view; one the filters hide is still shown, saying so.
+        if (selectedRow != null && s.list.selectedId != previous.list.selectedId) table.scrollRectToVisible(table.getCellRect(selectedRow, 0, true))
+        val unlisted = s.list.selectedId != null && selectedRow == null && !s.list.selectedGone && !s.loading
+        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted)
         revalidate()
         repaint()
     }

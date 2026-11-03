@@ -40,13 +40,19 @@ import javax.swing.SwingConstants
  * statements, the script and its wire / app-side switch — over tabs: Headers, Payload, Response,
  * Messages, Initiator (last). Each tab scrolls on its own; nothing scrolls inside another scroll.
  */
-class EntryDetailPane(private val project: Project, private val scope: CoroutineScope) : JPanel(BorderLayout()) {
+class EntryDetailPane(
+    private val project: Project,
+    private val scope: CoroutineScope,
+    /** Shows another entry, as a click in the list would (025: a message's connection, a connection's message). */
+    private val open: (String) -> Unit = {},
+) : JPanel(BorderLayout()) {
     private val header = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); border = JBUI.Borders.empty(8, 12, 4, 12) }
     private val tabs = JBTabbedPane()
     private val placeholder = JBLabel("", SwingConstants.CENTER).apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(12) }
     private var loading: Job? = null
     private var shown: String? = null
     private var shownGone = false
+    private var shownUnlisted = false
     private var raw: JsonObject? = null
     private var client: DaemonClient? = null
     private var target: JsonObject = JsonObject(emptyMap())
@@ -57,10 +63,17 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
         empty(SELECT)
     }
 
-    /** Shows [id]; [gone] adds the caveat that it is no longer in the list (patterns.md). */
-    fun show(client: DaemonClient?, target: JsonObject, id: String?, redact: Boolean, gone: Boolean) {
+    /**
+     * Shows [id]; [gone] adds the caveat that it is no longer in the list (patterns.md); [unlisted]
+     * that the list as filtered does not show it (reached by a link, 025).
+     */
+    fun show(client: DaemonClient?, target: JsonObject, id: String?, redact: Boolean, gone: Boolean, unlisted: Boolean = false) {
         if (id == null) { shown = null; return empty(SELECT) }
-        if (shown == id && this.client === client) { if (gone != shownGone) render(gone); return }
+        if (shown == id && this.client === client) {
+            if (gone != shownGone || unlisted != shownUnlisted) { shownUnlisted = unlisted; render(gone) }
+            return
+        }
+        shownUnlisted = unlisted
         this.client = client
         this.target = target
         shown = id
@@ -76,6 +89,14 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
                 if (raw == null) unavailable(result.exceptionOrNull()) else render(gone)
             }
         }
+    }
+
+    /** Tests: shows an already loaded `network.entry` [result] for [id]. */
+    internal fun showLoaded(id: String, result: JsonObject, unlisted: Boolean = false) {
+        shown = id
+        shownUnlisted = unlisted
+        raw = result
+        render(false)
     }
 
     private fun render(gone: Boolean) {
@@ -113,6 +134,13 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
             if (gone) Statement(StatementKind.EVICTED, word = "no longer in the list", detail = "no longer in the list") else null,
         ) + detail.statements
         if (statements.isNotEmpty()) header.add(row(statements.map { StatementMark(it) }))
+        if (shownUnlisted) header.add(JBLabel("Not in the list as filtered").apply { foreground = JBColor.GRAY }.left())
+        detail.connection?.let { link ->
+            header.add(row(listOf(
+                JBLabel("Connection").apply { foreground = JBColor.GRAY },
+                ActionLink(link.label) { open(link.id) }.apply { toolTipText = "Show the connection with all its messages" },
+            )))
+        }
         detail.intervention?.let { i ->
             val items = mutableListOf<JComponent>(JBLabel("✎ ${listOfNotNull(i.description, i.summary).joinToString(" — ")}").apply { foreground = DtaColors.of("intervened") })
             if (i.hasAppSide) {
@@ -174,7 +202,11 @@ class EntryDetailPane(private val project: Project, private val scope: Coroutine
 
     private fun messagesPage(detail: EntryDetail) = Page().apply {
         detail.messages.forEach { m ->
-            field("${m.time}  ${m.kind.label}", listOfNotNull(m.preview, m.timing.ifEmpty { null }).joinToString("   "), mono = true)
+            val text = listOfNotNull(m.preview, m.timing.ifEmpty { null }).joinToString("   ").ifEmpty { m.kind.label }
+            field("${m.time}  ${m.kind.label}", ActionLink(text) { open(m.id) }.apply {
+                font = com.intellij.util.ui.UIUtil.getFontWithFallback(editorFont(), Font.PLAIN, font.size)
+                toolTipText = "Show this message"
+            })
         }
         detail.messagesMore?.let { line(JBLabel(it).apply { foreground = JBColor.GRAY }, top = 6) }
         end()
