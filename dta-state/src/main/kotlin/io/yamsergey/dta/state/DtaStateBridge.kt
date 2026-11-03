@@ -18,6 +18,10 @@ object DtaStateBridge {
     @Volatile
     var on: Boolean = false
 
+    /** Feature 028: functions registered with [DtaState.function], by name; the sidekick reads them. */
+    @JvmField
+    val functions: MutableMap<String, DtaFunction> = java.util.concurrent.ConcurrentHashMap()
+
     /** This module's tests only: what [emit] was called with. */
     @Volatile
     internal var recorder: ((op: Int, a: String?, b: String?, attrs: Array<String>?, id: Long, cause: Long) -> Unit)? = null

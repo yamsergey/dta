@@ -189,6 +189,22 @@ class OperationDispatcher(
         },
         "data.files.mkdir" to { c -> encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).mkdir(c.required("path"))) },
         "data.files.delete" to { c -> encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).delete(c.required("path"))) },
+        // Feature 028: the running process.
+        "runtime.activities" to { c -> rt(c, "runtime_activities", io.yamsergey.dta.protocol.data.RuntimeActivities.serializer()) },
+        "runtime.navigation" to { c -> rt(c, "runtime_navigation", io.yamsergey.dta.protocol.data.NavigationState.serializer()) },
+        "runtime.navigate" to { c ->
+            if (c.string("route") == null && c.string("uri") == null) invalid("give a route or uri")
+            rt(c, "runtime_navigate", io.yamsergey.dta.protocol.data.DataWriteResult.serializer())
+        },
+        "runtime.back" to { c -> rt(c, "runtime_back", io.yamsergey.dta.protocol.data.DataWriteResult.serializer()) },
+        "runtime.viewmodels" to { c -> rt(c, "runtime_viewmodels", io.yamsergey.dta.protocol.data.ViewModelList.serializer()) },
+        "runtime.vm.set" to { c -> rt(c, "runtime_vm_set", io.yamsergey.dta.protocol.data.DataWriteResult.serializer()) },
+        "runtime.saved.set" to { c -> rt(c, "runtime_saved_set", io.yamsergey.dta.protocol.data.DataWriteResult.serializer()) },
+        "runtime.memory" to { c -> rt(c, "runtime_memory", io.yamsergey.dta.protocol.data.MemoryState.serializer()) },
+        "runtime.threads" to { c -> rt(c, "runtime_threads", io.yamsergey.dta.protocol.data.ThreadList.serializer()) },
+        "runtime.hilt" to { c -> rt(c, "runtime_hilt", io.yamsergey.dta.protocol.data.HiltBindings.serializer()) },
+        "runtime.functions" to { c -> rt(c, "runtime_functions", io.yamsergey.dta.protocol.data.FunctionList.serializer()) },
+        "runtime.invoke" to { c -> rt(c, "runtime_invoke", io.yamsergey.dta.protocol.data.InvokeResult.serializer()) },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },
         "network.mapping.remove" to { c ->
             val id = c.required("id")
@@ -411,6 +427,8 @@ class OperationDispatcher(
         throw ClientException(ClientErrorCodes.NOT_FOUND, "No $what '$id'", buildJsonObject { put("what", what); put("id", id) })
 
     private fun invalid(message: String): Nothing = throw InvalidParamsException(message)
+
+    private suspend fun <T> rt(c: Call, method: String, s: KSerializer<T>): JsonElement = encode(s, ops.data(c.device, c.app).runtime(method, s, c.forward()))
 
     private fun <T> encode(serializer: KSerializer<T>, value: T): JsonElement = DtaJson.encodeToJsonElement(serializer, value)
 }

@@ -10,6 +10,12 @@ class DtaEvent internal constructor(val localId: Long) {
     }
 }
 
+/** A function the app lets DTA invoke (feature 028): a debug action such as "clear the cart". */
+class DtaFunction internal constructor(val name: String, val description: String, private val block: (Map<String, String>) -> Any?) {
+    /** Runs the function on the caller's thread (DTA's, never the main thread). */
+    fun invoke(args: Map<String, String>): Any? = block(args)
+}
+
 /**
  * The app's own source for the DTA timeline (feature 016): what the app is in (facets), what
  * happened (events) and what caused what, where only the app knows. Every call returns at once
@@ -51,6 +57,17 @@ object DtaState {
     fun cause(from: DtaEvent, to: DtaEvent) {
         if (!DtaStateBridge.on || from.localId == 0L || to.localId == 0L) return
         DtaStateBridge.emit(DtaStateBridge.CAUSE, null, null, null, to.localId, from.localId)
+    }
+
+    /**
+     * Registers a function DTA can list and invoke with string arguments (feature 028), e.g.
+     * `DtaState.function("cart.clear", "Empty the cart") { cart.clear() }`. It only runs when DTA
+     * asks; in release builds (`dta-state-noop`) nothing is kept.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun function(name: String, description: String = "", block: (Map<String, String>) -> Any?) {
+        DtaStateBridge.functions[name.take(MAX_NAME)] = DtaFunction(name.take(MAX_NAME), description.take(MAX_VALUE), block)
     }
 
     /** What happens in [block] — windows, requests, other events — is caused by [event] (declared). */

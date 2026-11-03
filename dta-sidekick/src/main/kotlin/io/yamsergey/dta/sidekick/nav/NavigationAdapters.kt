@@ -89,6 +89,7 @@ class NavigationAdapters(private val events: NavigationEvents) {
     }
 
     private fun top(stack: List<*>?) {
+        stack?.let { io.yamsergey.dta.sidekick.runtime.Nav3Stacks.seen(it) }
         val last = stack?.lastOrNull() ?: return
         val key = if (last.javaClass.name == "androidx.navigation3.runtime.NavEntry") call(last, "getContentKey") ?: last else last
         events.key(NavigationEvents.keyName(key, key.javaClass.simpleName.ifEmpty { key.javaClass.name }), stack.size)

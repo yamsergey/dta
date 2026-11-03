@@ -575,6 +575,87 @@ object Catalog {
             Scope.APP,
             listOf(ParamSpec("path", ParamType.STRING, "The file or folder (data:/… or external:/…).", required = true, positional = true)),
         ),
+        // Feature 028: what the running process holds.
+        OperationSpec("runtime.activities", "The app's activities: class, lifecycle state, task, focus, intent, and their fragments with state, tag and arguments.", Scope.APP),
+        OperationSpec(
+            "runtime.navigation",
+            "Every navigation host of the app: AndroidX Navigation controllers (Compose and fragment NavHost) with their back stacks (route, arguments, lifecycle) and graphs (destinations, routes, arguments, deep links, start), and Navigation 3 back stacks.",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "runtime.navigate",
+            "Navigate a NavController to a route (product/42) or a deep link URI. With one controller it is chosen; otherwise give host from runtime.navigation.",
+            Scope.APP,
+            listOf(
+                ParamSpec("route", ParamType.STRING, "The route to navigate to.", positional = true),
+                ParamSpec("uri", ParamType.STRING, "A deep link to navigate to instead of a route."),
+                ParamSpec("host", ParamType.STRING, "The host id from runtime.navigation."),
+            ),
+        ),
+        OperationSpec(
+            "runtime.back",
+            "Go back one entry on a navigation host (popBackStack, or the top key off a Navigation 3 stack).",
+            Scope.APP,
+            listOf(ParamSpec("host", ParamType.STRING, "The host id from runtime.navigation (optional with one host).")),
+        ),
+        OperationSpec(
+            "runtime.viewmodels",
+            "The app's live ViewModels: class, key, owner, and their properties (StateFlow, LiveData, Compose State, fields) with values as JSON, and SavedStateHandle entries; editable ones are marked.",
+            Scope.APP,
+            listOf(ParamSpec("filter", ParamType.STRING, "Only ViewModels whose class name contains this.", positional = true)),
+        ),
+        OperationSpec(
+            "runtime.vm.set",
+            "Set a ViewModel property to a JSON value: a MutableStateFlow, MutableLiveData, MutableState or var field, or a field inside a data-class value (path state.coupon), rebuilt with copy. The app's observers see it.",
+            Scope.APP,
+            listOf(
+                ParamSpec("viewModel", ParamType.STRING, "The ViewModel id from runtime.viewmodels.", required = true, positional = true),
+                ParamSpec("path", ParamType.STRING, "The property path (as runtime.viewmodels lists it).", required = true, positional = true),
+                ParamSpec("value", ParamType.STRING, "The value as JSON (\"text\", 3, true, null, {…}).", required = true, positional = true),
+            ),
+        ),
+        OperationSpec(
+            "runtime.saved.set",
+            "Set a key of a ViewModel's SavedStateHandle to a JSON value.",
+            Scope.APP,
+            listOf(
+                ParamSpec("viewModel", ParamType.STRING, "The ViewModel id from runtime.viewmodels.", required = true, positional = true),
+                ParamSpec("key", ParamType.STRING, "The key.", required = true, positional = true),
+                ParamSpec("value", ParamType.STRING, "The value as JSON.", required = true, positional = true),
+            ),
+        ),
+        OperationSpec(
+            "runtime.memory",
+            "The app's memory: Java heap used and max, native heap, PSS, garbage collections.",
+            Scope.APP,
+            listOf(ParamSpec("gc", ParamType.BOOLEAN, "Run a garbage collection first.")),
+        ),
+        OperationSpec(
+            "runtime.threads",
+            "The app's threads: name, state, daemon, priority, group, and stacks.",
+            Scope.APP,
+            listOf(ParamSpec("stacks", ParamType.BOOLEAN, "Include each thread's stack (default true)."), ParamSpec("filter", ParamType.STRING, "Only threads whose name contains this.")),
+        ),
+        OperationSpec(
+            "runtime.hilt",
+            "The app's Hilt components and their bindings: field, declared type, the runtime class behind it, and whether it was created yet.",
+            Scope.APP,
+            listOf(ParamSpec("filter", ParamType.STRING, "Only bindings whose type contains this.", positional = true)),
+        ),
+        OperationSpec(
+            "runtime.functions",
+            "Functions the app registered with dta-state (DtaState.function) — invocable — and AndroidX AppFunctions declared in the APK.",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "runtime.invoke",
+            "Invoke a function the app registered with dta-state, with string arguments; returns its result.",
+            Scope.APP,
+            listOf(
+                ParamSpec("id", ParamType.STRING, "The function id from runtime.functions.", required = true, positional = true),
+                ParamSpec("args", ParamType.STRING_MAP, "Arguments by name."),
+            ),
+        ),
         OperationSpec(
             "archive.list",
             "The network history this computer keeps after devices forgot it (cleared, data wiped, reinstalled): devices › apps › installs › epochs, with dates, why each epoch closed, entry counts and size on disk.",

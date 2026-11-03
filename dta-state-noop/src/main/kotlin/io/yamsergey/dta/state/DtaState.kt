@@ -29,4 +29,9 @@ object DtaState {
     }
 
     inline fun <T> during(event: DtaEvent, block: () -> T): T = block()
+
+    @JvmStatic
+    @JvmOverloads
+    fun function(name: String, description: String = "", block: (Map<String, String>) -> Any?) {
+    }
 }

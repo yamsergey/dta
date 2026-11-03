@@ -80,6 +80,15 @@ class Formatters(private val style: Style) {
         "data.files.read" -> result.obj.let { f ->
             f.str("text") ?: f.str("output")?.let { "Saved ${f.long("sizeBytes")} bytes to $it (sha256 ${f.str("sha256")})." } ?: "${f.long("sizeBytes")} bytes, binary (base64): ${f.str("base64")}"
         }
+        "runtime.activities" -> io.yamsergey.dta.present.data.RuntimeText.activities(decode(io.yamsergey.dta.protocol.data.RuntimeActivities.serializer(), result))
+        "runtime.navigation" -> io.yamsergey.dta.present.data.RuntimeText.navigation(decode(io.yamsergey.dta.protocol.data.NavigationState.serializer(), result))
+        "runtime.viewmodels" -> io.yamsergey.dta.present.data.RuntimeText.viewModels(decode(io.yamsergey.dta.protocol.data.ViewModelList.serializer(), result))
+        "runtime.memory" -> io.yamsergey.dta.present.data.RuntimeText.memory(decode(io.yamsergey.dta.protocol.data.MemoryState.serializer(), result))
+        "runtime.threads" -> io.yamsergey.dta.present.data.RuntimeText.threads(decode(io.yamsergey.dta.protocol.data.ThreadList.serializer(), result))
+        "runtime.hilt" -> io.yamsergey.dta.present.data.RuntimeText.hilt(decode(io.yamsergey.dta.protocol.data.HiltBindings.serializer(), result))
+        "runtime.functions" -> io.yamsergey.dta.present.data.RuntimeText.functions(decode(io.yamsergey.dta.protocol.data.FunctionList.serializer(), result))
+        "runtime.navigate", "runtime.back", "runtime.vm.set", "runtime.saved.set" -> result.obj.let { w -> "${w.str("change")}." }
+        "runtime.invoke" -> result.obj.let { r -> r.str("error")?.let { "${r.str("id")} threw $it" } ?: "${r.str("id")}: ${r["result"]?.let { PRETTY.encodeToString(JsonElement.serializer(), it) } ?: "done"}" }
         "archive.list" -> archiveList(result.obj)
         "archive.delete" -> archiveDelete(result.obj)
         "daemon.status" -> status(result.obj)

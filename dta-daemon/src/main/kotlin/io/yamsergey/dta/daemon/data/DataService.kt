@@ -50,6 +50,9 @@ class DataService(
 
     suspend fun list(): StoreList = call("data_list", StoreList.serializer())
 
+    /** Feature 028: a `runtime_*` method of the sidekick, its result checked against [s]. */
+    suspend fun <T> runtime(method: String, s: KSerializer<T>, params: JsonObject): T = call(method, s, params)
+
     suspend fun schema(params: JsonObject): DbSchema = call("data_db_schema", DbSchema.serializer(), params)
     suspend fun query(params: JsonObject): QueryPage = call("data_db_query", QueryPage.serializer(), params)
     suspend fun exec(params: JsonObject): DbExecOutcome = call("data_db_exec", DbExecOutcome.serializer(), params)

@@ -44,6 +44,9 @@ class OperationCatalogTest {
                 "data.list", "data.db.schema", "data.db.query", "data.db.exec",
                 "data.prefs.read", "data.prefs.set", "data.prefs.remove", "data.proto.read", "data.proto.write",
                 "data.files.list", "data.files.read", "data.files.write", "data.files.mkdir", "data.files.delete",
+                "runtime.activities", "runtime.navigation", "runtime.navigate", "runtime.back", "runtime.viewmodels",
+                "runtime.vm.set", "runtime.saved.set", "runtime.memory", "runtime.threads", "runtime.hilt",
+                "runtime.functions", "runtime.invoke",
             ),
             Catalog.all.map { it.name }.toSet(),
         )
