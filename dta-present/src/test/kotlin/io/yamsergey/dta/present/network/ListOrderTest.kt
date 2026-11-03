@@ -20,10 +20,11 @@ class ListOrderTest {
     }
 
     @Test
-    fun `newest on top by default, and the switch names what it does`() {
-        assertEquals(ListOrder.NEWEST_FIRST, ListOrder.DEFAULT)
+    fun `newest at the bottom by default, and the switch names what it does`() {
+        assertEquals(ListOrder.OLDEST_FIRST, ListOrder.DEFAULT)
         assertEquals(ListOrder.OLDEST_FIRST, ListOrder.NEWEST_FIRST.toggled())
-        assertEquals(ListOrder.NEWEST_FIRST, ListOrder.of("nonsense"))
+        assertEquals(ListOrder.OLDEST_FIRST, ListOrder.of("nonsense"))
+        assertEquals(ListOrder.NEWEST_FIRST, ListOrder.of(ListOrder.NEWEST_FIRST.name))
         assertEquals(ListOrder.OLDEST_FIRST, ListOrder.of(ListOrder.OLDEST_FIRST.name))
         assertEquals("Newest on top", ListOrder.NEWEST_FIRST.label)
     }

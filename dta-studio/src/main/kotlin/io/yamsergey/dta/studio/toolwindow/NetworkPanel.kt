@@ -1,6 +1,12 @@
 package io.yamsergey.dta.studio.toolwindow
 
+import com.intellij.icons.AllIcons
 import com.intellij.ide.util.PropertiesComponent
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -23,6 +29,7 @@ import io.yamsergey.dta.present.network.ListOrder
 import io.yamsergey.dta.present.network.LiveEvent
 import io.yamsergey.dta.present.network.NetworkFilters
 import io.yamsergey.dta.present.network.Row
+import io.yamsergey.dta.present.network.Scrolling
 import io.yamsergey.dta.studio.ContextController
 import io.yamsergey.dta.studio.network.EntryDetailPane
 import io.yamsergey.dta.studio.network.NetworkController
@@ -51,8 +58,9 @@ import javax.swing.table.AbstractTableModel
 
 /**
  * The Network view (US1, contracts/tool-window.md): one live list of HTTP and WebSocket traffic
- * that never jumps, newest on top or at the bottom as the person prefers, filter chips with
- * "shown of total", pause, and the entry detail beside or below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
+ * that never jumps, newest at the bottom or on top as the person prefers, a toggle that follows
+ * the newest rows (feature 021), filter chips with "shown of total", pause, and the entry detail
+ * beside or below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
  */
 class NetworkPanel(
     private val project: Project,
@@ -93,6 +101,20 @@ class NetworkPanel(
     // The list gets most of the width; the person's own split is remembered.
     private val splitter = JBSplitter(false, "dta.network.split", 0.68f)
     private var programmaticScroll = false
+    private var scrollValue = 0
+    /** "Scroll to the newest", as the IDE's Build and Run views have it: shows and sets following. */
+    private val follow = object : ToggleAction("Scroll to the Newest", "Follow new rows; scrolling away or selecting a row stops it", AllIcons.RunConfigurations.Scroll_down) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun isSelected(e: AnActionEvent) = last.list.following
+        override fun setSelected(e: AnActionEvent, state: Boolean) {
+            if (state) { network.list(LiveEvent.JumpToEnd); scrollToEdge() } else network.list(LiveEvent.ScrolledAway)
+        }
+    }
+    private val followBar = ActionManager.getInstance().createActionToolbar("DtaNetworkFollow", DefaultActionGroup(follow), true).apply {
+        targetComponent = this@NetworkPanel
+        component.isOpaque = false
+        component.border = JBUI.Borders.empty()
+    }
     private var last = NetworkViewState()
 
     init {
@@ -109,6 +131,7 @@ class NetworkPanel(
             add(chips)
             add(caption)
             add(orderLink)
+            add(followBar.component)
             add(source)
             add(pause)
             add(redact)
@@ -138,13 +161,13 @@ class NetworkPanel(
             val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rowAt(it) }
             network.list(LiveEvent.Selected(row?.id))
         }
-        // Only the person's own scrolling stops following: rows arriving also move the scroll bar.
-        scroll.addMouseWheelListener { e ->
-            val away = if (model.order == ListOrder.NEWEST_FIRST) e.wheelRotation > 0 else e.wheelRotation < 0
-            if (away && last.list.following) network.list(LiveEvent.ScrolledAway)
-        }
+        // Only the person's own scrolling changes following: away from the newest edge stops it, back to it resumes.
+        // Rows arriving grow the list without moving the view; DTA's own scrolling and reloads are flagged.
         scroll.verticalScrollBar.addAdjustmentListener { e ->
-            if (!programmaticScroll && e.valueIsAdjusting && !atEdge() && last.list.following) network.list(LiveEvent.ScrolledAway)
+            val moved = e.value != scrollValue
+            scrollValue = e.value
+            if (programmaticScroll) return@addAdjustmentListener
+            Scrolling.event(last.list.following, moved, atEdge())?.let { network.list(it) }
         }
         setOrder(ListOrder.of(PropertiesComponent.getInstance().getValue(ORDER_KEY)))
         Keyboard.bind(this, ViewKey.START) { if (model.rowCount > 0) table.changeSelection(0, 0, false, false) }
@@ -159,7 +182,8 @@ class NetworkPanel(
         scope.launch {
             // At most one repaint per 100 ms however fast entries arrive (SC-002): a StateFlow keeps only the latest.
             network.state.collect { s ->
-                withContext(Dispatchers.Main) { show(s) }
+                // The latest state, not the one collected: a click handled meanwhile must not be undone by an older selection.
+                withContext(Dispatchers.Main) { show(network.state.value) }
                 delay(100)
             }
         }
@@ -168,12 +192,15 @@ class NetworkPanel(
     private fun show(s: NetworkViewState) {
         val previous = last
         last = s
-        val added = model.update(s.list.rows)
+        // A reload can move the scroll bar too: that is not the person scrolling.
+        programmaticScroll = true
+        val added = try { model.update(s.list.rows) } finally { scroll.validate(); programmaticScroll = false }
         // Keep the selection on its row by id, whatever moved around it.
         s.list.selectedId?.let { id -> model.indexOf(id)?.let { i -> if (table.selectedRow != i) { model.updating = true; table.setRowSelectionInterval(i, i); model.updating = false } } }
-        if (s.list.following && s.list.selectedId == null) scrollToEdge()
+        if (s.list.following) scrollToEdge()
         // Rows added above what the person is reading push it down; scroll by as much so nothing jumps.
         else if (added > 0 && model.order == ListOrder.NEWEST_FIRST) keepInPlace(added)
+        if (s.list.following != previous.list.following) followBar.updateActionsAsync()
 
         // Set from the archive browser too: the switch follows the state.
         val wanted = if (s.archive != null) ARCHIVE else LIVE
@@ -334,12 +361,14 @@ class NetworkPanel(
 
     private inner class RowRenderer : ColoredTableCellRenderer() {
         override fun customizeCellRenderer(table: JTable, value: Any?, selected: Boolean, hasFocus: Boolean, row: Int, column: Int) {
-            val r = value as? EntryRow ?: return
+            // One renderer draws every cell: a tooltip set for one cell must not show on the next.
+        toolTipText = null
+        val r = value as? EntryRow ?: return
             val kind = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.of(r.kind.token))
             val muted = SimpleTextAttributes.GRAYED_ATTRIBUTES
             when (column) {
                 0 -> append(r.time, muted)
-                1 -> { append(r.kind.label, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token))); toolTipText = r.kind.description }
+                1 -> { append(r.kind.label, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token))); toolTipText = r.kind.description.takeIf { it.isNotBlank() } }
                 2 -> append(r.verb, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token)))
                 // The URL, nothing else: a message's payload is under its connection, in Messages.
                 3 -> { r.host?.let { append(it, muted) }; append(r.path) }
@@ -355,7 +384,8 @@ class NetworkPanel(
                 6 -> {
                     r.marks.shown.forEach { append("${it.kind.glyph} ${it.word}  ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.text(it.kind))) }
                     r.marks.moreLabel?.let { append(it, muted) }
-                    toolTipText = r.marks.shown.joinToString("<br>", "<html>", "</html>") { it.sentence }
+                    // No notes, no popup (an empty one showed before 021).
+                    toolTipText = r.marks.shown.takeIf { it.isNotEmpty() }?.joinToString("<br>", "<html>", "</html>") { it.sentence }
                 }
             }
         }

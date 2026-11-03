@@ -21,7 +21,7 @@ enum class ListOrder(val label: String) {
     fun toggled(): ListOrder = if (this == NEWEST_FIRST) OLDEST_FIRST else NEWEST_FIRST
 
     companion object {
-        val DEFAULT = NEWEST_FIRST
+        val DEFAULT = OLDEST_FIRST
 
         /** A remembered order by name; anything else is the default. */
         fun of(name: String?): ListOrder = entries.firstOrNull { it.name == name } ?: DEFAULT
