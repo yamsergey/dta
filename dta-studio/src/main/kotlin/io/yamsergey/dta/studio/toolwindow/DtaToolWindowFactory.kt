@@ -43,9 +43,21 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             },
             openLayout = { tabs.selectedComponent = layoutPanel },
         )
+        // Feature 027: the app's stores, for the device and app the context line shows.
+        val dataPanel = io.yamsergey.dta.studio.data.DataPanel(project, service.scope) { op, params ->
+            val state = controller.state.value
+            val client = controller.client ?: error("Not connected to the DTA service.")
+            val device = state.device ?: error("Choose a device.")
+            val app = state.app ?: error("Choose an app with DTA inside.")
+            val result = client.call(op, kotlinx.serialization.json.JsonObject(params + mapOf("device" to kotlinx.serialization.json.JsonPrimitive(device), "app" to kotlinx.serialization.json.JsonPrimitive(app)))).result
+            // A list result (network.schema.list) comes wrapped as {"items": [...]}.
+            result as? kotlinx.serialization.json.JsonObject ?: kotlinx.serialization.json.JsonObject(mapOf("items" to result))
+        }
+        var dataFor: Pair<String?, String?>? = null
         tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
             addTab("Timeline", timelinePanel)
+            addTab("Data", dataPanel)
             addTab("Links", linksPanel)
             addTab("Layout", layoutPanel)
             addTab("Script", scriptPanel)
@@ -58,6 +70,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         tabs.addChangeListener {
             service.layout.setActive(tabs.selectedComponent === layoutPanel)
             service.timeline.setActive(tabs.selectedComponent === timelinePanel)
+            if (tabs.selectedComponent === dataPanel) controller.state.value.let { st -> if (dataFor != st.device to st.app) { dataFor = st.device to st.app; dataPanel.load() } }
             // Script and Schemas are refreshed when shown and after their actions; Links while shown.
             if (tabs.selectedComponent === linksPanel) linksPanel.show(controller.state.value) else linksPanel.stopRefreshing()
             when (tabs.selectedComponent) {
@@ -84,6 +97,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                     bar.show(state)
                     banner.show(state.banner)
                     daemonPanel.refresh(state)
+                    if (tabs.selectedComponent === dataPanel && dataFor != state.device to state.app) { dataFor = state.device to state.app; dataPanel.load() }
                     when (tabs.selectedComponent) {
                         scriptPanel -> scriptPanel.show(state)
                         schemasPanel -> schemasPanel.show(state)
