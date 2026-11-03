@@ -1,7 +1,6 @@
 package io.yamsergey.dta.studio.schemas
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
@@ -58,7 +57,8 @@ class SchemaSync(private val project: Project, private val context: ContextContr
         pending?.cancel()
         pending = scope.launch {
             delay(delayMs)
-            DumbService.getInstance(project).runWhenSmart { scope.launch { run() } }
+            // The reads wait for indexing themselves (smartReadAction) and never hold the IDE.
+            run()
         }
     }
 
@@ -69,6 +69,7 @@ class SchemaSync(private val project: Project, private val context: ContextContr
         val app = s.app ?: return
         mutable.value = mutable.value.copy(running = true, error = null)
         try {
+            val started = System.nanoTime()
             val files = ProjectProtos.collect(project)
             if (files.isEmpty()) {
                 mutable.value = SchemaSyncState(result = buildJsonObject { put("notes", buildJsonArray { add(JsonPrimitive("no .proto files in the project or its dependencies")) }) })
@@ -87,6 +88,9 @@ class SchemaSync(private val project: Project, private val context: ContextContr
             val derivation = RetrofitMappings.derive(project, types)
             val result = if (derivation.mappings.isEmpty()) first else client.call("network.schema.sync", params(derivation.mappings)).result.jsonObject
             mutable.value = SchemaSyncState(result, derivation.unmapped)
+            LOG.info("DTA schema sync: ${files.size} .proto files, ${derivation.mappings.size} Retrofit mappings in ${(System.nanoTime() - started) / 1_000_000} ms")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             mutable.value = mutable.value.copy(running = false, error = e.message ?: e.javaClass.simpleName)
         }
@@ -105,6 +109,7 @@ class SchemaSync(private val project: Project, private val context: ContextContr
     }.toString()
 
     private companion object {
+        val LOG = com.intellij.openapi.diagnostic.logger<SchemaSync>()
         const val DEBOUNCE_MS = 2_000L
     }
 }

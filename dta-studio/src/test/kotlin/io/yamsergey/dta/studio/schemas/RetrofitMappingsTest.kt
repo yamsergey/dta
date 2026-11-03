@@ -45,7 +45,7 @@ class RetrofitMappingsTest : BasePlatformTestCase() {
     private val types = setOf("shop.v1.CartUpdate", "shop.v1.CartState", "shop.v1.Item", "other.v1.Item")
 
     fun `test request and response bodies of protobuf endpoints are mapped, with their location`() {
-        val found = RetrofitMappings.derive(project, types - "other.v1.Item")
+        val found = com.intellij.openapi.application.ReadAction.compute<Derivation, RuntimeException> { RetrofitMappings.find(project, types - "other.v1.Item") }
         val mappings = found.mappings.sortedBy { it.type }
         assertEquals(listOf("shop.v1.CartState", "shop.v1.CartUpdate", "shop.v1.Item"), mappings.map { it.type })
         val update = mappings.single { it.type == "shop.v1.CartUpdate" }
@@ -58,7 +58,7 @@ class RetrofitMappingsTest : BasePlatformTestCase() {
     }
 
     fun `test a JSON endpoint is not mapped, and an ambiguous type is stated, not guessed`() {
-        val found = RetrofitMappings.derive(project, types)
+        val found = com.intellij.openapi.application.ReadAction.compute<Derivation, RuntimeException> { RetrofitMappings.find(project, types) }
         assertTrue(found.mappings.none { it.type.endsWith("Profile") })
         assertTrue(found.mappings.none { it.type.endsWith("Item") })
         val item = found.unmapped.single { "Item" in it }

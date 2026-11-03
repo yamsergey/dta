@@ -1,8 +1,6 @@
 package io.yamsergey.dta.studio.schemas
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Computable
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiAnnotation
 import com.intellij.psi.PsiClass
@@ -43,9 +41,12 @@ object RetrofitMappings {
         "io.reactivex.rxjava3.core.Single", "io.reactivex.rxjava3.core.Observable", "kotlinx.coroutines.flow.Flow",
     )
 
-    fun derive(project: Project, types: Set<String>): Derivation = ApplicationManager.getApplication().runReadAction(Computable { find(project, types) })
+    /** In a non-blocking read action: the search yields to the IDE's writes and waits for indexing. */
+    suspend fun derive(project: Project, types: Set<String>): Derivation =
+        com.intellij.openapi.application.smartReadAction(project) { find(project, types) }
 
-    private fun find(project: Project, types: Set<String>): Derivation {
+    /** The search itself; the caller holds read access. */
+    fun find(project: Project, types: Set<String>): Derivation {
         val all = GlobalSearchScope.allScope(project)
         val scope = GlobalSearchScope.projectScope(project)
         val facade = JavaPsiFacade.getInstance(project)
