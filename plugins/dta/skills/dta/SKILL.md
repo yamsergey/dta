@@ -52,13 +52,23 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 ## Timeline, causes and state
 
 - Every tool answer may end with "Since your last call: N events — …": clicks, dialogs, toasts, requests, navigation, the app's own events since your previous call. Read it before deciding what happened after a tap.
-- `timeline_events` gives the details, oldest first, from every source: `input` (clicks, back), `ui` (windows, toasts, snackbars, permission prompts — structure and text, never pictures), `screen`, `network`, `nav`, `app`. Pass `since` (the `next` of the previous read) for newer events only; `sources` and `kinds` (e.g. `ui/toast`, `network/request`) narrow it.
+- `timeline_events` gives the details, oldest first, from every source: `input` (clicks, back), `ui` (windows, toasts, snackbars, permission prompts — structure and text, never pictures), `screen`, `network`, `nav`, `app`, `dta` (what DTA itself wrote into the app's data). Pass `since` (the `next` of the previous read) for newer events only; `sources` and `kinds` (e.g. `ui/toast`, `network/request`) narrow it.
 - Each event lists its known `causes`, each with a `basis`: `exact` (recorded data: issued while a click or back was handled, a response to its request, a window's closing to its opening), `declared` (the app said so). Neighbouring events are never linked silently.
 - `timeline_causes` walks the chain from an event back to its roots, or forward with `direction: effects`. An event without a known cause says so and how many inferred candidates exist; ask with `inferred: true` to get them, marked `inferred`, with the rule (`after-response`, `while-in-flight`, `text-match`). Treat inferred links as leads, not facts.
 - `state_current`: what the app is in now — every facet (`ui.windows`, `screen.fingerprint`, `nav.destination`, `app.*`…) with its source and when it changed, and each source's status (on, off or degraded, with why). A stale facet says why (the process ended, its source went off).
 - `state_graph` groups this run into states by the `facets` you choose (fewer facets, coarser states) with transitions, their triggers and causes; transitions without a known cause are marked. `state_path` gives the shortest path the app was seen to take to a state.
 - A gap event (`timeline/gap`) means events were lost there; `timeline/process-ended` marks a crash or kill — what came before it is kept, and no link crosses it.
 - Windows that are not the app's are sampled every 500 ms while the timeline is read; shorter ones may be missed. Work the app moves to another thread has no exact cause unless the app declares one with `dta-state`.
+
+## App data
+
+- `data_list` lists the app's stores: databases (`sqlite`, `room`, `sqlcipher`, `driver`), SharedPreferences (`plain`, `encrypted`), DataStore files (`preferences`, `proto`) and the file roots `data:/` and `external:/`. Each says how DTA reaches it: `live` (through the app's own open object — no key or passphrase needed, the app sees writes at once), `file` (DTA opens the file), `unreadable` (why, and what to do).
+- Databases: `data_db_schema` (tables, columns, keys, row counts), `data_db_query` (SELECT/PRAGMA/WITH; `offset`/`limit` pages with the total; blobs as size and first bytes unless `blobs: full`), `data_db_exec` (INSERT/UPDATE/DELETE/DDL; says how many rows changed; on the app's open Room database Room's observers are told, so screens follow).
+- An encrypted (SQLCipher) database the app has not opened in this process is `unreadable`: open the screen that uses it and ask again, or pass `passphrase`.
+- `data_prefs_read` / `data_prefs_set` / `data_prefs_remove` work on SharedPreferences (encrypted ones decrypted with the app's own keys) and Preferences DataStore. `set` keeps the key's type unless `type` is given (`string`, `int`, `long`, `float`, `boolean`, `stringSet` as a JSON array; `double` and `bytes` for DataStore). EncryptedSharedPreferences the app has not opened are tried with the default master key; when the app uses its own key alias the answer says to open the screen that uses them first.
+- Proto DataStore: `data_proto_read` decodes by field number, or by `type` from the app's protobuf schemas (`network_schema_add`/`sync`); `data_proto_write` replaces the message from JSON with that type.
+- Files: `data_files_list`, `data_files_read` (text inline up to 1 MiB, else `output`), `data_files_write` (`text`, `base64` or `input` file), `data_files_mkdir`, `data_files_delete` (folders with everything in them).
+- Every write appears on the timeline as source `dta` (`data/write`), so a cause chain can show that a screen changed because DTA wrote something.
 
 ## Network
 
