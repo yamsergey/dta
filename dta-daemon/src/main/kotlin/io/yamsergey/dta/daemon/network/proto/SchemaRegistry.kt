@@ -169,6 +169,14 @@ class SchemaRegistry(
      * Decoding rules of [pkg] in selection order (FR-012): the best matching user mapping
      * — most literal pattern, then most recent — before the built-in OTLP rules.
      */
+    /** Feature 027: a message type of the app's schema sets by full name (Proto DataStore), with the set's name. */
+    @Synchronized
+    fun descriptor(pkg: String, type: String): Pair<String, Descriptors.Descriptor>? =
+        state(pkg).sets.entries.firstNotNullOfOrNull { (name, loaded) -> loaded.types[type]?.let { name to it } }
+
+    @Synchronized
+    fun typeNames(pkg: String): List<String> = state(pkg).sets.values.flatMap { it.types.keys }.sorted()
+
     fun rules(pkg: String): List<DecodingRule> = listOf(DecodingRule { target -> selectUser(pkg, target) }) + Otlp.rules
 
     @Synchronized

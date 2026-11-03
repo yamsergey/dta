@@ -72,6 +72,8 @@ interface DaemonOperations {
     /** The host's network archive (feature 011). */
     fun archiveList(): ArchiveListing
     fun archiveDelete(target: DeleteTarget, confirm: Boolean): ArchiveDeletion
+    /** The app's stores (feature 027). */
+    fun data(serial: String, pkg: String): io.yamsergey.dta.daemon.data.DataService
 }
 
 /** Adapts [DtaDaemon] (whose methods carry defaults) to [DaemonOperations]. */
@@ -90,6 +92,7 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun networkSchemaSync(pkg: String, origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin, files: Map<String, String>, mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>, notes: List<String>) =
         daemon.networkSchemaSync(pkg, origin, files, mappings, notes)
     override fun archiveDelete(target: DeleteTarget, confirm: Boolean) = daemon.archiveDelete(target, confirm)
+    override fun data(serial: String, pkg: String) = daemon.data(serial, pkg)
     override fun devices() = daemon.devices()
     override fun apps(serial: String) = daemon.apps(serial)
     override fun appEvents(serial: String?) = daemon.appEvents(serial)

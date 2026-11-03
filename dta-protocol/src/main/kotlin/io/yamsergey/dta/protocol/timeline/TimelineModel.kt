@@ -21,10 +21,13 @@ object Sources {
     const val NAV = "nav"
     const val APP = "app"
 
+    /** Feature 027: what DTA itself changed in the app (data writes). */
+    const val DTA = "dta"
+
     /** Gaps, process ends, facet snapshots: the timeline's own events. */
     const val TIMELINE = "timeline"
 
-    val BUILT_IN = listOf(INPUT, UI, SCREEN, NETWORK, NAV, APP)
+    val BUILT_IN = listOf(INPUT, UI, SCREEN, NETWORK, NAV, APP, DTA)
 }
 
 object Kinds {

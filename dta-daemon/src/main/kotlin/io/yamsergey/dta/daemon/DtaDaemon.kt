@@ -400,6 +400,10 @@ class DtaDaemon(
     suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?): io.yamsergey.dta.protocol.network.WsPushResult =
         scriptService(serial, pkg).push(connection, text, base64, waitMs)
 
+    /** Feature 027: the app's stores. */
+    fun data(serial: String, pkg: String) =
+        io.yamsergey.dta.daemon.data.DataService(pkg, schemas) { connections.connect(ConnectionKey(serial, pkg)) }
+
     private fun scriptService(serial: String, pkg: String) =
         NetworkScriptService { connections.connect(ConnectionKey(serial, pkg)) }
 

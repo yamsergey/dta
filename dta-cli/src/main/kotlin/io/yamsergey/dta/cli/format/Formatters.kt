@@ -64,6 +64,22 @@ class Formatters(private val style: Style) {
         "state.current" -> TimelineEventText.state(decode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), result))
         "state.graph" -> TimelineEventText.graph(decode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), result))
         "state.path" -> statePath(decode(io.yamsergey.dta.protocol.timeline.StatePath.serializer(), result))
+        "data.list" -> io.yamsergey.dta.present.data.DataText.stores(decode(io.yamsergey.dta.protocol.data.StoreList.serializer(), result))
+        "data.db.schema" -> io.yamsergey.dta.present.data.DataText.schema(decode(io.yamsergey.dta.protocol.data.DbSchema.serializer(), result))
+        "data.db.query" -> io.yamsergey.dta.present.data.DataText.rows(decode(io.yamsergey.dta.protocol.data.QueryPage.serializer(), result))
+        "data.db.exec" -> result.obj.obj("write")?.let { w -> "${w.str("store")}: ${w.str("change")}" } +
+            (result.obj.obj("exec")?.long("invalidated")?.takeIf { it > 0 }?.let { "\nRoom told: $it invalidation ${if (it == 1L) "tracker re-checks its" else "trackers re-check their"} tables." } ?: "")
+        "data.prefs.read" -> io.yamsergey.dta.present.data.DataText.prefs(decode(io.yamsergey.dta.protocol.data.PrefsContent.serializer(), result))
+        "data.prefs.set", "data.prefs.remove", "data.proto.write", "data.files.write", "data.files.mkdir", "data.files.delete" -> result.obj.let { w ->
+            "${w.str("store")}: ${w.str("change")}" + if (w.str("access") == "file") " (written to the file; the app reads it on next open)" else ""
+        }
+        "data.proto.read" -> result.obj.let { p ->
+            PRETTY.encodeToString(JsonElement.serializer(), p["decoded"] ?: JsonNull) + "\n(${p.long("sizeBytes")} bytes; ${p.str("decodeNote") ?: ""})"
+        }
+        "data.files.list" -> io.yamsergey.dta.present.data.DataText.files(decode(io.yamsergey.dta.protocol.data.FileListing.serializer(), result))
+        "data.files.read" -> result.obj.let { f ->
+            f.str("text") ?: f.str("output")?.let { "Saved ${f.long("sizeBytes")} bytes to $it (sha256 ${f.str("sha256")})." } ?: "${f.long("sizeBytes")} bytes, binary (base64): ${f.str("base64")}"
+        }
         "archive.list" -> archiveList(result.obj)
         "archive.delete" -> archiveDelete(result.obj)
         "daemon.status" -> status(result.obj)

@@ -142,6 +142,7 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) =
         io.yamsergey.dta.daemon.timeline.StatePaths(stateGraph(serial, pkg, facets, 0, false)).path(from, to)
     override fun archiveList() = io.yamsergey.dta.protocol.network.ArchiveListing(emptyList(), 0)
+    override fun data(serial: String, pkg: String): io.yamsergey.dta.daemon.data.DataService = throw UnsupportedOperationException("app data")
     override fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean) =
         io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, io.yamsergey.dta.protocol.network.ArchiveDeleted(0, 0, 0, 0))
 }

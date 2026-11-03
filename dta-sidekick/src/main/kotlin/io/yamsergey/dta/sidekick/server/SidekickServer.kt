@@ -47,7 +47,7 @@ object SidekickServer {
     val sessions = SessionHub()
 
     @Synchronized
-    fun start(packageName: String, sidekickVersion: String, installation: () -> AppInstallation? = { null }) {
+    fun start(packageName: String, sidekickVersion: String, installation: () -> AppInstallation? = { null }, context: android.content.Context? = null) {
         if (started) return
         started = true
 
@@ -63,6 +63,7 @@ object SidekickServer {
         capabilities.register(NetworkCapability.NAME) { NetworkRuntime.capability() }
         capabilities.register(io.yamsergey.dta.sidekick.ui.UiRuntime.NAME) { io.yamsergey.dta.sidekick.ui.UiRuntime.capability() }
         capabilities.register(io.yamsergey.dta.sidekick.links.LinkRecorder.NAME) { io.yamsergey.dta.sidekick.links.LinkRecorder.capability() }
+        if (context != null) capabilities.register(io.yamsergey.dta.sidekick.data.DataMethods.NAME) { io.yamsergey.dta.sidekick.data.DataMethods.capability() }
 
         val layoutMethod = LayoutCaptureMethod(
             presence = composePresence,
@@ -83,6 +84,8 @@ object SidekickServer {
             }
             DiagnosticMethods.install(this)
             io.yamsergey.dta.sidekick.timeline.TimelineMethods.install(this)
+            // Feature 027: the app's stores, on request only.
+            context?.let { io.yamsergey.dta.sidekick.data.DataMethods(it).install(this) }
             // Diagnostic: proves JVMTI entry/exit hooks on app and boot classes (feature 004).
             register("hook_selftest") { HookSelfTest.run() }
             NetworkRuntime.store?.let { store ->

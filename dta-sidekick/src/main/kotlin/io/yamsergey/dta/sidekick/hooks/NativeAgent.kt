@@ -31,4 +31,10 @@ internal object NativeAgent {
      * keeps its previous form); see [Hooks.refused].
      */
     @JvmStatic external fun nativeHook(target: Class<*>, method: String, descriptor: String, kind: Int): String?
+
+    /**
+     * Feature 027: the live instances of [target] and its subclasses (interfaces included);
+     * null when the runtime refused (the agent logs why).
+     */
+    @JvmStatic external fun nativeInstances(target: Class<*>): Array<Any?>?
 }

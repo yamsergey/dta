@@ -156,6 +156,9 @@ object ClientErrorCodes {
     const val NOT_AVAILABLE = -32014
 }
 
+private val STORE = ParamSpec("store", ParamType.STRING, "The store as data list shows it: db:<file>, prefs:<name>, datastore:<file>.", required = true, positional = true)
+private val PASSPHRASE = ParamSpec("passphrase", ParamType.STRING, "SQLCipher passphrase, only for an encrypted database the app has not opened.")
+
 object Catalog {
     private val NETWORK_FILTERS = listOf(
         ParamSpec("url", ParamType.STRING, "Case-insensitive URL substring; WebSocket messages match by their connection's URL."),
@@ -453,6 +456,124 @@ object Catalog {
                 STATE_FACETS,
             ),
             cliPathOverride = listOf("state", "path"),
+        ),
+        // Feature 027: the app's stores — databases, preferences, DataStore, files.
+        OperationSpec(
+            "data.list",
+            "The app's databases (SQLite, Room, SQLCipher), SharedPreferences (plain and encrypted), DataStore files and file roots, each with how DTA reaches it: live (through the app's own open object: no key needed, the app sees writes at once), file (DTA opens it), or unreadable (why, and what to do).",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "data.db.schema",
+            "A database's tables, views, indexes and triggers with columns, primary keys and row counts.",
+            Scope.APP,
+            listOf(STORE, PASSPHRASE),
+        ),
+        OperationSpec(
+            "data.db.query",
+            "Run a query (SELECT, PRAGMA, WITH …) on a database; rows come in pages with the total. Blobs show size and their first bytes unless blobs=full.",
+            Scope.APP,
+            listOf(
+                STORE,
+                ParamSpec("sql", ParamType.STRING, "The query.", required = true, positional = true),
+                ParamSpec("args", ParamType.STRING_LIST, "Values for ? placeholders, in order (bound as text; SQLite converts by column affinity)."),
+                ParamSpec("offset", ParamType.INT, "First row of the page (default 0)."),
+                ParamSpec("limit", ParamType.INT, "Rows per page (default 100)."),
+                ParamSpec("blobs", ParamType.ENUM, "prefix (default): size and first 32 bytes as hex; full: whole blobs as base64.", enumValues = listOf("prefix", "full")),
+                PASSPHRASE,
+            ),
+        ),
+        OperationSpec(
+            "data.db.exec",
+            "Run a statement that changes a database (INSERT, UPDATE, DELETE, CREATE, …); the result says how many rows changed. Through the app's open Room database, Room's observers are told so the app's screens follow.",
+            Scope.APP,
+            listOf(
+                STORE,
+                ParamSpec("sql", ParamType.STRING, "The statement.", required = true, positional = true),
+                ParamSpec("args", ParamType.STRING_LIST, "Values for ? placeholders, in order (bound as text)."),
+                PASSPHRASE,
+            ),
+        ),
+        OperationSpec(
+            "data.prefs.read",
+            "All keys of a SharedPreferences file (encrypted ones decrypted) or a Preferences DataStore, with types and values.",
+            Scope.APP,
+            listOf(STORE),
+        ),
+        OperationSpec(
+            "data.prefs.set",
+            "Set one key of a SharedPreferences file or Preferences DataStore to a typed value, through the app's own instance when it has one (its listeners and flows fire).",
+            Scope.APP,
+            listOf(
+                STORE,
+                ParamSpec("key", ParamType.STRING, "The key.", required = true, positional = true),
+                ParamSpec("value", ParamType.STRING, "The value as text (stringSet: a JSON array of strings; bytes: base64).", required = true, positional = true),
+                ParamSpec("type", ParamType.ENUM, "The value's type; by default the key's current type, else string.", enumValues = listOf("string", "int", "long", "float", "boolean", "stringSet", "double", "bytes")),
+            ),
+        ),
+        OperationSpec(
+            "data.prefs.remove",
+            "Remove keys from a SharedPreferences file or Preferences DataStore.",
+            Scope.APP,
+            listOf(STORE, ParamSpec("keys", ParamType.STRING_LIST, "The keys.", required = true, positional = true)),
+        ),
+        OperationSpec(
+            "data.proto.read",
+            "A Proto DataStore's message, decoded by field number, or by a message type of the app's protobuf schemas (network schema add/sync).",
+            Scope.APP,
+            listOf(STORE, ParamSpec("type", ParamType.STRING, "Message type (full name) to decode with.")),
+        ),
+        OperationSpec(
+            "data.proto.write",
+            "Replace a Proto DataStore's message with JSON encoded by a message type of the app's protobuf schemas, through the app's own DataStore when it has one.",
+            Scope.APP,
+            listOf(
+                STORE,
+                ParamSpec("type", ParamType.STRING, "Message type (full name).", required = true),
+                ParamSpec("json", ParamType.STRING, "The message as JSON (proto3 JSON names).", required = true, positional = true),
+            ),
+        ),
+        OperationSpec(
+            "data.files.list",
+            "One folder of the app's files: names, sizes, modified times; folders with their entry counts. Paths are data:/… (the app's private folder) or external:/… (its app-specific external folder).",
+            Scope.APP,
+            listOf(
+                ParamSpec("path", ParamType.STRING, "The folder (default data:/).", positional = true),
+                ParamSpec("offset", ParamType.INT, "First entry (default 0)."),
+                ParamSpec("limit", ParamType.INT, "Entries per page (default 500)."),
+            ),
+        ),
+        OperationSpec(
+            "data.files.read",
+            "A file of the app: text inline when short, otherwise written to output on this machine.",
+            Scope.APP,
+            listOf(
+                ParamSpec("path", ParamType.STRING, "The file (data:/… or external:/…).", required = true, positional = true),
+                ParamSpec("output", ParamType.STRING, "Write the file here; the result gives size and sha256.", path = true, cliShort = "-o"),
+            ),
+        ),
+        OperationSpec(
+            "data.files.write",
+            "Write a file of the app (created or replaced, folders made as needed) from text, base64 or a file on this machine.",
+            Scope.APP,
+            listOf(
+                ParamSpec("path", ParamType.STRING, "The file (data:/… or external:/…).", required = true, positional = true),
+                ParamSpec("text", ParamType.STRING, "Text content (UTF-8)."),
+                ParamSpec("base64", ParamType.STRING, "Binary content, base64."),
+                ParamSpec("input", ParamType.STRING, "A file on this machine to copy.", path = true, cliShort = "-i"),
+            ),
+        ),
+        OperationSpec(
+            "data.files.mkdir",
+            "Create a folder of the app (and its parents).",
+            Scope.APP,
+            listOf(ParamSpec("path", ParamType.STRING, "The folder (data:/… or external:/…).", required = true, positional = true)),
+        ),
+        OperationSpec(
+            "data.files.delete",
+            "Delete a file or a folder with everything in it.",
+            Scope.APP,
+            listOf(ParamSpec("path", ParamType.STRING, "The file or folder (data:/… or external:/…).", required = true, positional = true)),
         ),
         OperationSpec(
             "archive.list",

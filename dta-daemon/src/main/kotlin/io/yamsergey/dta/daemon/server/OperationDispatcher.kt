@@ -83,6 +83,9 @@ class OperationDispatcher(
         fun long(name: String): Long? = (params[name] as? JsonPrimitive)?.longOrNull
         fun strings(name: String): List<String>? = (params[name] as? JsonArray)?.map { (it as JsonPrimitive).content }
         fun required(name: String): String = string(name) ?: throw InvalidParamsException("missing required parameter '$name'")
+
+        /** The operation's own params, for a sidekick method that takes them as they are (027). */
+        fun forward(): JsonObject = JsonObject(params.filterKeys { it != "device" && it != "app" })
     }
 
     private val handlers: Map<String, suspend (Call) -> JsonElement> = mapOf(
@@ -167,6 +170,25 @@ class OperationDispatcher(
                 invalid(e.message ?: "the live history is not deleted here")
             }
         },
+        // Feature 027: the app's stores.
+        "data.list" to { c -> encode(io.yamsergey.dta.protocol.data.StoreList.serializer(), ops.data(c.device, c.app).list()) },
+        "data.db.schema" to { c -> encode(io.yamsergey.dta.protocol.data.DbSchema.serializer(), ops.data(c.device, c.app).schema(c.forward())) },
+        "data.db.query" to { c -> encode(io.yamsergey.dta.protocol.data.QueryPage.serializer(), ops.data(c.device, c.app).query(c.forward())) },
+        "data.db.exec" to { c -> encode(io.yamsergey.dta.daemon.data.DbExecOutcome.serializer(), ops.data(c.device, c.app).exec(c.forward())) },
+        "data.prefs.read" to { c -> encode(io.yamsergey.dta.protocol.data.PrefsContent.serializer(), ops.data(c.device, c.app).prefsRead(c.forward())) },
+        "data.prefs.set" to { c -> encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).prefsSet(c.forward())) },
+        "data.prefs.remove" to { c -> encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).prefsRemove(c.forward())) },
+        "data.proto.read" to { c -> encode(io.yamsergey.dta.protocol.data.ProtoContent.serializer(), ops.data(c.device, c.app).protoRead(c.required("store"), c.string("type"))) },
+        "data.proto.write" to { c ->
+            encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).protoWrite(c.required("store"), c.required("type"), c.required("json")))
+        },
+        "data.files.list" to { c -> encode(io.yamsergey.dta.protocol.data.FileListing.serializer(), ops.data(c.device, c.app).filesList(c.forward())) },
+        "data.files.read" to { c -> encode(io.yamsergey.dta.protocol.data.FileContent.serializer(), ops.data(c.device, c.app).filesRead(c.required("path"), c.string("output"))) },
+        "data.files.write" to { c ->
+            encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).filesWrite(c.required("path"), c.string("text"), c.string("base64"), c.string("input")))
+        },
+        "data.files.mkdir" to { c -> encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).mkdir(c.required("path"))) },
+        "data.files.delete" to { c -> encode(io.yamsergey.dta.protocol.data.DataWriteResult.serializer(), ops.data(c.device, c.app).delete(c.required("path"))) },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },
         "network.mapping.remove" to { c ->
             val id = c.required("id")

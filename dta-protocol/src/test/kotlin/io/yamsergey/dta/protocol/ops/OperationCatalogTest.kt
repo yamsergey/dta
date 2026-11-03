@@ -28,7 +28,7 @@ class OperationCatalogTest {
     }
 
     @Test
-    fun `the 008 operation set plus apps watch (009) and the archive (011)`() {
+    fun `the 008 operation set plus apps watch (009) and the archive (011) and app data (027)`() {
         assertEquals(
             setOf(
                 "devices.list", "apps.list", "apps.watch", "capability.report", "layout.tree",
@@ -41,6 +41,9 @@ class OperationCatalogTest {
                 "archive.list", "archive.delete",
                 "timeline.events", "timeline.watch", "timeline.causes", "state.current", "state.graph", "state.path",
                 "daemon.status", "daemon.stop",
+                "data.list", "data.db.schema", "data.db.query", "data.db.exec",
+                "data.prefs.read", "data.prefs.set", "data.prefs.remove", "data.proto.read", "data.proto.write",
+                "data.files.list", "data.files.read", "data.files.write", "data.files.mkdir", "data.files.delete",
             ),
             Catalog.all.map { it.name }.toSet(),
         )

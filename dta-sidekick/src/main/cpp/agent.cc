@@ -6,6 +6,7 @@
 // Kotlin as a reason string, slicer failures arrive as exceptions caught in Transform(),
 // and a failed transform leaves the class bytes untouched.
 
+#include <android/api-level.h>
 #include <android/log.h>
 #include <jni.h>
 
@@ -100,6 +101,8 @@ std::string Attach(JavaVM* vm) {
   memset(&caps, 0, sizeof(caps));
   caps.can_retransform_classes = 1;
   caps.can_retransform_any_class = potential.can_retransform_any_class;
+  // Feature 027: finding the app's live objects (open databases, preference stores).
+  caps.can_tag_objects = potential.can_tag_objects;
   jvmtiError error = jvmti->AddCapabilities(&caps);
   if (error != JVMTI_ERROR_NONE) return "AddCapabilities: " + std::to_string(error);
 
@@ -256,4 +259,76 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
     g_jvmti->RetransformClasses(1, &target);
   }
   return env->NewStringUTF(reason.c_str());
+}
+
+// Feature 027 (research R1): the live instances of [target] and its subclasses (interfaces
+// included), as Android Studio's App Inspection findInstances does: a fresh tag per call on
+// every instance, read back with GetObjectsWithTags, then cleared so tags do not pile up.
+// Returns null when the runtime refuses (the reason is logged).
+namespace {
+std::mutex g_instances_mutex;
+jlong g_next_tag = 1;
+
+jint JNICALL TagInstance(jlong, jlong, jlong* tag_ptr, jint, void* user_data) {
+  *tag_ptr = *reinterpret_cast<jlong*>(user_data);
+  return 0;
+}
+
+jvmtiIterationControl JNICALL TagInstanceQ(jlong, jlong, jlong* tag_ptr, void* user_data) {
+  *tag_ptr = *reinterpret_cast<jlong*>(user_data);
+  return JVMTI_ITERATION_CONTINUE;
+}
+}  // namespace
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeInstances(JNIEnv* env, jclass,
+                                                                 jclass target) {
+  if (g_jvmti == nullptr) return nullptr;
+  std::lock_guard<std::mutex> lock(g_instances_mutex);
+  jlong tag = g_next_tag++;
+  jvmtiError error = JVMTI_ERROR_NONE;
+  jboolean is_interface = JNI_FALSE;
+  g_jvmti->IsInterface(target, &is_interface);
+  if (android_get_device_api_level() >= 29 && !is_interface) {
+    error = g_jvmti->IterateOverInstancesOfClass(target, JVMTI_HEAP_OBJECT_EITHER,
+                                                TagInstanceQ, &tag);
+  } else {
+    // Below Q (and for interfaces): IterateThroughHeap filters by exact class, so every loaded
+    // class assignable to the target is walked.
+    jint count = 0;
+    jclass* classes = nullptr;
+    error = g_jvmti->GetLoadedClasses(&count, &classes);
+    if (error == JVMTI_ERROR_NONE) {
+      jvmtiHeapCallbacks callbacks;
+      memset(&callbacks, 0, sizeof(callbacks));
+      callbacks.heap_iteration_callback = TagInstance;
+      for (jint i = 0; i < count && error == JVMTI_ERROR_NONE; i++) {
+        jboolean iface = JNI_FALSE;
+        g_jvmti->IsInterface(classes[i], &iface);
+        if (!iface && env->IsAssignableFrom(classes[i], target)) {
+          error = g_jvmti->IterateThroughHeap(0, classes[i], &callbacks, &tag);
+        }
+      }
+      g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(classes));
+    }
+  }
+  if (error != JVMTI_ERROR_NONE) {
+    LOGW("instances not found: %s", JvmtiErrorName(error).c_str());
+    return nullptr;
+  }
+  jint count = 0;
+  jobject* objects = nullptr;
+  error = g_jvmti->GetObjectsWithTags(1, &tag, &count, &objects, nullptr);
+  if (error != JVMTI_ERROR_NONE) {
+    LOGW("tagged instances not read: %s", JvmtiErrorName(error).c_str());
+    return nullptr;
+  }
+  jobjectArray result = env->NewObjectArray(count, env->FindClass("java/lang/Object"), nullptr);
+  for (jint i = 0; i < count; i++) {
+    g_jvmti->SetTag(objects[i], 0);
+    if (result != nullptr) env->SetObjectArrayElement(result, i, objects[i]);
+    env->DeleteLocalRef(objects[i]);
+  }
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(objects));
+  return result;
 }
