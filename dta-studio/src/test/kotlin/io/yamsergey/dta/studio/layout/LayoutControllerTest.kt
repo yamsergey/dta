@@ -67,6 +67,8 @@ class LayoutControllerTest {
     fun `a refresh keeps the selected node where it moved, and says when it is gone`() = runBlocking<Unit> {
         daemon.ops.capture = screen(button(2, "Pay"))
         session.start()
+        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
+        await { it.app == "com.example.shop" }
         layout.setActive(true)
         await { it.tree != null }
         layout.select(listOf(0, 0))
@@ -87,6 +89,8 @@ class LayoutControllerTest {
     @Test
     fun `choosing a detail level recaptures at that level`() = runBlocking<Unit> {
         session.start()
+        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
+        await { it.app == "com.example.shop" }
         layout.setActive(true)
         await { it.tree != null }
         layout.setDetail(DetailLevel.COMPOSITION)
@@ -98,6 +102,8 @@ class LayoutControllerTest {
     fun `search expands the ancestors of matches and steps through them`() = runBlocking<Unit> {
         daemon.ops.capture = screen(ViewNode(3, Rect(0, 0, 10, 10), "android.widget.LinearLayout", children = listOf(button(4, "Pay now"))), button(5, "Pay later"))
         session.start()
+        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
+        await { it.app == "com.example.shop" }
         layout.setActive(true)
         await { it.tree != null }
         layout.search("pay")
@@ -134,6 +140,8 @@ class LayoutControllerTest {
     fun `the screen is taken while the screen pane is shown, and the selection is outlined on it`() = runBlocking<Unit> {
         daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))))
         session.start()
+        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
+        await { it.app == "com.example.shop" }
         layout.setActive(true)
         await { it.tree?.screen != null }
         assertTrue(daemon.ops.screenRequests.last() != null)
@@ -152,6 +160,8 @@ class LayoutControllerTest {
     fun `clicking the picture selects the deepest element, and the next action climbs to its parents`() = runBlocking<Unit> {
         daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))), toast)
         session.start()
+        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
+        await { it.app == "com.example.shop" }
         layout.setActive(true)
         await { it.tree?.screen != null }
         layout.pick(150.0, 230.0)
@@ -166,6 +176,8 @@ class LayoutControllerTest {
     fun `hovering names what is under the pointer, a window that is not the app's included`() = runBlocking<Unit> {
         daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))), toast)
         session.start()
+        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
+        await { it.app == "com.example.shop" }
         layout.setActive(true)
         await { it.tree?.screen != null }
         layout.hover(500.0, 2050.0)
@@ -182,6 +194,8 @@ class LayoutControllerTest {
     fun `after a refresh the outline follows the element to where it moved`() = runBlocking<Unit> {
         daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))))
         session.start()
+        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
+        await { it.app == "com.example.shop" }
         layout.setActive(true)
         await { it.tree?.screen != null }
         layout.select(listOf(0, 0))
