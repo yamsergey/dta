@@ -44,7 +44,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             openLayout = { tabs.selectedComponent = layoutPanel },
         )
         // Feature 027: the app's stores, for the device and app the context line shows.
-        val dataPanel = io.yamsergey.dta.studio.data.DataPanel(project, service.scope) { op, params ->
+        val appCall: suspend (String, kotlinx.serialization.json.JsonObject) -> kotlinx.serialization.json.JsonObject = { op, params ->
             val state = controller.state.value
             val client = controller.client ?: error("Not connected to the DTA service.")
             val device = state.device ?: error("Choose a device.")
@@ -53,11 +53,16 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             // A list result (network.schema.list) comes wrapped as {"items": [...]}.
             result as? kotlinx.serialization.json.JsonObject ?: kotlinx.serialization.json.JsonObject(mapOf("items" to result))
         }
+        val dataPanel = io.yamsergey.dta.studio.data.DataPanel(project, service.scope, call = appCall)
+        // Feature 028: what the running process holds.
+        val runtimePanel = io.yamsergey.dta.studio.data.RuntimePanel(project, service.scope, call = appCall)
+        var runtimeFor: Pair<String?, String?>? = null
         var dataFor: Pair<String?, String?>? = null
         tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
             addTab("Timeline", timelinePanel)
             addTab("Data", dataPanel)
+            addTab("Runtime", runtimePanel)
             addTab("Links", linksPanel)
             addTab("Layout", layoutPanel)
             addTab("Script", scriptPanel)
@@ -70,6 +75,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         tabs.addChangeListener {
             service.layout.setActive(tabs.selectedComponent === layoutPanel)
             service.timeline.setActive(tabs.selectedComponent === timelinePanel)
+            if (tabs.selectedComponent === runtimePanel) controller.state.value.let { st -> if (runtimeFor != st.device to st.app) { runtimeFor = st.device to st.app; runtimePanel.load() } }
             if (tabs.selectedComponent === dataPanel) controller.state.value.let { st -> if (dataFor != st.device to st.app) { dataFor = st.device to st.app; dataPanel.load() } }
             // Script and Schemas are refreshed when shown and after their actions; Links while shown.
             if (tabs.selectedComponent === linksPanel) linksPanel.show(controller.state.value) else linksPanel.stopRefreshing()
@@ -97,6 +103,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                     bar.show(state)
                     banner.show(state.banner)
                     daemonPanel.refresh(state)
+                    if (tabs.selectedComponent === runtimePanel && runtimeFor != state.device to state.app) { runtimeFor = state.device to state.app; runtimePanel.load() }
                     if (tabs.selectedComponent === dataPanel && dataFor != state.device to state.app) { dataFor = state.device to state.app; dataPanel.load() }
                     when (tabs.selectedComponent) {
                         scriptPanel -> scriptPanel.show(state)
