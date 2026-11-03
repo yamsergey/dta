@@ -57,6 +57,16 @@ open class Page : JPanel(GridBagLayout()), Scrollable {
         })
     }
 
+    /** A component (a link) in the name column and a text value beside it. */
+    fun field(name: JComponent, value: String, mono: Boolean = false) {
+        add(name, GridBagConstraints().apply {
+            gridx = 0; gridy = row; anchor = GridBagConstraints.NORTHWEST; insets = JBUI.insets(2, 0, 2, 12)
+        })
+        add(Value(value, mono), GridBagConstraints().apply {
+            gridx = 1; gridy = row++; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL; anchor = GridBagConstraints.NORTHWEST; insets = JBUI.insets(2, 0)
+        })
+    }
+
     /** Pushes everything above it to the top. */
     fun end() {
         add(JPanel().apply { isOpaque = false }, GridBagConstraints().apply { gridx = 0; gridy = row++; weighty = 1.0; gridwidth = 2; fill = GridBagConstraints.BOTH })

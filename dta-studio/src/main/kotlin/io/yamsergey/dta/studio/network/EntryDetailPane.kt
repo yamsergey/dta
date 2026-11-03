@@ -202,11 +202,9 @@ class EntryDetailPane(
 
     private fun messagesPage(detail: EntryDetail) = Page().apply {
         detail.messages.forEach { m ->
-            val text = listOfNotNull(m.preview, m.timing.ifEmpty { null }).joinToString("   ").ifEmpty { m.kind.label }
-            field("${m.time}  ${m.kind.label}", ActionLink(text) { open(m.id) }.apply {
-                font = com.intellij.util.ui.UIUtil.getFontWithFallback(editorFont(), Font.PLAIN, font.size)
-                toolTipText = "Show this message"
-            })
+            // The time and direction open the message; its text stays text, to select and copy.
+            field(ActionLink("${m.time}  ${m.kind.label}") { open(m.id) }.apply { toolTipText = "Show this message" },
+                listOfNotNull(m.preview, m.timing.ifEmpty { null }).joinToString("   "), mono = true)
         }
         detail.messagesMore?.let { line(JBLabel(it).apply { foreground = JBColor.GRAY }, top = 6) }
         end()
