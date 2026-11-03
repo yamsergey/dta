@@ -22,14 +22,11 @@ class ProcessGradleRunner : GradleRunner {
                 .apply { environment().putAll(env) }
                 .start()
         }
-        val stop = thread(start = false) { process.descendants().forEach { it.destroy() }; process.destroy() }
+        val stop = thread(start = false) { stopTree(process) }
         Runtime.getRuntime().addShutdownHook(stop)
         try {
             return suspendCancellableCoroutine { continuation ->
-                continuation.invokeOnCancellation {
-                    process.descendants().forEach { it.destroy() }
-                    process.destroy()
-                }
+                continuation.invokeOnCancellation { stopTree(process) }
                 thread(name = "dta-gradle-output", isDaemon = true) {
                     log.bufferedWriter().use { out ->
                         process.inputStream.bufferedReader().forEachLine { line ->
@@ -46,5 +43,16 @@ class ProcessGradleRunner : GradleRunner {
             runCatching { Runtime.getRuntime().removeShutdownHook(stop) }
             if (process.isAlive) runInterruptible(Dispatchers.IO) { process.destroy() }
         }
+    }
+
+    /**
+     * The wrapper first, then what it started: stopping a child first lets the wrapper run its next
+     * command before it is stopped itself. The children are listed before, as they leave the tree
+     * once their parent is gone.
+     */
+    private fun stopTree(process: Process) {
+        val children = process.descendants().toList()
+        process.destroy()
+        children.forEach { it.destroy() }
     }
 }
