@@ -1,0 +1,56 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches: [ main, dta-refined ]
+  pull_request:
+    branches: [ main, dta-refined ]
+  schedule:
+    # Weekly scan on Monday at 8am UTC (scheduled runs use the default branch's copy of this file).
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  snyk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      # Snyk's exit codes: 0 nothing found, 1 vulnerabilities found (reported to Code Scanning
+      # below), 2 the scan failed (e.g. the token is not accepted), 3 no project found. Only 0
+      # and 1 are a scan; anything else fails here with Snyk's own message, instead of uploading
+      # an empty report.
+      - name: Run Snyk on every Gradle project
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -z "$SNYK_TOKEN" ]; then echo "::error::SNYK_TOKEN is not set in the repository secrets"; exit 1; fi
+          set +e
+          snyk test --all-sub-projects --severity-threshold=high --sarif-file-output=snyk.sarif
+          code=$?
+          set -e
+          case "$code" in
+            0|1) echo "snyk test finished (exit $code)";;
+            2) echo "::error::Snyk could not scan (exit 2): see the message above; an 'Authentication error (SNYK-0005)' means SNYK_TOKEN must be renewed"; exit 2;;
+            *) echo "::error::Snyk found nothing to scan (exit $code)"; exit "$code";;
+          esac
+
+      - name: Upload Snyk results to GitHub Code Scanning
+        if: always() && hashFiles('snyk.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk.sarif
