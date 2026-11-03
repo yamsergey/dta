@@ -549,6 +549,21 @@ data class NetworkEntryDetail(
 @Serializable
 data class NetworkBodyResult(val body: BodyInfo)
 
+/** Result of `network.export` (feature 026): what the HAR file holds. */
+@Serializable
+data class NetworkExportResult(
+    val file: String,
+    /** HTTP exchanges and WebSocket connections written. */
+    val entries: Int,
+    val webSocketMessages: Int,
+    /** Bodies and payloads written. */
+    val bodies: Int,
+    /** Bodies left out (not stored, withheld by redaction, unreadable); each says why in the file. */
+    val bodiesOmitted: Int,
+    /** Messages beyond what a connection's details carry, not in the file. */
+    val messagesNotExported: Int = 0,
+)
+
 /** Result of `network_clear`. */
 @Serializable
 data class ClearResult(val clearedEntries: Int, val clearedAtMs: Long)

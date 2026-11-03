@@ -54,7 +54,7 @@ object DaemonMain {
         server = DaemonServer(
             identity = identity,
             stateFile = StateFile(File(home, "daemon")),
-            dispatcher = OperationDispatcher(ops, selector),
+            dispatcher = OperationDispatcher(ops, selector, identity.version),
             ops = ops,
             selector = selector,
             status = { clients ->

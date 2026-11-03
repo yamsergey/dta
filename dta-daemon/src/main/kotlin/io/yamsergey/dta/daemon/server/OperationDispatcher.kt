@@ -70,6 +70,8 @@ import java.io.File
 class OperationDispatcher(
     private val ops: DaemonOperations,
     private val selector: Selector,
+    /** Names DTA in exported files (HAR creator). */
+    private val version: String = "dev",
 ) {
     /** What one handler sees: resolved target and validated params. */
     private class Call(val serial: String?, val pkg: String?, val params: JsonObject) {
@@ -92,6 +94,7 @@ class OperationDispatcher(
         "network.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
         "network.body" to { c -> encode(BodyResult.serializer(), body(c)) },
         "network.clear" to { c -> encode(ClearResult.serializer(), ops.networkClear(c.device, c.app)) },
+        "network.export" to { c -> encode(io.yamsergey.dta.protocol.network.NetworkExportResult.serializer(), export(c)) },
         "network.script.set" to { c -> encode(ScriptStatus.serializer(), ops.networkScriptSet(c.device, c.app, scriptSource(c))) },
         "network.script.clear" to { c -> buildJsonObject { put("cleared", ops.networkScriptClear(c.device, c.app)) } },
         "network.script.status" to { c -> encode(ScriptStatus.serializer(), ops.networkScriptStatus(c.device, c.app)) },
@@ -260,6 +263,22 @@ class OperationDispatcher(
         val detail = c.string("detail")?.let { d -> DetailLevel.entries.first { it.name.lowercase() == d } } ?: DetailLevel.SEMANTIC
         val screen = if (c.bool("screen") || c.string("screenOutput") != null) io.yamsergey.dta.daemon.layout.ScreenRequest(c.string("screenOutput")) else null
         return ops.layout(c.device, c.pkg, filter.takeUnless { it.isEmpty }, detail, c.bool("frameworkFrames"), screen)
+    }
+
+    /** Feature 026: the list's selection as one HAR file; bodies through `network.body`'s path, redaction alike. */
+    private suspend fun export(c: Call): io.yamsergey.dta.protocol.network.NetworkExportResult {
+        val output = java.io.File(c.required("output"))
+        val redact = c.bool("redact")
+        val params = JsonObject(c.params.filterKeys { it != "output" && it != "format" })
+        return io.yamsergey.dta.daemon.network.NetworkExport(
+            page = { q -> ops.network(c.device, c.app, q) },
+            entry = { id -> ops.networkEntry(c.device, c.app, id, redact) },
+            body = { id, part, file ->
+                ops.networkBody(c.device, c.app, id, part, BodyOutput.File(file.path), redact, allowUnredacted = false)
+                check(file.exists()) { "no bytes stored" }
+            },
+            version = version,
+        ).export(query(params), output)
     }
 
     private suspend fun body(c: Call): BodyResult {

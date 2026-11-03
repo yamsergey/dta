@@ -262,6 +262,19 @@ object Catalog {
         ),
         OperationSpec("network.clear", "Delete the app's captured network history.", Scope.APP),
         OperationSpec(
+            "network.export",
+            "Write the entries network.list selects (all pages, same filters) to a HAR 1.2 file that browsers' developer tools and proxies open: headers, timings, bodies (binary as base64), WebSocket connections with their messages. The result counts entries, messages and bodies, and bodies left out (each says why in the file).",
+            Scope.APP,
+            listOf(ParamSpec("output", ParamType.STRING, "The .har file to write.", required = true, path = true, cliShort = "-o")) + NETWORK_FILTERS + listOf(
+                ParamSpec("sinceMs", ParamType.LONG, "Only entries at or after this epoch millisecond."),
+                ParamSpec("untilMs", ParamType.LONG, "Only entries at or before this epoch millisecond."),
+                ParamSpec("bodyContains", ParamType.STRING, "Case-sensitive text inside a body or payload."),
+                ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
+                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
+                ParamSpec("archive", ParamType.STRING, "Archived history instead of the live one (as network.list)."),
+            ),
+        ),
+        OperationSpec(
             "network.watch", "Follow new network entries as they happen, until interrupted. With history=current, the running process's entries come first.", Scope.APP,
             NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
             streaming = true, cliOnly = true,

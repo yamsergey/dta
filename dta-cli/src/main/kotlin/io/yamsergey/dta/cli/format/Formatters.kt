@@ -39,6 +39,11 @@ class Formatters(private val style: Style) {
         "network.entry" -> networkEntry(result.obj)
         "network.body" -> body(result.obj)
         "network.clear" -> "Cleared ${result.obj.long("clearedEntries")} entries."
+        "network.export" -> result.obj.let { o ->
+            "Exported ${o.long("entries")} entries, ${o.long("webSocketMessages")} WebSocket messages and ${o.long("bodies")} bodies to ${o.str("file")}" +
+                (o.long("bodiesOmitted")?.takeIf { it > 0 }?.let { "; $it bodies left out (the file says why)" } ?: "") +
+                (o.long("messagesNotExported")?.takeIf { it > 0 }?.let { "; $it messages beyond a connection's first 1000 not exported" } ?: "") + "."
+        }
         "network.script.set", "network.script.status" -> scriptStatus(result.obj)
         "network.script.clear" -> if (result.obj.bool("cleared")) "Network script removed." else "No network script was active."
         "network.script.logs" -> scriptLogs(result.obj)
