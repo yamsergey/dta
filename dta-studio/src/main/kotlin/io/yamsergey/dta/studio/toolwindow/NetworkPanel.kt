@@ -218,7 +218,7 @@ class NetworkPanel(
         if (s.filters != previous.filters || s.list.total < previous.list.total) caption.reset()
         caption.text = s.filters.caption(s.list.shown, s.list.total)
         statements.removeAll()
-        (s.statements + listOfNotNull(
+        (io.yamsergey.dta.present.Statements.forNetworkTab(s.statements) + listOfNotNull(
             if (s.list.paused) io.yamsergey.dta.present.Statement(io.yamsergey.dta.present.StatementKind.PENDING, word = "paused", detail = "paused: ${s.list.backlog} waiting; capture goes on") else null,
         )).forEach { statements.add(StatementMark(it)) }
         s.error?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.of("status-server") }) }

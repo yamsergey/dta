@@ -11,6 +11,7 @@ import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.StatementKind
+import io.yamsergey.dta.present.Statements
 import io.yamsergey.dta.present.network.EntryDetail
 import io.yamsergey.dta.present.network.FrameLine
 import io.yamsergey.dta.protocol.network.FrameClassifier
@@ -132,7 +133,7 @@ class EntryDetailPane(
         }
         val statements = listOfNotNull(
             if (gone) Statement(StatementKind.EVICTED, word = "no longer in the list", detail = "no longer in the list") else null,
-        ) + detail.statements
+        ) + Statements.forNetworkTab(detail.statements)
         if (statements.isNotEmpty()) header.add(row(statements.map { StatementMark(it) }))
         if (shownUnlisted) header.add(JBLabel("Not in the list as filtered").apply { foreground = JBColor.GRAY }.left())
         detail.connection?.let { link ->

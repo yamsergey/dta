@@ -221,6 +221,12 @@ object Statements {
     }
 
     /** Degradation markers (`[{capability, reason}]`): the reason is the protocol code, explained by [Degradations]. */
+    /**
+     * What the plugin's Network tab shows (user decision, 2026-11-03): no "degraded" marks there, as
+     * they misled more than they told; CLI and MCP results keep them for agents.
+     */
+    fun forNetworkTab(statements: List<Statement>): List<Statement> = statements.filter { it.kind != StatementKind.DEGRADED }
+
     fun markers(element: JsonElement?): List<Statement> = (element as? JsonArray).orEmpty().map { m ->
         val marker = m.asObj()
         Statement(StatementKind.DEGRADED, detail = "${marker.str("capability")}: ${marker.str("reason")}", code = marker.str("reason"),

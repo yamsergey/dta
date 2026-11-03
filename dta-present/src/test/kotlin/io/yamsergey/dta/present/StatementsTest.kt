@@ -77,6 +77,14 @@ class StatementsTest {
     }
 
     @Test
+    fun `the plugin's Network tab drops degraded marks, keeping every other statement`() {
+        val all = Statements.forNetworkList(list)
+        val shown = Statements.forNetworkTab(all)
+        assertTrue(all.any { it.kind == DEGRADED })
+        assertEquals(all.filter { it.kind != DEGRADED }, shown)
+    }
+
+    @Test
     fun `a list states eviction, unsearched runs and degradation codes verbatim`() {
         val statements = Statements.forNetworkList(list)
         assertEquals(listOf(DEGRADED, DEGRADED, EVICTED), statements.kinds())
