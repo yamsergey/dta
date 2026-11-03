@@ -32,6 +32,7 @@ Results say how each value was obtained. Never ignore them:
 ## History and archive
 
 - `network_list` answers from this computer's copy of the app's history. Coverage may say entries or bodies are not read or copied yet: ask again.
+- `network_export` writes what `network_list` selects (same filters, all pages) to a HAR file for browsers' tools or the user; prefer `network_list`/`network_body` to read traffic yourself.
 - When the device cleared or lost its history, this computer kept it: the live list states `archivedEpochs`. Pass `archive` (`all`, `version:<name>`, `<fromMs>..<toMs>`, or an epoch id from `archive_list`) to look back; every entry then carries its epoch and why it was archived. The app does not need to run for that.
 - `archive_delete` only says what it would remove unless `confirm` is true; deleting is the user's call, so ask first.
 

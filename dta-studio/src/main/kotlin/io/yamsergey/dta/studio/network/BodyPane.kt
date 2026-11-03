@@ -133,7 +133,13 @@ class BodyPane(
                     BodyMode.HEX -> "txt"
                     else -> v.format.extension
                 }
-                editor.show(v.render(mode, bytes), extension)
+                val text = v.render(mode, bytes)
+                editor.show(text, extension)
+                // Feature 026: what this mode shows, as shown.
+                actions.add(ActionLink("Copy") {
+                    com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(java.awt.datatransfer.StringSelection(text))
+                    com.intellij.openapi.wm.StatusBar.Info.set("Copied the body as shown (${mode.name.lowercase()}).", project)
+                })
                 if (mode == BodyMode.FORMATTED || mode == BodyMode.QUERY) {
                     actions.add(ActionLink("Expand all") { editor.foldAll(false) })
                     actions.add(ActionLink("Collapse all") { editor.foldAll(true) })

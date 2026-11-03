@@ -81,6 +81,18 @@ class NetworkPanel(
             }
         })
         setDefaultRenderer(Any::class.java, RowRenderer())
+        // Feature 026: right-click selects the row and offers its copy actions.
+        addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mousePressed(e: java.awt.event.MouseEvent) = popup(e)
+            override fun mouseReleased(e: java.awt.event.MouseEvent) = popup(e)
+            private fun popup(e: java.awt.event.MouseEvent) {
+                if (!e.isPopupTrigger) return
+                val row = rowAtPoint(e.point).takeIf { it >= 0 } ?: return
+                setRowSelectionInterval(row, row)
+                val r = this@NetworkPanel.model.rowAt(row)
+                copyMenu.show(r.id, (r.entry["type"] as? JsonPrimitive)?.content, this@apply, e.x, e.y)
+            }
+        })
     }
     private val scroll = JBScrollPane(table)
     private val chips = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
@@ -97,7 +109,12 @@ class NetworkPanel(
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
     private val orderLink = ActionLink("") { setOrder(model.order.toggled()) }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
-    private val detail = EntryDetailPane(project, scope) { id -> network.reveal(id) }
+    /** Feature 026: copy actions, with the view's redaction. */
+    private val copyMenu = io.yamsergey.dta.studio.network.EntryCopyMenu(project, scope, { context.client }) {
+        JsonObject(listOfNotNull(last.device?.let { "device" to JsonPrimitive(it) }, last.app?.let { "app" to JsonPrimitive(it) }).toMap() +
+            if (last.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+    }
+    private val detail = EntryDetailPane(project, scope, copyMenu) { id -> network.reveal(id) }
     // The list gets most of the width; the person's own split is remembered.
     private val splitter = JBSplitter(false, "dta.network.split", 0.68f)
     private var programmaticScroll = false
@@ -135,6 +152,7 @@ class NetworkPanel(
             add(source)
             add(pause)
             add(redact)
+            add(ActionLink("Export HAR…") { exportHar() })
             add(ActionLink("Clear") { clear() })
         }
         val master = JPanel(BorderLayout()).apply {
@@ -280,6 +298,22 @@ class NetworkPanel(
     private fun clear() {
         val app = last.app ?: return
         if (Messages.showYesNoDialog(project, "Delete the captured network history of $app?", "Clear Network History", null) == Messages.YES) network.clear()
+    }
+
+    /** Feature 026: what the list shows (filters, live or archive, redaction) as a HAR file. */
+    private fun exportHar() {
+        if (last.app == null) return
+        val descriptor = com.intellij.openapi.fileChooser.FileSaverDescriptor("Export HAR", "The entries the list shows, with bodies and WebSocket messages", "har")
+        val name = "${last.app}-${java.time.LocalDateTime.now().withNano(0).toString().replace(':', '-')}.har"
+        val file = com.intellij.openapi.fileChooser.FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project).save(name)?.file ?: return
+        com.intellij.openapi.wm.StatusBar.Info.set("Exporting HAR to ${file.path}…", project)
+        network.export(file.absolutePath) { result ->
+            result.onSuccess { o ->
+                fun n(k: String) = (o[k] as? JsonPrimitive)?.content ?: "0"
+                val omitted = n("bodiesOmitted").takeIf { it != "0" }?.let { " $it bodies left out (the file says why)." } ?: ""
+                com.intellij.openapi.wm.StatusBar.Info.set("Exported ${n("entries")} entries, ${n("webSocketMessages")} WebSocket messages, ${n("bodies")} bodies to ${file.path}.$omitted", project)
+            }.onFailure { e -> Messages.showErrorDialog(project, e.message ?: e.javaClass.simpleName, "Export HAR") }
+        }
     }
 
     private fun copySelected() {

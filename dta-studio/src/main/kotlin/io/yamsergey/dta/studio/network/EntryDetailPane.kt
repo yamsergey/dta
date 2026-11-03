@@ -44,6 +44,8 @@ import javax.swing.SwingConstants
 class EntryDetailPane(
     private val project: Project,
     private val scope: CoroutineScope,
+    /** Feature 026: the details' Copy menu; none in tests. */
+    private val copyMenu: EntryCopyMenu? = null,
     /** Shows another entry, as a click in the list would (025: a message's connection, a connection's message). */
     private val open: (String) -> Unit = {},
 ) : JPanel(BorderLayout()) {
@@ -129,7 +131,15 @@ class EntryDetailPane(
     private fun renderHeader(detail: EntryDetail, gone: Boolean) {
         header.removeAll()
         detail.summary.firstOrNull()?.let { first ->
-            header.add(JBLabel(first.value).apply { font = font.deriveFont(Font.BOLD); setCopyable(true) }.left())
+            val title = JBLabel(first.value).apply { font = font.deriveFont(Font.BOLD); setCopyable(true) }
+            val id = shown
+            val menu = copyMenu
+            if (menu != null && id != null) {
+                val type = (raw?.get("entry") as? JsonObject)?.get("type")?.let { (it as JsonPrimitive).content }
+                lateinit var link: ActionLink
+                link = ActionLink("Copy ▾") { menu.show(id, type, link, 0, link.height) }
+                header.add(row(listOf(title, link)))
+            } else header.add(title.left())
         }
         val statements = listOfNotNull(
             if (gone) Statement(StatementKind.EVICTED, word = "no longer in the list", detail = "no longer in the list") else null,

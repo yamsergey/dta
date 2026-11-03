@@ -51,6 +51,14 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
         assertEquals(listOf("r2-1:8"), opened)
     }
 
+    fun `test the details offer a Copy menu (026)`() {
+        val menu = EntryCopyMenu(project, scope, { null }) { kotlinx.serialization.json.JsonObject(emptyMap()) }
+        val pane = EntryDetailPane(project, scope, menu)
+        pane.showLoaded("r2-1:6", Json.parseToJsonElement(javaClass.getResource("/entry-ws.json")!!.readText()).jsonObject)
+        render(pane, "copy-menu")
+        assertTrue(all(pane).filterIsInstance<ActionLink>().any { it.text == "Copy ▾" })
+    }
+
     fun `test a message links to its connection, and says when the list hides it`() {
         val opened = mutableListOf<String>()
         val pane = EntryDetailPane(project, scope) { opened += it }

@@ -116,6 +116,20 @@ class NetworkController(private val context: ContextController, private val scop
         }
     }
 
+    /** Feature 026: `network.export` of what the list shows, to [path]; [done] on the UI thread. */
+    fun export(path: String, done: (Result<JsonObject>) -> Unit) {
+        val s = mutable.value
+        val c = context.client ?: return done(Result.failure(IllegalStateException("No DTA daemon connected.")))
+        scope.launch {
+            val params = JsonObject(
+                target(s) + s.filters.params() + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                    (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
+            )
+            val result = runCatching { c.call("network.export", params).result.jsonObject }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { done(result) }
+        }
+    }
+
     private fun reload() {
         val c = context.state.value
         reload(Target(c.device, c.app, c.connection != Connection.NO_DTA, c.generation, context.client))
