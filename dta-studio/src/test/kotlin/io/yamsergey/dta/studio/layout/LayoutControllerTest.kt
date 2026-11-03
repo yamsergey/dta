@@ -58,7 +58,10 @@ class LayoutControllerTest {
         assertTrue(daemon.ops.layoutRequests.isEmpty())
         layout.setActive(true)
         val shown = await { it.tree != null }
-        assertEquals(listOf<Pair<String?, DetailLevel>>("com.example.shop" to DetailLevel.LAYOUT), daemon.ops.layoutRequests.toList())
+        // The context may still settle (a new generation once the app's connection is reported):
+        // that is a fresh capture, never one of something else or at another detail.
+        val requests = daemon.ops.layoutRequests.toList()
+        assertTrue(requests.isNotEmpty() && requests.all { it == ("com.example.shop" to DetailLevel.LAYOUT) }, "$requests")
         assertEquals("1080×2400 px · MainActivity · sidekick", shown.tree!!.summary)
         assertEquals(shown.tree!!.initiallyExpanded, shown.expanded)
     }
