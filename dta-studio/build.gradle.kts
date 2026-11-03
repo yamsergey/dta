@@ -43,6 +43,9 @@ val androidStudioVersion = "2025.2.2.7"
 /** The current Android Studio release, verified as well so a newer IDE is checked before users get it. */
 val currentAndroidStudioVersion = "2026.2.2.8"
 
+/** The previous patch of the current release, still widely installed: it lacks platform API that 2026.2.2 has. */
+val previousAndroidStudioVersion = "2026.2.1.8"
+
 fun findLocalAndroidStudio(): String? {
     providers.gradleProperty("androidStudioPath").orNull?.let { return it }
     providers.environmentVariable("ANDROID_STUDIO_PATH").orNull?.let { return it }
@@ -138,6 +141,7 @@ intellijPlatform {
     pluginVerification {
         ides {
             create(IntelliJPlatformType.AndroidStudio, androidStudioVersion)
+            create(IntelliJPlatformType.AndroidStudio, previousAndroidStudioVersion)
             create(IntelliJPlatformType.AndroidStudio, currentAndroidStudioVersion)
         }
     }
