@@ -142,7 +142,7 @@ class TeeStreamsTest {
         TeeInputStream(stream, rec).close()
         val capture = result()!!
         assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
-        assertEquals("the app closed the body without reading it; 0 of 41 bytes had arrived", capture.reason)
+        assertEquals("the app closed the body without reading it; 0 of 41 bytes were captured by the close", capture.reason)
         assertTrue(!stream.waited)
         assertTrue(stream.closed)
     }
@@ -154,7 +154,7 @@ class TeeStreamsTest {
         val capture = result()!!
         assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
         assertEquals(300, capture.observedBytes)
-        assertEquals("the app stopped reading after 100 bytes; 300 of 1000 bytes had arrived", capture.reason)
+        assertEquals("the app stopped reading after 100 bytes; 300 of 1000 bytes were captured by the close", capture.reason)
     }
 
     @Test
@@ -165,7 +165,53 @@ class TeeStreamsTest {
         val capture = result()!!
         assertEquals(Completeness.PARTIALLY_OBSERVED, capture.completeness)
         assertEquals(500, capture.storedBytes)
-        assertEquals("the app closed the body without reading it; 500 bytes had arrived, the end was not seen", capture.reason)
+        assertEquals("the app closed the body without reading it; 500 bytes were captured by the close, the end was not seen", capture.reason)
+    }
+
+    @Test
+    fun `with the library's close wait, bytes not yet in the body's buffer are taken under its deadline`() {
+        // available() is 0 (the bytes sit in the connection's buffer), a read returns them at once.
+        val stream = object : java.io.InputStream() {
+            val bytes = data.copyOf(34)
+            var pos = 0
+            override fun available() = 0
+            override fun read(): Int = if (pos < bytes.size) bytes[pos++].toInt() and 0xFF else -1
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (pos >= bytes.size) return -1
+                val n = minOf(len, bytes.size - pos); System.arraycopy(bytes, pos, b, off, n); pos += n; return n
+            }
+        }
+        val events = mutableListOf<String>()
+        val wait = CloseWait { events += "begin"; AutoCloseable { events += "restore" } }
+        val sink = MemorySink()
+        val (rec, result) = recorder(sink, declared = 34)
+        TeeInputStream(stream, rec, wait).close()
+        assertEquals(BodyCapture(34, 34, Completeness.COMPLETE, null), result())
+        assertEquals(listOf("begin", "restore"), events)
+    }
+
+    @Test
+    fun `a close wait that runs out leaves the body partial and restores the deadline`() {
+        val stream = object : java.io.InputStream() {
+            var closed = false
+            override fun read(): Int = throw java.net.SocketTimeoutException("timeout")
+            override fun read(b: ByteArray, off: Int, len: Int): Int = throw java.net.SocketTimeoutException("timeout")
+            override fun close() { closed = true }
+        }
+        var restored = false
+        val (rec, result) = recorder(MemorySink(), declared = 41)
+        TeeInputStream(stream, rec, CloseWait { AutoCloseable { restored = true } }).close()
+        assertEquals("the app closed the body without reading it; 0 of 41 bytes were captured by the close", result()!!.reason)
+        assertTrue(restored)
+        assertTrue(stream.closed)
+    }
+
+    @Test
+    fun `a body read to its end needs no close wait`() {
+        var begun = false
+        val (rec, _) = recorder(MemorySink(), declared = 3)
+        TeeInputStream(ByteArrayInputStream(byteArrayOf(1, 2, 3)), rec, CloseWait { begun = true; null }).use { it.readBytes() }
+        assertTrue(!begun)
     }
 
     @Test

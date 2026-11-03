@@ -80,8 +80,8 @@ class BodyRecorder(
             !endOfStream && observed != declaredBytes -> BodyCapture(
                 stored, observed, Completeness.PARTIALLY_OBSERVED,
                 (if (appRead == 0L) "the app closed the body without reading it" else "the app stopped reading after $appRead bytes") +
-                    if (declaredBytes != null) "; $observed of $declaredBytes bytes had arrived"
-                    else "; $observed bytes had arrived, the end was not seen",
+                    if (declaredBytes != null) "; $observed of $declaredBytes bytes were captured by the close"
+                    else "; $observed bytes were captured by the close, the end was not seen",
             )
             else -> BodyCapture(stored, observed, Completeness.COMPLETE, null)
         }
@@ -114,16 +114,30 @@ class BodyRecorder(
     }
 }
 
-/** At most this many bytes are taken at close from what had already arrived. */
+/** At most this many bytes are taken at close. */
 private const val CLOSE_LIMIT = 1L shl 20
 
 /**
- * Response side: tees what the app reads. End of stream completes; a read error is partial.
- * When the app closes before the end (SDKs and `Unit` calls close unread), the bytes that have
- * already arrived are taken first: only `available()` bytes, so the close never waits for the
- * network, and those bytes are discarded by the close anyway (feature 023).
+ * Lets the read at close wait as long as the HTTP library itself waits when it discards the rest
+ * of a body closed early (OkHttp on HTTP/1: 100 ms, to reuse the connection). [begin] sets that
+ * deadline and returns what restores the previous one; null when no deadline can be set.
  */
-class TeeInputStream(input: InputStream, private val recorder: BodyRecorder) : FilterInputStream(input) {
+fun interface CloseWait {
+    fun begin(): AutoCloseable?
+}
+
+/**
+ * Response side: tees what the app reads. End of stream completes; a read error is partial.
+ * When the app closes before the end (SDKs and `Unit` calls close unread), the rest is taken first
+ * (feature 023): with a [CloseWait], the bytes the library would discard on close anyway, under its
+ * own deadline, so the close takes no longer than without DTA; without one, only `available()`
+ * bytes, never waiting.
+ */
+class TeeInputStream(
+    input: InputStream,
+    private val recorder: BodyRecorder,
+    private val closeWait: CloseWait? = null,
+) : FilterInputStream(input) {
 
     override fun read(): Int {
         val b = try {
@@ -174,17 +188,30 @@ class TeeInputStream(input: InputStream, private val recorder: BodyRecorder) : F
         if (`in` is java.util.zip.InflaterInputStream) return false
         var wanted = recorder.stillWanted()
         if (wanted <= 0) return false
-        val buffer = ByteArray(8192)
-        while (wanted > 0) {
-            val ready = `in`.available()
-            if (ready <= 0) return false
-            val n = `in`.read(buffer, 0, minOf(ready.toLong(), wanted, buffer.size.toLong()).toInt())
-            if (n == -1) return true
-            if (n == 0) return false
-            recorder.accept(buffer, 0, n, byApp = false)
-            wanted -= n
+        val wait = try {
+            closeWait?.begin()
+        } catch (_: Throwable) {
+            null
         }
-        return false
+        try {
+            val buffer = ByteArray(8192)
+            while (wanted > 0) {
+                val most = minOf(wanted, buffer.size.toLong())
+                val ask = if (wait != null) most else minOf(`in`.available().toLong(), most)
+                if (ask <= 0) return false
+                val n = `in`.read(buffer, 0, ask.toInt())
+                if (n == -1) return true
+                if (n == 0) return false
+                recorder.accept(buffer, 0, n, byApp = false)
+                wanted -= n
+            }
+            return false
+        } finally {
+            try {
+                wait?.close()
+            } catch (_: Throwable) {
+            }
+        }
     }
 }
 

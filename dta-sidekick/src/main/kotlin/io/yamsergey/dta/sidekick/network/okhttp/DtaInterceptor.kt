@@ -5,6 +5,7 @@ import io.yamsergey.dta.protocol.network.Initiator
 import io.yamsergey.dta.protocol.network.InitiatorSite
 import io.yamsergey.dta.protocol.network.NetworkLibraries
 import io.yamsergey.dta.sidekick.network.BodyRecorder
+import io.yamsergey.dta.sidekick.network.CloseWaits
 import io.yamsergey.dta.sidekick.network.Initiators
 import io.yamsergey.dta.sidekick.network.NetworkRecorder
 import io.yamsergey.dta.sidekick.network.TeeInputStream
@@ -103,7 +104,8 @@ internal class DtaInterceptor(
             encoding = response.header("Content-Encoding"),
             declaredBytes = body.contentLength(),
         )
-        val teed = TeeInputStream(body.source().inputStream(), bodyRecorder).source().buffer()
+        val source = body.source()
+        val teed = TeeInputStream(source.inputStream(), bodyRecorder, CloseWaits.okio(source.timeout(), response.protocol.toString())).source().buffer()
         @Suppress("DEPRECATION")
         val wrapped = ResponseBody.create(body.contentType(), body.contentLength(), teed)
         return response.newBuilder().body(wrapped).build()
