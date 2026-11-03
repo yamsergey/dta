@@ -12,6 +12,7 @@ import java.io.File
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 /**
@@ -73,6 +74,18 @@ object DaemonMain {
         server.start()
         log("listening on 127.0.0.1:${server.port}")
 
+        // One daemon per home: when daemon.json names another live daemon (a client started one
+        // over this), this one leaves instead of running on unseen.
+        val me = ProcessHandle.current().pid()
+        val state = StateFile(File(home, "daemon"))
+        thread(name = "dta-daemon-owner", isDaemon = true) {
+            while (!stopping.get()) {
+                Thread.sleep(OWNER_CHECK_MS)
+                val owner = state.read()?.pid ?: continue
+                if (owner != me && ProcessHandle.of(owner).map { it.isAlive }.orElse(false)) shutdown("another DTA daemon (pid $owner) serves $home")
+            }
+        }
+
         runCatching { Signal.handle(Signal("INT")) { log("ignoring SIGINT") } }
         runCatching { Signal.handle(Signal("HUP")) { log("ignoring SIGHUP") } }
         runCatching { Signal.handle(Signal("TERM")) { Thread { shutdown("terminated (SIGTERM)") }.start() } }
@@ -81,6 +94,8 @@ object DaemonMain {
         log("stopped")
         exitProcess(0)
     }
+
+    private const val OWNER_CHECK_MS = 3_000L
 
     private fun log(message: String) = println("${Instant.now()} $message")
 }

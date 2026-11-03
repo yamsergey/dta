@@ -103,6 +103,83 @@ class DaemonLauncherTest {
         connected.forEach { it.client.close() }
     }
 
+    // --- No daemon left behind (a replaced or unresponsive one is retired; one that lost its home leaves)
+
+    private fun alive(pid: Long) = ProcessHandle.of(pid).map { it.isAlive }.orElse(false)
+
+    private fun waitGone(pid: Long, ms: Long): Boolean {
+        val deadline = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < deadline) { if (!alive(pid)) return true; Thread.sleep(50) }
+        return !alive(pid)
+    }
+
+    @Test
+    fun `an unresponsive daemon is retired, never left running beside the new one`() = runBlocking<Unit> {
+        val first = launcher().ensure(ClientKind.CLI)
+        val pid = first.client.daemon.pid
+        first.client.close()
+        ProcessBuilder("kill", "-STOP", pid.toString()).start().waitFor()
+        try {
+            val next = launcher().ensure(ClientKind.CLI)
+            assertNotEquals(pid, next.client.daemon.pid)
+            assertTrue(waitGone(pid, 10_000), "the unresponsive daemon $pid is still running")
+            assertTrue(next.statements.any { "pid $pid" in it && "did not answer" in it && "stopped" in it }, "${next.statements}")
+            next.client.close()
+        } finally {
+            ProcessBuilder("kill", "-9", pid.toString()).start().waitFor()
+        }
+    }
+
+    @Test
+    fun `a process that is not this home's daemon is never stopped`() = runBlocking<Unit> {
+        // The state file names a live process that is not a DTA daemon (a reused pid): it is left alone.
+        val other = ProcessBuilder("sleep", "60").start()
+        try {
+            state.write(DaemonState(other.pid(), 1, "0.1.0", "2026-10-28T10:00:00Z", 1, 0))
+            File(home.daemonDir, "token").writeText("x")
+            val connected = launcher().ensure(ClientKind.CLI)
+            assertTrue(other.isAlive, "a process that is not a DTA daemon was stopped")
+            connected.client.close()
+        } finally {
+            other.destroyForcibly()
+        }
+    }
+
+    @Test
+    fun `a daemon whose home another daemon took over leaves by itself`() = runBlocking<Unit> {
+        val first = launcher().ensure(ClientKind.CLI)
+        val pid = first.client.daemon.pid
+        first.client.close()
+        // As when a client started a second daemon over it: the state file names someone else.
+        val other = ProcessBuilder("sleep", "60").start()
+        try {
+            state.write(DaemonState(other.pid(), 1, "0.1.0", "2026-10-28T10:00:00Z", 1, 0))
+            assertTrue(waitGone(pid, 15_000), "daemon $pid kept running after losing its home")
+            assertTrue(File(home.daemonDir, "daemon.log").readText().contains("another DTA daemon (pid ${other.pid()}) serves"), "log says why")
+        } finally {
+            other.destroyForcibly()
+            state.stateFile.delete()
+        }
+    }
+
+    @Test
+    fun `a launch from a directory runs from a copy, so replacing the jars never breaks a running daemon`() {
+        val lib = Files.createTempDirectory("dta-daemon-lib").toFile()
+        File(lib, "a.jar").writeText("one")
+        File(lib, "b.jar").writeText("two")
+        val runtime = File(home.daemonDir, "runtime")
+        val first = DaemonLaunch.fromDirectory(File("/jbr/bin/java"), lib).pinned(runtime)
+        val entries = first.classpath.split(File.pathSeparator).map(::File)
+        assertTrue(entries.all { it.path.startsWith(runtime.path) && it.isFile }, first.classpath)
+        assertEquals(listOf("one", "two"), entries.map { it.readText() })
+        // The same jars: the same copy. Replaced jars (a plugin update): a new copy; the old one stays for whoever runs from it.
+        assertEquals(first.classpath, DaemonLaunch.fromDirectory(File("/jbr/bin/java"), lib).pinned(runtime).classpath)
+        File(lib, "b.jar").writeText("two, updated")
+        val second = DaemonLaunch.fromDirectory(File("/jbr/bin/java"), lib).pinned(runtime)
+        assertNotEquals(first.classpath, second.classpath)
+        assertEquals("two", entries[1].readText())
+    }
+
     // --- Starting from any host (feature 009, research R4)
 
     @Test

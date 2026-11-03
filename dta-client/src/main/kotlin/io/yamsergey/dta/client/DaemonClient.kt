@@ -225,7 +225,8 @@ class DaemonClient private constructor(private val timeout: Duration) {
                 .connectTimeout(java.time.Duration.ofSeconds(3))
                 .header("Authorization", "Bearer $token")
                 .buildAsync(URI("ws://127.0.0.1:$port/"), client.Listener())
-                .await()
+                // The handshake too: a daemon that accepts but never answers (stopped, hung) must not hang the client.
+                .let { future -> kotlinx.coroutines.withTimeout(10.seconds) { future.await() } }
             try {
                 val hello = client.request(
                     DaemonMethods.HELLO,

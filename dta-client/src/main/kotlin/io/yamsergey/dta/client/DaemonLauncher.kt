@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.RandomAccessFile
+import java.security.MessageDigest
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -39,7 +40,36 @@ fun interface DaemonSpawner {
  * IDE) passes the Java it runs on and a directory of the daemon's jars.
  */
 data class DaemonLaunch(val java: File, val classpath: String, val env: Map<String, String> = emptyMap()) {
+    /**
+     * The same launch from a copy of its jars under [runtime], one directory per set of jars
+     * (named by their names, sizes and times). A daemon loads classes lazily for as long as it
+     * runs: started from a plugin's or an installation's own jars, an update of them would take
+     * its classes away (NoClassDefFoundError), and a daemon that cannot even answer "replace"
+     * stays behind. A development classpath (with class directories) runs where it is.
+     */
+    fun pinned(runtime: File): DaemonLaunch {
+        val entries = classpath.split(File.pathSeparator).filter { it.isNotEmpty() }.map(::File)
+        if (entries.isEmpty() || entries.any { !it.isFile || !it.name.endsWith(".jar") }) return this
+        if (entries.all { it.absoluteFile.startsWith(runtime.absoluteFile) }) return this
+        val key = MessageDigest.getInstance("SHA-256")
+            .digest(entries.joinToString("\n") { "${it.name}:${it.length()}:${it.lastModified()}" }.toByteArray())
+            .take(8).joinToString("") { "%02x".format(it) }
+        val target = File(runtime, key)
+        val names = entries.mapIndexed { i, f -> "%03d-%s".format(i, f.name) }
+        if (!File(target, COMPLETE).isFile) {
+            val tmp = File(runtime, "$key.tmp-${ProcessHandle.current().pid()}-${System.nanoTime()}")
+            tmp.mkdirs()
+            entries.forEachIndexed { i, f -> f.copyTo(File(tmp, names[i]), overwrite = true) }
+            File(tmp, COMPLETE).writeText(classpath)
+            // Another starter may have made the same copy meanwhile: either is the same.
+            if (!tmp.renameTo(target)) tmp.deleteRecursively()
+        }
+        return copy(classpath = names.joinToString(File.pathSeparator) { File(target, it).path })
+    }
+
     companion object {
+        private const val COMPLETE = ".complete"
+
         fun currentProcess() = DaemonLaunch(File(System.getProperty("java.home"), "bin/java"), System.getProperty("java.class.path"))
 
         fun fromDirectory(java: File, dir: File, env: Map<String, String> = emptyMap()): DaemonLaunch {
@@ -47,12 +77,27 @@ data class DaemonLaunch(val java: File, val classpath: String, val env: Map<Stri
             if (jars.isEmpty()) throw DaemonStartException("${dir.path} has no daemon jars; the DTA daemon cannot start from it")
             return DaemonLaunch(java, jars.joinToString(File.pathSeparator) { it.path }, env)
         }
+
+        /**
+         * Removes copies no running process uses (their path is on no command line) and older than
+         * a few minutes (one being started right now is kept).
+         */
+        fun pruneRuntime(runtime: File, keep: Set<File>) {
+            val dirs = runtime.listFiles { f -> f.isDirectory }.orEmpty().filter { it.absoluteFile !in keep.map(File::getAbsoluteFile) }
+            if (dirs.isEmpty()) return
+            val inUse = ProcessHandle.allProcesses().map { it.info().commandLine().orElse("") }.toList().joinToString("\n")
+            val old = System.currentTimeMillis() - 10 * 60_000
+            dirs.filter { it.lastModified() < old && it.absolutePath !in inUse }.forEach { it.deleteRecursively() }
+        }
     }
 }
 
 /** Starts `DaemonMain` detached as [launch] describes. */
 class ClasspathSpawner(private val launch: DaemonLaunch = DaemonLaunch.currentProcess()) : DaemonSpawner {
     override fun spawn(home: File, identity: VersionIdentity, log: File): Long {
+        val runtime = File(home, "daemon/runtime")
+        val launch = this.launch.pinned(runtime)
+        runCatching { DaemonLaunch.pruneRuntime(runtime, keep = launch.classpath.split(File.pathSeparator).map { File(it).parentFile }.toSet()) }
         val process = ProcessBuilder(
             launch.java.path, "-cp", launch.classpath, MAIN,
             "--home", home.absolutePath, "--version", identity.version, "--build", identity.build,
@@ -139,6 +184,8 @@ class DaemonLauncher(
         val client = try {
             DaemonClient.connect(state.port, token, kind, identity)
         } catch (e: Exception) {
+            // Alive but not answering (hung, or its jars were replaced under it): stopped, never left beside a new one.
+            retire(state.pid, "did not answer")?.let { return Attempt.Stale(it) }
             return Attempt.Stale("recovered: the DTA daemon state pointed at a port that does not answer (${e.message ?: e.javaClass.simpleName})")
         }
         return when (VersionIdentity.compare(client = identity, daemon = client.daemon.identity)) {
@@ -151,10 +198,29 @@ class DaemonLauncher(
                 val old = client.daemon
                 runCatching { client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(identity)) }
                 client.close()
-                waitUntil(10.seconds) { !isAlive(old.pid) && readState()?.pid != old.pid }
-                Attempt.Stale("replaced the DTA daemon ${old.identity.display} with ${identity.display}")
+                val gone = waitUntil(10.seconds) { !isAlive(old.pid) && readState()?.pid != old.pid }
+                val forced = if (gone) null else retire(old.pid, "did not stop when replaced")
+                Attempt.Stale(listOfNotNull("replaced the DTA daemon ${old.identity.display} with ${identity.display}", forced).joinToString("; "))
             }
         }
+    }
+
+    /**
+     * Stops [pid] when it is this home's daemon (its command line names DaemonMain and this
+     * home; a reused pid of another program is never touched): SIGTERM, then SIGKILL. Null when
+     * it is not this home's daemon or already gone.
+     */
+    private suspend fun retire(pid: Long, why: String): String? {
+        val process = ProcessHandle.of(pid).orElse(null)?.takeIf { it.isAlive } ?: return null
+        val command = process.info().commandLine().orElse("")
+        if (ClasspathSpawner.MAIN !in command || home.root.absolutePath !in command) return null
+        process.destroy()
+        if (!waitUntil(5.seconds) { !process.isAlive }) {
+            process.destroyForcibly()
+            waitUntil(5.seconds) { !process.isAlive }
+        }
+        if (readState()?.pid == pid) stateFile.delete()
+        return "the previous DTA daemon (pid $pid) $why; it was stopped"
     }
 
     /** Starts a daemon under the start lock (one starter at a time); `false` when another starter won meanwhile. */
