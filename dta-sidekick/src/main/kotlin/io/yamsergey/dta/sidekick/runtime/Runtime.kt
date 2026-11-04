@@ -389,9 +389,9 @@ internal class Runtime(private val context: Context) {
     private fun appFunctions(): List<AppFunctionInfo> = listOf("app_functions_v2.xml", "app_functions.xml").firstNotNullOfOrNull { asset ->
         runCatching { context.assets.open(asset).bufferedReader().use { it.readText() } }.getOrNull()
     }?.let { xml ->
-        Regex("<id>([^<]+)</id>").findAll(xml).map { it.groupValues[1] }.distinct().map { id ->
-            AppFunctionInfo(id, "appfunctions", "", false, "an AndroidX AppFunction: listed from the APK; DTA does not invoke AppFunctions yet")
-        }.toList()
+        AppFunctionsXml.functions(xml).map { (id, description) ->
+            AppFunctionInfo(id, "appfunctions", description, false, "an AndroidX AppFunction: listed from the APK; DTA does not invoke AppFunctions yet")
+        }
     }.orEmpty()
 
     fun invoke(id: String, args: Map<String, String>): JsonElement {
