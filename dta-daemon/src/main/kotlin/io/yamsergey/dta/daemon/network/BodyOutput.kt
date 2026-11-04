@@ -38,6 +38,8 @@ data class BodyResult(
     val redaction: RedactionInfo? = null,
     /** How the body was (not) decoded as structured data (feature 006). */
     val decoding: DecodingInfo? = null,
+    /** Feature 039: a text WebSocket message's envelope, read from the whole text. */
+    val envelope: io.yamsergey.dta.protocol.network.Envelope? = null,
 )
 
 /** Text was requested for a binary body. */

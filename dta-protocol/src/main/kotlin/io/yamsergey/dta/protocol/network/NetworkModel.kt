@@ -250,6 +250,8 @@ data class WsMessageEntry(
     val url: String? = null,
     /** Pushed by DTA (feature 020): the server never sent it; [payload] is what the app received. */
     val injected: WsInjection? = null,
+    /** Feature 039: what the message is (038 formats, or the app's own format rule), set by the daemon on text messages. */
+    val envelope: Envelope? = null,
 ) : NetworkEntry {
     override fun summary() = this
 }

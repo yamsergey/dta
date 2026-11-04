@@ -1,5 +1,6 @@
-package io.yamsergey.dta.present.network
+package io.yamsergey.dta.protocol.network
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -11,8 +12,20 @@ import kotlinx.serialization.json.JsonPrimitive
  * signalr), its [kind] (type, event, command, method), [id] (request / message / ack id) and
  * [topic] (channel, destination), and where the [payload] is. Works on the whole text or on a cut
  * preview. Null when the text has no envelope DTA knows: then it is shown as it is.
+ * Feature 039: [rule] is the app's own format rule that read it (its name is the [format]);
+ * [note] says what did not come out as the rule says (a payload that is not JSON).
+ * The daemon puts it on every text message it returns; clients show it.
  */
-data class Envelope(val format: String, val kind: String?, val id: String? = null, val topic: String? = null, val payload: String? = null)
+@Serializable
+data class Envelope(
+    val format: String,
+    val kind: String? = null,
+    val id: String? = null,
+    val topic: String? = null,
+    val payload: String? = null,
+    val rule: String? = null,
+    val note: String? = null,
+)
 
 object WsFormats {
     private val KIND_KEYS = listOf("type", "event", "action", "op", "cmd", "command", "method", "t", "e")
@@ -24,6 +37,10 @@ object WsFormats {
     private val PHOENIX = Regex("^\\[\\s*(null|\"[^\"]*\")\\s*,\\s*(null|\"[^\"]*\")\\s*,\\s*\"([^\"]*)\"\\s*,\\s*\"([^\"]*)\"\\s*,")
     private val PREFIX = Regex("^([A-Za-z_][\\w.:/-]{0,63})[ \\t]*[\\r\\n:| \\t][ \\t\\r\\n]*([{\\[].*)$", RegexOption.DOT_MATCHES_ALL)
     private val json = Json { isLenient = false }
+
+    /** Feature 039: the app's [rule] for this socket first, then the formats DTA knows. */
+    fun detect(text: String, rule: FormatRule?): Envelope? =
+        rule?.let { FormatRules.apply(it, text) } ?: detect(text)
 
     fun detect(text: String): Envelope? {
         if (text.isBlank()) return null

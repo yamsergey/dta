@@ -1,5 +1,8 @@
 package io.yamsergey.dta.present.network
 
+import io.yamsergey.dta.protocol.network.Envelope
+import io.yamsergey.dta.protocol.network.WsFormats
+
 import io.yamsergey.dta.present.Marks
 import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.StatementKind
@@ -68,7 +71,8 @@ object EntryRows {
             // The whole message on one line: a "messageId\n{json}" frame is not cut at its first line.
             else -> payload?.str("preview")?.let(::oneLine)?.take(200) ?: ""
         }
-        val envelope = if (!message || preview == "binary") null else payload?.str("preview")?.let(WsFormats::detect)
+        // Feature 039: the daemon's envelope (the app's own format rules applied); an older daemon gives none, then detect here.
+        val envelope = if (!message || preview == "binary") null else envelopeOf(entry.obj("envelope")) ?: payload?.str("preview")?.let(WsFormats::detect)
         val bodies = listOfNotNull(entry.obj("requestBody"), entry.obj("responseBody"), payload)
         val timing = when (kind) {
             EntryKind.WS_CONNECTION -> listOfNotNull(
@@ -113,6 +117,11 @@ object EntryRows {
         }
     }
 }
+
+private val lenient = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+/** Feature 039: an envelope the daemon put on a message or a body result. */
+fun envelopeOf(o: JsonObject?): Envelope? = o?.let { runCatching { lenient.decodeFromJsonElement(Envelope.serializer(), it) }.getOrNull() }
 
 /** [text]'s lines trimmed and joined by a space, blank ones dropped: what a one-line list cell can show of a multi-line message. */
 internal fun oneLine(text: String): String = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")

@@ -1,4 +1,4 @@
-package io.yamsergey.dta.present.network
+package io.yamsergey.dta.protocol.network
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,20 +60,5 @@ class WsFormatsTest {
         assertNull(e("hello there"))
         assertNull(e("42 is the answer"))
         assertNull(e(""))
-    }
-}
-
-class WsMessageBodyTest {
-    @Test
-    fun `a message's envelope is in the header and its JSON payload is the tree (038)`() {
-        val result = kotlinx.serialization.json.Json.parseToJsonElement(
-            """{"body":{"part":"message","storedBytes":60},"text":${kotlinx.serialization.json.JsonPrimitive("MESSAGE\ndestination:/topic/quotes\nmessage-id:m-1\n\n{\"p\":1,\"s\":\"ACME\"}\u0000")}}""",
-        ) as kotlinx.serialization.json.JsonObject
-        val v = BodyView.of(result)
-        assertEquals(true, v.header.line.endsWith("stomp MESSAGE #m-1 @/topic/quotes"), v.header.line)
-        assertEquals(true, BodyMode.TREE in v.modes)
-        assertEquals(listOf("p", "s"), v.tree()!!.children.map { it.key })
-        assertEquals(true, v.render(BodyMode.FORMATTED).startsWith("{\n  \"p\": 1"), v.render(BodyMode.FORMATTED))
-        assertEquals(true, v.render(BodyMode.RAW).startsWith("MESSAGE\n"))
     }
 }

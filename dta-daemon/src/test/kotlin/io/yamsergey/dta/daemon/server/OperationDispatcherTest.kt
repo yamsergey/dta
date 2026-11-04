@@ -231,6 +231,16 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `format rule params (039)`() {
+        val added = call("network.format.add", buildJsonObject {
+            put("urlPattern", "wss://x/*"); put("name", "orders"); put("pattern", "^(?<kind>\\w+)"); put("idPath", "h.rid"); put("direction", "in"); put("payloadFormat", "text")
+        })
+        assertEquals("f1", (added.result as kotlinx.serialization.json.JsonObject)["id"]!!.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
+        assertEquals(ErrorCodes.INVALID_PARAMS, assertFailsWith<ClientException> { call("network.format.add", buildJsonObject { put("urlPattern", "x"); put("direction", "up") }) }.code)
+        assertEquals(ClientErrorCodes.NOT_FOUND, assertFailsWith<ClientException> { call("network.format.remove", buildJsonObject { put("id", "nope") }) }.code)
+    }
+
+    @Test
     fun `every catalog operation except the server's own has a handler`() {
         val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch", "apps.watch", "timeline.watch")
         assertEquals(Catalog.all.map { it.name }.toSet() - serverOwned, dispatcher.handled)

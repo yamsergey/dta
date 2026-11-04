@@ -45,6 +45,7 @@ import io.yamsergey.dta.protocol.network.NetworkEntryEvent
 import io.yamsergey.dta.protocol.network.NetworkPage
 import io.yamsergey.dta.protocol.network.NetworkQuery
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.net.URI
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -73,6 +74,8 @@ class DtaDaemon(
     ) : this({ args -> adb.run(*args.toTypedArray()) }, adb.binaryPath, requestTimeout, dataDir, selfVersion = selfVersion)
 
     private val schemas = SchemaRegistry(dataDir)
+    /** Feature 039: the user's WebSocket message format rules; every text message returned carries the envelope they read. */
+    private val formats = io.yamsergey.dta.daemon.network.MessageFormats(dataDir)
     private val injectedTooling = io.yamsergey.dta.daemon.inject.InjectedTooling(dataDir)
 
     /** The host's network store (feature 011): opened on first use, one per daemon. */
@@ -219,10 +222,10 @@ class DtaDaemon(
 
     /** Network history of [pkg]: HTTP and WebSocket entries in one list (feature 004). */
     suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage =
-        networkService(serial, pkg).list(query)
+        formats.annotate(pkg, networkService(serial, pkg).list(query))
 
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean = false): NetworkEntryDetail =
-        networkService(serial, pkg).entry(id, redact)
+        formats.annotate(pkg, networkService(serial, pkg).entry(id, redact))
 
     /**
      * One body: decoded text, or bytes to a file. Protobuf bodies a rule selects (built-in
@@ -238,7 +241,13 @@ class DtaDaemon(
         output: BodyOutput = BodyOutput.Text,
         redact: Boolean = false,
         allowUnredacted: Boolean = false,
-    ): BodyResult = networkService(serial, pkg).body(id, part, output, redact, allowUnredacted)
+    ): BodyResult {
+        val body = networkService(serial, pkg).body(id, part, output, redact, allowUnredacted)
+        if (part != BodyPart.MESSAGE || body.text == null) return body
+        // Feature 039: a message read whole gets its envelope from the whole text (the list has the preview's).
+        val entry = runCatching { networkService(serial, pkg).entry(id, redact).entry }.getOrNull()
+        return formats.annotate(pkg, entry, body)
+    }
 
     suspend fun networkClear(serial: String, pkg: String): ClearResult =
         networkService(serial, pkg).clear()
@@ -359,7 +368,31 @@ class DtaDaemon(
 
     /** Live entry events; collect for as long as needed. */
     fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> =
-        networkService(serial, pkg).events(onSubscribed)
+        networkService(serial, pkg).events(onSubscribed).map { it.copy(entry = formats.annotate(pkg, it.entry)) }
+
+    /** Feature 039: adds an app's message format rule; throws [io.yamsergey.dta.daemon.network.proto.SchemaException] naming what is wrong. */
+    fun networkFormatAdd(pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec): io.yamsergey.dta.protocol.network.FormatRule = formats.add(pkg, spec)
+
+    fun networkFormats(pkg: String): List<io.yamsergey.dta.protocol.network.FormatRule> = formats.list(pkg)
+
+    fun networkFormatRemove(pkg: String, id: String): Boolean = formats.remove(pkg, id)
+
+    /**
+     * How [spec] reads the messages of [connection] (a ws-connection id), or of the newest
+     * connection whose URL the rule's pattern matches; nothing is kept.
+     */
+    suspend fun networkFormatTest(serial: String, pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec, connection: String?): io.yamsergey.dta.protocol.network.FormatTestResult {
+        val service = networkService(serial, pkg)
+        val id = connection ?: run {
+            val glob = Regex(spec.urlPattern.split('*').joinToString(".*") { Regex.escape(it) })
+            val page = service.list(NetworkQuery(filter = io.yamsergey.dta.protocol.network.NetworkFilter(kinds = listOf(io.yamsergey.dta.protocol.network.EntryKind.WS_CONNECTION)), limit = NetworkQuery.MAX_LIMIT))
+            page.entries.filterIsInstance<io.yamsergey.dta.protocol.network.WsConnectionEntry>().firstOrNull { glob.matches(it.url) }?.id
+                ?: throw io.yamsergey.dta.daemon.network.proto.SchemaException("no WebSocket connection of the app matches ${spec.urlPattern}; give connection (a ws-connection id from network_list) or a urlPattern of a socket the app opened")
+        }
+        val detail = service.entry(id, false)
+        val messages = detail.messages ?: throw io.yamsergey.dta.daemon.network.proto.SchemaException("$id is not a WebSocket connection; give a ws-connection id from network_list")
+        return formats.test(spec, messages)
+    }
 
     /**
      * Adds (or replaces) a protobuf schema set for [pkg]: a compiled descriptor set or

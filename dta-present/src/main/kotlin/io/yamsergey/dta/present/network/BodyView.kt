@@ -1,5 +1,8 @@
 package io.yamsergey.dta.present.network
 
+import io.yamsergey.dta.protocol.network.Envelope
+import io.yamsergey.dta.protocol.network.WsFormats
+
 import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.Statements
 import io.yamsergey.dta.present.Units
@@ -48,10 +51,10 @@ data class BodyView(
     fun tree(): DataNode? = structure
 
     fun render(mode: BodyMode, bytes: ByteArray? = null): String = when (mode) {
-        BodyMode.FORMATTED -> if (envelope?.payload != null) {
+        BodyMode.FORMATTED -> envelope?.payload?.let { p ->
             // The envelope is in the header line; the editor shows the payload as the JSON it is.
-            PrettyJson.format(envelope.payload) ?: envelope.payload
-        } else text?.let {
+            PrettyJson.format(p) ?: p
+        } ?: text?.let {
             when (format) {
                 BodyFormat.XML -> BodyFormats.prettyXml(it)
                 BodyFormat.FORM -> BodyFormats.formLines(it)
@@ -107,7 +110,8 @@ data class BodyView(
                 }
             }
             // Feature 038: a message whose text is an envelope around JSON (STOMP, a name then JSON, Socket.IO…).
-            val envelope = if (info.str("part") == "message" && text != null) WsFormats.detect(text) else null
+            // Feature 039: the daemon reads it with the app's format rules; an older daemon gives none.
+            val envelope = if (info.str("part") == "message" && text != null) envelopeOf(result.obj("envelope")) ?: WsFormats.detect(text) else null
             val payloadTree = if (structure == null) envelope?.payload?.let { DataTrees.json(it) } else null
             val tree = structure ?: payloadTree
             val shownEnvelope = envelope?.takeIf { payloadTree != null || it.format != "json" }
@@ -124,7 +128,7 @@ data class BodyView(
                 format == BodyFormat.JSON && text == null -> listOf(BodyMode.FORMATTED, BodyMode.RAW, BodyMode.HEX)
                 else -> listOf(BodyMode.RAW, BodyMode.HEX)
             }
-            val headerLine = shownEnvelope?.let { "$line · ${it.format} ${it.label()}".trimEnd() } ?: line
+            val headerLine = shownEnvelope?.let { "$line · ${it.format} ${it.label()}".trimEnd() + (it.note?.let { n -> " · $n" } ?: "") } ?: line
             return BodyView(BodyHeader(headerLine, Statements.forBody(result)), content, modes.first(), modes, if (payloadTree != null) BodyFormat.JSON else format, tree, shownEnvelope?.takeIf { payloadTree != null })
         }
     }

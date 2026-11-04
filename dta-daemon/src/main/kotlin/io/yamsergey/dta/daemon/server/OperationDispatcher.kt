@@ -114,6 +114,14 @@ class OperationDispatcher(
             buildJsonObject { put("removed", name); put("brokenMappings", encode(ListSerializer(BodyMapping.serializer()), ops.networkSchemaRemove(c.app, name))) }
         },
         "network.mapping.add" to { c -> encode(BodyMapping.serializer(), ops.networkMappingAdd(c.app, mapping(c))) },
+        "network.format.add" to { c -> encode(io.yamsergey.dta.protocol.network.FormatRule.serializer(), ops.networkFormatAdd(c.app, formatRule(c))) },
+        "network.format.test" to { c -> encode(io.yamsergey.dta.protocol.network.FormatTestResult.serializer(), ops.networkFormatTest(c.device, c.app, formatRule(c), c.string("connection"))) },
+        "network.format.list" to { c -> encode(ListSerializer(io.yamsergey.dta.protocol.network.FormatRule.serializer()), ops.networkFormats(c.app)) },
+        "network.format.remove" to { c ->
+            val id = c.required("id")
+            if (!ops.networkFormatRemove(c.app, id)) notFound("format rule", id)
+            buildJsonObject { put("removed", id) }
+        },
         "timeline.events" to { c ->
             encode(
                 io.yamsergey.dta.protocol.timeline.TimelinePage.serializer(),
@@ -385,6 +393,19 @@ class OperationDispatcher(
         type = c.required("type"),
         method = c.string("method"),
         direction = c.string("direction")?.let { d -> Direction.entries.first { it.name.lowercase() == d } },
+    )
+
+    private fun formatRule(c: Call) = io.yamsergey.dta.protocol.network.FormatRuleSpec(
+        name = c.string("name")?.takeIf { it.isNotBlank() } ?: "custom",
+        urlPattern = c.required("urlPattern"),
+        direction = c.string("direction")?.let { d -> Direction.entries.firstOrNull { it.name.lowercase() == d } ?: invalid("direction must be out or in") },
+        pattern = c.string("pattern")?.takeIf { it.isNotEmpty() },
+        kind = c.string("kind")?.takeIf { it.isNotEmpty() },
+        idPath = c.string("idPath")?.takeIf { it.isNotEmpty() },
+        topic = c.string("topic")?.takeIf { it.isNotEmpty() },
+        payload = c.string("payload")?.takeIf { it.isNotEmpty() },
+        payloadFormat = c.string("payloadFormat")?.let { f -> io.yamsergey.dta.protocol.network.PayloadFormat.entries.firstOrNull { it.name.lowercase() == f } ?: invalid("payloadFormat must be json or text") }
+            ?: io.yamsergey.dta.protocol.network.PayloadFormat.JSON,
     )
 
     // --- Errors

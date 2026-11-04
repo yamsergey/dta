@@ -355,6 +355,25 @@ object Catalog {
             listOf(ParamSpec("id", ParamType.STRING, "Mapping id from network.mapping.list.", required = true, positional = true)),
         ),
         OperationSpec(
+            "network.format.add",
+            "Say how the app's own WebSocket protocol is built, for the sockets a URL glob matches: a regex with named groups (kind, id, topic, payload) and/or field paths into JSON. " +
+                "From then on network_list and network_entry give each matching text message an envelope (format = the rule's name, kind, id, topic, payload), before DTA's built-in formats. " +
+                "Try it first with network.format.test.",
+            Scope.APP,
+            RULE_PARAMS,
+        ),
+        OperationSpec(
+            "network.format.test",
+            "Try a format rule on a connection's latest text messages without keeping it: how many it reads, a few envelopes it read, texts it did not read.",
+            Scope.APP,
+            RULE_PARAMS + ParamSpec("connection", ParamType.STRING, "ws-connection id from network_list; default the newest connection whose URL urlPattern matches."),
+        ),
+        OperationSpec("network.format.list", "List the app's WebSocket message format rules.", Scope.APP),
+        OperationSpec(
+            "network.format.remove", "Remove a format rule; its messages return to DTA's built-in formats.", Scope.APP,
+            listOf(ParamSpec("id", ParamType.STRING, "Rule id from network.format.list.", required = true, positional = true)),
+        ),
+        OperationSpec(
             "links.list",
             "Links (deep links, App Links, any intent with a URI) that reached an activity of the app: the URI, how it was delivered (cold-start, created, new-intent, from-recents), the activity, who sent it, the extras. Newest first, from the same history as the network traffic (runs, archive).",
             Scope.APP,
@@ -687,3 +706,16 @@ object Catalog {
 
     val agentTools: List<OperationSpec> get() = all.filterNot { it.cliOnly }
 }
+
+/** Feature 039: what a WebSocket message format rule takes (network.format.add and network.format.test). */
+private val RULE_PARAMS = listOf(
+                ParamSpec("urlPattern", ParamType.STRING, "Glob over the socket's URL; * is any run of characters (wss://api.example.test/live*).", required = true),
+                ParamSpec("name", ParamType.STRING, "Shown as the messages' format (default custom)."),
+                ParamSpec("pattern", ParamType.STRING, "Regex over the whole message with named groups kind, id, topic, payload, e.g. ^(?<id>\\d+)\\|(?<kind>\\w+)\\|(?<payload>.*)$ for 42|ORDER_UPDATE|{...}."),
+                ParamSpec("kind", ParamType.STRING, "Field path of the kind in the JSON payload (or the whole message without a pattern), e.g. h.op."),
+                ParamSpec("idPath", ParamType.STRING, "Field path of the request/message id, e.g. h.rid; a reply with the same id is paired with its request."),
+                ParamSpec("topic", ParamType.STRING, "Field path of the topic or channel, e.g. h.ch[0]."),
+                ParamSpec("payload", ParamType.STRING, "Field path of the payload, e.g. b."),
+                ParamSpec("payloadFormat", ParamType.ENUM, "json (default) or text.", enumValues = listOf("json", "text")),
+                ParamSpec("direction", ParamType.ENUM, "Only messages sent (out) or received (in).", enumValues = listOf("out", "in")),
+            )

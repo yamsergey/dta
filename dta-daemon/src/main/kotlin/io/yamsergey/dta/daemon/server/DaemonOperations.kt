@@ -56,6 +56,10 @@ interface DaemonOperations {
     fun networkMappingAdd(pkg: String, mapping: BodyMappingSpec): BodyMapping
     fun networkMappings(pkg: String): List<BodyMapping>
     fun networkMappingRemove(pkg: String, id: String): Boolean
+    fun networkFormatAdd(pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec): io.yamsergey.dta.protocol.network.FormatRule
+    fun networkFormats(pkg: String): List<io.yamsergey.dta.protocol.network.FormatRule>
+    fun networkFormatRemove(pkg: String, id: String): Boolean
+    suspend fun networkFormatTest(serial: String, pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec, connection: String?): io.yamsergey.dta.protocol.network.FormatTestResult
     /** Opens a URI on the device and says who received it (feature 012). */
     suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean): io.yamsergey.dta.protocol.network.LinkOpenResult
     /** The app's App Links state (feature 012). */
@@ -117,4 +121,9 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun networkMappingAdd(pkg: String, mapping: BodyMappingSpec) = daemon.networkMappingAdd(pkg, mapping)
     override fun networkMappings(pkg: String) = daemon.networkMappings(pkg)
     override fun networkMappingRemove(pkg: String, id: String) = daemon.networkMappingRemove(pkg, id)
+    override fun networkFormatAdd(pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec) = daemon.networkFormatAdd(pkg, spec)
+    override fun networkFormats(pkg: String) = daemon.networkFormats(pkg)
+    override fun networkFormatRemove(pkg: String, id: String) = daemon.networkFormatRemove(pkg, id)
+    override suspend fun networkFormatTest(serial: String, pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec, connection: String?) =
+        daemon.networkFormatTest(serial, pkg, spec, connection)
 }
