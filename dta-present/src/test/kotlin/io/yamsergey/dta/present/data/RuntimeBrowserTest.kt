@@ -58,4 +58,15 @@ class RuntimeBrowserTest {
         assertEquals(true, rows.structured(0))
         assertEquals(false, rows.structured(1))
     }
+
+    @Test
+    fun `a reference reads as an arrow to its class, read-only`() {
+        val withRef = ViewModelInfo("v2", "app.ForecastViewModel", properties = listOf(
+            PropertyInfo("repository", "reference", "ForecastRepository", JsonPrimitive("app.data.ForecastRepository"), false, "a reference"),
+        ))
+        val rows = PropertyRows(withRef)
+        assertEquals("→ ForecastRepository", rows.rows[0].preview)
+        assertEquals(false, rows.structured(0))
+        assertEquals("repository · reference · ForecastRepository · read-only (a reference)", rows.header(0))
+    }
 }

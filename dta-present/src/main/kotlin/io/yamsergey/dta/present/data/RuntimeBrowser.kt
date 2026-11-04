@@ -15,7 +15,8 @@ class PropertyRows(private val vm: ViewModelInfo) {
         val label: String, val kind: String, val value: String, val editable: Boolean, val saved: Boolean, val path: String, val note: String?,
         val type: String = "", val json: JsonElement = Json.parseToJsonElement(value),
     ) {
-        val preview: String get() = preview(json)
+        /** Feature 033: a reference (repository, client) reads as an arrow to its class. */
+        val preview: String get() = if (kind == "reference") "→ " + type else preview(json)
     }
 
     val rows: List<Row> = vm.properties.map { Row(it.path, it.kind, it.value.toString(), it.editable, false, it.path, it.note, it.type, it.value) } +

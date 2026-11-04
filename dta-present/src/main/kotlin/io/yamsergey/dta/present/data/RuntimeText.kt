@@ -73,7 +73,7 @@ object RuntimeText {
     }
 
     fun hilt(h: HiltBindings): String = if (!h.present) h.note ?: "No Hilt." else h.bindings.groupBy { it.component }.entries.joinToString("\n") { (c, list) ->
-        c + list.joinToString("") { b -> "\n  ${b.declaredType}  ${b.name}" + (b.runtimeType?.let { "  → $it" } ?: if (!b.created) "  (not created yet)" else "") }
+        c + list.joinToString("") { b -> "\n  ${b.declaredType}  ${b.name}" + (b.runtimeType?.let { "  → $it" } ?: if (!b.created) "  (not created yet)" else "") + (if (b.role == "assisted") "  (assisted: passed by the caller)" else "") }
     }
 
     fun functions(f: FunctionList): String = buildString {

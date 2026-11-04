@@ -16,11 +16,11 @@ import javax.swing.JPanel
 
 /**
  * One JSON value, readable (feature 031): the Network body viewer's parts — the IDE's JSON editor
- * (highlighting, folding, find) and the body tree — under a one-line header, with Copy,
+ * (highlighting, folding, find), the body tree and graph — under a one-line header, with Copy,
  * Expand/Collapse and, for an editable value, Edit in place with Apply / Cancel.
  */
 class JsonValueView(project: Project) : JPanel(BorderLayout()) {
-    enum class Mode(val label: String) { FORMATTED("Formatted"), TREE("Tree") }
+    enum class Mode(val label: String) { FORMATTED("Formatted"), TREE("Tree"), GRAPH("Graph") }
 
     private val title = JBLabel(" ").apply { setCopyable(true) }
     private val modes = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0))
@@ -35,6 +35,9 @@ class JsonValueView(project: Project) : JPanel(BorderLayout()) {
     private var mode = Mode.FORMATTED
     private var editing = false
     private var tree: BodyTree? = null
+    private var graph: io.yamsergey.dta.studio.network.BodyGraph? = null
+    /** The node chosen in Tree or Graph: the other one shows it too (as in Network). */
+    private var selectedPath: String? = null
 
     init {
         add(JPanel(BorderLayout()).apply {
@@ -59,6 +62,8 @@ class JsonValueView(project: Project) : JPanel(BorderLayout()) {
         apply = onApply
         editing = false
         tree = null
+        graph = null
+        selectedPath = null
         if (!structured) mode = Mode.FORMATTED
         rebuild()
     }
@@ -79,6 +84,9 @@ class JsonValueView(project: Project) : JPanel(BorderLayout()) {
 
     val isEditing: Boolean get() = editing
 
+    /** Shows [m] (what the switch does); Tree and Graph only for an object or array. */
+    fun select(m: Mode) { if (m == Mode.FORMATTED || structured) { mode = m; rebuild() } }
+
     /** Applies [edited] text (what Apply does with the editor's text). */
     fun submit(edited: String) { apply?.invoke(edited) }
 
@@ -87,6 +95,8 @@ class JsonValueView(project: Project) : JPanel(BorderLayout()) {
 
     private fun rebuild() {
         modes.removeAll()
+        // Edit sits in the header for every mode (Graph has its own toolbar below).
+        if (apply != null && !editing) modes.add(ActionLink("Edit") { beginEdit() }.apply { border = JBUI.Borders.emptyRight(12) })
         if (structured && !editing) {
             lateinit var switch: com.intellij.ui.dsl.builder.SegmentedButton<Mode>
             modes.add(com.intellij.ui.dsl.builder.panel {
@@ -118,19 +128,25 @@ class JsonValueView(project: Project) : JPanel(BorderLayout()) {
                     actions.add(ActionLink("Expand all") { editor.foldAll(false) })
                     actions.add(ActionLink("Collapse all") { editor.foldAll(true) })
                 }
-                if (apply != null) actions.add(ActionLink("Edit") { beginEdit() })
                 setContent(editor)
             }
             Mode.TREE -> {
-                val t = tree ?: DataTrees.json(text)?.let { root -> BodyTree(root) {} }?.also { tree = it }
+                val t = tree ?: DataTrees.json(text)?.let { root -> BodyTree(root) { selectedPath = it } }?.also { tree = it }
                 if (t == null) { mode = Mode.FORMATTED; return render() }
+                selectedPath?.let(t::select)
                 actions.add(ActionLink("Expand all") { t.expandAll(true) })
                 actions.add(ActionLink("Collapse all") { t.expandAll(false) })
-                if (apply != null) actions.add(ActionLink("Edit") { beginEdit() })
                 actions.add(JBLabel("Right-click to copy a value or its path").apply { foreground = JBColor.GRAY })
                 setContent(t)
             }
+            Mode.GRAPH -> {
+                val g = graph ?: DataTrees.json(text)?.let { root -> io.yamsergey.dta.studio.network.BodyGraph(root) { selectedPath = it } }?.also { graph = it }
+                if (g == null) { mode = Mode.FORMATTED; return render() }
+                selectedPath?.let(g::select)
+                setContent(g)
+            }
         }
+        actions.isVisible = actions.componentCount > 0
         actions.revalidate()
         actions.repaint()
     }

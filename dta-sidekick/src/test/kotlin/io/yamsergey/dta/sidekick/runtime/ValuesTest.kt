@@ -3,6 +3,7 @@ package io.yamsergey.dta.sidekick.runtime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import kotlinx.coroutines.flow.asStateFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -61,5 +62,27 @@ class ValuesTest {
         val coupon = Values.with(state, listOf("coupon"), Json.parseToJsonElement("\"SAVE10\"")) as State
         assertEquals("SAVE10", coupon.coupon)
         assertFailsWith<IllegalArgumentException> { Values.with(state, listOf("nope"), JsonPrimitive(1)) }
+    }
+
+    data class Point(val x: Int, val y: Int)
+    class Repository(val api: Any = Any())
+
+    @Test
+    fun `a read-only StateFlow is seen as the MutableStateFlow it wraps (feature 033)`() {
+        val mutable = kotlinx.coroutines.flow.MutableStateFlow(1)
+        val readOnly = mutable.asStateFlow()
+        assertTrue(readOnly !== mutable)
+        assertTrue(Values.unwrapReadonly(readOnly) === mutable)
+        assertTrue(Values.unwrapReadonly(mutable) === mutable)
+        assertEquals("x", Values.unwrapReadonly("x"))
+    }
+
+    @Test
+    fun `services are references, state is a value (feature 033)`() {
+        assertTrue(Values.isReference(Repository()))
+        assertTrue(Values.isReference(okhttp3.OkHttpClient()))
+        listOf(null, 1, "s", Mode.DARK, Point(1, 2), listOf(1), mapOf("a" to 1), arrayOf(1), java.util.Date()).forEach {
+            assertTrue(!Values.isReference(it), "$it")
+        }
     }
 }

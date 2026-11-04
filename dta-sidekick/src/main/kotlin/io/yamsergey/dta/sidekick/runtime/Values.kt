@@ -62,6 +62,33 @@ internal object Values {
         }
     }
 
+    /**
+     * Feature 033: `asStateFlow()` / `asSharedFlow()` wrap the mutable flow in a read-only one; the
+     * ViewModel's public `state` then is the same state as its `_state`. The wrapped flow, else [v].
+     */
+    fun unwrapReadonly(v: Any?): Any? {
+        if (v == null) return null
+        val name = v.javaClass.name
+        if (name != "kotlinx.coroutines.flow.ReadonlyStateFlow" && name != "kotlinx.coroutines.flow.ReadonlySharedFlow") return v
+        // The wrapped flow is the class delegate (`$$delegate_0`), which instanceFields leaves out.
+        return v.javaClass.declaredFields.filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) }.firstNotNullOfOrNull { f ->
+            runCatching { f.isAccessible = true; f.get(v) }.getOrNull()?.takeIf { isA(it.javaClass, "kotlinx.coroutines.flow.SharedFlow") }
+        } ?: v
+    }
+
+    /**
+     * Feature 033: an object the ViewModel uses rather than state it holds — a repository, a client,
+     * a context: not a holder, not a value (text, number, enum, data class, collection, array) and
+     * not a plain Java/Kotlin value type. Shown by its class, not serialized.
+     */
+    fun isReference(v: Any?): Boolean {
+        if (v == null || v is CharSequence || v is Number || v is Boolean || v is Char || v is Enum<*>) return false
+        if (v is Collection<*> || v is Map<*, *> || v.javaClass.isArray) return false
+        if (holder(v) != null || copyMethod(v.javaClass) != null) return false
+        val name = v.javaClass.name
+        return !(name.startsWith("java.") || name.startsWith("kotlin."))
+    }
+
     fun isA(type: Class<*>, name: String): Boolean {
         var c: Class<*>? = type
         while (c != null) {

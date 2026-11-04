@@ -129,6 +129,8 @@ data class HiltBinding(
     val declaredType: String,
     val runtimeType: String? = null,
     val created: Boolean = false,
+    /** Feature 033: null for a component's binding; "injected" or "assisted" for what an activity or ViewModel received. */
+    val role: String? = null,
 )
 
 @Serializable

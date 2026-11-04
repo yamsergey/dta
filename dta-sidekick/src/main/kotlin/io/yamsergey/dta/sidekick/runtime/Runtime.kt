@@ -216,6 +216,13 @@ internal class Runtime(private val context: Context) {
                 storeOwner[store] = "back stack entry ${Reflect.call(e, "getDestination")?.let { route(it) } ?: ""}".trim()
             }
         }
+        // Navigation 3 entries (rememberViewModelStoreNavEntryDecorator): ViewModelStoreProvider entries, key → store.
+        LiveObjects.of("androidx.lifecycle.viewmodel.ViewModelStoreProvider\$Entry", loader).orEmpty().forEach { e ->
+            runCatching {
+                val store = Reflect.field(e, "store") ?: return@runCatching
+                storeOwner[store] = "navigation 3 entry ${keyName(Reflect.field(e, "key"))}"
+            }
+        }
         LiveObjects.of("androidx.lifecycle.ViewModelStore", loader).orEmpty().forEach { store ->
             val map = Reflect.fields(store.javaClass).firstOrNull { Map::class.java.isAssignableFrom(it.type) }?.get(store) as? Map<*, *> ?: return@forEach
             map.forEach { (k, vm) -> if (vm != null) { keys[vm] = k.toString(); storeOwner[store]?.let { owners[vm] = it } } }
@@ -236,7 +243,8 @@ internal class Runtime(private val context: Context) {
         val out = mutableListOf<Prop>()
         for (f in fields) {
             val name = f.name.removeSuffix("\$delegate").let { if (it.contains('$')) return@let null else it } ?: continue
-            val value = runCatching { f.get(vm) }.getOrNull()
+            // Feature 033: a public asStateFlow() view is the same state as its private mutable flow.
+            val value = Values.unwrapReadonly(runCatching { f.get(vm) }.getOrNull())
             val prop = Prop(name, f, value)
             val existing = value?.takeIf { it !is Number && it !is String && it !is Boolean }?.let { seen[it] }
             if (existing != null) {
@@ -259,6 +267,9 @@ internal class Runtime(private val context: Context) {
                 val (kind, inner) = holder
                 val editable = Values.isA(v.javaClass, MUTABLE[kind]!!)
                 PropertyInfo(p.name, kind, inner?.javaClass?.simpleName ?: "null", Values.render(inner), editable, if (!editable) "read-only ${kind}" else null)
+            } else if (Values.isReference(v)) {
+                PropertyInfo(p.name, "reference", v!!.javaClass.simpleName.ifEmpty { v.javaClass.name }, kotlinx.serialization.json.JsonPrimitive(v.javaClass.name), false,
+                    "a reference to an object the ViewModel uses (a repository, client, context): shown by its class, not serialized")
             } else {
                 val simple = v == null || v is Number || v is String || v is Boolean || v is Enum<*> || (Values.copyMethod(v.javaClass) != null)
                 PropertyInfo(p.name, "field", p.field.type.simpleName, Values.render(v), !Modifier.isFinal(p.field.modifiers) && simple)
@@ -365,8 +376,40 @@ internal class Runtime(private val context: Context) {
                 }
                 HiltBinding("$scope (${c.javaClass.simpleName})", f.name, declared, instance?.javaClass?.name, instance != null)
             }
-        }.filter { filter == null || it.declaredType.contains(filter, ignoreCase = true) || (it.runtimeType?.contains(filter, ignoreCase = true) ?: false) }
-        return HiltBindings(true, bindings)
+        } + injections()
+        return HiltBindings(true, bindings.filter { filter == null || it.declaredType.contains(filter, ignoreCase = true) || (it.runtimeType?.contains(filter, ignoreCase = true) ?: false) || it.component.contains(filter, ignoreCase = true) })
+    }
+
+    /**
+     * Feature 033: what Hilt injected into the live objects it serves — an activity's `@Inject`
+     * fields, a `@HiltViewModel`'s constructor parameters (assisted ones marked) — with the
+     * instance each got.
+     */
+    private fun injections(): List<HiltBinding> {
+        val out = mutableListOf<HiltBinding>()
+        runCatching {
+            activityRecords().forEach { (a, _, _) ->
+                if (runCatching { Reflect.call(a, "componentManager") }.getOrNull() == null) return@forEach
+                generateSequence(a.javaClass as Class<*>) { it.superclass }.takeWhile { !it.name.startsWith("android") }.flatMap { it.declaredFields.asSequence() }
+                    .filter { f -> f.annotations.any { it.annotationClass.java.name == "javax.inject.Inject" } }
+                    .forEach { f ->
+                        val v = runCatching { f.isAccessible = true; f.get(a) }.getOrNull()
+                        out += HiltBinding("activity ${a.javaClass.simpleName} (injected fields)", f.name, f.genericType.typeName, v?.javaClass?.name, v != null, "injected")
+                    }
+            }
+        }
+        viewModelObjects().orEmpty().filter { vm -> runCatching { Class.forName(vm.javaClass.name + "_HiltModules", false, vm.javaClass.classLoader) }.isSuccess }.forEach { vm ->
+            val ctor = vm.javaClass.declaredConstructors.maxByOrNull { it.parameterCount } ?: return@forEach
+            val fields = Values.instanceFields(vm.javaClass).toMutableList()
+            ctor.parameters.forEachIndexed { i, p ->
+                val assisted = ctor.parameterAnnotations[i].any { it.annotationClass.java.name == "dagger.assisted.Assisted" }
+                // The field the constructor kept it in: the first of an assignable type.
+                val field = fields.firstOrNull { p.type.isAssignableFrom(it.type) || it.type.isAssignableFrom(p.type) }?.also { fields.remove(it) }
+                val v = field?.let { f -> runCatching { f.isAccessible = true; f.get(vm) }.getOrNull() }
+                out += HiltBinding("viewmodel ${vm.javaClass.simpleName} ${id(vm)} (constructor)", field?.name ?: p.name, p.parameterizedType.typeName, v?.javaClass?.name, v != null, if (assisted) "assisted" else "injected")
+            }
+        }
+        return out
     }
 
     // ---- functions ----
