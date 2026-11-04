@@ -61,6 +61,7 @@ class EntryDetailPane(
     private var client: DaemonClient? = null
     private var target: JsonObject = JsonObject(emptyMap())
     private var side = Side.WIRE
+    private var lastRedact = false
     private val navigator = FrameNavigator(project)
 
     init {
@@ -78,6 +79,7 @@ class EntryDetailPane(
             return
         }
         shownUnlisted = unlisted
+        lastRedact = redact
         this.client = client
         this.target = target
         shown = id
@@ -214,7 +216,19 @@ class EntryDetailPane(
 
     private fun messagesPage(detail: EntryDetail) = Page().apply {
         // Feature 038: what the messages are (their envelope format), kind · id · topic before each, replies paired.
-        io.yamsergey.dta.present.network.formats(detail.messages)?.let { line(JBLabel("Format: $it").apply { foreground = JBColor.GRAY }, top = 0) }
+        // Feature 039: the app's own format, said once: Set format… (or the rule in use, to edit or remove).
+        val formatText = io.yamsergey.dta.present.network.formats(detail.messages)?.let { "Format: $it" } ?: "Format: not recognised"
+        val inUse = io.yamsergey.dta.present.network.FormatRuleForm.rulesInUse(detail.messages)
+        line(row(buildList {
+            add(JBLabel(formatText + inUse.joinToString("") { " · rule $it" }).apply { foreground = JBColor.GRAY })
+            if (client != null) {
+                if (inUse.isEmpty()) add(ActionLink("Set format…") { editFormat(null) }.apply { toolTipText = "Say how this app's messages are built: a pattern or field paths, tried on these messages" })
+                inUse.forEach { rule ->
+                    add(ActionLink("Edit $rule…") { editFormat(rule) })
+                    add(ActionLink("Remove $rule") { removeFormat(rule) })
+                }
+            }
+        }), top = 0)
         val replies = io.yamsergey.dta.present.network.replies(detail.messages)
         detail.messages.forEach { m ->
             val label: String? = m.envelope?.label()
@@ -225,6 +239,40 @@ class EntryDetailPane(
         }
         detail.messagesMore?.let { line(JBLabel(it).apply { foreground = JBColor.GRAY }, top = 6) }
         end()
+    }
+
+    /** Feature 039: the connection's format rule — a new one prefilled with its socket, or [rule] to replace. */
+    private fun editFormat(rule: String?) {
+        val c = client ?: return
+        val connection = shown ?: return
+        val url = (raw?.get("entry") as? JsonObject)?.get("url")?.let { (it as? JsonPrimitive)?.content }
+        scope.launch {
+            val existing = rule?.let { id ->
+                runCatching { c.call("network.format.list", target).result as kotlinx.serialization.json.JsonArray }.getOrNull()
+                    ?.mapNotNull { it as? JsonObject }?.firstOrNull { (it["id"] as? JsonPrimitive)?.content == id }
+            }
+            withContext(Dispatchers.Main) {
+                val form = existing?.let { io.yamsergey.dta.present.network.FormatRuleForm.of(it) } ?: io.yamsergey.dta.present.network.FormatRuleForm.forConnection(url)
+                if (FormatRuleDialog(project, c, target, connection, form, rule, scope).showAndGet()) reload()
+            }
+        }
+    }
+
+    private fun removeFormat(rule: String) {
+        val c = client ?: return
+        scope.launch {
+            runCatching { c.call("network.format.remove", JsonObject(target + mapOf("id" to JsonPrimitive(rule)))) }
+            withContext(Dispatchers.Main) { reload() }
+        }
+    }
+
+    /** Loads the shown entry again (its messages read with the rules as they are now). */
+    private fun reload() {
+        val id = shown ?: return
+        val c = client ?: return
+        val redact = lastRedact
+        shown = null
+        show(c, target, id, redact, shownGone, shownUnlisted)
     }
 
     /** Why the entry could not be loaded; an entry that is no longer stored says so plainly (patterns.md). */

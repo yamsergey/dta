@@ -123,6 +123,9 @@ private val lenient = kotlinx.serialization.json.Json { ignoreUnknownKeys = true
 /** Feature 039: an envelope the daemon put on a message or a body result. */
 fun envelopeOf(o: JsonObject?): Envelope? = o?.let { runCatching { lenient.decodeFromJsonElement(Envelope.serializer(), it) }.getOrNull() }
 
+/** A message on one line, as the list shows it. */
+fun oneLineOf(text: String): String = oneLine(text)
+
 /** [text]'s lines trimmed and joined by a space, blank ones dropped: what a one-line list cell can show of a multi-line message. */
 internal fun oneLine(text: String): String = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
 

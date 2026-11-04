@@ -87,6 +87,12 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - `redact: true` masks tokens, cookies, passwords and keys (in decoded protobuf too); bodies that cannot be redacted are withheld unless `allowUnredacted`.
 - `network_clear` empties the history (all runs).
 
+## WebSocket message formats
+
+Every text message in `network_list` and `network_entry` (and a message body) carries an `envelope`: its `format` (json, json-rpc, graphql-ws, prefix+json, socket.io, phoenix, stomp, signalr), `kind`, `id`, `topic` and `payload`. A reply has the same `id` as the request it answers. When the app has its own protocol and the envelope is missing or wrong, propose a rule from the messages you see:
+- `network_format_test` with `urlPattern` (glob over the socket's URL) and a `pattern` (regex with named groups `kind`, `id`, `topic`, `payload`) and/or field paths (`kind`, `idPath`, `topic`, `payload`, e.g. `h.op`) — it says how many of the connection's latest messages it reads, with samples both ways. Nothing is kept.
+- When it reads them all and the user agrees, `network_format_add` with the same arguments. `network_format_list` / `network_format_remove` manage rules; they are kept per app across restarts and apply in the plugin and the CLI too.
+
 ## Links
 
 - `links_list` lists the links (deep links, App Links, any intent with a URI) that reached an activity of the app: URI, `delivery` (`cold-start`, `created`, `new-intent`, `from-recents`), activity, referrer. Filters: `uri`, `activity`, `delivery`, `runs`, `archive`. `links_entry` gives the query, flags and every extra (or why it could not be read).

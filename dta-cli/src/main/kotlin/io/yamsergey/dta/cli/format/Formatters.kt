@@ -56,6 +56,10 @@ class Formatters(private val style: Style) {
         "network.mapping.add" -> mappingRow(result.obj)
         "network.mapping.list" -> result.arr.joinToString("\n") { mappingRow(it.obj) }.ifEmpty { "No mappings." }
         "network.mapping.remove" -> "Removed mapping ${result.obj.str("removed")}."
+        "network.format.add" -> formatRule(result.obj)
+        "network.format.list" -> result.arr.joinToString("\n") { formatRule(it.obj) }.ifEmpty { "No format rules. Add one with 'dta network format add'." }
+        "network.format.remove" -> "Removed format rule ${result.obj.str("removed")}."
+        "network.format.test" -> formatTest(result.obj)
         "links.list" -> linksList(result.obj)
         "links.entry" -> linkEntry(result.obj.obj("entry") ?: JsonObject(emptyMap()))
         "links.open" -> linkOpen(result.obj)
@@ -535,6 +539,29 @@ class Formatters(private val style: Style) {
         if (m.bool("builtin")) style.paint("built-in", Token.INK_MUTED) else null,
         m.str("broken")?.let { style.mark(StatementKind.DEGRADED, "broken: $it") },
     ).joinToString("  ")
+
+    /** Feature 039: a WebSocket message format rule on one line. */
+    private fun formatRule(r: JsonObject): String = listOfNotNull(
+        style.paint(r.str("id") ?: "", Token.INK_MUTED), r.str("name"), r.str("urlPattern"), r.str("direction"),
+        r.str("pattern")?.let { "pattern $it" },
+        r.str("kind")?.let { "kind $it" }, r.str("idPath")?.let { "id $it" }, r.str("topic")?.let { "topic $it" }, r.str("payload")?.let { "payload $it" },
+        r.str("payloadFormat")?.takeIf { it != "json" }?.let { "payload as $it" },
+    ).joinToString("  ")
+
+    private fun formatTest(o: JsonObject): String = buildString {
+        append("Reads ${o.long("read") ?: 0} of ${o.long("of") ?: 0} messages.")
+        o.str("slow")?.let { append("\n").append(style.mark(StatementKind.DEGRADED, it)) }
+        o.arr("samples").forEach { s ->
+            val e = io.yamsergey.dta.present.network.envelopeOf(s.obj.obj("envelope"))
+            append("\n  ").append(e?.label()?.takeIf { it.isNotEmpty() }?.let { "[$it]  " } ?: "").append(io.yamsergey.dta.present.network.oneLineOf(s.obj.str("text") ?: ""))
+            e?.note?.let { append("  ").append(style.paint("($it)", Token.INK_MUTED)) }
+        }
+        val unread = o.arr("unread")
+        if (unread.isNotEmpty()) {
+            append("\n").append(style.paint("not read:", Token.INK_MUTED))
+            unread.forEach { append("\n  ").append(io.yamsergey.dta.present.network.oneLineOf((it as? JsonPrimitive)?.content ?: "")) }
+        }
+    }
 
     // --- Daemon
 
