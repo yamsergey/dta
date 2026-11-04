@@ -74,7 +74,7 @@ internal class Databases(private val context: Context) {
             else -> "sqlite"
         }
         val (access, note) = when {
-            live != null -> Access.LIVE to "the app's open ${describe(live.flavor)}: DTA reads and writes through it" + (if (room) "; Room observers are told after writes" else "")
+            live != null -> Access.LIVE to "the app's open ${describe(live.flavor)}: DTA reads and writes through it" + (if (room) "; Room observers are told after writes" else if (sqlDelight()) "; SQLDelight queries are told after writes" else "")
             encrypted && liveUnknown -> Access.UNREADABLE to "encrypted, and the app's open databases cannot be seen (${LiveObjects.reason}); give its SQLCipher passphrase"
             encrypted -> Access.UNREADABLE to "encrypted (SQLCipher), and the app has not opened it in this process: open the screen that uses it, or give its passphrase"
             else -> Access.FILE to "not open in the app: DTA opens the file for each call" + (if (liveUnknown) " (the app's open databases cannot be seen: ${LiveObjects.reason})" else "")
@@ -104,8 +104,28 @@ internal class Databases(private val context: Context) {
     fun exec(store: String, sql: String, args: List<String>, passphrase: String?): ExecResult =
         session(store, passphrase) { s, access, _ ->
             val result = s.exec(store, sql, args)
-            if (access == Access.LIVE && (result.changed != 0 || SqlStatements.kind(sql) == SqlKind.OTHER)) result.copy(invalidated = invalidateRoom()) else result
+            if (access == Access.LIVE && (result.changed != 0 || SqlStatements.kind(sql) == SqlKind.OTHER)) {
+                val tables = runCatching { s.rows("SELECT name FROM sqlite_master WHERE type='table'").mapNotNull { it[0] } }.getOrDefault(emptyList())
+                result.copy(invalidated = invalidateRoom() + invalidateSqlDelight(tables))
+            } else result
         }
+
+    /**
+     * Feature 030: SQLDelight's flows listen to their driver, not to SQLite: every live
+     * AndroidSqliteDriver is told the written database's tables changed (its query keys are table
+     * names), so `asFlow()` queries re-run as after the app's own write.
+     */
+    private fun invalidateSqlDelight(tables: List<String>): Int {
+        if (tables.isEmpty()) return 0
+        var told = 0
+        for (driver in LiveObjects.of("app.cash.sqldelight.driver.android.AndroidSqliteDriver", loader).orEmpty()) {
+            val m = driver.javaClass.methods.firstOrNull { it.name == "notifyListeners" && it.parameterTypes.size == 1 && it.parameterTypes[0].isArray } ?: continue
+            if (runCatching { m.invoke(driver, tables.toTypedArray()) }.isSuccess) told++
+        }
+        return told
+    }
+
+    private fun sqlDelight(): Boolean = LiveObjects.of("app.cash.sqldelight.driver.android.AndroidSqliteDriver", loader).orEmpty().isNotEmpty()
 
     /** Every live Room InvalidationTracker re-checks its tables (as Android Studio's RoomInvalidationRegistry). */
     private fun invalidateRoom(): Int {
