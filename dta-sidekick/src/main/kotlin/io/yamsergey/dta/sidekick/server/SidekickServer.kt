@@ -101,7 +101,7 @@ object SidekickServer {
                 if (io.yamsergey.dta.sidekick.hooks.HookAttach.attached) null else io.yamsergey.dta.sidekick.hooks.HookAttach.reason
             }.install(this)
         }
-        val identity = SessionIdentity(packageName = packageName, serverVersion = sidekickVersion)
+        val identity = SessionIdentity(packageName = packageName, serverVersion = sidekickVersion, serverBuild = io.yamsergey.dta.sidekick.BuildConfig.BUILD)
         val socketName = "dta_sidekick_$packageName"
 
         thread(isDaemon = true, name = "dta-sidekick-accept") {

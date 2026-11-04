@@ -76,6 +76,8 @@ class SidekickConnection private constructor(
 
     private lateinit var webSocket: WebSocket
     private lateinit var helloResult: HelloResult
+    /** This DTA's version, as said in hello. */
+    private var daemonVersion: String = "dev"
 
     private val pending = ConcurrentHashMap<Long, PendingRequest>()
     private val ids = AtomicLong(0)
@@ -91,6 +93,13 @@ class SidekickConnection private constructor(
     override val hello: HelloResult get() = helloResult
     override val events: SharedFlow<Event> = _events.asSharedFlow()
     override val isOpen: Boolean get() = open
+
+    /** What to tell the user when the app's sidekick lacks [method] (feature 036). */
+    internal fun olderSidekick(method: String): String {
+        val app = helloResult.serverVersion + (helloResult.serverBuild?.let { " (build $it)" } ?: " (built before DTA reported builds)")
+        return "the app's DTA (sidekick $app) does not have '$method': it was built before this DTA ($daemonVersion). " +
+            "Rebuild and reinstall the app's debug build — run it again from the IDE with Add DTA to Debug Builds, or `dta run` — then retry."
+    }
 
     override suspend fun request(method: String, params: JsonObject?, timeout: Duration?): JsonElement =
         requestFull(method, params, timeout).result
@@ -113,7 +122,11 @@ class SidekickConnection private constructor(
                         "bring it to the foreground and retry",
                 )
             }
-            response.error?.let { throw SidekickRpcException(it.code, it.message, it.details) }
+            response.error?.let {
+                // Feature 036: a method the daemon knows and the app's sidekick does not — the app carries an older DTA.
+                if (it.code == ErrorCodes.METHOD_NOT_FOUND && method != "hello" && ::helloResult.isInitialized) throw SidekickRpcException(it.code, olderSidekick(method), it.details)
+                throw SidekickRpcException(it.code, it.message, it.details)
+            }
             return RpcResult(
                 result = response.result ?: JsonNull,
                 binaryPayloads = binaries,
@@ -227,6 +240,7 @@ class SidekickConnection private constructor(
                 )
             }
             connection.open = true
+            connection.daemonVersion = clientVersion
 
             try {
                 val params = DtaJson.encodeToJsonElement(

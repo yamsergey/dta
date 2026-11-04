@@ -34,7 +34,7 @@ object DaemonMain {
         log("starting ${identity.display}, home $home, pid ${ProcessHandle.current().pid()}")
 
         val daemon = try {
-            DtaDaemon(AdbExec(), dataDir = home)
+            DtaDaemon(AdbExec(), dataDir = home, selfVersion = "${identity.version} (build ${identity.build})")
         } catch (e: IllegalStateException) {
             log("adb unavailable: ${e.message}")
             DtaDaemon.withoutAdb(e.message ?: "adb not found", home)

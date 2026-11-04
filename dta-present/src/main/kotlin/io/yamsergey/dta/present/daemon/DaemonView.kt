@@ -50,7 +50,7 @@ data class DaemonView(
                 clients = status.arr("clients").map { (it as JsonObject).let { c -> "${c.str("kind")} ${c.str("version")}" } },
                 devices = status.arr("devices").map { (it as JsonObject).let { d -> listOfNotNull(d.str("serial"), d.str("state"), d.str("model")).joinToString(" ") } },
                 connections = status.arr("connections").map { (it as JsonObject).let { c -> "${c.str("device")} ${c.str("app")}" } },
-                sidekick = capability?.let { "sidekick ${it.str("sidekickVersion")} in ${it.str("packageName")}" },
+                sidekick = capability?.let { "sidekick ${it.str("sidekickVersion")}" + (it.str("sidekickBuild")?.let { b -> " (build $b)" } ?: "") + " in ${it.str("packageName")}" },
                 capabilities = rows,
             )
         }

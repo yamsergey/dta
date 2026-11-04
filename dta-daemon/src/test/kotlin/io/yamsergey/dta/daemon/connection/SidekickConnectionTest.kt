@@ -65,6 +65,18 @@ class SidekickConnectionTest {
     }
 
     @Test
+    fun `a method the app's sidekick lacks says the app carries an older DTA and what to do (036)`() = runBlocking {
+        TestWsServer(registryWithDiagnostics()).use { server ->
+            val connection = SidekickConnection.connect(URI("ws://127.0.0.1:${server.port}/"), clientVersion = "0.10.0-SNAPSHOT (build B2)")
+            val e = kotlin.test.assertFailsWith<SidekickRpcException> { connection.request("runtime_di", null) }
+            assertTrue("does not have 'runtime_di'" in e.message!!, e.message)
+            assertTrue("built before this DTA (0.10.0-SNAPSHOT (build B2))" in e.message!!, e.message)
+            assertTrue("Rebuild and reinstall the app's debug build" in e.message!!, e.message)
+            connection.close()
+        }
+    }
+
+    @Test
     fun `100 concurrent requests each get their own response`() = runBlocking {
         TestWsServer(registryWithDiagnostics()).use { server ->
             val connection = SidekickConnection.connect(URI("ws://127.0.0.1:${server.port}/"))

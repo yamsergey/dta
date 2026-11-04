@@ -11,6 +11,8 @@ data class SessionIdentity(
     val packageName: String,
     val serverVersion: String,
     val protocolVersion: Int = PROTOCOL_VERSION,
+    /** When the server was built (UTC): tells two builds of one snapshot version apart (feature 036). */
+    val serverBuild: String? = null,
 )
 
 /**
@@ -108,6 +110,7 @@ class ServerSession(
                         server = "dta-sidekick",
                         serverVersion = identity.serverVersion,
                         packageName = identity.packageName,
+                        serverBuild = identity.serverBuild,
                     ),
                 ),
             ),

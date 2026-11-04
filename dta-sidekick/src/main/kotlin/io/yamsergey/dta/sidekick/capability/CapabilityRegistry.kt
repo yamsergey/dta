@@ -37,6 +37,7 @@ class CapabilityRegistry {
         IdentityReport(
             protocolVersion = PROTOCOL_VERSION,
             sidekickVersion = sidekickVersion,
+            sidekickBuild = io.yamsergey.dta.sidekick.BuildConfig.BUILD,
             packageName = packageName,
             capabilities = snapshot(),
             app = app,

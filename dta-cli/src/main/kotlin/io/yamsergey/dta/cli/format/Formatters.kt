@@ -199,7 +199,7 @@ class Formatters(private val style: Style) {
             val state = gaps[name]?.let { style.mark(it.kind, it.word) } ?: status
             return listOfNotNull(name.padEnd(16), state, reason?.let { style.paint(it, Token.INK_MUTED) }).joinToString("  ")
         }
-        appendLine("${o.str("packageName")}  sidekick ${o.str("sidekickVersion")}")
+        appendLine("${o.str("packageName")}  sidekick ${o.str("sidekickVersion")}" + (o.str("sidekickBuild")?.let { " (build $it)" } ?: ""))
         o.arr("capabilities").forEach { c ->
             val cap = c.obj
             appendLine(capLine(cap.str("name")!!, cap.str("status")!!, cap.str("reason")))

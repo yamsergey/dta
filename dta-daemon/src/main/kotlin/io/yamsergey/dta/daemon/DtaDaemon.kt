@@ -62,12 +62,15 @@ class DtaDaemon(
     /** Daemon state on the developer's machine: protobuf schemas and mappings (feature 006). */
     dataDir: java.io.File = defaultHome(),
     private val adbUnavailableReason: String? = null,
+    /** This DTA as told to apps' sidekicks and in messages about them (feature 036). */
+    private val selfVersion: String = "dev",
 ) {
     constructor(
         adb: AdbExec = AdbExec(),
         requestTimeout: Duration = 10.seconds,
         dataDir: java.io.File = defaultHome(),
-    ) : this({ args -> adb.run(*args.toTypedArray()) }, adb.binaryPath, requestTimeout, dataDir)
+        selfVersion: String = "dev",
+    ) : this({ args -> adb.run(*args.toTypedArray()) }, adb.binaryPath, requestTimeout, dataDir, selfVersion = selfVersion)
 
     private val schemas = SchemaRegistry(dataDir)
     private val injectedTooling = io.yamsergey.dta.daemon.inject.InjectedTooling(dataDir)
@@ -146,6 +149,7 @@ class DtaDaemon(
                 uri = URI("ws://127.0.0.1:$port/"),
                 expectedPackage = key.packageName,
                 requestTimeout = requestTimeout,
+                clientVersion = selfVersion,
             )
         },
         probe = { connection ->

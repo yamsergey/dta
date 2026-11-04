@@ -4,6 +4,12 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+/** Without CI's DTA_BUILD_TIME: the commit's time, stable across builds of one commit (feature 036). */
+val sidekickCommitTime: Provider<String> = providers.exec {
+    commandLine("git", "log", "-1", "--format=%cI")
+    isIgnoreExitValue = true
+}.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }
+
 android {
     namespace = "io.yamsergey.dta.sidekick"
     compileSdk = 34
@@ -32,6 +38,8 @@ android {
 
     defaultConfig {
         buildConfigField("String", "VERSION", "\"${project.version}\"")
+        // Feature 036: one snapshot version has many builds; the build time tells them apart (CI sets DTA_BUILD_TIME per run).
+        buildConfigField("String", "BUILD", "\"${providers.environmentVariable("DTA_BUILD_TIME").orElse(sidekickCommitTime).get()}\"")
     }
 
     compileOptions {

@@ -123,6 +123,8 @@ data class HelloResult(
     val server: String,
     val serverVersion: String,
     val packageName: String,
+    /** Absent before feature 036. */
+    val serverBuild: String? = null,
 )
 
 /**
@@ -150,4 +152,6 @@ data class IdentityReport(
     val capabilities: List<CapabilityStatus>,
     /** Absent from sidekicks before feature 011. */
     val app: AppInstallation? = null,
+    /** When the app's DTA (sidekick) was built, UTC; absent before feature 036. */
+    val sidekickBuild: String? = null,
 )
