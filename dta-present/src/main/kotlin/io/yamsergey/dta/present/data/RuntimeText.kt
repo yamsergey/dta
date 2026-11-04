@@ -74,6 +74,8 @@ object RuntimeText {
 
     /** Feature 035: every DI graph, its bindings with kind and instance. */
     fun di(r: DiReport): String = buildString {
+        // Feature 037: what each binding depends on, by name.
+        val names = DiBrowser(r).nodes.associate { it.id to it.binding.name }
         r.graphs.forEachIndexed { i, g ->
             if (i > 0) append("\n")
             append("${g.framework}  ${g.name}")
@@ -90,6 +92,7 @@ object RuntimeText {
                         else -> "  (not created yet)"
                     },
                 )
+                if (b.dependsOn.isNotEmpty()) append("  ← needs ").append(b.dependsOn.joinToString(", ") { names[it] ?: it })
             }
         }
         r.note?.let { if (r.graphs.isNotEmpty()) append("\n"); append(it) }

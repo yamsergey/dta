@@ -367,6 +367,8 @@ internal class Runtime(private val context: Context) {
     /** Every DI graph in the app: Hilt components and what Hilt injected, Metro graphs, Dagger components, Koin. */
     fun di(filter: String?): DiReport {
         val graphs = mutableListOf<DiGraph>()
+        // Feature 037: each binding's live instance, to link who depends on whom.
+        instances = java.util.IdentityHashMap()
         val notes = mutableListOf<String>()
         graphs += hiltGraphs()
         val found = runCatching { graphClasses() }.onFailure { notes += "Metro graphs and Dagger components cannot be looked for: the app's classes cannot be listed (${it.message})" }.getOrDefault(emptyList())
@@ -375,21 +377,24 @@ internal class Runtime(private val context: Context) {
             if (live == null) { notes += "$framework ${cls.name}: its live instance cannot be found (${LiveObjects.reason})"; continue }
             live.forEach { g ->
                 val name = (cls.interfaces.firstOrNull { DiReaders.isMetroGraph(cls) }?.simpleName ?: cls.simpleName) + " " + id(g)
-                graphs += DiReaders.providerGraph(framework, name, g, skip = { f -> f.type.name.endsWith("Impl") || f.type == cls })
+                graphs += DiReaders.providerGraph(framework, name, g, skip = { f -> f.type.name.endsWith("Impl") || f.type == cls }, instances = instances)
             }
         }
         if (graphs.any { it.framework == "metro" }) graphs += viewModelInjections("metro") { vm ->
             vm.javaClass.annotations.any { it.annotationClass.java.name.let { n -> n == "dev.zacsweers.metro.Inject" || n == "dev.zacsweers.metro.AssistedInject" } } ||
                 vm.javaClass.declaredConstructors.any { c -> c.annotations.any { it.annotationClass.java.name.startsWith("dev.zacsweers.metro.") } }
         }
-                runCatching { DiReaders.koin(loader) }.onFailure { notes += "Koin is in the app but its definitions cannot be read: ${it.message}" }.getOrNull()?.let { graphs += it }
-        val shown = graphs.map { g ->
+                runCatching { DiReaders.koin(loader, instances) }.onFailure { notes += "Koin is in the app but its definitions cannot be read: ${it.message}" }.getOrNull()?.let { graphs += it }
+        val linked = DiReaders.link(graphs, instances)
+        val shown = linked.map { g ->
             if (filter == null || g.name.contains(filter, true) || g.framework.equals(filter, true)) g
             else g.copy(bindings = g.bindings.filter { it.type.contains(filter, true) || (it.runtimeType?.contains(filter, true) ?: false) || it.name.contains(filter, true) })
         }.filter { filter == null || it.bindings.isNotEmpty() || it.name.contains(filter, true) || it.framework.equals(filter, true) }
         val note = (notes + listOfNotNull("no DI graph found: looked for Hilt, Dagger, Metro and Koin".takeIf { graphs.isEmpty() && notes.isEmpty() })).joinToString("; ").ifEmpty { null }
         return DiReport(shown, note)
     }
+
+    private var instances = java.util.IdentityHashMap<DiBinding, Any>()
 
     /** Hilt components (singleton, live activities' ones) and what Hilt injected into live objects. */
     private fun hiltGraphs(): List<DiGraph> {
@@ -404,7 +409,7 @@ internal class Runtime(private val context: Context) {
         if (components.isEmpty()) return emptyList()
         // Links to parent components (…CImpl fields) are not bindings.
         // An activity component usually has no bindings of its own (its injections are listed after).
-        return components.map { (scope, c) -> DiReaders.providerGraph("hilt", "$scope (${c.javaClass.simpleName})", c, skip = { f -> f.type.name.contains("CImpl") }) }
+        return components.map { (scope, c) -> DiReaders.providerGraph("hilt", "$scope (${c.javaClass.simpleName})", c, skip = { f -> f.type.name.contains("CImpl") }, instances = instances) }
             .filter { it.bindings.isNotEmpty() || it.name.startsWith("singleton") } + injections()
     }
 
@@ -421,7 +426,7 @@ internal class Runtime(private val context: Context) {
                     .filter { f -> f.annotations.any { it.annotationClass.java.name == "javax.inject.Inject" } }
                     .map { f ->
                         val v = runCatching { f.isAccessible = true; f.get(a) }.getOrNull()
-                        DiBinding(f.genericType.typeName, f.name, v?.javaClass?.name, v != null, "injected")
+                        DiBinding(f.genericType.typeName, f.name, v?.javaClass?.name, v != null, "injected").also { b -> v?.let { instances[b] = it } }
                     }.toList()
                 if (fields.isNotEmpty()) out += DiGraph("hilt", "activity ${a.javaClass.simpleName} (injected fields)", fields)
             }
@@ -445,7 +450,7 @@ internal class Runtime(private val context: Context) {
                 // The field the constructor kept it in: the first of an assignable type.
                 val field = fields.firstOrNull { p.type.isAssignableFrom(it.type) || it.type.isAssignableFrom(p.type) }?.also { fields.remove(it) }
                 val v = field?.let { f -> runCatching { f.isAccessible = true; f.get(vm) }.getOrNull() }
-                DiBinding(p.parameterizedType.typeName, field?.name ?: p.name, v?.javaClass?.name, v != null, if (assisted) "assisted" else "injected")
+                DiBinding(p.parameterizedType.typeName, field?.name ?: p.name, v?.javaClass?.name, v != null, if (assisted) "assisted" else "injected").also { b -> v?.let { instances[b] = it } }
             }
             out += DiGraph(framework, "viewmodel ${vm.javaClass.simpleName} ${id(vm)} (constructor)", params)
         }

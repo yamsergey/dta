@@ -135,6 +135,10 @@ data class DiBinding(
     val created: Boolean = false,
     val kind: String? = null,
     val qualifier: String? = null,
+    /** Feature 037: this binding's id in the report (`graph.binding`), what [dependsOn] names. */
+    val id: String? = null,
+    /** Feature 037: the bindings whose instances this one's instance holds (or, for injected / assisted, the binding that provided it). */
+    val dependsOn: List<String> = emptyList(),
 )
 
 /** A DI graph: [framework] hilt, dagger, metro or koin; [name] the component, graph or scope. */

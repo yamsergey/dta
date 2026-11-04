@@ -67,5 +67,20 @@ class DiReadersTest {
         assertEquals(DiBindingExpect(App::class.java.name, "instance", true, App::class.java.name), byName["appInstance"]!!.let { DiBindingExpect(it.type, it.kind, it.created, it.runtimeType) })
     }
 
+    class Service(val api: Api, val repo: Repo)
+
+    @Test
+    fun `who depends on whom comes from the instances' fields (037)`() {
+        val koin = startKoin { modules(module { single { Api() }; single { Repo() }; single { Service(get(), get()) } }) }.koin
+        koin.get<Service>()
+        val instances = java.util.IdentityHashMap<io.yamsergey.dta.protocol.data.DiBinding, Any>()
+        val graph = DiReaders.link(listOf(DiReaders.koin(DiReadersTest::class.java.classLoader, instances)!!), instances).single()
+        val byType = graph.bindings.filter { it.kind == "singleton" }.associateBy { it.type }
+        val service = byType[Service::class.java.name]!!
+        assertEquals(setOf(byType[Api::class.java.name]!!.id, byType[Repo::class.java.name]!!.id), service.dependsOn.toSet())
+        assertTrue(byType[Api::class.java.name]!!.dependsOn.isEmpty())
+        assertTrue(graph.bindings.all { it.id != null })
+    }
+
     private data class DiBindingExpect(val type: String, val kind: String?, val created: Boolean, val runtimeType: String?)
 }

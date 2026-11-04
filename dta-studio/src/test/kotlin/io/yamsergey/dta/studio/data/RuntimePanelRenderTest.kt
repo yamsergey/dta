@@ -36,6 +36,19 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
                 {"id":3,"name":"dta-sidekick-accept","state":"runnable","daemon":true,"priority":5,"stack":["android.net.LocalServerSocket.accept(LocalServerSocket.java:93)"]},
                 {"id":4,"name":"main","state":"runnable","daemon":false,"priority":5,"group":"main","stack":["android.os.MessageQueue.nativePollOnce(Native Method)","android.os.Looper.loop(Looper.java:317)","android.app.ActivityThread.main(ActivityThread.java:8705)"]},
                 {"id":5,"name":"sync","state":"blocked","daemon":false,"priority":5,"group":"main","stack":["java.io.FileOutputStream.write(FileOutputStream.java:1)","com.example.shop.Sync.flush(Sync.kt:42)","java.lang.Thread.run(Thread.java:1012)"]}]}"""
+            "runtime.di" -> """{"graphs":[
+                {"framework":"metro","name":"AppGraph 35db0f5","bindings":[
+                  {"type":"io.ktor.client.HttpClient","name":"httpClient","runtimeType":"io.ktor.client.HttpClient","created":true,"kind":"singleton","id":"0.0"},
+                  {"type":"app.data.WeatherApi","name":"weatherApi","runtimeType":"app.data.WeatherApi","created":true,"kind":"singleton","id":"0.1","dependsOn":["0.0","0.5"]},
+                  {"type":"app.db.WeatherDb","name":"database","runtimeType":"app.db.WeatherDbImpl","created":true,"kind":"singleton","id":"0.2","dependsOn":["0.6"]},
+                  {"type":"app.data.Settings","name":"settings","runtimeType":"app.data.Settings","created":true,"kind":"singleton","id":"0.3"},
+                  {"type":"app.data.ForecastRepository","name":"forecastRepository","runtimeType":"app.data.ForecastRepository","created":true,"kind":"singleton","id":"0.4","dependsOn":["0.1","0.2","0.3"]},
+                  {"type":"java.lang.String","name":"baseUrl","kind":"factory","id":"0.5"},
+                  {"type":"android.app.Application","name":"appInstance","runtimeType":"app.WeatherApp","created":true,"kind":"instance","id":"0.6"},
+                  {"type":"app.data.AlertsClient","name":"alertsClient","kind":"singleton","id":"0.7"}]},
+                {"framework":"metro","name":"viewmodel ForecastViewModel 1d2 (constructor)","bindings":[
+                  {"type":"java.lang.String","name":"placeId","runtimeType":"java.lang.String","created":true,"kind":"assisted","id":"1.0"},
+                  {"type":"app.data.ForecastRepository","name":"repository","runtimeType":"app.data.ForecastRepository","created":true,"kind":"injected","id":"1.1","dependsOn":["0.4"]}]}]}"""
             "runtime.memory" -> """{"javaUsedBytes":12582912,"javaMaxBytes":268435456,"javaFreeBytes":0,"nativeAllocatedBytes":4194304,"nativeHeapBytes":0,"pssKb":81920,"gcCount":7,"gcTimeMs":35}"""
             else -> error(op)
         },
@@ -123,5 +136,21 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
         assertEquals("sync · blocked · priority 5 · group main", v.stackHeader.text)
         assertEquals(3, v.stack.model.size)
         render(p, "runtime-threads")
+    }
+
+    fun `test DI is a tree with the chosen binding's links, its neighbours and the whole graph drawn`() {
+        val p = panel()
+        p.load()
+        select(p, "DI")
+        val v = p.diView
+        assertTrue(v.summary, v.summary.startsWith("2 graphs, 10 bindings"))
+        v.select("0.4")
+        assertEquals(listOf("WeatherApi", "WeatherDb", "Settings"), (0 until v.dependsOn.size()).map { v.dependsOn[it].title })
+        assertEquals(listOf("repository"), (0 until v.usedBy.size()).map { v.usedBy[it].binding.name })
+        render(p, "runtime-di-details")
+        v.mode(DiView.Mode.NEIGHBOURS)
+        render(p, "runtime-di-neighbours")
+        v.mode(DiView.Mode.WHOLE)
+        render(p, "runtime-di-whole")
     }
 }

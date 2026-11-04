@@ -28,7 +28,7 @@ object DiReaders {
      * inputs given to the graph, other providers make a new instance each time. [skip] leaves out
      * fields that are the graph's links to other graphs (Hilt's parent components).
      */
-    fun providerGraph(framework: String, name: String, graph: Any, skip: (Field) -> Boolean = { false }, note: String? = null): DiGraph {
+    fun providerGraph(framework: String, name: String, graph: Any, skip: (Field) -> Boolean = { false }, note: String? = null, instances: IdentityHashMap<DiBinding, Any>? = null): DiGraph {
         val inputs = IdentityHashMap<Any, Boolean>()
         val bindings = fields(graph.javaClass).filter { !skip(it) && !Modifier.isStatic(it.modifiers) && !it.isSynthetic }.mapNotNull { f ->
             val v = runCatching { f.isAccessible = true; f.get(graph) }.getOrNull() ?: return@mapNotNull null
@@ -38,12 +38,12 @@ object DiReaders {
             if (!isProvider) {
                 // A graph input is kept both as itself and wrapped in an instance factory: listed once.
                 if (inputs.put(v, true) != null) return@mapNotNull null
-                return@mapNotNull DiBinding(f.genericType.typeName, f.name, v.javaClass.name, true, "instance")
+                return@mapNotNull DiBinding(f.genericType.typeName, f.name, v.javaClass.name, true, "instance").also { instances?.put(it, v) }
             }
             val type = (f.genericType as? ParameterizedType)?.actualTypeArguments?.firstOrNull()?.typeName?.removePrefix("? extends ") ?: f.type.name
             val (kind, instance) = read(v)
             if (kind == "instance" && instance != null && inputs.put(instance, true) != null) return@mapNotNull null
-            DiBinding(type, bindingName, instance?.javaClass?.name, instance != null || kind == "instance" && instance != null, kind)
+            DiBinding(type, bindingName, instance?.javaClass?.name, instance != null || kind == "instance" && instance != null, kind).also { b -> instance?.let { instances?.put(b, it) } }
         }
         return DiGraph(framework, name, bindings, note)
     }
@@ -68,7 +68,7 @@ object DiReaders {
     }
 
     /** The started Koin (GlobalContext), its definitions; null when Koin is absent or not started. */
-    fun koin(loader: ClassLoader?): DiGraph? {
+    fun koin(loader: ClassLoader?, instances: IdentityHashMap<DiBinding, Any>? = null): DiGraph? {
         val ctx = runCatching { Class.forName("org.koin.core.context.GlobalContext", false, loader) }.getOrNull() ?: return null
         val koin = runCatching { ctx.getDeclaredField("_koin").apply { isAccessible = true }.get(null) }.getOrNull() ?: return null
         val registry = fieldValue(koin, "instanceRegistry") ?: return DiGraph("koin", "Koin", emptyList(), "Koin is started but its definitions cannot be read (no instance registry in this Koin version)")
@@ -86,7 +86,7 @@ object DiReaders {
                 "scoped" -> "scoped" to (fieldValue(f, "values") as? Map<*, *>)?.values?.firstOrNull()
                 else -> "factory" to null
             }
-            DiBinding(type, if (k == "scoped" && scope != null) "scope $scope" else type.substringAfterLast('.'), instance?.javaClass?.name, instance != null, k, qualifier)
+            DiBinding(type, if (k == "scoped" && scope != null) "scope $scope" else type.substringAfterLast('.'), instance?.javaClass?.name, instance != null, k, qualifier).also { b -> instance?.let { instances?.put(b, it) } }
         }
         return DiGraph("koin", "Koin", bindings.sortedWith(compareBy({ it.kind }, { it.type })))
     }
@@ -102,4 +102,33 @@ object DiReaders {
     private fun fields(c: Class<*>): List<Field> = generateSequence(c) { it.superclass }.takeWhile { it != Any::class.java }.flatMap { it.declaredFields.asSequence() }.toList()
 
     private fun isA(type: Class<*>, name: String): Boolean = Values.isA(type, name)
+
+    /**
+     * Feature 037: ids for every binding (`<graph>.<binding>`) and who depends on whom, from the
+     * live instances: a provided instance depends on the bindings whose instances its fields hold;
+     * an injected / assisted binding (what an activity or ViewModel received) on the binding that
+     * provided that same instance. Nothing is called or created. Pure on its inputs.
+     */
+    fun link(graphs: List<DiGraph>, instances: IdentityHashMap<DiBinding, Any>): List<DiGraph> {
+        val ids = IdentityHashMap<DiBinding, String>()
+        graphs.forEachIndexed { gi, g -> g.bindings.forEachIndexed { bi, b -> ids[b] = "$gi.$bi" } }
+        // Each instance → the binding that provides it (the first non-consumer one).
+        val provider = IdentityHashMap<Any, String>()
+        graphs.forEach { g -> g.bindings.filter { it.kind != "injected" && it.kind != "assisted" }.forEach { b -> instances[b]?.let { provider.putIfAbsent(it, ids[b]!!) } } }
+        return graphs.map { g ->
+            g.copy(bindings = g.bindings.map { b ->
+                val id = ids[b]!!
+                val instance = instances[b]
+                val deps = when {
+                    instance == null -> emptyList()
+                    b.kind == "injected" || b.kind == "assisted" -> listOfNotNull(provider[instance])
+                    instance is CharSequence || instance is Number || instance is Boolean -> emptyList()
+                    else -> fields(instance.javaClass).filter { !Modifier.isStatic(it.modifiers) }.mapNotNull { f ->
+                        runCatching { f.isAccessible = true; f.get(instance) }.getOrNull()?.let { provider[it] }
+                    }.filter { it != id }.distinct()
+                }
+                b.copy(id = id, dependsOn = deps)
+            })
+        }
+    }
 }

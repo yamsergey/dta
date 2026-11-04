@@ -93,6 +93,8 @@ class RuntimePanel(
     val valueView = JsonValueView(project)
     /** Threads grouped, in words, with the chosen one's stack (feature 032). */
     val threadsView = ThreadsView { showThreads() }
+    /** DI graphs as a tree, the chosen binding's links, its neighbourhood or the whole graph drawn (feature 037). */
+    val diView = DiView { showDi() }
     private var currentVm: ViewModelInfo? = null
     private var currentHost: NavHostInfo? = null
     private var functions: FunctionList? = null
@@ -122,6 +124,7 @@ class RuntimePanel(
         propsTable.toolTipText = "Choose a property to see its value. ✎ values: double-click or Edit (JSON: \"text\", 3, true, null, {…})."
         right.add(adaptiveSplitter("dta.runtime.vm.split", 0.4f, JBScrollPane(propsTable), valueView), PROPS)
         right.add(threadsView, THREADS)
+        right.add(diView, DI)
         propsTable.selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) showValue() }
         propsTable.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
@@ -172,7 +175,7 @@ class RuntimePanel(
             Section.ACTIVITIES -> showText("runtime.activities", RuntimeActivities.serializer(), RuntimeText::activities)
             Section.MEMORY -> showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, listOf("Run GC" to { showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, params = JsonObject(mapOf("gc" to JsonPrimitive(true)))) }))
             Section.THREADS -> showThreads()
-            Section.DI -> showText("runtime.di", DiReport.serializer(), RuntimeText::di)
+            Section.DI -> showDi()
             Section.FUNCTIONS -> showFunctions()
             Section.NAVIGATION -> showText("runtime.navigation", NavigationState.serializer(), RuntimeText::navigation, navActions())
             Section.VIEWMODELS -> showText("runtime.viewmodels", ViewModelList.serializer(), RuntimeText::viewModels)
@@ -224,6 +227,14 @@ class RuntimePanel(
         scope.launch {
             val list = runCatching { decode(ViewModelList.serializer(), call("runtime.viewmodels", EMPTY_PARAMS)) }.getOrNull()
             ui.invoke(Runnable { list?.viewModels?.firstOrNull { it.id == selectId }?.let { v -> val s = status.text; showViewModel(v, selectRow); status.text = s } })
+        }
+    }
+
+    private fun showDi() {
+        cards.show(right, DI)
+        scope.launch {
+            val result = runCatching { decode(DiReport.serializer(), call("runtime.di", EMPTY_PARAMS)) }
+            ui.invoke(Runnable { result.fold({ r -> diView.show(r); status.text = diView.summary }, { status.text = it.message ?: it.javaClass.simpleName }) })
         }
     }
 
@@ -290,6 +301,7 @@ class RuntimePanel(
         private const val TEXT = "text"
         private const val PROPS = "props"
         private const val THREADS = "threads"
+        private const val DI = "di"
         private val EMPTY_PARAMS = JsonObject(emptyMap())
     }
 }
