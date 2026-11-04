@@ -75,4 +75,28 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
         select(p, "MEMORY")
         render(p, "runtime-memory")
     }
+
+    fun `test the selected value is shown formatted below the table and edited there`() {
+        val p = panel()
+        p.load()
+        select(p, "CartViewModel")
+        assertEquals("All properties of CartViewModel", p.valueView.header)
+        render(p, "runtime-viewmodel-whole")
+        assertEquals("{2} {\"items\":2,\"coupon\":null}", p.propsTable.getValueAt(0, 2))
+        assertFalse(p.propsTable.model.isCellEditable(0, 2))
+        assertTrue(p.propsTable.model.isCellEditable(1, 2))
+        p.propsTable.setRowSelectionInterval(0, 0)
+        assertEquals("state · stateflow · CartState · editable", p.valueView.header)
+        render(p, "runtime-viewmodel-value")
+        p.valueView.beginEdit()
+        assertTrue(p.valueView.isEditing)
+        render(p, "runtime-viewmodel-edit")
+        p.valueView.submit("{\n  \"items\": 5,\n  \"coupon\": \"X\"\n}")
+        assertEquals("{\"items\":5,\"coupon\":\"X\"}", (calls.last { it.first == "runtime.vm.set" }.second["value"] as JsonPrimitive).content)
+        assertEquals(0, p.propsTable.selectedRow)
+        val before = calls.size
+        p.valueView.beginEdit()
+        p.valueView.submit("{ items: ")
+        assertEquals(before, calls.size)
+    }
 }

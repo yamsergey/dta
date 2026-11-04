@@ -26,6 +26,7 @@ import io.yamsergey.dta.protocol.data.ThreadList
 import io.yamsergey.dta.protocol.data.ViewModelInfo
 import io.yamsergey.dta.protocol.data.ViewModelList
 import io.yamsergey.dta.protocol.rpc.DtaJson
+import io.yamsergey.dta.studio.ui.JsonValueView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
@@ -47,7 +48,7 @@ import javax.swing.tree.DefaultTreeModel
 /**
  * The Runtime tab (feature 028 US5): activities, navigation hosts, ViewModels, functions, memory,
  * threads and Hilt in a tree; the selected part on the right — a ViewModel's properties edited in
- * place as JSON, a back stack with Navigate… and Back, functions with Invoke…, memory with Run GC.
+ * place as JSON (feature 031: a preview in the table, the selected value formatted below), a back stack with Navigate… and Back, functions with Invoke…, memory with Run GC.
  */
 class RuntimePanel(
     private val project: Project,
@@ -71,15 +72,23 @@ class RuntimePanel(
     private val propsModel = object : AbstractTableModel() {
         override fun getRowCount() = rows?.rows?.size ?: 0
         override fun getColumnCount() = 3
-        override fun getColumnName(column: Int) = listOf("Property", "Kind", "Value (JSON)")[column]
-        override fun getValueAt(row: Int, column: Int): Any = rows!!.rows[row].let { listOf((if (it.editable) "✎ " else "") + it.label, it.kind, it.value)[column] }
-        override fun isCellEditable(row: Int, column: Int) = column == 2 && rows!!.rows[row].editable
+        override fun getColumnName(column: Int) = listOf("Property", "Kind", "Value")[column]
+        override fun getValueAt(row: Int, column: Int): Any = rows!!.rows[row].let { listOf((if (it.editable) "✎ " else "") + it.label, it.kind, it.preview)[column] }
+        // In the cell only a short scalar (its preview is the whole value); the rest in the viewer below (031).
+        override fun isCellEditable(row: Int, column: Int) = column == 2 && rows!!.rows[row].let { it.editable && !rows!!.structured(row) && it.preview == it.value }
         override fun setValueAt(value: Any?, row: Int, column: Int) {
             val (op, params) = runCatching { rows!!.edit(row, value?.toString() ?: "") }.getOrElse { status.text = it.message; return }
-            write(op, JsonObject(params.mapValues { JsonPrimitive(it.value) })) { reloadViewModels(rows?.let { currentVm?.id }) }
+            val keep = rows!!.rows[row].label
+            write(op, JsonObject(params.mapValues { JsonPrimitive(it.value) })) { reloadViewModels(currentVm?.id, keep) }
         }
     }
-    val propsTable = JBTable(propsModel).apply { setSelectionMode(ListSelectionModel.SINGLE_SELECTION) }
+    val propsTable = JBTable(propsModel).apply {
+        setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+        // The value preview gets the room; name and kind stay narrow.
+        listOf(30, 12, 58).forEachIndexed { i, w -> columnModel.getColumn(i).preferredWidth = w * 10 }
+    }
+    /** The selected property's value, readable and editable (feature 031); the whole ViewModel when none is chosen. */
+    val valueView = JsonValueView(project)
     private var currentVm: ViewModelInfo? = null
     private var currentHost: NavHostInfo? = null
     private var functions: FunctionList? = null
@@ -106,12 +115,25 @@ class RuntimePanel(
             add(textActions.apply { border = JBUI.Borders.empty(4, 8) }, BorderLayout.NORTH)
             add(JBScrollPane(text), BorderLayout.CENTER)
         }, TEXT)
-        right.add(JPanel(BorderLayout()).apply {
-            add(JBScrollPane(propsTable), BorderLayout.CENTER)
-            add(JBLabel("Double-click a ✎ value to set it (JSON: \"text\", 3, true, null, {…}). A field inside a data class: run dta runtime vm set with a path like state.coupon.").apply {
-                foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 8)
-            }, BorderLayout.SOUTH)
+        propsTable.toolTipText = "Choose a property to see its value. ✎ values: double-click or Edit (JSON: \"text\", 3, true, null, {…})."
+        right.add(JBSplitter(true, "dta.runtime.vm.split", 0.4f).apply {
+            firstComponent = JBScrollPane(propsTable)
+            secondComponent = valueView
+            // Table above the value in a tall window, beside it in a wide low one (a bottom tool window).
+            addComponentListener(object : java.awt.event.ComponentAdapter() {
+                override fun componentResized(e: java.awt.event.ComponentEvent) {
+                    val vertical = height > width / 2
+                    if (orientation != vertical) orientation = vertical
+                }
+            })
         }, PROPS)
+        propsTable.selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) showValue() }
+        propsTable.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                val row = propsTable.rowAtPoint(e.point)
+                if (e.clickCount == 2 && row >= 0 && !propsModel.isCellEditable(row, propsTable.columnAtPoint(e.point).coerceAtLeast(0))) valueView.beginEdit()
+            }
+        })
         add(JBSplitter(false, "dta.runtime.split", 0.28f).apply {
             firstComponent = JBScrollPane(tree)
             secondComponent = right
@@ -178,18 +200,35 @@ class RuntimePanel(
         "Back" to { write("runtime.back", JsonObject(currentHost?.let { mapOf("host" to JsonPrimitive(it.id)) } ?: emptyMap())) { load() } },
     )
 
-    private fun showViewModel(vm: ViewModelInfo) {
+    private fun showViewModel(vm: ViewModelInfo, select: String? = null) {
         currentVm = vm
         rows = PropertyRows(vm)
         propsModel.fireTableDataChanged()
+        val row = rows!!.rows.indexOfFirst { it.label == select }
+        if (row >= 0) propsTable.setRowSelectionInterval(row, row) else showValue()
         cards.show(right, PROPS)
         status.text = "${vm.className} · ${vm.id}" + (vm.owner?.let { " · $it" } ?: "")
     }
 
-    private fun reloadViewModels(selectId: String?) {
+    /** The viewer follows the table: the selected property, or the whole ViewModel. */
+    private fun showValue() {
+        val r = rows ?: return
+        val vm = currentVm ?: return
+        val i = propsTable.selectedRow
+        if (i < 0 || i >= r.rows.size) return valueView.show("All properties of ${vm.className.substringAfterLast('.')}", r.whole(), structured = true)
+        val label = r.rows[i].label
+        valueView.show(r.header(i), r.pretty(i), r.structured(i), onApply = if (!r.rows[i].editable) null else { text ->
+            runCatching { r.edit(i, text) }.fold(
+                { (op, params) -> write(op, JsonObject(params.mapValues { JsonPrimitive(it.value) })) { reloadViewModels(vm.id, label) } },
+                { valueView.refuse(it.message ?: "not JSON") },
+            )
+        })
+    }
+
+    private fun reloadViewModels(selectId: String?, selectRow: String? = null) {
         scope.launch {
             val list = runCatching { decode(ViewModelList.serializer(), call("runtime.viewmodels", EMPTY_PARAMS)) }.getOrNull()
-            ui.invoke(Runnable { list?.viewModels?.firstOrNull { it.id == selectId }?.let { v -> val s = status.text; showViewModel(v); status.text = s } })
+            ui.invoke(Runnable { list?.viewModels?.firstOrNull { it.id == selectId }?.let { v -> val s = status.text; showViewModel(v, selectRow); status.text = s } })
         }
     }
 

@@ -34,4 +34,28 @@ class RuntimeBrowserTest {
         assertEquals("a property value is JSON: a string in quotes (\"text\"), a number, true/false, null or an object", assertFailsWith<IllegalArgumentException> { rows.edit(0, "text") }.message)
         assertFailsWith<IllegalArgumentException> { rows.edit(1, "\"y\"") }
     }
+
+    @Test
+    fun `the table shows a preview, objects and arrays with their size, cut at 80`() {
+        assertEquals("""{1} {"items":2}""", PropertyRows.preview(Json.parseToJsonElement("""{"items":2}""")))
+        assertEquals("[3] [1,2,3]", PropertyRows.preview(Json.parseToJsonElement("[1,2,3]")))
+        assertEquals("\"x\"", PropertyRows.preview(JsonPrimitive("x")))
+        val long = PropertyRows.preview(Json.parseToJsonElement("[" + (1..100).joinToString(",") + "]"))
+        assertEquals(80, long.length)
+        assertEquals('…', long.last())
+        assertEquals("""{1} {"items":2}""", PropertyRows(vm).rows[0].preview)
+    }
+
+    @Test
+    fun `the viewer shows the value pretty, a header, and the whole ViewModel when nothing is chosen`() {
+        val rows = PropertyRows(vm)
+        assertEquals("{\n  \"items\": 2\n}", rows.pretty(0))
+        assertEquals("\"x\"", rows.pretty(1))
+        assertEquals("state · stateflow · CartState · editable", rows.header(0))
+        assertEquals("label · field · String · read-only", rows.header(1))
+        assertEquals("saved: step · savedstate · Integer · editable", rows.header(2))
+        assertEquals("{\n  \"state\": {\n    \"items\": 2\n  },\n  \"label\": \"x\",\n  \"savedState\": {\n    \"step\": 1\n  }\n}", rows.whole())
+        assertEquals(true, rows.structured(0))
+        assertEquals(false, rows.structured(1))
+    }
 }

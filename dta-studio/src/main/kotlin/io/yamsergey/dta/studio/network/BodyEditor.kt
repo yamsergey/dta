@@ -19,19 +19,25 @@ import javax.swing.JPanel
 /**
  * A body as text in a read-only IDE editor (feature 022, research R1): the file type's
  * highlighting and folding, find, brace matching, the user's colour scheme. The editor exists
- * while the pane is shown and is released when it is removed.
+ * while the pane is shown and is released when it is removed. Feature 031: [show] with
+ * `editable` makes it writable (a ViewModel value edited in place); [text] reads it back.
  */
 class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
     private var editor: Editor? = null
     private var text: String = ""
     private var extension: String = "txt"
+    private var editable: Boolean = false
 
     /** Shows [text] highlighted as a file with [extension] (`json`, `xml`, `html`, `graphql`, `txt`). */
-    fun show(text: String, extension: String) {
+    fun show(text: String, extension: String, editable: Boolean = false) {
         this.text = text
         this.extension = extension
+        this.editable = editable
         if (isDisplayable) rebuild()
     }
+
+    /** The text as it is now in the editor (edited, when [show] made it editable). */
+    fun text(): String = editor?.document?.text ?: text
 
     /** Folds every region but the outermost (the top-level members stay visible), or unfolds all. */
     fun foldAll(fold: Boolean) {
@@ -55,9 +61,11 @@ class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
     private fun rebuild() {
         release()
         val type = fileType(extension)
-        val file = LightVirtualFile("body.${if (type == PlainTextFileType.INSTANCE) "txt" else extension}", type, text).apply { isWritable = false }
+        val file = LightVirtualFile("body.${if (type == PlainTextFileType.INSTANCE) "txt" else extension}", type, text)
+        // The file stays writable (a read-only one gets the IDE's "Reader Mode" badge); the viewer keeps it read-only.
         val document = FileDocumentManager.getInstance().getDocument(file) ?: EditorFactory.getInstance().createDocument(text)
-        val created = EditorFactory.getInstance().createViewer(document, project, EditorKind.PREVIEW) as EditorEx
+        val created = (if (editable) EditorFactory.getInstance().createEditor(document, project, EditorKind.UNTYPED)
+            else EditorFactory.getInstance().createViewer(document, project, EditorKind.PREVIEW)) as EditorEx
         created.highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(project, file)
         created.settings.apply {
             isLineNumbersShown = true
@@ -66,10 +74,10 @@ class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
             isIndentGuidesShown = true
             additionalLinesCount = 0
             additionalColumnsCount = 0
-            isCaretRowShown = false
+            isCaretRowShown = editable
             isUseSoftWraps = false
         }
-        created.setCaretVisible(false)
+        created.setCaretVisible(editable)
         editor = created
         add(created.component, BorderLayout.CENTER)
         // Fold regions come from the file's language (objects, arrays, elements), computed off the UI thread.
