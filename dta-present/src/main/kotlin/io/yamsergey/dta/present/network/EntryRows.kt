@@ -62,7 +62,8 @@ object EntryRows {
         val payload = entry.obj("payload")
         val preview = if (!message) null else when {
             payload?.bool("binary") == true || entry.str("opcode") == "binary" -> "binary"
-            else -> payload?.str("preview")?.lineSequence()?.firstOrNull()?.take(200) ?: ""
+            // The whole message on one line: a "messageId\n{json}" frame is not cut at its first line.
+            else -> payload?.str("preview")?.let(::oneLine)?.take(200) ?: ""
         }
         val bodies = listOfNotNull(entry.obj("requestBody"), entry.obj("responseBody"), payload)
         val timing = when (kind) {
@@ -106,3 +107,6 @@ object EntryRows {
         }
     }
 }
+
+/** [text]'s lines trimmed and joined by a space, blank ones dropped: what a one-line list cell can show of a multi-line message. */
+internal fun oneLine(text: String): String = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")

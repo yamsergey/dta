@@ -149,4 +149,10 @@ class EntryViewsTest {
         ).jsonObject)
         assertEquals(EntryLink("r2-1:6", "connection r2-1:6"), noUrl.connection)
     }
+
+    @Test
+    fun `a multi-line message is one line in the list, not its first line only`() {
+        assertEquals("orderUpdate {\"id\": 7, \"status\": \"filled\"}", oneLine("orderUpdate\n{\"id\": 7,\n  \"status\": \"filled\"}\n"))
+        assertEquals("MESSAGE destination:/topic/quotes {\"p\":1}", oneLine("MESSAGE\ndestination:/topic/quotes\n\n{\"p\":1}"))
+    }
 }
