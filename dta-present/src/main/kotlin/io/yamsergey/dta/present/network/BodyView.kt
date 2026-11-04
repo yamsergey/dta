@@ -36,6 +36,8 @@ data class BodyView(
     val format: BodyFormat = BodyFormat.TEXT,
     /** The body read as data, parsed once when the view is made (off the UI thread). */
     private val structure: DataNode? = null,
+    /** Feature 038: a WebSocket message's envelope; its payload is what Formatted, Tree and Graph show. */
+    val envelope: Envelope? = null,
 ) {
     val text: String? get() = (content as? BodyContent.Text)?.text
     val tooLarge: Boolean get() = content is BodyContent.File && !binaryFile
@@ -46,7 +48,10 @@ data class BodyView(
     fun tree(): DataNode? = structure
 
     fun render(mode: BodyMode, bytes: ByteArray? = null): String = when (mode) {
-        BodyMode.FORMATTED -> text?.let {
+        BodyMode.FORMATTED -> if (envelope?.payload != null) {
+            // The envelope is in the header line; the editor shows the payload as the JSON it is.
+            PrettyJson.format(envelope.payload) ?: envelope.payload
+        } else text?.let {
             when (format) {
                 BodyFormat.XML -> BodyFormats.prettyXml(it)
                 BodyFormat.FORM -> BodyFormats.formLines(it)
@@ -101,7 +106,12 @@ data class BodyView(
                     else -> null
                 }
             }
-            val structured = structure != null
+            // Feature 038: a message whose text is an envelope around JSON (STOMP, a name then JSON, Socket.IO…).
+            val envelope = if (info.str("part") == "message" && text != null) WsFormats.detect(text) else null
+            val payloadTree = if (structure == null) envelope?.payload?.let { DataTrees.json(it) } else null
+            val tree = structure ?: payloadTree
+            val shownEnvelope = envelope?.takeIf { payloadTree != null || it.format != "json" }
+            val structured = tree != null
             val modes = when {
                 binary && format == BodyFormat.IMAGE -> listOf(BodyMode.IMAGE, BodyMode.HEX)
                 binary -> listOf(BodyMode.HEX)
@@ -114,7 +124,8 @@ data class BodyView(
                 format == BodyFormat.JSON && text == null -> listOf(BodyMode.FORMATTED, BodyMode.RAW, BodyMode.HEX)
                 else -> listOf(BodyMode.RAW, BodyMode.HEX)
             }
-            return BodyView(BodyHeader(line, Statements.forBody(result)), content, modes.first(), modes, format, structure)
+            val headerLine = shownEnvelope?.let { "$line · ${it.format} ${it.label()}".trimEnd() } ?: line
+            return BodyView(BodyHeader(headerLine, Statements.forBody(result)), content, modes.first(), modes, if (payloadTree != null) BodyFormat.JSON else format, tree, shownEnvelope?.takeIf { payloadTree != null })
         }
     }
 }

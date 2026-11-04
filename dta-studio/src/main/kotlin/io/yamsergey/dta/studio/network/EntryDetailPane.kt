@@ -12,6 +12,7 @@ import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.present.Statement
 import io.yamsergey.dta.present.StatementKind
 import io.yamsergey.dta.present.Statements
+import io.yamsergey.dta.present.network.label
 import io.yamsergey.dta.present.network.EntryDetail
 import io.yamsergey.dta.present.network.FrameLine
 import io.yamsergey.dta.protocol.network.FrameClassifier
@@ -212,10 +213,15 @@ class EntryDetailPane(
     }
 
     private fun messagesPage(detail: EntryDetail) = Page().apply {
+        // Feature 038: what the messages are (their envelope format), kind · id · topic before each, replies paired.
+        io.yamsergey.dta.present.network.formats(detail.messages)?.let { line(JBLabel("Format: $it").apply { foreground = JBColor.GRAY }, top = 0) }
+        val replies = io.yamsergey.dta.present.network.replies(detail.messages)
         detail.messages.forEach { m ->
+            val label: String? = m.envelope?.label()
+            val answers = replies[m.id]?.let { (asked, ms) -> "↩ answers ${asked.time}" + (ms?.let { " (+$it ms)" } ?: "") }
             // The time and direction open the message; its text stays text, to select and copy.
             field(ActionLink("${m.time}  ${m.kind.label}") { open(m.id) }.apply { toolTipText = "Show this message" },
-                listOfNotNull(m.preview, m.timing.ifEmpty { null }).joinToString("   "), mono = true)
+                listOfNotNull(label?.takeIf { it.isNotEmpty() }?.let { "[$it]" }, m.preview, answers, m.timing.ifEmpty { null }).joinToString("   "), mono = true)
         }
         detail.messagesMore?.let { line(JBLabel(it).apply { foreground = JBColor.GRAY }, top = 6) }
         end()

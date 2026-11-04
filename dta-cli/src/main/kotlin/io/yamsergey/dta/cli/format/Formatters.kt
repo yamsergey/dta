@@ -1,5 +1,6 @@
 package io.yamsergey.dta.cli.format
 
+import io.yamsergey.dta.present.network.label
 import io.yamsergey.dta.present.timeline.TimelineEventText
 
 import io.yamsergey.dta.cli.format.Style.Token
@@ -434,6 +435,8 @@ class Formatters(private val style: Style) {
         // The URL column is the URL; a message's payload shows only under its connection.
         val name = listOfNotNull(
             row.host?.let { style.paint(it, Token.INK_MUTED) + row.path } ?: row.path,
+            // Feature 038: what the message is, before its text.
+            row.envelope?.takeIf { withPayload }?.label()?.takeIf { it.isNotEmpty() }?.let { "[$it]" },
             row.preview?.takeIf { withPayload }?.let { style.paint(it, Token.INK_MUTED) },
         ).filter { it.isNotEmpty() }.joinToString("  ")
         val outcome = row.outcome.statement?.let { style.mark(it.kind, it.word) } ?: when (row.outcome.token) {

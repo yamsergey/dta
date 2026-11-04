@@ -36,6 +36,9 @@ data class EntryRow(
     val marks: Marks,
     /** A message's payload, muted after its socket's path: the text's first line, or "binary" (the size has its own column). */
     val preview: String? = null,
+    /** Feature 038: what the message is (format, kind, id, topic), from its text; null for other rows and messages with no envelope. */
+    val envelope: Envelope? = null,
+    val timeMs: Long? = null,
 )
 
 object EntryRows {
@@ -65,6 +68,7 @@ object EntryRows {
             // The whole message on one line: a "messageId\n{json}" frame is not cut at its first line.
             else -> payload?.str("preview")?.let(::oneLine)?.take(200) ?: ""
         }
+        val envelope = if (!message || preview == "binary") null else payload?.str("preview")?.let(WsFormats::detect)
         val bodies = listOfNotNull(entry.obj("requestBody"), entry.obj("responseBody"), payload)
         val timing = when (kind) {
             EntryKind.WS_CONNECTION -> listOfNotNull(
@@ -86,6 +90,8 @@ object EntryRows {
             host = host,
             path = path,
             preview = preview,
+            envelope = envelope,
+            timeMs = entry.long("timeMs"),
             outcome = outcome(entry, type, ending),
             timing = timing,
             marks = Statements.marks(statements.filter { it.kind !in OUTCOMES }),
@@ -110,3 +116,28 @@ object EntryRows {
 
 /** [text]'s lines trimmed and joined by a space, blank ones dropped: what a one-line list cell can show of a multi-line message. */
 internal fun oneLine(text: String): String = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
+
+/**
+ * Feature 038: replies paired with what they answer — a message with an id answers the latest
+ * earlier message of the other direction with the same id. Message row id → (the row it answers, ms after it).
+ */
+fun replies(messages: List<EntryRow>): Map<String, Pair<EntryRow, Long?>> {
+    val out = HashMap<String, Pair<EntryRow, Long?>>()
+    val ordered = messages.sortedBy { it.timeMs ?: 0 }
+    ordered.forEachIndexed { i, m ->
+        val id = m.envelope?.id ?: return@forEachIndexed
+        val asked = ordered.subList(0, i).lastOrNull { it.envelope?.id == id && it.kind != m.kind } ?: return@forEachIndexed
+        out[m.id] = asked to (if (m.timeMs != null && asked.timeMs != null) m.timeMs - asked.timeMs else null)
+    }
+    return out
+}
+
+/** Feature 038: the formats a connection's messages have, most common first, e.g. "stomp (23 of 25)". */
+fun formats(messages: List<EntryRow>): String? {
+    val known = messages.mapNotNull { it.envelope?.format }
+    if (known.isEmpty()) return null
+    return known.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.joinToString(", ") { "${it.key} (${it.value} of ${messages.size})" }
+}
+
+/** The envelope as a short label for a list: `kind #id @topic`. */
+fun Envelope.label(): String = listOfNotNull(kind, id?.let { "#$it" }, topic?.let { "@$it" }).joinToString(" ")

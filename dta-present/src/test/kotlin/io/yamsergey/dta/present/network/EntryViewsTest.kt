@@ -155,4 +155,19 @@ class EntryViewsTest {
         assertEquals("orderUpdate {\"id\": 7, \"status\": \"filled\"}", oneLine("orderUpdate\n{\"id\": 7,\n  \"status\": \"filled\"}\n"))
         assertEquals("MESSAGE destination:/topic/quotes {\"p\":1}", oneLine("MESSAGE\ndestination:/topic/quotes\n\n{\"p\":1}"))
     }
+
+    @Test
+    fun `messages carry their envelope, a reply is paired with what it answers, the connection names its formats (038)`() {
+        fun msg(id: String, dir: String, ms: Long, text: String) = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"type":"ws-message","id":"$id","direction":"$dir","timeMs":$ms,"url":"wss://h/ws","payload":{"preview":${kotlinx.serialization.json.JsonPrimitive(text)}}}""",
+        ).let { it as kotlinx.serialization.json.JsonObject }.let { EntryRows.of(it) }
+        val ask = msg("a", "out", 1_000, """{"action":"subscribe","requestId":"r1","channel":"quotes"}""")
+        val tick = msg("b", "in", 1_010, """{"type":"tick","symbol":"ACME"}""")
+        val ack = msg("c", "in", 1_034, """{"type":"subscribed","requestId":"r1"}""")
+        assertEquals("subscribe #r1 @quotes", ask.envelope!!.label())
+        val pairs = replies(listOf(ask, tick, ack))
+        assertEquals("a" to 34L, pairs["c"]!!.let { it.first.id to it.second })
+        assertNull(pairs["b"])
+        assertEquals("json (3 of 3)", formats(listOf(ask, tick, ack)))
+    }
 }
