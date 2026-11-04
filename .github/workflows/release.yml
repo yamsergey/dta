@@ -15,6 +15,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        # Verifying the plugin against three Android Studio versions needs more disk than the runner has free (run 41842609062).
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
