@@ -15,6 +15,7 @@ okhttp = "4.12.0"
 # Test-only: real DI runtimes the DI reader (035) is checked against.
 koin = "4.2.2"
 metro = "1.5.2"
+ktor = "3.6.1"
 # Relocated into dta-sidekick-rhino; never a plain dependency (constitution I).
 rhino = "1.7.15"
 shadow = "9.0.2"
@@ -36,6 +37,7 @@ maven-publish = "0.36.0"
 [libraries]
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
 metro-runtime = { module = "dev.zacsweers.metro:runtime", version.ref = "metro" }
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }

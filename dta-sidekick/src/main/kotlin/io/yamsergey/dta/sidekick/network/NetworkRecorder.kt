@@ -55,10 +55,11 @@ class NetworkRecorder(
 
     // ---- HTTP -------------------------------------------------------------------------
 
-    fun httpStarted(library: String, method: String, url: String, headers: List<Header>, initiator: Initiator?): String {
+    /** [startedAtMs]: when the library says the request started (Ktor gives it), else now. */
+    fun httpStarted(library: String, method: String, url: String, headers: List<Header>, initiator: Initiator?, startedAtMs: Long? = null): String {
         val id = store.nextId()
         guard {
-            put(HttpEntry(id, store.runId, clock(), library, initiator, method, url, HttpState.PENDING, requestHeaders = headers))
+            put(HttpEntry(id, store.runId, startedAtMs ?: clock(), library, initiator, method, url, HttpState.PENDING, requestHeaders = headers))
         }
         return id
     }

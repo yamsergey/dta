@@ -80,7 +80,8 @@ object NetworkRuntime {
             { NvWebSocketCapture.install(loader, recorder, initiators, wsScripting, injector) },
             { JavaWebSocketCapture.install(loader, recorder, initiators, wsScripting, injector) },
             { NetworkCapability.probeGrpc(loader) },
-            { NetworkCapability.probeKtor(loader) },
+            // Feature 034: captured on any engine; the probe's statement stays for a Ktor whose calls cannot be hooked.
+            { io.yamsergey.dta.sidekick.network.ktor.KtorCapture.install(loader, recorder, initiators).let { s -> if (s.events.any { it.installed != null }) s else NetworkCapability.probeKtor(loader) } },
         ).zip(NetworkLibraries.ALL).map { (install, name) ->
             try {
                 install()

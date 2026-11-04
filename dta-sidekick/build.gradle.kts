@@ -119,6 +119,7 @@ dependencies {
     testImplementation(libs.okhttp)
     testImplementation(libs.koin.core)
     testImplementation(libs.metro.runtime)
+    testImplementation(libs.ktor.client.mock)
     testImplementation(libs.okhttp.mockwebserver)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
