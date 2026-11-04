@@ -124,7 +124,8 @@ internal class Runtime(private val context: Context) {
             val d = Reflect.call(e, "getDestination")
             NavEntryInfo(
                 Reflect.call(e, "getId") as String?, d?.let { route(it) }, d?.let { Reflect.call(it, "getId") as Int },
-                d?.let { Reflect.call(it, "getLabel")?.toString() },
+                // The graph itself is the stack's first entry; with type-safe routes it has no route or label (it read "0").
+                d?.let { Reflect.call(it, "getLabel")?.toString() ?: "(navigation graph)".takeIf { _ -> route(d) == null && Values.isA(d.javaClass, "androidx.navigation.NavGraph") } },
                 (Reflect.call(e, "getArguments") as? android.os.Bundle)?.let { b -> b.keySet().filterNot { it.startsWith("android-support-nav") }.associateWith { k -> @Suppress("DEPRECATION") b.get(k).toString() } }.orEmpty(),
                 lifecycleState(e),
             )
@@ -220,7 +221,8 @@ internal class Runtime(private val context: Context) {
         LiveObjects.of("androidx.lifecycle.viewmodel.ViewModelStoreProvider\$Entry", loader).orEmpty().forEach { e ->
             runCatching {
                 val store = Reflect.field(e, "store") ?: return@runCatching
-                storeOwner[store] = "navigation 3 entry ${keyName(Reflect.field(e, "key"))}"
+                // Navigation 2 keeps its back-stack entries' stores here too (keyed by entry id): those stay owned by the entry.
+                if (store !in storeOwner) storeOwner[store] = "navigation 3 entry ${keyName(Reflect.field(e, "key"))}"
             }
         }
         LiveObjects.of("androidx.lifecycle.ViewModelStore", loader).orEmpty().forEach { store ->
