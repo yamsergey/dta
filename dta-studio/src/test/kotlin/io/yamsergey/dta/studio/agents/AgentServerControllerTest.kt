@@ -13,8 +13,10 @@ class AgentServerControllerTest {
     private class Prefs(override var enabled: Boolean = false, override var port: Int = AgentServerPrefs.DEFAULT_PORT) : AgentServerPrefs
 
     private class Store(var value: String? = null) : CredentialStore {
-        override fun get() = value
-        override fun set(value: String) { this.value = value }
+        val threads = mutableListOf<String>()
+        var reads = 0
+        override fun get(): String? { reads++; threads += Thread.currentThread().name; return value }
+        override fun set(value: String) { threads += Thread.currentThread().name; this.value = value }
     }
 
     private class Stub(val port: Int, val credential: String, val fail: Exception?) : AgentServer {
@@ -62,6 +64,25 @@ class AgentServerControllerTest {
         val first = store.value
         controller().apply { setEnabled(false); setEnabled(true) }
         assertEquals(first, store.value)
+    }
+
+    @Test
+    fun `the store (the OS keychain, which may prompt) is read once, then the credential comes from memory`() {
+        val c = controller()
+        repeat(3) { c.credential() }
+        c.setEnabled(true)
+        assertEquals(1, store.reads)
+    }
+
+    @Test
+    fun `turning it on or regenerating touches the store only on the controller's executor, never the caller's thread`() {
+        val queued = mutableListOf<Runnable>()
+        val c = AgentServerController(prefs, store, factory = { port, credential -> Stub(port, credential, null) }, run = { queued += it })
+        c.setEnabled(true)
+        c.regenerate()
+        assertTrue(store.threads.isEmpty(), "store used on the caller's thread: ${store.threads}")
+        val worker = Thread { queued.toList().forEach(Runnable::run) }.apply { name = "worker"; start(); join() }
+        assertTrue(store.threads.isNotEmpty() && store.threads.all { it == worker.name }, store.threads.toString())
     }
 
     @Test

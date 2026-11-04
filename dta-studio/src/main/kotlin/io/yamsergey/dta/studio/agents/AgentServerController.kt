@@ -48,8 +48,19 @@ class AgentServerController(
     private val lock = Any()
     private var server: AgentServer? = null
 
-    /** The credential agents send, generated the first time it is needed. */
-    fun credential(): String = credentials.get() ?: newCredential().also(credentials::set)
+    @Volatile private var cached: String? = null
+
+    /**
+     * The credential agents send, generated the first time it is needed. The store is the OS
+     * keychain, which may block on a permission prompt: it is read once, and never from the UI
+     * thread — callers on it use [credentialAsync] (feature 029 found the tool window frozen on it).
+     */
+    fun credential(): String = cached ?: synchronized(lock) {
+        cached ?: (credentials.get() ?: newCredential().also(credentials::set)).also { cached = it }
+    }
+
+    /** [credential] read on the controller's executor, handed to [then] there. */
+    fun credentialAsync(then: (String) -> Unit) = run.execute { then(credential()) }
 
     /** At IDE start: on again if it was on. */
     fun startIfEnabled() {
@@ -71,17 +82,19 @@ class AgentServerController(
     }
 
     /** A new credential; a running server restarts with it, so the old one stops working. */
-    fun regenerate() {
-        credentials.set(newCredential())
+    fun regenerate(then: (String) -> Unit = {}) = run.execute {
+        val fresh = newCredential()
+        synchronized(lock) { credentials.set(fresh); cached = fresh }
         if (prefs.enabled) restart()
+        then(fresh)
     }
 
     fun dispose() = synchronized(lock) { stopServer() }
 
     private fun restart() {
         val port = prefs.port
-        val credential = credential()
         run.execute {
+            val credential = credential()
             synchronized(lock) {
                 stopServer()
                 mutableState.value = AgentServerState.Starting(port)

@@ -49,6 +49,9 @@ class AgentsPanel(
     private val where = JBLabel().apply { foreground = JBColor.GRAY }
     private val note = JBLabel().apply { foreground = JBColor.GRAY }
 
+    /** Loaded off the UI thread (the keychain may prompt); null until then. */
+    @Volatile private var credential: String? = null
+
     init {
         enabled.addActionListener { controller.setEnabled(enabled.isSelected) }
         val applyPort = JButton("Apply").apply {
@@ -63,7 +66,8 @@ class AgentsPanel(
             toolTipText = "Copy an instruction to paste into the agent, so it sets up the DTA server itself"
             addActionListener {
                 val selected = agent.selectedItem as? Agent ?: return@addActionListener
-                CopyPasteManager.getInstance().setContents(StringSelection(AgentConfigs.prompt(selected, endpoint(), controller.credential())))
+                val known = credential ?: return@addActionListener
+                CopyPasteManager.getInstance().setContents(StringSelection(AgentConfigs.prompt(selected, endpoint(), known)))
             }
         }
         val regenerate = ActionLink("Regenerate credential") {
@@ -72,8 +76,7 @@ class AgentsPanel(
                 "Regenerate DTA Agent Credential", null,
             )
             if (answer == Messages.YES) {
-                controller.regenerate()
-                renderConfig()
+                controller.regenerate { fresh -> credential = fresh; javax.swing.SwingUtilities.invokeLater { renderConfig() } }
             }
         }
         val portRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(port); add(applyPort) }
@@ -92,6 +95,7 @@ class AgentsPanel(
             .panel.apply { border = JBUI.Borders.empty(12) }
         add(JBScrollPane(form), BorderLayout.CENTER)
         renderConfig()
+        controller.credentialAsync { loaded -> credential = loaded; javax.swing.SwingUtilities.invokeLater { renderConfig() } }
         scope.launch {
             controller.state.collect { state -> withContext(Dispatchers.Main) { show(state) } }
         }
@@ -113,7 +117,12 @@ class AgentsPanel(
 
     private fun renderConfig() {
         val selected = agent.selectedItem as? Agent ?: return
-        val rendered = AgentConfigs.render(selected, endpoint(), controller.credential())
+        val known = credential
+        if (known == null) {
+            config.text = "Reading the credential from the IDE's password safe…"
+            return
+        }
+        val rendered = AgentConfigs.render(selected, endpoint(), known)
         config.text = rendered.text
         where.text = rendered.where?.let { "Paste into $it" } ?: "Run in a terminal"
         note.text = rendered.note?.let { "<html>${it.replace("&", "&amp;").replace("<", "&lt;")}</html>" }.orEmpty()

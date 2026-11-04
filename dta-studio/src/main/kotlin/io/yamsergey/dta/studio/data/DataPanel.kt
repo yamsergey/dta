@@ -315,7 +315,7 @@ class DataPanel(
         sql.text = "SELECT * FROM ${SqlStatements.identifier(name)}"
         cards.show(right, TABLE)
         reloadPage()
-        status.text = grid!!.readOnlyReason ?: "Double-click a cell to edit it; the change is an UPDATE through ${schemas[store]?.accessNote ?: "the database"}."
+        status.text = grid!!.readOnlyReason ?: "Double-click a cell to edit it (an UPDATE). " + (schemas[store]?.accessNote?.let { it.replaceFirstChar(Char::uppercase) + "." } ?: "")
     }
 
     private fun reloadPage() {
