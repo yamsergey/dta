@@ -106,7 +106,8 @@ internal class KtorRecorder(private val recorder: NetworkRecorder, private val i
         val savedRequest = runCatching { saved.javaClass.getMethod("getRequest").invoke(saved) }.getOrNull() ?: return
         val original = get(savedRequest, "\$\$delegate_0") ?: savedRequest
         val id = key(original, response)?.let { exchanges[it] } ?: return
-        val bytes = get(response, "body") as? ByteArray ?: return
+        // Ktor 3 keeps the bytes in the saved response; Ktor 2 in the saved call (its response wraps them in a channel).
+        val bytes = (get(response, "body") as? ByteArray) ?: (get(saved, "responseBody") as? ByteArray) ?: return
         val type = headers(get(response, "headers")).firstOrNull { it.name.equals("Content-Type", true) }?.value
         recorder.httpResponseBody(id, type, null, bytes.size.toLong()).apply { accept(bytes, 0, bytes.size); finish(endOfStream = true) }
     }
