@@ -2,7 +2,7 @@ package io.yamsergey.dta.present.data
 
 import io.yamsergey.dta.present.Units
 import io.yamsergey.dta.protocol.data.FunctionList
-import io.yamsergey.dta.protocol.data.HiltBindings
+import io.yamsergey.dta.protocol.data.DiReport
 import io.yamsergey.dta.protocol.data.MemoryState
 import io.yamsergey.dta.protocol.data.NavDestinationInfo
 import io.yamsergey.dta.protocol.data.NavigationState
@@ -72,8 +72,27 @@ object RuntimeText {
             (if (th.stack.size > 12) "\n    … ${th.stack.size - 12} more" else "")
     }
 
-    fun hilt(h: HiltBindings): String = if (!h.present) h.note ?: "No Hilt." else h.bindings.groupBy { it.component }.entries.joinToString("\n") { (c, list) ->
-        c + list.joinToString("") { b -> "\n  ${b.declaredType}  ${b.name}" + (b.runtimeType?.let { "  → $it" } ?: if (!b.created) "  (not created yet)" else "") + (if (b.role == "assisted") "  (assisted: passed by the caller)" else "") }
+    /** Feature 035: every DI graph, its bindings with kind and instance. */
+    fun di(r: DiReport): String = buildString {
+        r.graphs.forEachIndexed { i, g ->
+            if (i > 0) append("\n")
+            append("${g.framework}  ${g.name}")
+            g.note?.let { append("\n  ").append(it) }
+            g.bindings.forEach { b ->
+                append("\n  ${b.type}  ${b.name}")
+                b.kind?.let { append("  ").append(it) }
+                b.qualifier?.let { append("  @").append(it) }
+                append(
+                    when {
+                        b.kind == "assisted" -> "  → ${b.runtimeType ?: "?"}  (assisted: passed by the caller)"
+                        b.runtimeType != null -> "  → ${b.runtimeType}"
+                        b.kind == "factory" -> "  (a new one each time)"
+                        else -> "  (not created yet)"
+                    },
+                )
+            }
+        }
+        r.note?.let { if (r.graphs.isNotEmpty()) append("\n"); append(it) }
     }
 
     fun functions(f: FunctionList): String = buildString {

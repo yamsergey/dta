@@ -85,7 +85,7 @@ class Formatters(private val style: Style) {
         "runtime.viewmodels" -> io.yamsergey.dta.present.data.RuntimeText.viewModels(decode(io.yamsergey.dta.protocol.data.ViewModelList.serializer(), result))
         "runtime.memory" -> io.yamsergey.dta.present.data.RuntimeText.memory(decode(io.yamsergey.dta.protocol.data.MemoryState.serializer(), result))
         "runtime.threads" -> io.yamsergey.dta.present.data.RuntimeText.threads(decode(io.yamsergey.dta.protocol.data.ThreadList.serializer(), result))
-        "runtime.hilt" -> io.yamsergey.dta.present.data.RuntimeText.hilt(decode(io.yamsergey.dta.protocol.data.HiltBindings.serializer(), result))
+        "runtime.di" -> io.yamsergey.dta.present.data.RuntimeText.di(decode(io.yamsergey.dta.protocol.data.DiReport.serializer(), result))
         "runtime.functions" -> io.yamsergey.dta.present.data.RuntimeText.functions(decode(io.yamsergey.dta.protocol.data.FunctionList.serializer(), result))
         "runtime.navigate", "runtime.back", "runtime.vm.set", "runtime.saved.set" -> result.obj.let { w -> "${w.str("change")}." }
         "runtime.invoke" -> result.obj.let { r -> r.str("error")?.let { "${r.str("id")} threw $it" } ?: "${r.str("id")}: ${r["result"]?.let { PRETTY.encodeToString(JsonElement.serializer(), it) } ?: "done"}" }

@@ -637,10 +637,10 @@ object Catalog {
             listOf(ParamSpec("stacks", ParamType.BOOLEAN, "Include each thread's stack (default true)."), ParamSpec("filter", ParamType.STRING, "Only threads whose name contains this.")),
         ),
         OperationSpec(
-            "runtime.hilt",
-            "The app's Hilt components and their bindings: field, declared type, the runtime class behind it, and whether it was created yet.",
+            "runtime.di",
+            "The app's dependency-injection graphs — Hilt components (and what Hilt injected into live activities and ViewModels), Metro graphs, Dagger components, Koin — each binding's type, kind (singleton, factory, scoped, instance, injected, assisted), qualifier, the runtime class of its instance and whether it was created yet. Nothing is created by reading.",
             Scope.APP,
-            listOf(ParamSpec("filter", ParamType.STRING, "Only bindings whose type contains this.", positional = true)),
+            listOf(ParamSpec("filter", ParamType.STRING, "Only graphs or bindings whose framework, graph name or type contains this.", positional = true)),
         ),
         OperationSpec(
             "runtime.functions",

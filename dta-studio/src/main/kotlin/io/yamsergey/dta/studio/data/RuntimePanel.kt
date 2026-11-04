@@ -16,7 +16,7 @@ import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.present.data.PropertyRows
 import io.yamsergey.dta.present.data.RuntimeText
 import io.yamsergey.dta.protocol.data.FunctionList
-import io.yamsergey.dta.protocol.data.HiltBindings
+import io.yamsergey.dta.protocol.data.DiReport
 import io.yamsergey.dta.protocol.data.InvokeResult
 import io.yamsergey.dta.protocol.data.MemoryState
 import io.yamsergey.dta.protocol.data.NavHostInfo
@@ -49,7 +49,7 @@ import javax.swing.tree.DefaultTreeModel
 
 /**
  * The Runtime tab (feature 028 US5): activities, navigation hosts, ViewModels, functions, memory,
- * threads and Hilt in a tree; the selected part on the right — a ViewModel's properties edited in
+ * threads and DI graphs (035) in a tree; the selected part on the right — a ViewModel's properties edited in
  * place as JSON (feature 031: a preview in the table, the selected value formatted below), a back stack with Navigate… and Back, functions with Invoke…, memory with Run GC.
  */
 class RuntimePanel(
@@ -58,7 +58,7 @@ class RuntimePanel(
     private val ui: (Runnable) -> Unit = { SwingUtilities.invokeLater(it) },
     private val call: suspend (String, JsonObject) -> JsonObject,
 ) : JPanel(BorderLayout()) {
-    private enum class Section(val label: String) { ACTIVITIES("Activities"), NAVIGATION("Navigation"), VIEWMODELS("ViewModels"), FUNCTIONS("Functions"), MEMORY("Memory"), THREADS("Threads"), HILT("Hilt") }
+    private enum class Section(val label: String) { ACTIVITIES("Activities"), NAVIGATION("Navigation"), VIEWMODELS("ViewModels"), FUNCTIONS("Functions"), MEMORY("Memory"), THREADS("Threads"), DI("DI") }
     private data class Item(val section: Section, val label: String, val detail: String = "", val host: NavHostInfo? = null, val vm: ViewModelInfo? = null)
 
     private val status = JBLabel(" ").apply { foreground = JBColor.GRAY; setCopyable(true) }
@@ -172,7 +172,7 @@ class RuntimePanel(
             Section.ACTIVITIES -> showText("runtime.activities", RuntimeActivities.serializer(), RuntimeText::activities)
             Section.MEMORY -> showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, listOf("Run GC" to { showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, params = JsonObject(mapOf("gc" to JsonPrimitive(true)))) }))
             Section.THREADS -> showThreads()
-            Section.HILT -> showText("runtime.hilt", HiltBindings.serializer(), RuntimeText::hilt)
+            Section.DI -> showText("runtime.di", DiReport.serializer(), RuntimeText::di)
             Section.FUNCTIONS -> showFunctions()
             Section.NAVIGATION -> showText("runtime.navigation", NavigationState.serializer(), RuntimeText::navigation, navActions())
             Section.VIEWMODELS -> showText("runtime.viewmodels", ViewModelList.serializer(), RuntimeText::viewModels)

@@ -2,7 +2,7 @@ package io.yamsergey.dta.sidekick.runtime
 
 import android.content.Context
 import io.yamsergey.dta.protocol.data.FunctionList
-import io.yamsergey.dta.protocol.data.HiltBindings
+import io.yamsergey.dta.protocol.data.DiReport
 import io.yamsergey.dta.protocol.data.InvokeResult
 import io.yamsergey.dta.protocol.data.MemoryState
 import io.yamsergey.dta.protocol.data.NavigationState
@@ -44,7 +44,7 @@ internal class RuntimeMethods(context: Context) {
             encode(MemoryState.serializer(), state)
         }
         register("runtime_threads") { c -> encode(ThreadList.serializer(), runtime.threads(c.bool("stacks") ?: true, c.str("filter"))) }
-        register("runtime_hilt") { c -> encode(HiltBindings.serializer(), runtime.hilt(c.str("filter"))) }
+        register("runtime_di") { c -> encode(DiReport.serializer(), runtime.di(c.str("filter"))) }
         register("runtime_functions") { _ -> encode(FunctionList.serializer(), runtime.functions()) }
         register("runtime_invoke") { c ->
             val id = c.required("id")

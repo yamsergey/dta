@@ -12,6 +12,9 @@ androidx-startup = "1.2.0"
 compose = "1.7.6"
 # compileOnly ONLY in sidekick (constitution I); runtime for tests.
 okhttp = "4.12.0"
+# Test-only: real DI runtimes the DI reader (035) is checked against.
+koin = "4.2.2"
+metro = "1.5.2"
 # Relocated into dta-sidekick-rhino; never a plain dependency (constitution I).
 rhino = "1.7.15"
 shadow = "9.0.2"
@@ -31,6 +34,8 @@ intellij-platform = "2.19.0"
 maven-publish = "0.36.0"
 
 [libraries]
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+metro-runtime = { module = "dev.zacsweers.metro:runtime", version.ref = "metro" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }

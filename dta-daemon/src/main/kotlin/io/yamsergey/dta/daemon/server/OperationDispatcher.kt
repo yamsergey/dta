@@ -202,7 +202,7 @@ class OperationDispatcher(
         "runtime.saved.set" to { c -> rt(c, "runtime_saved_set", io.yamsergey.dta.protocol.data.DataWriteResult.serializer()) },
         "runtime.memory" to { c -> rt(c, "runtime_memory", io.yamsergey.dta.protocol.data.MemoryState.serializer()) },
         "runtime.threads" to { c -> rt(c, "runtime_threads", io.yamsergey.dta.protocol.data.ThreadList.serializer()) },
-        "runtime.hilt" to { c -> rt(c, "runtime_hilt", io.yamsergey.dta.protocol.data.HiltBindings.serializer()) },
+        "runtime.di" to { c -> rt(c, "runtime_di", io.yamsergey.dta.protocol.data.DiReport.serializer()) },
         "runtime.functions" to { c -> rt(c, "runtime_functions", io.yamsergey.dta.protocol.data.FunctionList.serializer()) },
         "runtime.invoke" to { c -> rt(c, "runtime_invoke", io.yamsergey.dta.protocol.data.InvokeResult.serializer()) },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },

@@ -117,6 +117,8 @@ dependencies {
     testImplementation(libs.compose.ui.tooling.data)
     testImplementation(project(":dta-sidekick-shim"))
     testImplementation(libs.okhttp)
+    testImplementation(libs.koin.core)
+    testImplementation(libs.metro.runtime)
     testImplementation(libs.okhttp.mockwebserver)
     testRuntimeOnly(libs.junit.platform.launcher)
 }

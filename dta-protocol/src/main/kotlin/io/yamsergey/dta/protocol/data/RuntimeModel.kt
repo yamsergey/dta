@@ -122,19 +122,27 @@ data class ThreadInfo(
 @Serializable
 data class ThreadList(val threads: List<ThreadInfo>)
 
+/**
+ * Feature 035: one binding of a DI graph. [kind]: singleton (one instance, [created] once made),
+ * factory (a new instance each time), scoped, instance (given to the graph), injected / assisted
+ * (what an activity or ViewModel received).
+ */
 @Serializable
-data class HiltBinding(
-    val component: String,
+data class DiBinding(
+    val type: String,
     val name: String,
-    val declaredType: String,
     val runtimeType: String? = null,
     val created: Boolean = false,
-    /** Feature 033: null for a component's binding; "injected" or "assisted" for what an activity or ViewModel received. */
-    val role: String? = null,
+    val kind: String? = null,
+    val qualifier: String? = null,
 )
 
+/** A DI graph: [framework] hilt, dagger, metro or koin; [name] the component, graph or scope. */
 @Serializable
-data class HiltBindings(val present: Boolean, val bindings: List<HiltBinding>, val note: String? = null)
+data class DiGraph(val framework: String, val name: String, val bindings: List<DiBinding>, val note: String? = null)
+
+@Serializable
+data class DiReport(val graphs: List<DiGraph>, val note: String? = null)
 
 @Serializable
 data class AppFunctionInfo(

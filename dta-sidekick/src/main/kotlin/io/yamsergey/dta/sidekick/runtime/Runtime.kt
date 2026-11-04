@@ -6,8 +6,9 @@ import io.yamsergey.dta.protocol.data.ActivityInfo
 import io.yamsergey.dta.protocol.data.AppFunctionInfo
 import io.yamsergey.dta.protocol.data.FragmentInfo
 import io.yamsergey.dta.protocol.data.FunctionList
-import io.yamsergey.dta.protocol.data.HiltBinding
-import io.yamsergey.dta.protocol.data.HiltBindings
+import io.yamsergey.dta.protocol.data.DiBinding
+import io.yamsergey.dta.protocol.data.DiGraph
+import io.yamsergey.dta.protocol.data.DiReport
 import io.yamsergey.dta.protocol.data.MemoryState
 import io.yamsergey.dta.protocol.data.NavDestinationInfo
 import io.yamsergey.dta.protocol.data.NavEntryInfo
@@ -353,66 +354,116 @@ internal class Runtime(private val context: Context) {
         },
     )
 
-    // ---- Hilt ----
+    // ---- DI (feature 035) ----
 
-    fun hilt(filter: String?): HiltBindings {
-        val components = mutableListOf<Pair<String, Any>>()
+    /** Every DI graph in the app: Hilt components and what Hilt injected, Metro graphs, Dagger components, Koin. */
+    fun di(filter: String?): DiReport {
+        val graphs = mutableListOf<DiGraph>()
+        val notes = mutableListOf<String>()
+        graphs += hiltGraphs()
+        val found = runCatching { graphClasses() }.onFailure { notes += "Metro graphs and Dagger components cannot be looked for: the app's classes cannot be listed (${it.message})" }.getOrDefault(emptyList())
+        for ((framework, cls) in found) {
+            val live = LiveObjects.of(cls)
+            if (live == null) { notes += "$framework ${cls.name}: its live instance cannot be found (${LiveObjects.reason})"; continue }
+            live.forEach { g ->
+                val name = (cls.interfaces.firstOrNull { DiReaders.isMetroGraph(cls) }?.simpleName ?: cls.simpleName) + " " + id(g)
+                graphs += DiReaders.providerGraph(framework, name, g, skip = { f -> f.type.name.endsWith("Impl") || f.type == cls })
+            }
+        }
+        if (graphs.any { it.framework == "metro" }) graphs += viewModelInjections("metro") { vm ->
+            vm.javaClass.annotations.any { it.annotationClass.java.name.let { n -> n == "dev.zacsweers.metro.Inject" || n == "dev.zacsweers.metro.AssistedInject" } } ||
+                vm.javaClass.declaredConstructors.any { c -> c.annotations.any { it.annotationClass.java.name.startsWith("dev.zacsweers.metro.") } }
+        }
+                runCatching { DiReaders.koin(loader) }.onFailure { notes += "Koin is in the app but its definitions cannot be read: ${it.message}" }.getOrNull()?.let { graphs += it }
+        val shown = graphs.map { g ->
+            if (filter == null || g.name.contains(filter, true) || g.framework.equals(filter, true)) g
+            else g.copy(bindings = g.bindings.filter { it.type.contains(filter, true) || (it.runtimeType?.contains(filter, true) ?: false) || it.name.contains(filter, true) })
+        }.filter { filter == null || it.bindings.isNotEmpty() || it.name.contains(filter, true) || it.framework.equals(filter, true) }
+        val note = (notes + listOfNotNull("no DI graph found: looked for Hilt, Dagger, Metro and Koin".takeIf { graphs.isEmpty() && notes.isEmpty() })).joinToString("; ").ifEmpty { null }
+        return DiReport(shown, note)
+    }
+
+    /** Hilt components (singleton, live activities' ones) and what Hilt injected into live objects. */
+    private fun hiltGraphs(): List<DiGraph> {
         val app = context.applicationContext
         fun componentOf(holder: Any): Any? = runCatching {
             val manager = Reflect.call(holder, "componentManager") ?: return@runCatching null
             Reflect.call(manager, "generatedComponent")
         }.getOrNull()
+        val components = mutableListOf<Pair<String, Any>>()
         componentOf(app)?.let { components += "singleton" to it }
         runCatching { activityRecords().forEach { (a, _, _) -> componentOf(a)?.let { components += "activity ${a.javaClass.simpleName}" to it } } }
-        if (components.isEmpty()) return HiltBindings(false, emptyList(), "the app does not use Hilt (its Application has no Hilt component manager)")
-        val bindings = components.flatMap { (scope, c) ->
-            Reflect.fields(c.javaClass).mapNotNull { f ->
-                val v = runCatching { f.get(c) }.getOrNull()
-                if (v != null && v.javaClass.name.contains("CImpl")) return@mapNotNull null
-                val declared = f.genericType.toString().let { g -> Regex("<(.+)>").find(g)?.groupValues?.get(1) ?: f.type.name }
-                val instance = when {
-                    v == null -> null
-                    v.javaClass.name == "dagger.internal.DoubleCheck" -> Reflect.field(v, "instance")?.takeIf { !it.javaClass.name.startsWith("dagger.internal") }
-                    v.javaClass.name.contains("Provider") || v.javaClass.name.startsWith("dagger.") -> null
-                    else -> v
-                }
-                HiltBinding("$scope (${c.javaClass.simpleName})", f.name, declared, instance?.javaClass?.name, instance != null)
-            }
-        } + injections()
-        return HiltBindings(true, bindings.filter { filter == null || it.declaredType.contains(filter, ignoreCase = true) || (it.runtimeType?.contains(filter, ignoreCase = true) ?: false) || it.component.contains(filter, ignoreCase = true) })
+        if (components.isEmpty()) return emptyList()
+        // Links to parent components (…CImpl fields) are not bindings.
+        // An activity component usually has no bindings of its own (its injections are listed after).
+        return components.map { (scope, c) -> DiReaders.providerGraph("hilt", "$scope (${c.javaClass.simpleName})", c, skip = { f -> f.type.name.contains("CImpl") }) }
+            .filter { it.bindings.isNotEmpty() || it.name.startsWith("singleton") } + injections()
     }
 
     /**
-     * Feature 033: what Hilt injected into the live objects it serves — an activity's `@Inject`
-     * fields, a `@HiltViewModel`'s constructor parameters (assisted ones marked) — with the
-     * instance each got.
+     * What Hilt injected into the live objects it serves — an activity's `@Inject` fields, a
+     * `@HiltViewModel`'s constructor parameters (assisted ones marked) — with the instance each got.
      */
-    private fun injections(): List<HiltBinding> {
-        val out = mutableListOf<HiltBinding>()
+    private fun injections(): List<DiGraph> {
+        val out = mutableListOf<DiGraph>()
         runCatching {
             activityRecords().forEach { (a, _, _) ->
                 if (runCatching { Reflect.call(a, "componentManager") }.getOrNull() == null) return@forEach
-                generateSequence(a.javaClass as Class<*>) { it.superclass }.takeWhile { !it.name.startsWith("android") }.flatMap { it.declaredFields.asSequence() }
+                val fields = generateSequence(a.javaClass as Class<*>) { it.superclass }.takeWhile { !it.name.startsWith("android") }.flatMap { it.declaredFields.asSequence() }
                     .filter { f -> f.annotations.any { it.annotationClass.java.name == "javax.inject.Inject" } }
-                    .forEach { f ->
+                    .map { f ->
                         val v = runCatching { f.isAccessible = true; f.get(a) }.getOrNull()
-                        out += HiltBinding("activity ${a.javaClass.simpleName} (injected fields)", f.name, f.genericType.typeName, v?.javaClass?.name, v != null, "injected")
-                    }
+                        DiBinding(f.genericType.typeName, f.name, v?.javaClass?.name, v != null, "injected")
+                    }.toList()
+                if (fields.isNotEmpty()) out += DiGraph("hilt", "activity ${a.javaClass.simpleName} (injected fields)", fields)
             }
         }
-        viewModelObjects().orEmpty().filter { vm -> runCatching { Class.forName(vm.javaClass.name + "_HiltModules", false, vm.javaClass.classLoader) }.isSuccess }.forEach { vm ->
+        out += viewModelInjections("hilt") { vm -> runCatching { Class.forName(vm.javaClass.name + "_HiltModules", false, vm.javaClass.classLoader) }.isSuccess }
+        return out
+    }
+
+    /**
+     * The constructor parameters of each live ViewModel [isOf] the framework (Hilt: a generated
+     * `_HiltModules`; Metro: `@Inject` on the class or `@AssistedInject` on the constructor) with
+     * the instance each got; assisted ones (passed by the caller) marked.
+     */
+    private fun viewModelInjections(framework: String, isOf: (Any) -> Boolean): List<DiGraph> {
+        val out = mutableListOf<DiGraph>()
+        viewModelObjects().orEmpty().filter(isOf).forEach { vm ->
             val ctor = vm.javaClass.declaredConstructors.maxByOrNull { it.parameterCount } ?: return@forEach
             val fields = Values.instanceFields(vm.javaClass).toMutableList()
-            ctor.parameters.forEachIndexed { i, p ->
-                val assisted = ctor.parameterAnnotations[i].any { it.annotationClass.java.name == "dagger.assisted.Assisted" }
+            val params = ctor.parameters.mapIndexed { i, p ->
+                val assisted = ctor.parameterAnnotations[i].any { it.annotationClass.java.name == "dagger.assisted.Assisted" || it.annotationClass.java.name == "dev.zacsweers.metro.Assisted" }
                 // The field the constructor kept it in: the first of an assignable type.
                 val field = fields.firstOrNull { p.type.isAssignableFrom(it.type) || it.type.isAssignableFrom(p.type) }?.also { fields.remove(it) }
                 val v = field?.let { f -> runCatching { f.isAccessible = true; f.get(vm) }.getOrNull() }
-                out += HiltBinding("viewmodel ${vm.javaClass.simpleName} ${id(vm)} (constructor)", field?.name ?: p.name, p.parameterizedType.typeName, v?.javaClass?.name, v != null, if (assisted) "assisted" else "injected")
+                DiBinding(p.parameterizedType.typeName, field?.name ?: p.name, v?.javaClass?.name, v != null, if (assisted) "assisted" else "injected")
             }
+            out += DiGraph(framework, "viewmodel ${vm.javaClass.simpleName} ${id(vm)} (constructor)", params)
         }
         return out
     }
+
+    /** Metro graph implementations and plain Dagger components among the APK's classes (looked up once). */
+    private val graphClassList: List<Pair<String, Class<*>>> by lazy {
+        val apks = listOfNotNull(context.applicationInfo.sourceDir) + context.applicationInfo.splitSourceDirs.orEmpty()
+        @Suppress("DEPRECATION")
+        val names = apks.flatMap { apk ->
+            val dex = dalvik.system.DexFile(apk)
+            try { dex.entries().toList() } finally { dex.close() }
+        }
+            .filter { n -> n.endsWith("\$Impl") || n.substringAfterLast('.').startsWith("Dagger") }
+        names.mapNotNull { n ->
+            val c = runCatching { Class.forName(n, false, loader) }.getOrNull() ?: return@mapNotNull null
+            when {
+                DiReaders.isMetroGraph(c) -> "metro" to c
+                DiReaders.isDaggerComponent(c) -> "dagger" to c
+                else -> null
+            }
+        }
+    }
+
+    private fun graphClasses(): List<Pair<String, Class<*>>> = graphClassList
 
     // ---- functions ----
 
