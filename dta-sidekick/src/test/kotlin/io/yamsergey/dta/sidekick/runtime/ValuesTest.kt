@@ -85,4 +85,17 @@ class ValuesTest {
             assertTrue(!Values.isReference(it), "$it")
         }
     }
+
+    @Test
+    fun `a value is whole up to the limits, and says when it was cut (030)`() {
+        val (whole, none) = Values.renderChecked((1..Values.ITEMS).toList())
+        assertEquals(Values.ITEMS, (whole as kotlinx.serialization.json.JsonArray).size)
+        assertEquals(null, none)
+        val (cutJson, cut) = Values.renderChecked((1..Values.ITEMS + 28).toList())
+        assertEquals(Values.ITEMS, (cutJson as kotlinx.serialization.json.JsonArray).size)
+        assertTrue("over ${Values.ITEMS} items" in cut!!, cut)
+        data class Deep(val next: Deep?)
+        val (_, deep) = Values.renderChecked(Deep(Deep(Deep(Deep(null)))), maxDepth = 2)
+        assertTrue("nested deeper than 2" in deep!!, deep)
+    }
 }

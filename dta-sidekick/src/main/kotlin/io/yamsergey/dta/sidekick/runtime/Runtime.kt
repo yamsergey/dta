@@ -268,14 +268,22 @@ internal class Runtime(private val context: Context) {
             val holder = v?.let { Values.holder(it) }
             if (holder != null) {
                 val (kind, inner) = holder
-                val editable = Values.isA(v.javaClass, MUTABLE[kind]!!)
-                PropertyInfo(p.name, kind, inner?.javaClass?.simpleName ?: "null", Values.render(inner), editable, if (!editable) "read-only ${kind}" else null)
+                val mutable = Values.isA(v.javaClass, MUTABLE[kind]!!)
+                // A value shown cut cannot be set whole (it would write the cut copy back): fields inside it by path still can.
+                val (json, cut) = Values.renderChecked(inner)
+                val note = when {
+                    !mutable -> "read-only $kind"
+                    cut != null -> "shown cut ($cut): set a field inside it by path (${p.name}.field), not the whole value"
+                    else -> null
+                }
+                PropertyInfo(p.name, kind, inner?.javaClass?.simpleName ?: "null", json, mutable && cut == null, note)
             } else if (Values.isReference(v)) {
                 PropertyInfo(p.name, "reference", v!!.javaClass.simpleName.ifEmpty { v.javaClass.name }, kotlinx.serialization.json.JsonPrimitive(v.javaClass.name), false,
                     "a reference to an object the ViewModel uses (a repository, client, context): shown by its class, not serialized")
             } else {
                 val simple = v == null || v is Number || v is String || v is Boolean || v is Enum<*> || (Values.copyMethod(v.javaClass) != null)
-                PropertyInfo(p.name, "field", p.field.type.simpleName, Values.render(v), !Modifier.isFinal(p.field.modifiers) && simple)
+                val (json, cut) = Values.renderChecked(v)
+                PropertyInfo(p.name, "field", p.field.type.simpleName, json, !Modifier.isFinal(p.field.modifiers) && simple && cut == null, cut?.let { "shown cut ($it)" })
             }
         }
         return list to saved

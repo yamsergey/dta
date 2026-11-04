@@ -14,15 +14,28 @@ import java.util.IdentityHashMap
 
 /**
  * Feature 028 (research R2, R3): the app's values as JSON and back. Rendering is bounded (depth,
- * 50 items) and cuts cycles; conversion follows the current value's type; a field inside a data
+ * [ITEMS] items) and cuts cycles — [renderChecked] says when it cut (feature 030: never silently); conversion follows the current value's type; a field inside a data
  * class is changed by rebuilding each level with its `copy`.
  */
 internal object Values {
-    private const val ITEMS = 50
+    const val ITEMS = 200
 
-    fun render(value: Any?, maxDepth: Int = 4): JsonElement = render(value, 0, maxDepth, IdentityHashMap())
+    fun render(value: Any?, maxDepth: Int = 4): JsonElement = render(value, 0, maxDepth, IdentityHashMap(), Cuts())
 
-    private fun render(v: Any?, depth: Int, max: Int, seen: IdentityHashMap<Any, Boolean>): JsonElement = when {
+    /** What a render left out: longer collections, deeper levels. */
+    class Cuts { var items = false; var depth = false }
+
+    /** [value] as JSON and, when the JSON is not the whole value, what was cut (plain words); null when whole. */
+    fun renderChecked(value: Any?, maxDepth: Int = 6): Pair<JsonElement, String?> {
+        val cuts = Cuts()
+        val json = render(value, 0, maxDepth, IdentityHashMap(), cuts)
+        val what = listOfNotNull("lists and maps over $ITEMS items show their first $ITEMS".takeIf { cuts.items }, "objects nested deeper than $maxDepth levels show their class".takeIf { cuts.depth })
+        return json to what.takeIf { it.isNotEmpty() }?.joinToString("; ")
+    }
+
+    private fun <T> List<T>.cut(c: Cuts, size: Int): List<T> { if (size > ITEMS) c.items = true; return this }
+
+    private fun render(v: Any?, depth: Int, max: Int, seen: IdentityHashMap<Any, Boolean>, c: Cuts): JsonElement = when {
         v == null -> JsonNull
         v is String -> JsonPrimitive(v)
         v is Boolean -> JsonPrimitive(v)
@@ -30,20 +43,21 @@ internal object Values {
         v is Char -> JsonPrimitive(v.toString())
         v is Enum<*> -> JsonPrimitive(v.name)
         v is CharSequence -> JsonPrimitive(v.toString())
-        depth >= max -> JsonPrimitive("${v.javaClass.simpleName}…")
+        depth >= max -> { c.depth = true; JsonPrimitive("${v.javaClass.simpleName}…") }
         seen.containsKey(v) -> JsonPrimitive("(cycle: ${v.javaClass.simpleName})")
         else -> {
             seen[v] = true
             try {
                 when (v) {
-                    is Map<*, *> -> JsonObject(v.entries.take(ITEMS).associate { (k, x) -> k.toString() to render(x, depth + 1, max, seen) })
-                    is Iterable<*> -> JsonArray(v.take(ITEMS).map { render(it, depth + 1, max, seen) })
-                    is Array<*> -> JsonArray(v.take(ITEMS).map { render(it, depth + 1, max, seen) })
-                    is IntArray -> JsonArray(v.take(ITEMS).map { JsonPrimitive(it) })
-                    is LongArray -> JsonArray(v.take(ITEMS).map { JsonPrimitive(it) })
+                    is Map<*, *> -> JsonObject(v.entries.take(ITEMS).cut(c, v.size).associate { (k, x) -> k.toString() to render(x, depth + 1, max, seen, c) })
+                    is Collection<*> -> JsonArray(v.take(ITEMS).cut(c, v.size).map { render(it, depth + 1, max, seen, c) })
+                    is Iterable<*> -> JsonArray(v.take(ITEMS + 1).let { l -> l.take(ITEMS).cut(c, l.size) }.map { render(it, depth + 1, max, seen, c) })
+                    is Array<*> -> JsonArray(v.take(ITEMS).cut(c, v.size).map { render(it, depth + 1, max, seen, c) })
+                    is IntArray -> JsonArray(v.take(ITEMS).cut(c, v.size).map { JsonPrimitive(it) })
+                    is LongArray -> JsonArray(v.take(ITEMS).cut(c, v.size).map { JsonPrimitive(it) })
                     is ByteArray -> JsonPrimitive("${v.size} bytes")
-                    is android.os.Bundle -> JsonObject(v.keySet().associateWith { k -> @Suppress("DEPRECATION") render(v.get(k), depth + 1, max, seen) })
-                    else -> holder(v)?.let { render(it.second, depth, max, seen) } ?: fields(v, depth, max, seen)
+                    is android.os.Bundle -> JsonObject(v.keySet().associateWith { k -> @Suppress("DEPRECATION") render(v.get(k), depth + 1, max, seen, c) })
+                    else -> holder(v)?.let { render(it.second, depth, max, seen, c) } ?: fields(v, depth, max, seen, c)
                 }
             } finally {
                 seen.remove(v)
@@ -98,12 +112,12 @@ internal object Values {
         return false
     }
 
-    private fun fields(v: Any, depth: Int, max: Int, seen: IdentityHashMap<Any, Boolean>): JsonElement {
+    private fun fields(v: Any, depth: Int, max: Int, seen: IdentityHashMap<Any, Boolean>, c: Cuts): JsonElement {
         val fs = instanceFields(v.javaClass)
         if (fs.isEmpty() || v.javaClass.name.startsWith("java.") || v.javaClass.name.startsWith("android.")) {
             return JsonPrimitive(runCatching { v.toString() }.getOrDefault(v.javaClass.name).take(200))
         }
-        return JsonObject(fs.take(ITEMS).associate { f -> f.name to render(runCatching { f.get(v) }.getOrNull(), depth + 1, max, seen) })
+        return JsonObject(fs.take(ITEMS).cut(c, fs.size).associate { f -> f.name to render(runCatching { f.get(v) }.getOrNull(), depth + 1, max, seen, c) })
     }
 
     /** Instance fields in declaration order, the class's own last-declared hierarchy first. */
