@@ -80,6 +80,7 @@ object NetworkRuntime {
             { NvWebSocketCapture.install(loader, recorder, initiators, wsScripting, injector) },
             { JavaWebSocketCapture.install(loader, recorder, initiators, wsScripting, injector) },
             { NetworkCapability.probeGrpc(loader) },
+            { NetworkCapability.probeKtor(loader) },
         ).zip(NetworkLibraries.ALL).map { (install, name) ->
             try {
                 install()

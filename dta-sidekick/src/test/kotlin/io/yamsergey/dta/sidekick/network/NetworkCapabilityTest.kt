@@ -124,4 +124,25 @@ class NetworkCapabilityTest {
         assertTrue(state.present)
         assertEquals(NetworkCapability.GRPC_UNSUPPORTED, state.unsupported)
     }
+
+    @Test
+    fun `the Ktor client on an engine capture does not cover degrades the capability, naming the engine (030)`() {
+        val cio = NetworkCapability.ktor(setOf("cio"))
+        val status = NetworkCapability.status(null, listOf(LibraryState("okhttp3", present = false, installFailure = null), cio), bounds)
+        assertEquals(Status.DEGRADED, status.status)
+        val ktor = status.libraries!!.single { it.name == "ktor-client" }
+        assertEquals(Status.UNAVAILABLE, ktor.status)
+        assertTrue("CIO engine" in ktor.reason!! && "not captured" in ktor.reason!!, ktor.reason)
+        assertTrue("ktor-client:" in status.reason!!, status.reason)
+    }
+
+    @Test
+    fun `the Ktor client on OkHttp or Android engines is captured through them, and absent Ktor is just listed`() {
+        val viaOkHttp = NetworkCapability.status(null, listOf(NetworkCapability.ktor(setOf("okhttp", "android"))), bounds)
+        assertEquals(Status.AVAILABLE, viaOkHttp.status)
+        assertEquals(Status.AVAILABLE, viaOkHttp.libraries!!.single().status)
+        val absent = NetworkCapability.status(null, listOf(NetworkCapability.ktor(emptySet())), bounds)
+        assertEquals(Status.AVAILABLE, absent.status)
+        assertEquals(NetworkCapability.ABSENT, absent.libraries!!.single().reason)
+    }
 }

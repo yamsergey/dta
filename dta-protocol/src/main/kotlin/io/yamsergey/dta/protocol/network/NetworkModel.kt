@@ -611,6 +611,8 @@ object NetworkLibraries {
     const val JAVA_WEBSOCKET = "java-websocket"
     /** Detected only: its traffic bypasses the captured HTTP stack (feature 006). */
     const val GRPC = "grpc"
+    /** Detected with its engines (feature 030): OkHttp and Android engines are captured through those stacks; CIO and Java are not. */
+    const val KTOR = "ktor-client"
 
-    val ALL = listOf(OKHTTP3, URLCONNECTION, OKHTTP3_WS, NV_WEBSOCKET, JAVA_WEBSOCKET, GRPC)
+    val ALL = listOf(OKHTTP3, URLCONNECTION, OKHTTP3_WS, NV_WEBSOCKET, JAVA_WEBSOCKET, GRPC, KTOR)
 }
