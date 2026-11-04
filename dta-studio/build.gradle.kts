@@ -171,6 +171,10 @@ abstract class VerifyDaemonBundle : DefaultTask() {
         val name = pluginZip.get().asFile.name
         ZipFile(pluginZip.get().asFile).use { zip ->
             val jars = zip.entries().asSequence().map { it.name }.filter { it.endsWith(".jar") }.toList()
+            // Feature 029: the robot IDE's robot-server is for test runs only, never shipped.
+            jars.filter { "robot" in it.substringAfterLast('/').lowercase() }.takeIf { it.isNotEmpty() }?.let {
+                throw GradleException("$name: test-only robot jars in the plugin ZIP: $it")
+            }
             val daemonJars = jars.filter { Regex("[^/]+/daemon/[^/]+\\.jar").matches(it) }
             val main = daemonJars.firstOrNull { it.substringAfterLast('/').startsWith("dta-daemon-") }
                 ?: throw GradleException("$name: daemon/ has no dta-daemon jar (found $daemonJars)")
@@ -216,6 +220,30 @@ intellijPlatformTesting {
     runIde {
         register("runStudio") {
             findLocalAndroidStudio()?.let { localPath = file(it) }
+        }
+        // Feature 029: the robot IDE — the installed Studio with this plugin and JetBrains'
+        // robot-server, own sandbox, robot port on localhost; never part of the plugin ZIP.
+        register("runStudioForUiTests") {
+            findLocalAndroidStudio()?.let { localPath = file(it) }
+            task {
+                val port = providers.gradleProperty("robotPort").orElse("8082")
+                val project = providers.gradleProperty("robotProject")
+                jvmArgumentProviders += CommandLineArgumentProvider {
+                    listOf(
+                        "-Drobot-server.port=${port.get()}",
+                        "-Drobot-server.host.public=false",
+                        "-Dide.mac.message.dialogs.as.sheets=false",
+                        "-Djb.privacy.policy.text=<!--999.999-->",
+                        "-Djb.consents.confirmation.enabled=false",
+                        "-Didea.trust.all.projects=true",
+                        "-Dide.show.tips.on.startup.default.value=false",
+                        "-Didea.initially.ask.config=never",
+                        "-Dide.newUsersOnboarding=false",
+                    )
+                }
+                argumentProviders += CommandLineArgumentProvider { listOfNotNull(project.orNull) }
+            }
+            plugins { robotServerPlugin() }
         }
     }
 }
