@@ -30,6 +30,12 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
                 "savedState":[{"path":"step","kind":"savedstate","type":"Integer","value":1,"editable":true}]}]}"""
             "runtime.functions" -> """{"functions":[{"id":"cart.clear","source":"dta-state","description":"Empty the cart","invocable":true}]}"""
             "runtime.vm.set", "runtime.saved.set" -> """{"store":"viewmodel v1","change":"set","access":"live"}"""
+            "runtime.threads" -> """{"threads":[
+                {"id":1,"name":"FinalizerDaemon","state":"waiting","daemon":true,"priority":5,"stack":["java.lang.Object.wait(Native Method)","java.lang.Daemons${'$'}FinalizerDaemon.runInternal(Daemons.java:331)"]},
+                {"id":2,"name":"binder:1_1","state":"runnable","daemon":false,"priority":5},
+                {"id":3,"name":"dta-sidekick-accept","state":"runnable","daemon":true,"priority":5,"stack":["android.net.LocalServerSocket.accept(LocalServerSocket.java:93)"]},
+                {"id":4,"name":"main","state":"runnable","daemon":false,"priority":5,"group":"main","stack":["android.os.MessageQueue.nativePollOnce(Native Method)","android.os.Looper.loop(Looper.java:317)","android.app.ActivityThread.main(ActivityThread.java:8705)"]},
+                {"id":5,"name":"sync","state":"blocked","daemon":false,"priority":5,"group":"main","stack":["java.io.FileOutputStream.write(FileOutputStream.java:1)","com.example.shop.Sync.flush(Sync.kt:42)","java.lang.Thread.run(Thread.java:1012)"]}]}"""
             "runtime.memory" -> """{"javaUsedBytes":12582912,"javaMaxBytes":268435456,"javaFreeBytes":0,"nativeAllocatedBytes":4194304,"nativeHeapBytes":0,"pssKb":81920,"gcCount":7,"gcTimeMs":35}"""
             else -> error(op)
         },
@@ -98,5 +104,21 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
         p.valueView.beginEdit()
         p.valueView.submit("{ items: ")
         assertEquals(before, calls.size)
+    }
+
+    fun `test threads are grouped with a health line and the chosen thread's stack beside them`() {
+        val p = panel()
+        p.load()
+        select(p, "THREADS")
+        val v = p.threadsView
+        assertEquals("Main thread idle (waiting for messages). 1 thread blocked: sync.", v.health.text)
+        val shown = (0 until v.tree.rowCount).map { v.tree.getPathForRow(it).lastPathComponent.toString() }
+        // App open (main first, then sync), System and DTA closed.
+        assertEquals(5, shown.size)
+        assertTrue("$shown", shown[0].contains("App") && shown[1].contains("main") && shown[2].contains("sync") && shown[3].contains("System") && shown[4].contains("DTA"))
+        v.tree.setSelectionRow(2)
+        assertEquals("sync · blocked · priority 5 · group main", v.stackHeader.text)
+        assertEquals(3, v.stack.model.size)
+        render(p, "runtime-threads")
     }
 }

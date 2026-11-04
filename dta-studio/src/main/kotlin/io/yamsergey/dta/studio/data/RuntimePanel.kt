@@ -27,6 +27,8 @@ import io.yamsergey.dta.protocol.data.ViewModelInfo
 import io.yamsergey.dta.protocol.data.ViewModelList
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.studio.ui.JsonValueView
+import io.yamsergey.dta.studio.ui.adaptiveSplitter
+import io.yamsergey.dta.present.data.ThreadRows
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
@@ -89,6 +91,8 @@ class RuntimePanel(
     }
     /** The selected property's value, readable and editable (feature 031); the whole ViewModel when none is chosen. */
     val valueView = JsonValueView(project)
+    /** Threads grouped, in words, with the chosen one's stack (feature 032). */
+    val threadsView = ThreadsView { showThreads() }
     private var currentVm: ViewModelInfo? = null
     private var currentHost: NavHostInfo? = null
     private var functions: FunctionList? = null
@@ -116,17 +120,8 @@ class RuntimePanel(
             add(JBScrollPane(text), BorderLayout.CENTER)
         }, TEXT)
         propsTable.toolTipText = "Choose a property to see its value. ✎ values: double-click or Edit (JSON: \"text\", 3, true, null, {…})."
-        right.add(JBSplitter(true, "dta.runtime.vm.split", 0.4f).apply {
-            firstComponent = JBScrollPane(propsTable)
-            secondComponent = valueView
-            // Table above the value in a tall window, beside it in a wide low one (a bottom tool window).
-            addComponentListener(object : java.awt.event.ComponentAdapter() {
-                override fun componentResized(e: java.awt.event.ComponentEvent) {
-                    val vertical = height > width / 2
-                    if (orientation != vertical) orientation = vertical
-                }
-            })
-        }, PROPS)
+        right.add(adaptiveSplitter("dta.runtime.vm.split", 0.4f, JBScrollPane(propsTable), valueView), PROPS)
+        right.add(threadsView, THREADS)
         propsTable.selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) showValue() }
         propsTable.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
@@ -176,7 +171,7 @@ class RuntimePanel(
         when (o) {
             Section.ACTIVITIES -> showText("runtime.activities", RuntimeActivities.serializer(), RuntimeText::activities)
             Section.MEMORY -> showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, listOf("Run GC" to { showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, params = JsonObject(mapOf("gc" to JsonPrimitive(true)))) }))
-            Section.THREADS -> showText("runtime.threads", ThreadList.serializer(), RuntimeText::threads)
+            Section.THREADS -> showThreads()
             Section.HILT -> showText("runtime.hilt", HiltBindings.serializer(), RuntimeText::hilt)
             Section.FUNCTIONS -> showFunctions()
             Section.NAVIGATION -> showText("runtime.navigation", NavigationState.serializer(), RuntimeText::navigation, navActions())
@@ -232,6 +227,16 @@ class RuntimePanel(
         }
     }
 
+    private fun showThreads() {
+        cards.show(right, THREADS)
+        scope.launch {
+            val result = runCatching { decode(ThreadList.serializer(), call("runtime.threads", EMPTY_PARAMS)) }
+            ui.invoke(Runnable {
+                result.fold({ list -> threadsView.show(ThreadRows(list), RuntimeText.threads(list)); status.text = "${list.threads.size} threads." }, { status.text = it.message ?: it.javaClass.simpleName })
+            })
+        }
+    }
+
     private fun showFunctions() {
         val f = functions
         text(f?.let(RuntimeText::functions) ?: "Functions not read.", listOf("Invoke…" to { invoke() }))
@@ -284,6 +289,7 @@ class RuntimePanel(
         private const val EMPTY = "empty"
         private const val TEXT = "text"
         private const val PROPS = "props"
+        private const val THREADS = "threads"
         private val EMPTY_PARAMS = JsonObject(emptyMap())
     }
 }
