@@ -49,6 +49,8 @@ class EntryDetailPane(
     private val copyMenu: EntryCopyMenu? = null,
     /** Shows another entry, as a click in the list would (025: a message's connection, a connection's message). */
     private val open: (String) -> Unit = {},
+    /** Feature 041: a format rule was added, edited or removed — the list's rows are read again. */
+    private val formatsChanged: () -> Unit = {},
 ) : JPanel(BorderLayout()) {
     private val header = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); border = JBUI.Borders.empty(8, 12, 4, 12) }
     private val tabs = JBTabbedPane()
@@ -64,6 +66,7 @@ class EntryDetailPane(
     private var lastRedact = false
     private var marks: List<String> = emptyList()
     private var hitTab: io.yamsergey.dta.present.network.HitTab? = null
+    private var hits: List<io.yamsergey.dta.protocol.network.SearchHit> = emptyList()
     private val navigator = FrameNavigator(project)
 
     init {
@@ -78,11 +81,14 @@ class EntryDetailPane(
         client: DaemonClient?, target: JsonObject, id: String?, redact: Boolean, gone: Boolean, unlisted: Boolean = false,
         /** Feature 040: search words to mark, and the tab of the hit when one was moved to. */
         marks: List<String> = emptyList(), hitTab: io.yamsergey.dta.present.network.HitTab? = null,
+        /** Feature 041: the entry's hits, for the "Found in" line. */
+        hits: List<io.yamsergey.dta.protocol.network.SearchHit> = emptyList(),
     ) {
         if (id == null) { shown = null; return empty(SELECT) }
-        val marksChanged = marks != this.marks || hitTab != this.hitTab
+        val marksChanged = marks != this.marks || hitTab != this.hitTab || hits != this.hits
         this.marks = marks
         this.hitTab = hitTab
+        this.hits = hits
         if (shown == id && this.client === client) {
             if (gone != shownGone || unlisted != shownUnlisted || marksChanged) { shownUnlisted = unlisted; render(gone) }
             return
@@ -128,15 +134,10 @@ class EntryDetailPane(
             detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, target, id, it, scope, marks)) }
             detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, target, id, it, scope, marks)) }
         }
-        if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab("Messages", scroll(messagesPage(detail)))
+        if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab("Messages", messagesPanel(detail))
         detail.initiator?.let { tabs.addTab("Initiator", scroll(initiatorPage(detail))) }
-        // Moved to a search hit: its tab. Otherwise the same tab stays open from entry to entry when the new one has it.
-        val wanted = when (hitTab) {
-            io.yamsergey.dta.present.network.HitTab.HEADERS -> "Headers"
-            io.yamsergey.dta.present.network.HitTab.REQUEST, io.yamsergey.dta.present.network.HitTab.MESSAGE -> "Payload"
-            io.yamsergey.dta.present.network.HitTab.RESPONSE -> "Response"
-            null -> selected
-        }
+        // A search hit: its tab. Otherwise the same tab stays open from entry to entry when the new one has it.
+        val wanted = hitTab?.let(::tabTitle) ?: selected
         (0 until tabs.tabCount).firstOrNull { tabs.getTitleAt(it) == wanted }?.let { tabs.selectedIndex = it }
 
         removeAll()
@@ -144,6 +145,16 @@ class EntryDetailPane(
         add(tabs, BorderLayout.CENTER)
         revalidate()
         repaint()
+    }
+
+    private fun tabTitle(t: io.yamsergey.dta.present.network.HitTab) = when (t) {
+        io.yamsergey.dta.present.network.HitTab.HEADERS -> "Headers"
+        io.yamsergey.dta.present.network.HitTab.REQUEST, io.yamsergey.dta.present.network.HitTab.MESSAGE -> "Payload"
+        io.yamsergey.dta.present.network.HitTab.RESPONSE -> "Response"
+    }
+
+    private fun selectTab(t: io.yamsergey.dta.present.network.HitTab) {
+        (0 until tabs.tabCount).firstOrNull { tabs.getTitleAt(it) == tabTitle(t) }?.let { tabs.selectedIndex = it }
     }
 
     private fun renderHeader(detail: EntryDetail, gone: Boolean) {
@@ -164,6 +175,13 @@ class EntryDetailPane(
         ) + Statements.forNetworkTab(detail.statements)
         if (statements.isNotEmpty()) header.add(row(statements.map { StatementMark(it) }))
         if (shownUnlisted) header.add(JBLabel("Not in the list as filtered").apply { foreground = JBColor.GRAY }.left())
+        // Feature 041: where the search words are, each place a link to its tab.
+        val found = io.yamsergey.dta.present.network.Hits.foundIn(hits)
+        if (found.isNotEmpty()) {
+            header.add(row(listOf<JComponent>(JBLabel("Found in").apply { foreground = JBColor.GRAY }) + found.map { f ->
+                ActionLink(f.label) { selectTab(f.tab) }.apply { toolTipText = f.first.excerpt.render { "[$it]" } }
+            }))
+        }
         detail.connection?.let { link ->
             header.add(row(listOf(
                 JBLabel("Connection").apply { foreground = JBColor.GRAY },
@@ -230,31 +248,67 @@ class EntryDetailPane(
         return holder
     }
 
-    private fun messagesPage(detail: EntryDetail) = Page().apply {
-        // Feature 038: what the messages are (their envelope format), kind · id · topic before each, replies paired.
-        // Feature 039: the app's own format, said once: Set format… (or the rule in use, to edit or remove).
-        val formatText = io.yamsergey.dta.present.network.formats(detail.messages)?.let { "Format: $it" } ?: "Format: not recognised"
-        val inUse = io.yamsergey.dta.present.network.FormatRuleForm.rulesInUse(detail.messages)
-        line(row(buildList {
-            add(JBLabel(formatText + inUse.joinToString("") { " · rule $it" }).apply { foreground = JBColor.GRAY })
+    /**
+     * Feature 041: the format line (rules by name, how many each read and why not) above the
+     * messages as a table — kind, id and topic in columns, the text as sent (or a rule's payload).
+     */
+    private fun messagesPanel(detail: EntryDetail): JComponent {
+        val line = io.yamsergey.dta.present.network.FormatLine.of(detail)
+        val labels = line.labels()
+        val top = row(buildList {
+            add(JBLabel(line.text).apply { foreground = JBColor.GRAY; setCopyable(true) })
             if (client != null) {
-                if (inUse.isEmpty()) add(ActionLink("Set format…") { editFormat(null) }.apply { toolTipText = "Say how this app's messages are built: a pattern or field paths, tried on these messages" })
-                inUse.forEach { rule ->
-                    add(ActionLink("Edit $rule…") { editFormat(rule) })
-                    add(ActionLink("Remove $rule") { removeFormat(rule) })
+                if (line.rules.isEmpty()) add(ActionLink("Set format…") { editFormat(null) }.apply { toolTipText = "Say how this app's messages are built: a pattern or field paths, tried on these messages" })
+                line.rules.forEachIndexed { i, rule ->
+                    val name = if (line.rules.size > 1) " ${labels[i]}" else ""
+                    add(ActionLink("Edit$name…") { editFormat(rule.id) }.apply { toolTipText = "Edit rule ${rule.name} (${rule.id})" })
+                    add(ActionLink("Remove$name") { removeFormat(rule.id) }.apply { toolTipText = "Remove rule ${rule.name} (${rule.id})" })
                 }
             }
-        }), top = 0)
-        val replies = io.yamsergey.dta.present.network.replies(detail.messages)
-        detail.messages.forEach { m ->
-            val label: String? = m.envelope?.label()
-            val answers = replies[m.id]?.let { (asked, ms) -> "↩ answers ${asked.time}" + (ms?.let { " (+$it ms)" } ?: "") }
-            // The time and direction open the message; its text stays text, to select and copy.
-            field(ActionLink("${m.time}  ${m.kind.label}") { open(m.id) }.apply { toolTipText = "Show this message" },
-                listOfNotNull(label?.takeIf { it.isNotEmpty() }?.let { "[$it]" }, m.preview, answers, m.timing.ifEmpty { null }).joinToString("   "), mono = true)
+        }).apply { border = JBUI.Borders.empty(6, 12, 6, 12) }
+        val table = io.yamsergey.dta.present.network.MessageTable.of(detail.messages)
+        val model = object : javax.swing.table.AbstractTableModel() {
+            override fun getRowCount() = table.rows.size
+            override fun getColumnCount() = table.columns.size
+            override fun getColumnName(column: Int) = table.columns[column]
+            override fun getValueAt(row: Int, column: Int): Any = table.cell(table.rows[row], table.columns[column])
         }
-        detail.messagesMore?.let { line(JBLabel(it).apply { foreground = JBColor.GRAY }, top = 6) }
-        end()
+        val grid = com.intellij.ui.table.JBTable(model).apply {
+            setShowGrid(false)
+            autoResizeMode = javax.swing.JTable.AUTO_RESIZE_LAST_COLUMN
+            emptyText.text = "No messages"
+            val mono = Font(com.intellij.openapi.editor.colors.EditorColorsManager.getInstance().globalScheme.editorFontName, Font.PLAIN, font.size)
+            setDefaultRenderer(Any::class.java, object : javax.swing.table.DefaultTableCellRenderer() {
+                override fun getTableCellRendererComponent(t: javax.swing.JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): java.awt.Component {
+                    val c = super.getTableCellRendererComponent(t, value, selected, false, row, column)
+                    val name = table.columns[column]
+                    font = if (name == io.yamsergey.dta.present.network.MessageTable.TEXT) mono else t.font
+                    if (!selected && name != io.yamsergey.dta.present.network.MessageTable.TEXT && name != io.yamsergey.dta.present.network.MessageTable.KIND) foreground = JBColor.GRAY
+                    toolTipText = if (name == io.yamsergey.dta.present.network.MessageTable.TEXT) (value as? String)?.take(2000) else null
+                    return c
+                }
+            })
+            fun width(name: String, w: Int) { table.columns.indexOf(name).takeIf { it >= 0 }?.let { columnModel.getColumn(it).apply { preferredWidth = JBUI.scale(w); if (name == io.yamsergey.dta.present.network.MessageTable.DIRECTION) maxWidth = JBUI.scale(w) } } }
+            width(io.yamsergey.dta.present.network.MessageTable.TIME, 96)
+            width(io.yamsergey.dta.present.network.MessageTable.DIRECTION, 24)
+            width(io.yamsergey.dta.present.network.MessageTable.KIND, 110)
+            width(io.yamsergey.dta.present.network.MessageTable.ID, 70)
+            width(io.yamsergey.dta.present.network.MessageTable.TOPIC, 110)
+            width(io.yamsergey.dta.present.network.MessageTable.TEXT, 520)
+            toolTipText = "Double-click a message to open it"
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                    if (e.clickCount != 2) return
+                    val r = rowAtPoint(e.point).takeIf { it >= 0 } ?: return
+                    open(table.rows[r].id)
+                }
+            })
+        }
+        return JPanel(BorderLayout()).apply {
+            add(top, BorderLayout.NORTH)
+            add(JBScrollPane(grid), BorderLayout.CENTER)
+            detail.messagesMore?.let { add(JBLabel(it).apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 12) }, BorderLayout.SOUTH) }
+        }
     }
 
     /** Feature 039: the connection's format rule — a new one prefilled with its socket, or [rule] to replace. */
@@ -269,7 +323,7 @@ class EntryDetailPane(
             }
             withContext(Dispatchers.Main) {
                 val form = existing?.let { io.yamsergey.dta.present.network.FormatRuleForm.of(it) } ?: io.yamsergey.dta.present.network.FormatRuleForm.forConnection(url)
-                if (FormatRuleDialog(project, c, target, connection, form, rule, scope).showAndGet()) reload()
+                if (FormatRuleDialog(project, c, target, connection, form, rule, scope).showAndGet()) { reload(); formatsChanged() }
             }
         }
     }
@@ -278,7 +332,7 @@ class EntryDetailPane(
         val c = client ?: return
         scope.launch {
             runCatching { c.call("network.format.remove", JsonObject(target + mapOf("id" to JsonPrimitive(rule)))) }
-            withContext(Dispatchers.Main) { reload() }
+            withContext(Dispatchers.Main) { reload(); formatsChanged() }
         }
     }
 

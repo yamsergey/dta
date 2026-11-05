@@ -40,14 +40,19 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
 
     fun `test a connection's messages are links to them`() {
         val opened = mutableListOf<String>()
-        val pane = EntryDetailPane(project, scope) { opened += it }
+        val pane = EntryDetailPane(project, scope, open = { opened += it })
         pane.showLoaded("r2-1:6", Json.parseToJsonElement(javaClass.getResource("/entry-ws.json")!!.readText()).jsonObject)
         val tabs = all(pane).filterIsInstance<JBTabbedPane>().single()
         tabs.selectedIndex = (0 until tabs.tabCount).first { tabs.getTitleAt(it) == "Messages" }
         render(pane, "links-connection")
-        val links = all(tabs.selectedComponent).filterIsInstance<ActionLink>()
-        assertEquals(2, links.size)
-        links[1].doClick()
+        // Feature 041: a table — the text as sent, no envelope joined to it; a double-click opens the message.
+        val grid = all(tabs.selectedComponent).filterIsInstance<javax.swing.JTable>().single()
+        assertEquals(2, grid.rowCount)
+        val text = (0 until grid.columnCount).first { grid.getColumnName(it) == "Message" }
+        assertTrue((0 until grid.rowCount).none { (grid.getValueAt(it, text) as String).startsWith("[") })
+        grid.setSize(800, 200)
+        val at = grid.getCellRect(1, text, true)
+        grid.dispatchEvent(java.awt.event.MouseEvent(grid, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, 0, at.x + 2, at.y + 2, 2, false))
         assertEquals(listOf("r2-1:8"), opened)
     }
 
@@ -61,7 +66,7 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
 
     fun `test a message links to its connection, and says when the list hides it`() {
         val opened = mutableListOf<String>()
-        val pane = EntryDetailPane(project, scope) { opened += it }
+        val pane = EntryDetailPane(project, scope, open = { opened += it })
         val message = """{"entry":{"type":"ws-message","id":"r2-1:7","runId":"r2-1","timeMs":1700000006200,"library":"okhttp3-ws","connectionId":"r2-1:6","url":"wss://ws.example.com/feed","direction":"out","opcode":"text","payload":{"part":"message","storedBytes":9,"completeness":"complete","preview":"{\"sub\":1}"}}}"""
         pane.showLoaded("r2-1:7", Json.parseToJsonElement(message).jsonObject, unlisted = true)
         render(pane, "links-message")

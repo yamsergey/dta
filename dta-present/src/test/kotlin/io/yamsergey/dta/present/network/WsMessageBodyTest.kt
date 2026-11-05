@@ -50,4 +50,22 @@ class DaemonEnvelopeTest {
         assertEquals(true, v.render(BodyMode.RAW).startsWith("{\"h\""), v.render(BodyMode.RAW))
     }
 
+
+    @Test
+    fun `a connection's messages as a table, the format in columns, the text as sent (041)`() {
+        val rows = listOf(
+            EntryRows.of(obj("""{"type":"ws-message","id":"m1","timeMs":1000,"direction":"out","payload":{"preview":"{\"op\":\"sub\",\"rid\":1}"},
+                "envelope":{"format":"json","kind":"sub","id":"1","payload":"{\"op\":\"sub\",\"rid\":1}"}}""")),
+            EntryRows.of(obj("""{"type":"ws-message","id":"m2","timeMs":1040,"direction":"in","payload":{"preview":"{\"h\":{\"op\":\"ack\",\"rid\":1},\"b\":{\"ok\":true}}"},
+                "envelope":{"format":"Ticker","kind":"ack","id":"1","payload":"{\"ok\":true}","rule":"f3"}}""")),
+        )
+        val t = MessageTable.of(rows)
+        assertEquals(listOf("Time", "", "Kind", "Id", "Message", "Reply"), t.columns)
+        assertEquals(listOf("↑", "sub", "1"), listOf(t.rows[0].direction, t.rows[0].kind, t.rows[0].messageId))
+        // The text is the message, never prefixed with its envelope; a rule's payload is what a rule-read message carries.
+        assertEquals("{\"op\":\"sub\",\"rid\":1}", t.rows[0].text)
+        assertEquals("{\"ok\":true}", t.rows[1].text)
+        assertEquals(true, t.rows[1].note.startsWith("↩ answers"), t.rows[1].note)
+    }
+
 }

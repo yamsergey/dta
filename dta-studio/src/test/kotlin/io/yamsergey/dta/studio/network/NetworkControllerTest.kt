@@ -68,13 +68,12 @@ class NetworkControllerTest {
     private suspend fun until(check: () -> Boolean) = withTimeout(5_000) { while (!check()) kotlinx.coroutines.delay(20) }
 
     @Test
-    fun `the query line is the list's query, filters re-query and search words only search (040)`() = runBlocking<Unit> {
+    fun `the query line is the list's query, search words list only the matches unless every row is asked for (040, 041)`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 && it.watching }
         network.setQuery("status:4xx")
         until { daemon.ops.queries.any { it.second.q == "status:4xx" } }
         assertTrue(daemon.ops.searches.isEmpty(), "no search words, no search")
-        val lists = daemon.ops.queries.size
         daemon.ops.searchHits = listOf(io.yamsergey.dta.protocol.network.EntryHits("r1-1:2", 0, listOf(
             io.yamsergey.dta.protocol.network.SearchHit("r1-1:2", io.yamsergey.dta.protocol.network.SearchPlace.URL, "api", 8, 11, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("api", 0, 3)),
         )))
@@ -82,7 +81,18 @@ class NetworkControllerTest {
         until { daemon.ops.searches.any { it.q == "status:4xx api" } }
         val hit = await { it.hits.total == 1 }
         assertEquals("– / 1", hit.hits.label)
-        assertEquals(lists, daemon.ops.queries.size, "a search word does not re-query the list")
+        // Feature 041: only the matches are listed — the words are the list's query.
+        until { daemon.ops.queries.last().second.q == "status:4xx api" }
+        assertEquals(false, daemon.ops.queries.last().second.allRows)
+        // Every row, hits marked: one more list with allRows; then another word only searches.
+        network.setOnlyMatches(false)
+        until { daemon.ops.queries.last().second.allRows }
+        val lists2 = daemon.ops.queries.size
+        network.setQuery("status:4xx apis")
+        until { daemon.ops.searches.any { it.q == "status:4xx apis" } }
+        assertEquals(lists2, daemon.ops.queries.size, "with every row shown a search word does not re-query the list")
+        network.setQuery("status:4xx api")
+        await { it.hits.total == 1 }
         network.nextHit()
         val selected = await { it.list.selectedId == "r1-1:2" }
         assertEquals("1 / 1", selected.hits.label)

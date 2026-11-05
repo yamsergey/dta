@@ -102,12 +102,22 @@ class NetworkPanel(
     private val query = com.intellij.ui.components.JBTextField().apply {
         emptyText.text = "Filter and search: POST status:4xx host:api.example.com -host:… token \"a phrase\""
         toolTipText = "<html>key:value words filter (method: status: host: url: kind: has:intervention body: run: since:5m until:, GET/POST…, http, ws);<br>" +
-            "-key:value leaves matches out; other words are searched in URLs, headers and bodies and marked, nothing hidden.<br>" +
+            "-key:value leaves matches out; other words are searched in URLs, headers, bodies and messages: only the matches are listed (All rows shows the rest too).<br>" +
             "Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.</html>"
     }
     private val hitLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val previousHit = ActionLink("↑") { stepHit(forward = false) }.apply { toolTipText = "Previous hit (Shift+Enter, Shift+F3)" }
     private val nextHit = ActionLink("↓") { stepHit(forward = true) }.apply { toolTipText = "Next hit (Enter, F3)" }
+    /** Feature 041: every row with the hits marked, instead of only the matches. */
+    private val allRows = com.intellij.ui.components.JBCheckBox("All rows").apply {
+        isOpaque = false
+        toolTipText = "Show every row the filters keep, the matches marked, instead of only the matches"
+        isSelected = PropertiesComponent.getInstance().getBoolean(ALL_ROWS_KEY, false)
+        addActionListener {
+            PropertiesComponent.getInstance().setValue(ALL_ROWS_KEY, isSelected, false)
+            network.setOnlyMatches(!isSelected)
+        }
+    }
     private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
     private val suggestionList = com.intellij.ui.components.JBList<Suggestion>().apply {
         cellRenderer = com.intellij.ui.SimpleListCellRenderer.create("") { it.text + (it.hint?.let { h -> "   $h" } ?: "") }
@@ -131,7 +141,7 @@ class NetworkPanel(
         JsonObject(listOfNotNull(last.device?.let { "device" to JsonPrimitive(it) }, last.app?.let { "app" to JsonPrimitive(it) }).toMap() +
             if (last.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
     }
-    private val detail = EntryDetailPane(project, scope, copyMenu) { id -> network.reveal(id) }
+    private val detail = EntryDetailPane(project, scope, copyMenu, open = { id -> network.reveal(id) }, formatsChanged = { network.refresh() })
     // The list gets most of the width; the person's own split is remembered.
     private val splitter = JBSplitter(false, "dta.network.split", 0.68f)
     private var programmaticScroll = false
@@ -163,7 +173,7 @@ class NetworkPanel(
         val queryRow = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
             border = JBUI.Borders.empty(4, 8, 2, 8)
             add(query, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false; add(hitLabel); add(previousHit); add(nextHit) }, BorderLayout.EAST)
+            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false; add(hitLabel); add(previousHit); add(nextHit); add(allRows) }, BorderLayout.EAST)
         }
         val chipRow = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(0, 4)
@@ -225,6 +235,7 @@ class NetworkPanel(
             Scrolling.event(last.list.following, moved, atEdge())?.let { network.list(it) }
         }
         setOrder(ListOrder.of(PropertiesComponent.getInstance().getValue(ORDER_KEY)))
+        network.setOnlyMatches(!allRows.isSelected)
         Keyboard.bind(this, ViewKey.START) { if (model.rowCount > 0) table.changeSelection(0, 0, false, false) }
         Keyboard.bind(this, ViewKey.END) { network.list(LiveEvent.JumpToEnd); table.clearSelection(); scrollToEdge() }
         Keyboard.bind(this, ViewKey.PAUSE) { pause.doClick() }
@@ -286,6 +297,7 @@ class NetworkPanel(
         hitLabel.toolTipText = problems.takeIf { it.size > 1 }?.joinToString("<br>", "<html>", "</html>") { it.message }
         previousHit.isVisible = s.line.hasSearch && s.hits.total > 0
         nextHit.isVisible = previousHit.isVisible
+        allRows.isVisible = s.line.hasSearch
         // The caption keeps its width while traffic arrives (024); it starts over on new filters or a cleared list.
         if (s.line != previous.line || s.list.total < previous.list.total) caption.reset()
         val filterCount = s.line.chips.size
@@ -311,8 +323,10 @@ class NetworkPanel(
         if (selectedRow != null && s.list.selectedId != previous.list.selectedId) table.scrollRectToVisible(table.getCellRect(selectedRow, 0, true))
         val unlisted = s.list.selectedId != null && selectedRow == null && !s.list.selectedGone && !s.loading
         val terms = if (s.line.hasSearch) s.line.parsed.terms.map { it.text } else emptyList()
-        val hitTab = s.hits.current?.takeIf { it.id == s.list.selectedId }?.let { s.hits.tabOf(it.hits) }
-        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab)
+        // Feature 041: any selected row that matched opens on its hit, saying where the words are.
+        val rowHits = s.list.selectedId?.takeIf { s.line.hasSearch }?.let { s.hits.hitsOf(it) }.orEmpty()
+        val hitTab = rowHits.takeIf { it.isNotEmpty() }?.let { s.hits.tabOf(it) }
+        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab, rowHits)
         revalidate()
         repaint()
     }
@@ -510,8 +524,10 @@ class NetworkPanel(
         toolTipText = null
         val r = value as? EntryRow ?: return
             // Feature 040: rows holding the search words are tinted; the current hit more.
+            // Feature 041: with only the matches listed every row is one: only the current hit stands out.
             if (!selected && last.line.hasSearch && last.hits.hitsOf(r.id) != null) {
-                background = if (last.hits.current?.id == r.id) io.yamsergey.dta.studio.ui.SEARCH_MARK else com.intellij.ui.JBColor(java.awt.Color(0xFF, 0xF6, 0xD6), java.awt.Color(0x3D, 0x37, 0x24))
+                if (last.hits.current?.id == r.id) background = io.yamsergey.dta.studio.ui.SEARCH_MARK
+                else if (!last.onlyMatches) background = com.intellij.ui.JBColor(java.awt.Color(0xFF, 0xF6, 0xD6), java.awt.Color(0x3D, 0x37, 0x24))
             }
             val kind = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.of(r.kind.token))
             val muted = SimpleTextAttributes.GRAYED_ATTRIBUTES
@@ -542,6 +558,7 @@ class NetworkPanel(
 
     private companion object {
         const val ORDER_KEY = "dta.network.order"
+        const val ALL_ROWS_KEY = "dta.network.allRows"
         const val LIVE = "Live"
         const val ARCHIVE = "Archive"
 

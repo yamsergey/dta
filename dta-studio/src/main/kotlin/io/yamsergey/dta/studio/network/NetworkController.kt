@@ -43,6 +43,8 @@ data class NetworkViewState(
     val searching: Boolean = false,
     /** What the search could not cover (not-searched bodies, an app that cannot search). */
     val searchStatements: List<Statement> = emptyList(),
+    /** Feature 041: search words leave only the matching rows; off, every row stays with the hits marked. */
+    val onlyMatches: Boolean = true,
     val redact: Boolean = false,
     /** An archive scope (`all`, an epoch id…): the archived history instead of live traffic (feature 011). */
     val archive: String? = null,
@@ -84,7 +86,9 @@ class NetworkController(private val context: ContextController, private val scop
         if (line.parsed.problems.isNotEmpty()) { mutable.update { it.copy(line = line) }; return }
         mutable.update { it.copy(line = line) }
         val sameFilters = before.parsed.problems.isEmpty() && before.parsed.filter == line.parsed.filter && before.parsed.exclude == line.parsed.exclude
-        if (sameFilters) search() else reload()
+        // Feature 041: with only the matches listed, other words are other rows.
+        val sameRows = sameFilters && (!mutable.value.onlyMatches || before.parsed.terms == line.parsed.terms)
+        if (sameRows) search() else reload()
     }
 
     /** The All / HTTP / WebSocket switch: the line's kind word. */
@@ -156,6 +160,28 @@ class NetworkController(private val context: ContextController, private val scop
         }
     }
 
+    /** Feature 041: only the rows holding the search words, or every row with the hits marked. */
+    fun setOnlyMatches(on: Boolean) {
+        if (mutable.value.onlyMatches == on) return
+        mutable.update { it.copy(onlyMatches = on) }
+        if (mutable.value.line.hasSearch) reload()
+    }
+
+    private var relistJob: Job? = null
+
+    /** Feature 041: new traffic while only matches are listed — listed again once it settles (an entry matches only once searched). */
+    private fun relist() {
+        relistJob?.cancel()
+        val c = context.client ?: return
+        relistJob = scope.launch {
+            kotlinx.coroutines.delay(SEARCH_SETTLE_MS)
+            runCatching { c.call("network.list", params(mutable.value)).result.jsonObject }
+                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page)) }; search() }
+        }
+    }
+
+    private fun filtering(s: NetworkViewState) = s.onlyMatches && s.line.hasSearch
+
     fun setRedact(on: Boolean) {
         mutable.update { it.copy(redact = on) }
         reload()
@@ -209,6 +235,9 @@ class NetworkController(private val context: ContextController, private val scop
         }
     }
 
+    /** Feature 041: the list read again as it is (a format rule changed how its messages read). */
+    fun refresh() = reload()
+
     private fun reload() {
         val c = context.state.value
         reload(Target(c.device, c.app, c.connection != Connection.NO_DTA, c.generation, context.client))
@@ -216,6 +245,7 @@ class NetworkController(private val context: ContextController, private val scop
 
     private fun reload(target: Target) {
         source?.cancel()
+        relistJob?.cancel()
         val previous = mutable.value
         val sameApp = previous.device == target.device && previous.app == target.app
         mutable.update {
@@ -254,6 +284,12 @@ class NetworkController(private val context: ContextController, private val scop
                         val event = data["event"]?.jsonObject ?: return@collect
                         val entry = event["entry"]?.jsonObject ?: return@collect
                         val change = (event["change"] as? JsonPrimitive)?.content
+                        if (filtering(mutable.value)) {
+                            // Only matches are listed: a listed row may change in place; anything new waits for the next list.
+                            if (change == "updated" && mutable.value.list.rows.any { it.id == entry["id"]?.let { i -> (i as? JsonPrimitive)?.content } }) list(LiveEvent.Updated(entry))
+                            relist()
+                            return@collect
+                        }
                         list(if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry))
                         // New traffic may hold the words: the hits are refreshed once it settles.
                         if (mutable.value.line.hasSearch) search(debounceMs = SEARCH_SETTLE_MS)
@@ -272,7 +308,8 @@ class NetworkController(private val context: ContextController, private val scop
     private fun target(s: NetworkViewState) = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())
 
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
-        target(s) + s.line.params() + mapOf("limit" to JsonPrimitive(PAGE)) + (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+        target(s) + s.line.params() + mapOf("limit" to JsonPrimitive(PAGE)) +
+            (if (!s.onlyMatches && s.line.hasSearch) mapOf("allRows" to JsonPrimitive(true)) else emptyMap()) + (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
             (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
     )
 
