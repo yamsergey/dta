@@ -498,9 +498,11 @@ class Formatters(private val style: Style) {
         o.arr("messages").takeIf { it.isNotEmpty() }?.let { messages ->
             appendLine(section("Messages"))
             // Features 038/039: what the messages are, and the app's format rule that reads them.
-            val rows = messages.map { EntryRows.of(it.obj) }
-            val rules = io.yamsergey.dta.present.network.FormatRuleForm.rulesInUse(rows)
-            appendLine("  " + style.paint("Format: " + (io.yamsergey.dta.present.network.formats(rows) ?: "not recognised (dta network format add)") + rules.joinToString("") { " · rule $it" }, Token.INK_MUTED))
+            // Feature 041: rules by name with how many they read and why not; the id for format remove/edit.
+            val line = io.yamsergey.dta.present.network.FormatLine.of(io.yamsergey.dta.present.network.EntryDetail.of(o))
+            val text = if (line.rules.isEmpty()) line.text.replace("not recognised", "not recognised (dta network format add)")
+                else line.text + " · rule " + line.rules.joinToString(", ") { it.id }
+            appendLine("  " + style.paint(text, Token.INK_MUTED))
             messages.forEach { appendLine("  " + entryRow(it.obj, absolute = true, withPayload = true)) }
         }
         statements.filter { it.kind == StatementKind.REDACTED || it.kind == StatementKind.DEGRADED }.forEach { appendLine(style.mark(it)) }

@@ -41,4 +41,13 @@ class DaemonEnvelopeTest {
             "envelope":{"format":"pings","kind":"PING","payload":"abc","rule":"f2","note":"payload is not JSON"}}"""))
         assertEquals(true, text.header.line.endsWith("pings PING · payload is not JSON"), text.header.line)
     }
+
+    @Test
+    fun `a JSON message whose rule names a payload field opens that payload (041)`() {
+        val v = BodyView.of(obj("""{"body":{"part":"message","storedBytes":40},"text":"{\"h\":{\"op\":\"tick\"},\"b\":{\"price\":2}}",
+            "envelope":{"format":"ticker","kind":"tick","payload":"{\"price\":2}","rule":"f1"}}"""))
+        assertEquals(listOf("price"), v.tree()!!.children.map { it.key })
+        assertEquals(true, v.render(BodyMode.RAW).startsWith("{\"h\""), v.render(BodyMode.RAW))
+    }
+
 }

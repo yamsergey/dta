@@ -112,8 +112,10 @@ data class BodyView(
             // Feature 038: a message whose text is an envelope around JSON (STOMP, a name then JSON, Socket.IO…).
             // Feature 039: the daemon reads it with the app's format rules; an older daemon gives none.
             val envelope = if (info.str("part") == "message" && text != null) envelopeOf(result.obj("envelope")) ?: WsFormats.detect(text) else null
-            val payloadTree = if (structure == null) envelope?.payload?.let { DataTrees.json(it) } else null
-            val tree = structure ?: payloadTree
+            // Feature 041: a payload the app's rule names is what the message carries, also when the whole message is JSON.
+            val rulePayload = envelope?.takeIf { it.rule != null }?.payload?.takeIf { it.trim() != text?.trim() }
+            val payloadTree = (rulePayload ?: envelope?.payload?.takeIf { structure == null })?.let { DataTrees.json(it) }
+            val tree = if (rulePayload != null) payloadTree ?: structure else structure ?: payloadTree
             val shownEnvelope = envelope?.takeIf { payloadTree != null || it.format != "json" }
             val structured = tree != null
             val modes = when {

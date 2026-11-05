@@ -86,4 +86,13 @@ class QueryLineModelTest {
         val pretty = "{\n  \"error\": \"Token expired\",\n  \"order_id\": 7\n}"
         assertEquals(listOf("Token expired", "order_id"), Highlights.spans(pretty, listOf("token expired", "orderid")).map { pretty.substring(it) })
     }
+
+    @Test
+    fun `found in lists the places with counts, in tab order`() {
+        fun hit(place: SearchPlace, header: String? = null) = SearchHit("r1:1", place, "t", 0, 1, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("t", 0, 1), header = header)
+        val found = Hits.foundIn(listOf(hit(SearchPlace.RESPONSE_BODY), hit(SearchPlace.URL), hit(SearchPlace.RESPONSE_BODY), hit(SearchPlace.REQUEST_HEADER, "Authorization"), hit(SearchPlace.RESPONSE_BODY)))
+        assertEquals(listOf("URL", "request header Authorization", "response body ×3"), found.map { it.label })
+        assertEquals(listOf(HitTab.HEADERS, HitTab.HEADERS, HitTab.RESPONSE), found.map { it.tab })
+    }
+
 }

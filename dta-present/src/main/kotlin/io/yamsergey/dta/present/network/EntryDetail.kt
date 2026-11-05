@@ -59,6 +59,8 @@ data class EntryDetail(
     val sections: List<String>,
     /** A WebSocket message's connection, to jump to (025). */
     val connection: EntryLink? = null,
+    /** Feature 041: how the app's format rules read a connection's messages (the daemon's). */
+    val formatUse: List<io.yamsergey.dta.protocol.network.FormatUse> = emptyList(),
 ) {
     companion object {
         /** From a `network.entry` result. */
@@ -133,6 +135,9 @@ data class EntryDetail(
                     if (type == "ws-connection") "Messages" else null,
                 ),
                 connection = if (type == "ws-message") e.str("connectionId")?.let { EntryLink(it, e.str("url") ?: "connection $it") } else null,
+                formatUse = detail.arr("formatUse").mapNotNull {
+                    runCatching { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FormatUse.serializer(), it) }.getOrNull()
+                },
             )
         }
 
