@@ -96,7 +96,8 @@ class NetworkPanel(
         })
     }
     private val scroll = JBScrollPane(table)
-    private val chips = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
+    // Wrapping rows: a narrow pane moves controls to the next line instead of cutting them off.
+    private val chips = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
     /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP. */
     private val query = com.intellij.ui.components.JBTextField().apply {
         emptyText.text = "Filter and search: POST status:4xx host:api.example.com -host:… token \"a phrase\""
@@ -177,7 +178,7 @@ class NetworkPanel(
             JBPopupFactory.getInstance().createActionGroupPopup(null, group, com.intellij.ide.DataManager.getInstance().getDataContext(this), JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
                 .showUnderneathOf(e.source as java.awt.Component)
         }.apply { toolTipText = "Export HAR…, Clear history…" }
-        val viewRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
+        val viewRow = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
             add(kindSwitch)
             add(source)
             add(orderLink)
@@ -401,8 +402,9 @@ class NetworkPanel(
         on("DOWN") { if (popupShown()) moveSuggestion(1) else suggest() }
         on("UP") { if (popupShown()) moveSuggestion(-1) }
         on("TAB") { if (popupShown()) applySuggestion() }
-        on("ENTER") {
-            if (popupShown()) { applySuggestion(); return@on }
+        // Enter is the field's own accept action: a suggestion when the list is open, else the next hit.
+        query.addActionListener {
+            if (popupShown()) { applySuggestion(); return@addActionListener }
             if (typing.isRunning) { typing.stop(); network.setQuery(query.text) }
             stepHit(forward = true)
         }
