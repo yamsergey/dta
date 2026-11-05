@@ -221,15 +221,39 @@ class DtaDaemon(
     )
 
     /** Network history of [pkg]: HTTP and WebSocket entries in one list (feature 004). */
-    suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage =
-        formats.annotate(pkg, networkService(serial, pkg).list(query))
+    suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage {
+        val service = networkService(serial, pkg)
+        val page = service.list(query)
+        return formats.annotate(pkg, page, fullTexts(service, pkg, page.entries.filterIsInstance<io.yamsergey.dta.protocol.network.WsMessageEntry>(), query.redact))
+    }
+
+    /**
+     * Feature 041: format rules read a message's whole text, not its cut preview. Redacted
+     * answers keep the preview (the whole text is not redacted); only apps with rules pay.
+     */
+    private suspend fun fullTexts(
+        service: io.yamsergey.dta.daemon.network.NetworkService,
+        pkg: String,
+        messages: List<io.yamsergey.dta.protocol.network.WsMessageEntry>,
+        redact: Boolean,
+        fetch: Boolean = true,
+        rulesToApply: Boolean = formats.list(pkg).isNotEmpty(),
+    ): (io.yamsergey.dta.protocol.network.WsMessageEntry) -> String? {
+        if (redact || messages.isEmpty() || !rulesToApply) return { null }
+        val texts = runCatching { service.messageTexts(messages, formats::cut, fetch) }.getOrDefault(emptyMap())
+        return { texts[it.id] }
+    }
 
     /** Feature 040: entries holding every search word of the query line, with where. */
     suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage =
         networkService(serial, pkg).search(query)
 
-    suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean = false): NetworkEntryDetail =
-        formats.annotate(pkg, networkService(serial, pkg).entry(id, redact))
+    suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean = false): NetworkEntryDetail {
+        val service = networkService(serial, pkg)
+        val detail = service.entry(id, redact)
+        val messages = detail.messages ?: listOfNotNull(detail.entry as? io.yamsergey.dta.protocol.network.WsMessageEntry)
+        return formats.annotate(pkg, detail, fullTexts(service, pkg, messages, redact))
+    }
 
     /**
      * One body: decoded text, or bytes to a file. Protobuf bodies a rule selects (built-in
@@ -372,7 +396,12 @@ class DtaDaemon(
 
     /** Live entry events; collect for as long as needed. */
     fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> =
-        networkService(serial, pkg).events(onSubscribed).map { it.copy(entry = formats.annotate(pkg, it.entry)) }
+        networkService(serial, pkg).events(onSubscribed).map { e ->
+            // Feature 041: the host's copy when it has one already (a live message usually is not copied yet).
+            val m = e.entry as? io.yamsergey.dta.protocol.network.WsMessageEntry
+            val full = if (m != null) fullTexts(networkService(serial, pkg), pkg, listOf(m), redact = false, fetch = false) else { _ -> null }
+            e.copy(entry = formats.annotate(pkg, e.entry, full))
+        }
 
     /** Feature 039: adds an app's message format rule; throws [io.yamsergey.dta.daemon.network.proto.SchemaException] naming what is wrong. */
     fun networkFormatAdd(pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec): io.yamsergey.dta.protocol.network.FormatRule = formats.add(pkg, spec)
@@ -395,7 +424,7 @@ class DtaDaemon(
         }
         val detail = service.entry(id, false)
         val messages = detail.messages ?: throw io.yamsergey.dta.daemon.network.proto.SchemaException("$id is not a WebSocket connection; give a ws-connection id from network_list")
-        return formats.test(spec, messages)
+        return formats.test(spec, messages, fullTexts(service, pkg, messages.takeLast(io.yamsergey.dta.daemon.network.MessageFormats.LATEST), redact = false, rulesToApply = true))
     }
 
     /**

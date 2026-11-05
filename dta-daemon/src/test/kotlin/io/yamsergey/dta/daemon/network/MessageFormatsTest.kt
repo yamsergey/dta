@@ -80,4 +80,23 @@ class MessageFormatsTest {
         assertEquals(listOf(1, 1), f.test(orders.copy(direction = Direction.OUT), messages).let { listOf(it.read, it.of) })
         assertEquals(emptyList(), f.list("app"))
     }
+
+    @Test
+    fun `a message longer than its preview is read from its whole text, and the connection says how its rules read`() {
+        val f = MessageFormats(dir)
+        f.add("app", FormatRuleSpec(name = "ticker", urlPattern = "wss://api.example.test/live*", kind = "type"))
+        val whole = """{"type":"tick","data":"${"x".repeat(400)}"}"""
+        val long = message(whole, n = 2).let { it.copy(payload = it.payload.copy(storedBytes = whole.length.toLong(), preview = whole.take(BodyInfo.PREVIEW_CHARS))) }
+        val unknown = long.copy(id = "r1:3")
+        val texts = mapOf(long.id to whole); val full: (WsMessageEntry) -> String? = { texts[it.id] }
+        assertEquals("tick", (f.annotate("app", long, full) as WsMessageEntry).envelope?.kind)
+        // Without the whole text the preview is all there is: not read, and said why.
+        assertEquals("json", (f.annotate("app", unknown, full) as WsMessageEntry).envelope?.format)
+        val socket = WsConnectionEntry("r1:0", "r1", 1_000, "okhttp3-ws", url = "wss://api.example.test/live", state = WsState.OPEN)
+        val detail = f.annotate("app", NetworkEntryDetail(socket, messages = listOf(long, unknown, message("""{"type":"pong"}""", n = 4))), full)
+        val use = detail.formatUse!!.single()
+        assertEquals(listOf("ticker", 2, 3), listOf(use.name, use.read, use.of))
+        assertEquals("only the first ${BodyInfo.PREVIEW_CHARS} characters are known (the message is not copied from the app yet)", use.unread.single().reason)
+    }
+
 }

@@ -1,6 +1,7 @@
 package io.yamsergey.dta.daemon.network
 
 import io.yamsergey.dta.daemon.network.proto.SchemaException
+import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.Direction
 import io.yamsergey.dta.protocol.network.Envelope
@@ -15,6 +16,7 @@ import io.yamsergey.dta.protocol.network.NetworkEntry
 import io.yamsergey.dta.protocol.network.NetworkEntryDetail
 import io.yamsergey.dta.protocol.network.NetworkPage
 import io.yamsergey.dta.protocol.network.WsFormats
+import io.yamsergey.dta.protocol.network.WsConnectionEntry
 import io.yamsergey.dta.protocol.network.WsMessageEntry
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -58,11 +60,11 @@ class MessageFormats(
     }
 
     /** How [spec] reads [messages] (a connection's, oldest first): the latest [LATEST] text ones. */
-    fun test(spec: FormatRuleSpec, messages: List<WsMessageEntry>): FormatTestResult {
+    fun test(spec: FormatRuleSpec, messages: List<WsMessageEntry>, full: (WsMessageEntry) -> String? = { null }): FormatTestResult {
         validate(spec)
         val rule = spec.toRule("test", clock())
         val texts = messages.filter { it.opcode != MessageOpcode.BINARY && !it.payload.binary && (rule.direction == null || it.direction == rule.direction) }
-            .mapNotNull { it.payload.preview }.takeLast(LATEST)
+            .takeLast(LATEST).mapNotNull { textOf(it, full) ?: it.payload.preview }
         val samples = ArrayList<FormatSample>()
         val unread = ArrayList<String>()
         var read = 0
@@ -83,22 +85,42 @@ class MessageFormats(
         return WsFormats.detect(text, rule)
     }
 
-    fun annotate(pkg: String, entry: NetworkEntry): NetworkEntry {
+    /**
+     * Feature 041: a message's text as a rule reads it — the whole text [full] gives (the host's
+     * copy) when the preview is cut, else the preview; null when only a cut preview is known.
+     */
+    private fun textOf(m: WsMessageEntry, full: (WsMessageEntry) -> String?): String? {
+        val preview = m.payload.preview ?: return full(m)
+        if (!cut(m)) return preview
+        return full(m)
+    }
+
+    /** The preview holds less than the message. */
+    fun cut(m: WsMessageEntry): Boolean {
+        val preview = m.payload.preview ?: return true
+        return preview.length >= BodyInfo.PREVIEW_CHARS || m.payload.storedBytes > preview.toByteArray(Charsets.UTF_8).size
+    }
+
+    fun annotate(pkg: String, entry: NetworkEntry, full: (WsMessageEntry) -> String? = { null }): NetworkEntry {
         if (entry !is WsMessageEntry || entry.opcode == MessageOpcode.BINARY || entry.payload.binary) return entry
-        val text = entry.payload.preview ?: return entry
+        val text = textOf(entry, full) ?: entry.payload.preview ?: return entry
         return entry.copy(envelope = envelope(pkg, entry.url, entry.direction, text))
     }
 
-    fun annotate(pkg: String, page: NetworkPage): NetworkPage = page.copy(entries = page.entries.map { annotate(pkg, it) })
+    fun annotate(pkg: String, page: NetworkPage, full: (WsMessageEntry) -> String? = { null }): NetworkPage =
+        page.copy(entries = page.entries.map { annotate(pkg, it, full) })
 
-    fun annotate(pkg: String, detail: NetworkEntryDetail): NetworkEntryDetail = detail.copy(
-        entry = annotate(pkg, detail.entry),
-        messages = detail.messages?.map { m ->
-            // A connection's messages carry no URL of their own: they are this connection's.
-            val url = m.url ?: (detail.entry as? io.yamsergey.dta.protocol.network.WsConnectionEntry)?.url
-            annotate(pkg, m.copy(url = url)) as WsMessageEntry
-        },
-    )
+    fun annotate(pkg: String, detail: NetworkEntryDetail, full: (WsMessageEntry) -> String? = { null }): NetworkEntryDetail {
+        val socketUrl = (detail.entry as? WsConnectionEntry)?.url
+        // A connection's messages carry no URL of their own: they are this connection's.
+        val messages = detail.messages?.map { m -> annotate(pkg, m.copy(url = m.url ?: socketUrl), full) as WsMessageEntry }
+        val use = if (socketUrl != null && messages != null) {
+            FormatRules.use(list(pkg), socketUrl, messages) { m -> textOf(m, full) }
+                .map { u -> u.copy(unread = u.unread.map { r -> if (r.reason == "text not available") r.copy(reason = NOT_COPIED) else r }) }
+                .ifEmpty { null }
+        } else null
+        return detail.copy(entry = annotate(pkg, detail.entry, full), messages = messages, formatUse = use)
+    }
 
     /** A message body read whole: its envelope from the whole text. */
     fun annotate(pkg: String, entry: NetworkEntry?, body: BodyResult): BodyResult {
@@ -130,5 +152,6 @@ class MessageFormats(
 
     companion object {
         const val LATEST = 200
+        val NOT_COPIED = "only the first ${BodyInfo.PREVIEW_CHARS} characters are known (the message is not copied from the app yet)"
     }
 }

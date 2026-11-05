@@ -235,6 +235,9 @@ class OperationDispatcherTest {
         call("network.list", buildJsonObject { put("q", "POST token"); put("status", "4xx") })
         assertEquals("POST token", fake.lastQuery!!.q)
         assertEquals("4xx", fake.lastQuery!!.filter!!.status)
+        assertEquals(false, fake.lastQuery!!.allRows)
+        call("network.list", buildJsonObject { put("q", "token"); put("allRows", true) })
+        assertEquals(true, fake.lastQuery!!.allRows)
         call("network.search", buildJsonObject { put("q", "token"); put("limit", 5) })
         assertEquals(5, fake.searchQuery!!.limit)
         val bad = assertFailsWith<ClientException> { call("network.list", buildJsonObject { put("q", "stats:4xx") }) }

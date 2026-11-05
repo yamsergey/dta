@@ -232,7 +232,9 @@ class HostIndexTest {
         val host = index(app)
         val page = host.list(NetworkQuery(q = "run:current \"item 10\"", limit = 50))
         assertEquals(setOf("r1-1:11"), page.hits!!.keys)
-        assertTrue(page.entries.size > 1, "search marks, it does not hide")
+        // Feature 041: words leave only the matches; allRows keeps the rest, marked.
+        assertEquals(listOf("r1-1:11"), page.entries.map { it.id })
+        assertTrue(host.list(NetworkQuery(q = "run:current \"item 10\"", limit = 50, allRows = true)).entries.size > 1)
         val found = host.search(NetworkQuery(q = "item10 -status:4xx"))
         assertEquals(listOf("r1-1:11"), found.entries.map { it.id })
         assertEquals(io.yamsergey.dta.protocol.network.SearchPlace.RESPONSE_BODY, found.entries.single().hits.single().place)

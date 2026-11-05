@@ -80,6 +80,34 @@ class NetworkService(
         )
     }
 
+    /**
+     * Feature 041: whole texts of text messages for format rules — the host's copy, else (when
+     * [fetch]) the app's, at most [FULL_TEXT_FETCHES] asked of the app per call and [FULL_TEXT_MAX]
+     * bytes each. Messages [needed] says are whole in their preview are not read.
+     */
+    suspend fun messageTexts(messages: List<WsMessageEntry>, needed: (WsMessageEntry) -> Boolean, fetch: Boolean): Map<String, String> {
+        val out = HashMap<String, String>()
+        var asked = 0
+        for (m in messages.asReversed()) {
+            if (m.payload.binary || m.opcode == io.yamsergey.dta.protocol.network.MessageOpcode.BINARY || !needed(m)) continue
+            if (m.payload.storedBytes > FULL_TEXT_MAX) continue
+            val stored = host?.storedBody(m.id, BodyPart.MESSAGE)
+            val pair = stored ?: if (fetch && asked++ < FULL_TEXT_FETCHES) runCatching {
+                val response = connection().requestFull(
+                    "network_body",
+                    buildJsonObject { put("id", m.id); put("part", "message") },
+                    BODY_TIMEOUT,
+                )
+                DtaJson.decodeFromJsonElement(NetworkBodyResult.serializer(), response.result).body to
+                    ByteArrayOutputStream().apply { response.binaryPayloads.forEach { write(it) } }.toByteArray()
+            }.getOrNull() else null
+            val (info, wire) = pair ?: continue
+            val decoded = BodyCodec.decode(wire, info.encoding)
+            if (decoded.decoded) out[m.id] = String(decoded.bytes, Charsets.UTF_8)
+        }
+        return out
+    }
+
     /** Redaction happens here and only here (one redactor, applied once — VI). */
     private fun redactAll(entries: List<NetworkEntry>): Pair<List<NetworkEntry>, RedactionInfo> {
         val masked = mutableListOf<String>()
@@ -237,6 +265,8 @@ class NetworkService(
     private companion object {
         /** Bodies go up to the 32 MB bound; the default request timeout is sized for metadata. */
         val BODY_TIMEOUT = 120.seconds
+        const val FULL_TEXT_FETCHES = 200
+        const val FULL_TEXT_MAX = 1L shl 20
     }
 
     private fun sha256(bytes: ByteArray): String =
