@@ -36,6 +36,8 @@ object DegradationCodes {
     const val NETWORK_INITIATOR_MISSING = "network-initiator-missing"
     const val NETWORK_BODY_INCOMPLETE = "network-body-incomplete"
     const val NETWORK_REDACTION_WITHHELD = "network-redaction-withheld"
+    /** Feature 040: the app answers the list itself (no storage): search, host: and -exclusions are not applied. */
+    const val NETWORK_SEARCH_UNAVAILABLE = "network-search-unavailable"
 
     // Feature 005.
     const val NETWORK_SCRIPT_UNAVAILABLE = "network-script-unavailable"

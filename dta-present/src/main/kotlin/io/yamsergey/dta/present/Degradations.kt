@@ -45,6 +45,10 @@ object Degradations {
         Codes.NETWORK_LIBRARY_PARTIAL to
             "A network library is captured only in part: some of its events (for example handshake headers or failures) are missing, " +
             "the rest is captured. The capability report names the events and why.",
+        Codes.NETWORK_SEARCH_UNAVAILABLE to
+            "The app answers the network list itself (its DTA keeps no history in storage), so search words, host: and " +
+            "-exclusions of the query were not applied: the rows are filtered by the other filters only. Updating the app's DTA " +
+            "lets the history be kept and searched.",
         Codes.NETWORK_HISTORY_EVICTED to
             "Older entries were removed by the history size limit.",
         Codes.NETWORK_HISTORY_NOT_PERSISTED to

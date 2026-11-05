@@ -28,6 +28,10 @@ import io.yamsergey.dta.protocol.network.NetworkPage
 import io.yamsergey.dta.protocol.network.NetworkQuery
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.rpc.IdentityReport
+import io.yamsergey.dta.protocol.layout.DegradationCodes
+import io.yamsergey.dta.protocol.network.NetworkFilter
+import io.yamsergey.dta.protocol.network.SearchPage
+import io.yamsergey.dta.protocol.rpc.DegradationMarker
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
@@ -68,8 +72,8 @@ class HostIndex(
     suspend fun list(query: NetworkQuery): NetworkPage = mutex.withLock {
         query.archive?.let { return archived(query, it) }
         val app = connection()
-        if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkPage.serializer(), app.request("network_list", query.toJson()))
-        if (query.filter?.bodyContains != null) fetchBodies()
+        if (!sync(app)) return appAnswers(app, query)
+        if (needsBodies(query)) fetchBodies()
         val page = view.list(query)
         page.copy(
             coverage = page.coverage.copy(
@@ -82,6 +86,27 @@ class HostIndex(
         )
     }
 
+    /** Feature 040: the entries with search hits, over the host copy (live or archived). */
+    suspend fun search(query: NetworkQuery): SearchPage = mutex.withLock {
+        query.archive?.let { scope -> return archiveView(store.epochs(device.key, packageName, scope)).search(query) }
+        val app = connection()
+        if (!sync(app)) {
+            return SearchPage(emptyList(), 0, searched = 0, degraded = listOf(DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)))
+        }
+        fetchBodies()
+        view.search(query)
+    }
+
+    private fun needsBodies(query: NetworkQuery): Boolean {
+        val (filter, terms) = query.resolved()
+        return terms.isNotEmpty() || filter?.bodyContains != null || filter?.exclude?.any { it.bodyContains != null } == true
+    }
+
+    /**
+     * The app answers itself (no storage): it is given the filters every app version knows; what
+     * only the host can do (search words, host:, exclusions) is left out and said so.
+     */
+    
     /** Catches up with the journal without answering anything (the copy worker's loop). */
     suspend fun refresh() = mutex.withLock { sync(connection()) }
 
@@ -320,7 +345,20 @@ class HostIndex(
         return NetworkFilterEval.BodyBytes(decoded.bytes, decoded.decoded)
     }
 
-    private companion object {
-        const val CHUNK = 256L * 1024
+    companion object {
+        private const val CHUNK = 256L * 1024
+
+        /**
+         * Feature 040: the app answers a list itself — given the filters every app version knows;
+         * search words, host: and exclusions are left out and the page says so.
+         */
+        suspend fun appAnswers(app: AppConnection, query: NetworkQuery): NetworkPage {
+            val (filter, terms) = query.resolved()
+            val unsupported = terms.isNotEmpty() || filter?.host != null || filter?.exclude != null
+            val sent = query.copy(q = null, filter = filter?.copy(host = null, exclude = null)?.takeIf { it != NetworkFilter() })
+            val page = DtaJson.decodeFromJsonElement(NetworkPage.serializer(), app.request("network_list", sent.toJson()))
+            if (!unsupported) return page
+            return page.copy(degraded = page.degraded.orEmpty() + DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE))
+        }
     }
 }

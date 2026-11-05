@@ -22,6 +22,8 @@ class FuzzyTest {
         assertEquals(emptyList(), spans("the token expired", "tokn"))
         assertEquals(emptyList(), spans("the token expired", "takan"))
         assertEquals(listOf("tok"), spans("tok", "tok"))
+        // Numbers and ids match exactly.
+        assertEquals(emptyList(), spans("item-15 item-20", "item10"))
     }
 
     @Test

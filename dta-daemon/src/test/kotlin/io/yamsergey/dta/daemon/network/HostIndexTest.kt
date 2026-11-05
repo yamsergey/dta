@@ -227,6 +227,31 @@ class HostIndexTest {
     }
 
     @Test
+    fun `the query line searches the host copy, bodies included (040)`() = runBlocking<Unit> {
+        val app = FakeJournalApp().also(::corpus)
+        val host = index(app)
+        val page = host.list(NetworkQuery(q = "run:current \"item 10\"", limit = 50))
+        assertEquals(setOf("r1-1:11"), page.hits!!.keys)
+        assertTrue(page.entries.size > 1, "search marks, it does not hide")
+        val found = host.search(NetworkQuery(q = "item10 -status:4xx"))
+        assertEquals(listOf("r1-1:11"), found.entries.map { it.id })
+        assertEquals(io.yamsergey.dta.protocol.network.SearchPlace.RESPONSE_BODY, found.entries.single().hits.single().place)
+    }
+
+    @Test
+    fun `without storage, search and host filters are said to be left out (040)`() = runBlocking<Unit> {
+        val app = FakeJournalApp(persisted = false).also(::corpus)
+        val host = index(app)
+        val page = host.list(NetworkQuery(q = "status:4xx host:api cart"))
+        assertEquals(app.deviceAnswer(NetworkQuery(filter = NetworkFilter(status = "4xx"))).entries, page.entries)
+        assertTrue(page.degraded!!.any { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SEARCH_UNAVAILABLE })
+        assertEquals(null, host.list(NetworkQuery(q = "status:4xx")).degraded?.filter { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SEARCH_UNAVAILABLE }?.ifEmpty { null })
+        val s = host.search(NetworkQuery(q = "cart"))
+        assertEquals(0, s.total)
+        assertTrue(s.degraded!!.isNotEmpty())
+    }
+
+    @Test
     fun `a filtered list over 100k entries answers in under 200 ms (SC-003)`() = runBlocking<Unit> {
         val app = FakeJournalApp()
         repeat(100_000) { http(app, it + 1, url = "https://api/item/$it", status = if (it % 10 == 0) 404 else 200) }

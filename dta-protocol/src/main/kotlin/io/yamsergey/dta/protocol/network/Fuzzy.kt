@@ -4,8 +4,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * Feature 040: the fuzzy match of network search. Letters and digits only, lower case
- * (`orderId` = `order_id` = `order-id` = `order id`); a term of 5+ of them also matches with
- * one edit. Spans are given in the original text, for highlighting.
+ * (`orderId` = `order_id` = `order-id` = `order id`); a term of 5+ letters (no digits) also
+ * matches with one edit. Spans are given in the original text, for highlighting.
  */
 object Fuzzy {
     const val EDIT_FROM = 5
@@ -52,7 +52,8 @@ object Fuzzy {
             val k = key(term)
             if (k.isEmpty() || norm.isEmpty()) return emptyList()
             val exact = exact(k)
-            if (exact.isNotEmpty() || k.length < EDIT_FROM) return exact.map(::span)
+            // Numbers and ids must match exactly: a typo is allowed only in words of letters.
+            if (exact.isNotEmpty() || k.length < EDIT_FROM || k.any { it.isDigit() }) return exact.map(::span)
             return near(k).map(::span)
         }
 

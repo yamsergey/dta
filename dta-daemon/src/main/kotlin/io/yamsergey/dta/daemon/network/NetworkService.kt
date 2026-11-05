@@ -52,11 +52,18 @@ class NetworkService(
 ) {
 
     suspend fun list(query: NetworkQuery = NetworkQuery()): NetworkPage {
-        val page = host?.list(query) ?: DtaJson.decodeFromJsonElement(NetworkPage.serializer(), connection().request("network_list", query.toJson()))
+        val page = host?.list(query) ?: HostIndex.appAnswers(connection(), query)
         if (!query.redact) return page
         val (entries, info) = redactAll(page.entries)
         return page.copy(entries = entries, redaction = info, degraded = withheldMarker(page.degraded, info))
     }
+
+    /** Feature 040: entries with search hits; the host copy searches (the app alone cannot). */
+    suspend fun search(query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage =
+        host?.search(query) ?: io.yamsergey.dta.protocol.network.SearchPage(
+            emptyList(), 0, searched = 0,
+            degraded = listOf(DegradationMarker("network", DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)),
+        ).also { query.resolved() }
 
     suspend fun entry(id: String, redact: Boolean = false): NetworkEntryDetail {
         val detail = host?.entry(id) ?: DtaJson.decodeFromJsonElement(
