@@ -13,12 +13,19 @@ data class Span(val text: String, val kind: SpanKind)
 data class ContentLines(val lines: List<List<Span>>, val more: Int?) {
     companion object {
         private const val INDENT = "  "
+        const val INLINE = 100
         private val NUMBER = Regex("""-?\d+(\.\d+)?([eE][+-]?\d+)?""")
         private val LITERALS = setOf("true", "false", "null")
 
-        fun of(text: String, max: Int, cut: Boolean = false): ContentLines {
+        /** [inlineUpTo]: a whole JSON text this short stays on one line (spaces after `:` and `,`). */
+        fun of(text: String, max: Int, cut: Boolean = false, inlineUpTo: Int = INLINE): ContentLines {
             val t = text.trim()
-            val all = if (t.startsWith("{") || t.startsWith("[")) json(t) else plain(text)
+            val isJson = t.startsWith("{") || t.startsWith("[")
+            val all = when {
+                isJson && !cut && '\n' !in t && t.length <= inlineUpTo -> listOf(json(t, inline = true).flatten())
+                isJson -> json(t)
+                else -> plain(text)
+            }
             val more = if (cut) null else (all.size - max).coerceAtLeast(0)
             return ContentLines(all.take(max), more)
         }
@@ -57,7 +64,7 @@ data class ContentLines(val lines: List<List<Span>>, val more: Int?) {
             return out
         }
 
-        private fun json(t: String): List<List<Span>> {
+        private fun json(t: String, inline: Boolean = false): List<List<Span>> {
             val toks = tokens(t)
             val lines = ArrayList<MutableList<Span>>()
             var depth = 0
@@ -71,14 +78,15 @@ data class ContentLines(val lines: List<List<Span>>, val more: Int?) {
                         '{', '[' -> {
                             val close = if (tok.c == '{') '}' else ']'
                             if ((next(i) as? Punct)?.c == close) { line += Span("${tok.c}$close", SpanKind.PUNCT); i++ }
+                            else if (inline) line += Span("${tok.c}", SpanKind.PUNCT)
                             else { line += Span("${tok.c}", SpanKind.PUNCT); depth++; newLine() }
                         }
-                        '}', ']' -> {
+                        '}', ']' -> if (inline) line += Span("${tok.c}", SpanKind.PUNCT) else {
                             depth = (depth - 1).coerceAtLeast(0)
                             if (line.any { it.text.isNotBlank() }) newLine() else line = mutableListOf<Span>().also { if (depth > 0) it += Span(INDENT.repeat(depth), SpanKind.PLAIN) }
                             line += Span("${tok.c}", SpanKind.PUNCT)
                         }
-                        ',' -> { line += Span(",", SpanKind.PUNCT); newLine() }
+                        ',' -> { line += Span(",", SpanKind.PUNCT); if (inline) line += Span(" ", SpanKind.PLAIN) else newLine() }
                         else -> { line += Span(":", SpanKind.PUNCT); line += Span(" ", SpanKind.PLAIN) }
                     }
                     is Str -> line += Span(tok.text, if ((next(i) as? Punct)?.c == ':') SpanKind.KEY else SpanKind.STRING)

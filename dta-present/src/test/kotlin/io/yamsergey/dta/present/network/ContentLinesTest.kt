@@ -9,7 +9,7 @@ class ContentLinesTest {
 
     @Test
     fun `JSON is pretty-printed with typed spans`() {
-        val c = ContentLines.of("""{"type":"tick","price":20.7,"ok":true,"n":null}""", max = 10)
+        val c = ContentLines.of("""{"type":"tick","price":20.7,"ok":true,"n":null}""", max = 10, inlineUpTo = 0)
         assertEquals(listOf("{", "  \"type\": \"tick\",", "  \"price\": 20.7,", "  \"ok\": true,", "  \"n\": null", "}"), text(c))
         assertEquals(0, c.more)
         val kinds = c.lines[1].filter { it.text.isNotBlank() }.map { it.kind }
@@ -20,21 +20,21 @@ class ContentLinesTest {
 
     @Test
     fun `only the first lines, and how many are left`() {
-        val c = ContentLines.of("""{"a":1,"b":2,"c":3}""", max = 3)
+        val c = ContentLines.of("""{"a":1,"b":2,"c":3}""", max = 3, inlineUpTo = 0)
         assertEquals(listOf("{", "  \"a\": 1,", "  \"b\": 2,"), text(c))
         assertEquals(2, c.more)
     }
 
     @Test
     fun `a cut JSON text still formats, and what is left is unknown`() {
-        val c = ContentLines.of("""{"type":"subscribed","symbols":["AC""", max = 10, cut = true)
+        val c = ContentLines.of("""{"type":"subscribed","symbols":["AC""", max = 10, cut = true, inlineUpTo = 0)
         assertEquals(listOf("{", "  \"type\": \"subscribed\",", "  \"symbols\": [", "    \"AC"), text(c))
         assertNull(c.more)
     }
 
     @Test
     fun `small arrays and objects stay on one line, empty ones too`() {
-        assertEquals(listOf("{", "  \"s\": [],", "  \"o\": {}", "}"), text(ContentLines.of("""{"s":[],"o":{}}""", max = 10)))
+        assertEquals(listOf("{", "  \"s\": [],", "  \"o\": {}", "}"), text(ContentLines.of("""{"s":[],"o":{}}""", max = 10, inlineUpTo = 0)))
     }
 
     @Test
@@ -47,7 +47,18 @@ class ContentLinesTest {
 
     @Test
     fun `escaped quotes stay inside their string`() {
-        val c = ContentLines.of("""{"m":"say \"hi\", ok"}""", max = 10)
+        val c = ContentLines.of("""{"m":"say \"hi\", ok"}""", max = 10, inlineUpTo = 0)
         assertEquals("  \"m\": \"say \\\"hi\\\", ok\"", text(c)[1])
     }
+
+    @Test
+    fun `a short JSON message stays on one line, coloured`() {
+        val c = ContentLines.of("""{"type":"tick","symbol":"ACME","price":20.77}""", max = 3)
+        assertEquals(listOf("""{"type": "tick", "symbol": "ACME", "price": 20.77}"""), text(c))
+        assertEquals(0, c.more)
+        assertEquals(SpanKind.KEY, c.lines[0].first { it.text == "\"type\"" }.kind)
+        // A cut one is never "short": its end is unknown.
+        assertEquals(3, ContentLines.of("""{"type":"tick","symbol":"AC""", max = 5, cut = true).lines.size)
+    }
+
 }
