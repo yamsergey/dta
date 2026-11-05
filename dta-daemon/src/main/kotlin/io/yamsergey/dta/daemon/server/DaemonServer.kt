@@ -224,7 +224,10 @@ class DaemonServer(
                 val serial = resolution.serial!!
                 val pkg = resolution.pkg!!
                 val filterKeys = NetworkFilter.serializer().descriptor.let { d -> (0 until d.elementsCount).map { d.getElementName(it) } }
-                val filter = DtaJson.decodeFromJsonElement(NetworkFilter.serializer(), JsonObject(params.filterKeys { it in filterKeys }))
+                val given = DtaJson.decodeFromJsonElement(NetworkFilter.serializer(), JsonObject(params.filterKeys { it in filterKeys }))
+                // Feature 040: the query line's filters apply to new entries too; its search words hide nothing.
+                val line = (params["q"] as? JsonPrimitive)?.content
+                val filter = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given, q = line).resolved().first ?: NetworkFilter()
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val connectionUrls = ConcurrentHashMap<String, String>()
                 val eval = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, bodyBytes = { _, _ -> null })

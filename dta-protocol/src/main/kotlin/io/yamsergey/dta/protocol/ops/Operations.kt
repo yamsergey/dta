@@ -295,11 +295,13 @@ object Catalog {
                 ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
                 ParamSpec("archive", ParamType.STRING, "Archived history instead of the live one (as network.list)."),
+                ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network list.", cliShort = "-q", cliName = "query"),
             ),
         ),
         OperationSpec(
             "network.watch", "Follow new network entries as they happen, until interrupted. With history=current, the running process's entries come first.", Scope.APP,
-            NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
+            NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")) +
+                ParamSpec("q", ParamType.STRING, "Query line; its filters apply (search words hide nothing). See network list.", cliShort = "-q", cliName = "query"),
             streaming = true, cliOnly = true,
         ),
         OperationSpec(
