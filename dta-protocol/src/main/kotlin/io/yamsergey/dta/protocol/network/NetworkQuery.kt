@@ -72,7 +72,30 @@ data class NetworkQuery(
     val redact: Boolean = false,
     /** Archived history to cover; null is the live history only (feature 011). */
     val archive: ArchiveScope? = null,
+    /** Feature 040: the query line — filters and search words ([QueryLine]). */
+    val q: String? = null,
 ) {
+    /**
+     * The filter of [filter] and the line's filters together (the line's win where both give a
+     * field), and the line's search words. A line with problems is refused naming each one.
+     */
+    fun resolved(nowMs: Long = System.currentTimeMillis()): Pair<NetworkFilter?, List<Term>> {
+        val line = q?.takeIf { it.isNotBlank() } ?: return filter to emptyList()
+        val p = QueryLine.parse(line, nowMs)
+        if (p.problems.isNotEmpty()) {
+            throw InvalidParamsException("query: " + p.problems.joinToString("; ") { "${line.substring(it.start, it.end)} — ${it.message}" })
+        }
+        val base = filter ?: NetworkFilter()
+        val f = p.filter
+        val merged = base.copy(
+            url = f.url ?: base.url, method = f.method ?: base.method, status = f.status ?: base.status, kinds = f.kinds ?: base.kinds,
+            sinceMs = f.sinceMs ?: base.sinceMs, untilMs = f.untilMs ?: base.untilMs, bodyContains = f.bodyContains ?: base.bodyContains,
+            runs = f.runs ?: base.runs, intervened = f.intervened ?: base.intervened, host = f.host ?: base.host,
+            exclude = ((base.exclude ?: emptyList()) + p.exclude).ifEmpty { null },
+        )
+        return merged.takeIf { it != NetworkFilter() } to p.terms
+    }
+
     fun toJson(): JsonObject = DtaJson.encodeToJsonElement(serializer(), this).jsonObject
 
     companion object {

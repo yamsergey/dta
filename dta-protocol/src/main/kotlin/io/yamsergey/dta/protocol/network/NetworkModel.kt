@@ -527,6 +527,25 @@ data class NetworkPage(
     val archived: Map<String, ArchivedMark>? = null,
     /** Decoded protobuf fields where a body search matched, by entry id, e.g. `items[0].name` (feature 011). */
     val fields: Map<String, List<String>>? = null,
+    /** Feature 040: the page's rows that hold every search word of the query line, and where. */
+    val hits: Map<String, List<SearchHit>>? = null,
+)
+
+/** One entry's search hits (feature 040). */
+@Serializable
+data class EntryHits(val id: String, val timeMs: Long, val hits: List<SearchHit>)
+
+/** Result of `network_search` (feature 040): the entries with hits, in list order, paged. */
+@Serializable
+data class SearchPage(
+    val entries: List<EntryHits>,
+    /** Entries with hits in all (not only this page). */
+    val total: Int,
+    val next: String? = null,
+    /** Entries the filters left to search. */
+    val searched: Int,
+    val notSearched: List<String>? = null,
+    val degraded: List<DegradationMarker>? = null,
 )
 
 /** Result of `network_entry`. */

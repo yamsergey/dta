@@ -42,7 +42,9 @@ class NetworkHistoryView(
 ) {
     fun list(query: NetworkQuery): NetworkPage {
         val ctx = context()
-        val eval = query.filter?.let { filter ->
+        val (filter, terms) = query.resolved()
+        val search = search(terms, query.redact)
+        val eval = filter?.let { filter ->
             NetworkFilterEval(
                 filter = filter,
                 liveRunId = ctx.runId,
@@ -52,7 +54,7 @@ class NetworkHistoryView(
             )
         }
         // Links (012) are in the same history; network views show them only when kinds asks.
-        val chronological = entries().let { all -> if (query.filter?.kinds == null) all.filter { it !is LinkEntry } else all }
+        val chronological = entries().let { all -> if (filter?.kinds == null) all.filter { it !is LinkEntry } else all }
         val all = if (query.order == Order.NEWEST_FIRST) chronological.asReversed() else chronological
         val start = if (query.before == null) 0 else {
             val at = all.indexOfFirst { it.id == query.before }
@@ -72,10 +74,8 @@ class NetworkHistoryView(
             if (index < start) return@forEachIndexed
             if (page.size < query.limit) page += entry else more = true
         }
-        val notSearched = listOfNotNull(
-            eval?.binaryNotSearched?.takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
-            eval?.binaryUndecoded?.takeIf { it > 0 }?.let { "binary bodies without a schema, searched as bytes only ($it)" },
-        ).ifEmpty { null }
+        val hits = search?.let { s -> page.mapNotNull { e -> s.hits(e)?.let { e.id to it } }.toMap() }
+        val notSearched = notSearched(eval, search)
         val coverage = ctx.coverage.copy(searched = all.size, notSearched = notSearched)
         val earliest = chronological.firstOrNull()?.id
         return NetworkPage(
@@ -86,8 +86,49 @@ class NetworkHistoryView(
             coverage = coverage,
             degraded = degradations(ctx, page).plusHistory(coverage, reachesEvicted = coverage.evicted > 0 && page.any { it.id == earliest }),
             fields = eval?.fieldPaths?.filterKeys { id -> page.any { it.id == id } }?.mapValues { it.value.toList() }?.ifEmpty { null },
+            hits = hits?.ifEmpty { null },
         )
     }
+
+    /**
+     * Feature 040: the entries the query's filters keep that hold every search word, in list
+     * order, [NetworkQuery.limit] per page after [NetworkQuery.before] (an entry id).
+     */
+    fun search(query: NetworkQuery): SearchPage {
+        val ctx = context()
+        val (filter, terms) = query.resolved()
+        if (terms.isEmpty()) throw InvalidParamsException("query: no search words; give words or a \"phrase\" to find (filters alone are network.list)")
+        val s = search(terms, query.redact)!!
+        val eval = filter?.let { NetworkFilterEval(it, ctx.runId, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, bodyBytes) }
+        val chronological = entries().let { all -> if (filter?.kinds == null) all.filter { it !is LinkEntry } else all }
+        val all = if (query.order == Order.NEWEST_FIRST) chronological.asReversed() else chronological
+        var passed = query.before == null
+        var searched = 0
+        var total = 0
+        var more = false
+        val page = ArrayList<EntryHits>()
+        for (entry in all) {
+            if (eval != null && eval.matches(entry) == null) continue
+            searched++
+            val h = s.hits(entry) ?: continue
+            total++
+            if (!passed) { if (entry.id == query.before) passed = true; continue }
+            if (page.size < query.limit) page += EntryHits(entry.id, entry.timeMs, h) else more = true
+        }
+        if (!passed) throw InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared")
+        return SearchPage(page, total, if (more) page.last().id else null, searched, notSearched(eval, s))
+    }
+
+    private fun search(terms: List<Term>, redact: Boolean): NetworkSearch? = terms.takeIf { it.isNotEmpty() }?.let {
+        NetworkSearch(it, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, bodyBytes, redact)
+    }
+
+    private fun notSearched(eval: NetworkFilterEval?, search: NetworkSearch?): List<String>? = listOfNotNull(
+        ((eval?.binaryNotSearched ?: 0) + (eval?.excludedNotSearched ?: 0)).takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
+        eval?.binaryUndecoded?.takeIf { it > 0 }?.let { "binary bodies without a schema, searched as bytes only ($it)" },
+        search?.notSearched?.takeIf { it > 0 }?.let { "bodies the search could not read: encoding not undone, or not inspectable while redacting ($it)" },
+        search?.truncated?.takeIf { it > 0 }?.let { "bodies stored cut, searched as far as stored ($it)" },
+    ).ifEmpty { null }
 
     fun entry(id: String): NetworkEntryDetail {
         val ctx = context()
