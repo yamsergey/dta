@@ -60,7 +60,7 @@ class DaemonEnvelopeTest {
                 "envelope":{"format":"Ticker","kind":"ack","id":"1","payload":"{\"ok\":true}","rule":"f3"}}""")),
         )
         val t = MessageTable.of(rows)
-        assertEquals(listOf("Time", "", "Kind", "Id", "Message", "Reply"), t.columns)
+        assertEquals(listOf("Time", "", "Kind", "Id", "Message", "Notes"), t.columns)
         assertEquals(listOf("↑", "sub", "1"), listOf(t.rows[0].direction, t.rows[0].kind, t.rows[0].messageId))
         // The text is the message, never prefixed with its envelope; a rule's payload is what a rule-read message carries.
         assertEquals("{\"op\":\"sub\",\"rid\":1}", t.rows[0].text)

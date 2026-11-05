@@ -37,7 +37,7 @@ data class MessageTable(val columns: List<String>, val rows: List<MessageCells>)
         const val ID = "Id"
         const val TOPIC = "Topic"
         const val TEXT = "Message"
-        const val NOTE = "Reply"
+        const val NOTE = "Notes"
 
         fun of(messages: List<EntryRow>): MessageTable {
             val replies = replies(messages)
