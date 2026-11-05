@@ -169,4 +169,20 @@ class NetworkFilterEvalTest {
         println("SC-004 deviceless: 1000 x 64 KB binary bodies searched in $ms ms")
         kotlin.test.assertTrue(ms < 1000, "$ms ms")
     }
+
+    @Test
+    fun `host matches the URL's host, a star takes subdomains, messages by their socket`() {
+        assertEquals(listOf(oldRun.id, ok.id, notFound.id, pending.id), ids(NetworkFilter(host = "API.example.com")))
+        assertEquals(listOf(socket.id, message.id), ids(NetworkFilter(host = "push.example.com")))
+        assertEquals(listOf(oldRun.id, ok.id, notFound.id, pending.id, upload.id, socket.id, message.id), ids(NetworkFilter(host = "*.example.com")))
+        assertEquals(emptyList(), ids(NetworkFilter(host = "example.com")))
+    }
+
+    @Test
+    fun `exclusions leave out what any of them matches`() {
+        assertEquals(listOf(failed.id, upload.id, socket.id, message.id), ids(NetworkFilter(exclude = listOf(NetworkFilter(host = "api.example.com"), NetworkFilter(method = "GET", status = "pending")))))
+        assertEquals(listOf(notFound.id, pending.id), ids(NetworkFilter(host = "api.example.com", exclude = listOf(NetworkFilter(url = "token")))))
+        // An exclusion's body search counts what it could not search like the filter's own.
+        assertEquals(listOf(oldRun.id, notFound.id, failed.id, pending.id, upload.id, socket.id), ids(NetworkFilter(exclude = listOf(NetworkFilter(bodyContains = "account_id")))))
+    }
 }

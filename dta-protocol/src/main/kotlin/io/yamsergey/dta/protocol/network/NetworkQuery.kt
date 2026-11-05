@@ -54,6 +54,10 @@ data class NetworkFilter(
     val activity: String? = null,
     /** Feature 012, links: cold-start, created, new-intent or from-recents. */
     val delivery: String? = null,
+    /** Feature 040: the URL's host, case-insensitive; `*.example.test` takes subdomains too. */
+    val host: String? = null,
+    /** Feature 040: entries matching any of these are left out (each a filter of its own). */
+    val exclude: List<NetworkFilter>? = null,
 )
 
 /** `network_list` params (contract §2). Shared so daemon and sidekick agree (constitution VI). */

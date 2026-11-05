@@ -50,15 +50,12 @@ class NetworkFilterEval(
         }
         filter.status?.let { status -> if (entry !is HttpEntry || !statusMatches(entry, status)) return null }
         filter.url?.let { needle ->
-            val url = when (entry) {
-                is HttpEntry -> entry.url
-                is WsConnectionEntry -> entry.url
-                is WsMessageEntry -> connectionUrl(entry.connectionId)
-                is LinkEntry -> entry.uri
-            }
+            val url = urlOf(entry)
             if (url == null || !url.contains(needle, ignoreCase = true)) return null
             locations += MatchLocation.URL
         }
+        filter.host?.let { wanted -> if (!hostMatches(urlOf(entry), wanted)) return null }
+        filter.exclude?.let { ex -> if (ex.any { excluded(it).matches(entry) != null }) return null }
         filter.activity?.let { needle -> if (entry !is LinkEntry || !entry.activity.contains(needle, ignoreCase = true)) return null }
         filter.delivery?.let { wanted ->
             if (entry !is LinkEntry || DtaJson.encodeToJsonElement(LinkDelivery.serializer(), entry.delivery).let { (it as kotlinx.serialization.json.JsonPrimitive).content } != wanted) return null
@@ -73,6 +70,23 @@ class NetworkFilterEval(
         }
         return locations
     }
+
+    private fun urlOf(entry: NetworkEntry): String? = when (entry) {
+        is HttpEntry -> entry.url
+        is WsConnectionEntry -> entry.url
+        is WsMessageEntry -> entry.url ?: connectionUrl(entry.connectionId)
+        is LinkEntry -> entry.uri
+    }
+
+    /** Evaluators for the exclusions, made once; their not-searched counts add to this one's. */
+    private val exclusions = HashMap<NetworkFilter, NetworkFilterEval>()
+
+    private fun excluded(f: NetworkFilter): NetworkFilterEval = exclusions.getOrPut(f) {
+        NetworkFilterEval(f, liveRunId, connectionUrl, decoded, bodyBytes)
+    }
+
+    /** Not searched by the exclusions' body searches. */
+    val excludedNotSearched: Int get() = exclusions.values.sumOf { it.binaryNotSearched }
 
     /** The decoded location when a schema decodes the body and a field holds the needle. */
     private fun decodedHit(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): MatchLocation? {
@@ -144,6 +158,21 @@ class NetworkFilterEval(
     }
 
     companion object {
+        /** [wanted] is a host (`api.example.test`) or `*.example.test` (any subdomain); case-insensitive. */
+        fun hostMatches(url: String?, wanted: String): Boolean {
+            val host = url?.let { hostOf(it) } ?: return false
+            val w = wanted.lowercase()
+            return if (w.startsWith("*.")) host.endsWith(w.drop(1)) else host == w
+        }
+
+        /** The host of [url] without port or credentials, lower case. */
+        fun hostOf(url: String): String? {
+            val afterScheme = url.substringAfter("://", url)
+            val authority = afterScheme.substringBefore('/').substringBefore('?').substringBefore('#').substringAfterLast('@')
+            val host = if (authority.startsWith("[")) authority.substringBefore(']') + "]" else authority.substringBefore(':')
+            return host.lowercase().takeIf { it.isNotEmpty() }
+        }
+
         fun kindOf(entry: NetworkEntry): EntryKind = when (entry) {
             is HttpEntry -> EntryKind.HTTP
             is WsConnectionEntry -> EntryKind.WS_CONNECTION
