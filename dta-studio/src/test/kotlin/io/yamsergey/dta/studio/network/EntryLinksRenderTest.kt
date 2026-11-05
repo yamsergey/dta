@@ -45,14 +45,15 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
         val tabs = all(pane).filterIsInstance<JBTabbedPane>().single()
         tabs.selectedIndex = (0 until tabs.tabCount).first { tabs.getTitleAt(it) == "Messages" }
         render(pane, "links-connection")
-        // Feature 041: a table — the text as sent, no envelope joined to it; a double-click opens the message.
-        val grid = all(tabs.selectedComponent).filterIsInstance<javax.swing.JTable>().single()
-        assertEquals(2, grid.rowCount)
-        val text = (0 until grid.columnCount).first { grid.getColumnName(it) == "Message" }
-        assertTrue((0 until grid.rowCount).none { (grid.getValueAt(it, text) as String).startsWith("[") })
-        grid.setSize(800, 200)
-        val at = grid.getCellRect(1, text, true)
-        grid.dispatchEvent(java.awt.event.MouseEvent(grid, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, 0, at.x + 2, at.y + 2, 2, false))
+        // Feature 042: a list of app content — summary, the first formatted lines, expandable; a double-click opens the message.
+        val view = all(tabs.selectedComponent).filterIsInstance<MessagesView>().single()
+        assertEquals(2, view.rowCount)
+        (0 until view.rowCount).forEach { i -> assertTrue(view.rowTexts(i).toString(), view.rowTexts(i).drop(1).none { it.trimStart().startsWith("[") }) }
+        assertTrue(all(tabs.selectedComponent).filterIsInstance<ActionLink>().any { it.text.startsWith("Format: ") && it.text.endsWith("▾") })
+        val list = all(view).filterIsInstance<javax.swing.JList<*>>().single()
+        list.setSize(800, 400)
+        val at = list.getCellBounds(1, 1)
+        list.dispatchEvent(java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, 0, at.x + 2, at.y + 2, 2, false))
         assertEquals(listOf("r2-1:8"), opened)
     }
 

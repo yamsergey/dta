@@ -249,66 +249,12 @@ class EntryDetailPane(
     }
 
     /**
-     * Feature 041: the format line (rules by name, how many each read and why not) above the
-     * messages as a table — kind, id and topic in columns, the text as sent (or a rule's payload).
+     * Feature 042: the format control and a caption on top (one purpose per line), the messages
+     * as a list of app content (first lines, expandable), the selected one whole below.
      */
     private fun messagesPanel(detail: EntryDetail): JComponent {
-        val line = io.yamsergey.dta.present.network.FormatLine.of(detail)
-        val labels = line.labels()
-        val top = row(buildList {
-            add(JBLabel(line.text).apply { foreground = JBColor.GRAY; setCopyable(true) })
-            if (client != null) {
-                if (line.rules.isEmpty()) add(ActionLink("Set format…") { editFormat(null) }.apply { toolTipText = "Say how this app's messages are built: a pattern or field paths, tried on these messages" })
-                line.rules.forEachIndexed { i, rule ->
-                    val name = if (line.rules.size > 1) " ${labels[i]}" else ""
-                    add(ActionLink("Edit$name…") { editFormat(rule.id) }.apply { toolTipText = "Edit rule ${rule.name} (${rule.id})" })
-                    add(ActionLink("Remove$name") { removeFormat(rule.id) }.apply { toolTipText = "Remove rule ${rule.name} (${rule.id})" })
-                }
-            }
-        }).apply { border = JBUI.Borders.empty(6, 12, 6, 12) }
-        val table = io.yamsergey.dta.present.network.MessageTable.of(detail.messages)
-        val model = object : javax.swing.table.AbstractTableModel() {
-            override fun getRowCount() = table.rows.size
-            override fun getColumnCount() = table.columns.size
-            override fun getColumnName(column: Int) = table.columns[column]
-            override fun getValueAt(row: Int, column: Int): Any = table.cell(table.rows[row], table.columns[column])
-        }
-        val grid = com.intellij.ui.table.JBTable(model).apply {
-            setShowGrid(false)
-            autoResizeMode = javax.swing.JTable.AUTO_RESIZE_LAST_COLUMN
-            emptyText.text = "No messages"
-            val mono = Font(com.intellij.openapi.editor.colors.EditorColorsManager.getInstance().globalScheme.editorFontName, Font.PLAIN, font.size)
-            setDefaultRenderer(Any::class.java, object : javax.swing.table.DefaultTableCellRenderer() {
-                override fun getTableCellRendererComponent(t: javax.swing.JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): java.awt.Component {
-                    val c = super.getTableCellRendererComponent(t, value, selected, false, row, column)
-                    val name = table.columns[column]
-                    font = if (name == io.yamsergey.dta.present.network.MessageTable.TEXT) mono else t.font
-                    if (!selected && name != io.yamsergey.dta.present.network.MessageTable.TEXT && name != io.yamsergey.dta.present.network.MessageTable.KIND) foreground = JBColor.GRAY
-                    toolTipText = if (name == io.yamsergey.dta.present.network.MessageTable.TEXT) (value as? String)?.take(2000) else null
-                    return c
-                }
-            })
-            fun width(name: String, w: Int) { table.columns.indexOf(name).takeIf { it >= 0 }?.let { columnModel.getColumn(it).apply { preferredWidth = JBUI.scale(w); if (name == io.yamsergey.dta.present.network.MessageTable.DIRECTION) maxWidth = JBUI.scale(w) } } }
-            width(io.yamsergey.dta.present.network.MessageTable.TIME, 96)
-            width(io.yamsergey.dta.present.network.MessageTable.DIRECTION, 24)
-            width(io.yamsergey.dta.present.network.MessageTable.KIND, 110)
-            width(io.yamsergey.dta.present.network.MessageTable.ID, 70)
-            width(io.yamsergey.dta.present.network.MessageTable.TOPIC, 110)
-            width(io.yamsergey.dta.present.network.MessageTable.TEXT, 520)
-            toolTipText = "Double-click a message to open it"
-            addMouseListener(object : java.awt.event.MouseAdapter() {
-                override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                    if (e.clickCount != 2) return
-                    val r = rowAtPoint(e.point).takeIf { it >= 0 } ?: return
-                    open(table.rows[r].id)
-                }
-            })
-        }
-        return JPanel(BorderLayout()).apply {
-            add(top, BorderLayout.NORTH)
-            add(JBScrollPane(grid), BorderLayout.CENTER)
-            detail.messagesMore?.let { add(JBLabel(it).apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 12) }, BorderLayout.SOUTH) }
-        }
+        val top = FormatControl.top(detail, client, target, scope, edit = ::editFormat, remove = ::removeFormat)
+        return MessagesView(project, client, target, scope, detail, raw ?: JsonObject(emptyMap()), marks, top, open)
     }
 
     /** Feature 039: the connection's format rule — a new one prefilled with its socket, or [rule] to replace. */

@@ -19,8 +19,13 @@ data class Row(val id: String, val timeMs: Long, val entry: JsonObject) {
 
 /** What changes the live list (data-model LiveListState). */
 sealed interface LiveEvent {
-    /** A `network.list` result: the newest page for the current filters. */
-    data class Loaded(val page: JsonObject) : LiveEvent
+    /**
+     * A `network.list` result: the newest page for the current filters. [quiet]: the person's own
+     * query changed — a selection it leaves out is cleared, not called gone (042).
+     */
+    data class Loaded(val page: JsonObject, val quiet: Boolean = false) : LiveEvent
+    /** Feature 042: the newest page again (live re-list): new and changed rows merged, loaded ones kept. */
+    data class Merged(val page: JsonObject) : LiveEvent
     /** An older page (`before` cursor), shown above. */
     data class Older(val page: JsonObject) : LiveEvent
     data class Arrived(val entry: JsonObject) : LiveEvent
@@ -62,10 +67,22 @@ data class LiveList(
     fun reduce(event: LiveEvent): LiveList = when (event) {
         is LiveEvent.Loaded -> {
             val loaded = entries(event.page).sortedWith(ORDER)
+            val missing = selectedId != null && loaded.none { it.id == selectedId }
             copy(
                 rows = loaded, index = indexOf(loaded), total = total(event.page, loaded.size), older = cursor(event.page),
-                newCount = 0, pending = emptyList(), selectedGone = selectedId != null && loaded.none { it.id == selectedId },
+                newCount = 0, pending = emptyList(),
+                selectedId = if (missing && event.quiet) null else selectedId,
+                selectedGone = missing && !event.quiet,
             )
+        }
+        is LiveEvent.Merged -> {
+            val fresh = entries(event.page)
+            val byId = fresh.associateBy { it.id }
+            val kept = rows.map { byId[it.id] ?: it }
+            val known = index.keys
+            val merged = (kept + fresh.filter { it.id !in known }).sortedWith(ORDER)
+            val added = merged.size - rows.size
+            copy(rows = merged, index = indexOf(merged), total = maxOf(total(event.page, merged.size), merged.size), newCount = if (following) 0 else newCount + added)
         }
         is LiveEvent.Older -> {
             val known = index.keys

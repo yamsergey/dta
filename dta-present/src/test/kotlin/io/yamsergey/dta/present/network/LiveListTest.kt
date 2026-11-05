@@ -137,4 +137,22 @@ class LiveListTest {
         assertEquals(5150, list.rows.size)
     }
 
+
+    @Test
+    fun `a live re-list merges, keeping loaded rows and the selection (042)`() {
+        val older = loaded.reduce(LiveEvent.Older(page(-1, 0))).reduce(Selected("r1-1:0"))
+        val merged = older.reduce(LiveEvent.Merged(page(2, 3, 4)))
+        assertEquals(listOf("r1-1:-1", "r1-1:0", "r1-1:1", "r1-1:2", "r1-1:3", "r1-1:4"), ids(merged))
+        assertEquals("r1-1:0" to false, merged.selectedId to merged.selectedGone)
+    }
+
+    @Test
+    fun `the person's own query leaving the selection out clears it quietly, otherwise it is gone (042)`() {
+        val selected = loaded.reduce(Selected("r1-1:2"))
+        val quiet = selected.reduce(Loaded(page(5, 6), quiet = true))
+        assertEquals(null to false, quiet.selectedId to quiet.selectedGone)
+        val gone = selected.reduce(Loaded(page(5, 6)))
+        assertEquals("r1-1:2" to true, gone.selectedId to gone.selectedGone)
+    }
+
 }

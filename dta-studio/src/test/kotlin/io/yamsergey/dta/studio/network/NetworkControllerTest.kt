@@ -102,6 +102,24 @@ class NetworkControllerTest {
     }
 
     @Test
+    fun `a query that leaves the selection out clears it quietly, live matches keep it (042)`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        daemon.ops.listed = { q -> if (q.q == "cart") daemon.ops.entries.filter { it.id == "r1-1:2" } else daemon.ops.entries }
+        network.list(io.yamsergey.dta.present.network.LiveEvent.Selected("r1-1:1"))
+        network.setQuery("cart")
+        val quiet = await { it.list.rows.size == 1 }
+        assertEquals(null to false, quiet.list.selectedId to quiet.list.selectedGone)
+        network.list(io.yamsergey.dta.present.network.LiveEvent.Selected("r1-1:2"))
+        val lists = daemon.ops.queries.size
+        daemon.ops.events.emit(NetworkEntryEvent(http(10), EntryChange.CREATED))
+        until { daemon.ops.queries.size > lists }
+        kotlinx.coroutines.delay(200)
+        val kept = network.state.value
+        assertEquals("r1-1:2" to false, kept.list.selectedId to kept.list.selectedGone)
+    }
+
+    @Test
     fun `a line with problems changes nothing but says what is wrong (040)`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 && it.watching }

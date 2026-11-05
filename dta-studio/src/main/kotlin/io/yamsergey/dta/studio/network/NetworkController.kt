@@ -88,7 +88,7 @@ class NetworkController(private val context: ContextController, private val scop
         val sameFilters = before.parsed.problems.isEmpty() && before.parsed.filter == line.parsed.filter && before.parsed.exclude == line.parsed.exclude
         // Feature 041: with only the matches listed, other words are other rows.
         val sameRows = sameFilters && (!mutable.value.onlyMatches || before.parsed.terms == line.parsed.terms)
-        if (sameRows) search() else reload()
+        if (sameRows) search() else requery()
     }
 
     /** The All / HTTP / WebSocket switch: the line's kind word. */
@@ -164,7 +164,7 @@ class NetworkController(private val context: ContextController, private val scop
     fun setOnlyMatches(on: Boolean) {
         if (mutable.value.onlyMatches == on) return
         mutable.update { it.copy(onlyMatches = on) }
-        if (mutable.value.line.hasSearch) reload()
+        if (mutable.value.line.hasSearch) requery()
     }
 
     private var relistJob: Job? = null
@@ -176,9 +176,19 @@ class NetworkController(private val context: ContextController, private val scop
         relistJob = scope.launch {
             kotlinx.coroutines.delay(SEARCH_SETTLE_MS)
             runCatching { c.call("network.list", params(mutable.value)).result.jsonObject }
-                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page)) }; search() }
+                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page)) }; search() }
         }
     }
+
+    /** Feature 042: the next list answers the person's own change of query: a selection it leaves out is cleared quietly. */
+    @Volatile private var quietNext = false
+
+    private fun requery() {
+        quietNext = true
+        reload()
+    }
+
+    private fun loaded(page: JsonObject) = LiveEvent.Loaded(page, quiet = quietNext.also { quietNext = false })
 
     private fun filtering(s: NetworkViewState) = s.onlyMatches && s.line.hasSearch
 
@@ -260,7 +270,7 @@ class NetworkController(private val context: ContextController, private val scop
             source = scope.launch {
                 mutable.update { it.copy(loading = true) }
                 runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
-                    .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false) }; search() }
+                    .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), loading = false) }; search() }
                     .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false) } }
             }
             return
@@ -274,7 +284,8 @@ class NetworkController(private val context: ContextController, private val scop
                     if (data["selection"] != null) {
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
-                        mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false, watching = true) }
+                        val e = loaded(page)
+                        mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), loading = false, watching = true) }
                         search()
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
