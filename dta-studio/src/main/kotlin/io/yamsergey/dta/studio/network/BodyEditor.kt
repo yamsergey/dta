@@ -28,12 +28,32 @@ class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
     private var extension: String = "txt"
     private var editable: Boolean = false
 
-    /** Shows [text] highlighted as a file with [extension] (`json`, `xml`, `html`, `graphql`, `txt`). */
-    fun show(text: String, extension: String, editable: Boolean = false) {
+    private var marks: List<String> = emptyList()
+
+    /**
+     * Shows [text] highlighted as a file with [extension] (`json`, `xml`, `html`, `graphql`, `txt`);
+     * the search words in [marks] are marked and the first is scrolled into view (feature 040).
+     */
+    fun show(text: String, extension: String, editable: Boolean = false, marks: List<String> = emptyList()) {
         this.text = text
         this.extension = extension
         this.editable = editable
+        this.marks = marks
         if (isDisplayable) rebuild()
+    }
+
+    private fun mark(e: EditorEx) {
+        val spans = io.yamsergey.dta.present.network.Highlights.spans(e.document.text, marks)
+        if (spans.isEmpty()) return
+        val attributes = com.intellij.openapi.editor.markup.TextAttributes().apply { backgroundColor = io.yamsergey.dta.studio.ui.SEARCH_MARK }
+        spans.forEach {
+            e.markupModel.addRangeHighlighter(it.first, it.last + 1, com.intellij.openapi.editor.markup.HighlighterLayer.SELECTION - 1, attributes, com.intellij.openapi.editor.markup.HighlighterTargetArea.EXACT_RANGE)
+        }
+        val first = spans.first().first
+        // A folded region would hide it: unfold where the first one is, then bring it into view.
+        e.foldingModel.runBatchFoldingOperation { e.foldingModel.allFoldRegions.filter { it.startOffset <= first && it.endOffset > first }.forEach { it.isExpanded = true } }
+        e.caretModel.moveToOffset(first)
+        e.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.CENTER)
     }
 
     /** The text as it is now in the editor (edited, when [show] made it editable). */
@@ -84,7 +104,7 @@ class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
         com.intellij.openapi.application.ReadAction
             .nonBlocking<Runnable?> { CodeFoldingManager.getInstance(project).updateFoldRegionsAsync(created, true) }
             .expireWhen { created.isDisposed }
-            .finishOnUiThread(com.intellij.openapi.application.ModalityState.any()) { apply -> if (!created.isDisposed) apply?.run() }
+            .finishOnUiThread(com.intellij.openapi.application.ModalityState.any()) { apply -> if (!created.isDisposed) { apply?.run(); mark(created) } }
             .submit(com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService())
         revalidate()
         repaint()

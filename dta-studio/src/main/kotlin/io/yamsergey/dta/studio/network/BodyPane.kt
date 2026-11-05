@@ -41,6 +41,8 @@ class BodyPane(
     private val entryId: String,
     private val ref: BodyRef,
     private val scope: CoroutineScope,
+    /** Feature 040: search words to mark in the text modes. */
+    private val marks: List<String> = emptyList(),
 ) : JPanel(BorderLayout()) {
     private val header = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     private val modes = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0))
@@ -134,7 +136,7 @@ class BodyPane(
                     else -> v.format.extension
                 }
                 val text = v.render(mode, bytes)
-                editor.show(text, extension)
+                editor.show(text, extension, marks = marks)
                 // Feature 026: what this mode shows, as shown.
                 actions.add(ActionLink("Copy") {
                     com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(java.awt.datatransfer.StringSelection(text))

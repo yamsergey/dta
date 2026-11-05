@@ -80,4 +80,10 @@ class QueryLineModelTest {
         assertEquals(HitTab.RESPONSE, HitNavigator().tabOf(hits))
         assertEquals(HitTab.HEADERS, HitNavigator().tabOf(hits.drop(2)))
     }
+
+    @Test
+    fun `spans of the words in a text as shown`() {
+        val pretty = "{\n  \"error\": \"Token expired\",\n  \"order_id\": 7\n}"
+        assertEquals(listOf("Token expired", "order_id"), Highlights.spans(pretty, listOf("token expired", "orderid")).map { pretty.substring(it) })
+    }
 }

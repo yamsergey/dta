@@ -62,6 +62,8 @@ class EntryDetailPane(
     private var target: JsonObject = JsonObject(emptyMap())
     private var side = Side.WIRE
     private var lastRedact = false
+    private var marks: List<String> = emptyList()
+    private var hitTab: io.yamsergey.dta.present.network.HitTab? = null
     private val navigator = FrameNavigator(project)
 
     init {
@@ -72,10 +74,17 @@ class EntryDetailPane(
      * Shows [id]; [gone] adds the caveat that it is no longer in the list (patterns.md); [unlisted]
      * that the list as filtered does not show it (reached by a link, 025).
      */
-    fun show(client: DaemonClient?, target: JsonObject, id: String?, redact: Boolean, gone: Boolean, unlisted: Boolean = false) {
+    fun show(
+        client: DaemonClient?, target: JsonObject, id: String?, redact: Boolean, gone: Boolean, unlisted: Boolean = false,
+        /** Feature 040: search words to mark, and the tab of the hit when one was moved to. */
+        marks: List<String> = emptyList(), hitTab: io.yamsergey.dta.present.network.HitTab? = null,
+    ) {
         if (id == null) { shown = null; return empty(SELECT) }
+        val marksChanged = marks != this.marks || hitTab != this.hitTab
+        this.marks = marks
+        this.hitTab = hitTab
         if (shown == id && this.client === client) {
-            if (gone != shownGone || unlisted != shownUnlisted) { shownUnlisted = unlisted; render(gone) }
+            if (gone != shownGone || unlisted != shownUnlisted || marksChanged) { shownUnlisted = unlisted; render(gone) }
             return
         }
         shownUnlisted = unlisted
@@ -116,13 +125,19 @@ class EntryDetailPane(
         tabs.addTab("Headers", scroll(headersPage(detail)))
         val c = client
         if (c != null) {
-            detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, target, id, it, scope)) }
-            detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, target, id, it, scope)) }
+            detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, target, id, it, scope, marks)) }
+            detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, target, id, it, scope, marks)) }
         }
         if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab("Messages", scroll(messagesPage(detail)))
         detail.initiator?.let { tabs.addTab("Initiator", scroll(initiatorPage(detail))) }
-        // The same tab stays open from entry to entry when the new one has it.
-        (0 until tabs.tabCount).firstOrNull { tabs.getTitleAt(it) == selected }?.let { tabs.selectedIndex = it }
+        // Moved to a search hit: its tab. Otherwise the same tab stays open from entry to entry when the new one has it.
+        val wanted = when (hitTab) {
+            io.yamsergey.dta.present.network.HitTab.HEADERS -> "Headers"
+            io.yamsergey.dta.present.network.HitTab.REQUEST, io.yamsergey.dta.present.network.HitTab.MESSAGE -> "Payload"
+            io.yamsergey.dta.present.network.HitTab.RESPONSE -> "Response"
+            null -> selected
+        }
+        (0 until tabs.tabCount).firstOrNull { tabs.getTitleAt(it) == wanted }?.let { tabs.selectedIndex = it }
 
         removeAll()
         add(header, BorderLayout.NORTH)
@@ -169,6 +184,7 @@ class EntryDetailPane(
     }
 
     private fun headersPage(detail: EntryDetail) = Page().apply {
+        marks = this@EntryDetailPane.marks
         title("General")
         detail.summary.drop(1).forEach { field(it.label, it.value) }
         detail.request?.let { headers(it) }

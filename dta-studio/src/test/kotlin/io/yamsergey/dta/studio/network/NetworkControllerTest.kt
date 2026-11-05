@@ -65,26 +65,53 @@ class NetworkControllerTest {
         assertEquals("r1-1:2", s.list.selectedId)
     }
 
+    private suspend fun until(check: () -> Boolean) = withTimeout(5_000) { while (!check()) kotlinx.coroutines.delay(20) }
+
     @Test
-    fun `a filter change is a new query with exactly those parameters`() = runBlocking<Unit> {
+    fun `the query line is the list's query, filters re-query and search words only search (040)`() = runBlocking<Unit> {
         session.start()
-        await { it.list.rows.size == 3 }
-        network.setFilter("status", JsonPrimitive("4xx"))
-        withTimeout(5_000) { while (daemon.ops.queries.none { it.second.filter?.status == "4xx" }) kotlinx.coroutines.delay(20) }
-        assertEquals("4xx", network.state.value.filters.params()["status"]!!.let { (it as JsonPrimitive).content })
-        network.removeFilter("status")
-        withTimeout(5_000) { while (daemon.ops.queries.last().second.filter?.status != null) kotlinx.coroutines.delay(20) }
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("status:4xx")
+        until { daemon.ops.queries.any { it.second.q == "status:4xx" } }
+        assertTrue(daemon.ops.searches.isEmpty(), "no search words, no search")
+        val lists = daemon.ops.queries.size
+        daemon.ops.searchHits = listOf(io.yamsergey.dta.protocol.network.EntryHits("r1-1:2", 0, listOf(
+            io.yamsergey.dta.protocol.network.SearchHit("r1-1:2", io.yamsergey.dta.protocol.network.SearchPlace.URL, "api", 8, 11, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("api", 0, 3)),
+        )))
+        network.setQuery("status:4xx api")
+        until { daemon.ops.searches.any { it.q == "status:4xx api" } }
+        val hit = await { it.hits.total == 1 }
+        assertEquals("– / 1", hit.hits.label)
+        assertEquals(lists, daemon.ops.queries.size, "a search word does not re-query the list")
+        network.nextHit()
+        val selected = await { it.list.selectedId == "r1-1:2" }
+        assertEquals("1 / 1", selected.hits.label)
+        network.setQuery("")
+        until { daemon.ops.queries.last().second.q == null }
+        await { it.hits.total == 0 }
     }
 
     @Test
-    fun `the kind switch queries WebSocket connections and messages only, then everything again`() = runBlocking<Unit> {
+    fun `a line with problems changes nothing but says what is wrong (040)`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        val lists = daemon.ops.queries.size
+        network.setQuery("stats:4xx")
+        val s = await { it.line.text == "stats:4xx" }
+        assertTrue(s.line.parsed.problems.single().message.contains("did you mean status:"))
+        kotlinx.coroutines.delay(200)
+        assertEquals(lists, daemon.ops.queries.size)
+    }
+
+    @Test
+    fun `the kind switch writes the line and queries WebSocket traffic only, then everything again`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 }
         network.setKind(io.yamsergey.dta.present.network.KindChoice.WEBSOCKET)
-        withTimeout(5_000) { while (daemon.ops.queries.none { it.second.filter?.kinds?.size == 2 }) kotlinx.coroutines.delay(20) }
-        assertEquals(io.yamsergey.dta.present.network.KindChoice.WEBSOCKET, network.state.value.filters.kind)
+        until { daemon.ops.queries.any { it.second.q == "ws" } }
+        assertEquals(io.yamsergey.dta.present.network.KindChoice.WEBSOCKET, network.state.value.line.kind)
         network.setKind(io.yamsergey.dta.present.network.KindChoice.ALL)
-        withTimeout(5_000) { while (daemon.ops.queries.last().second.filter?.kinds != null) kotlinx.coroutines.delay(20) }
+        until { daemon.ops.queries.last().second.q == null }
     }
 
     @Test

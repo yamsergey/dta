@@ -6,7 +6,12 @@ import io.yamsergey.dta.present.Statements
 import io.yamsergey.dta.present.context.Connection
 import io.yamsergey.dta.present.network.LiveEvent
 import io.yamsergey.dta.present.network.LiveList
-import io.yamsergey.dta.present.network.NetworkFilters
+import io.yamsergey.dta.present.network.HitNavigator
+import io.yamsergey.dta.present.network.KindChoice
+import io.yamsergey.dta.present.network.LineChip
+import io.yamsergey.dta.present.network.QueryLineModel
+import io.yamsergey.dta.protocol.network.SearchPage
+import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.studio.ContextController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,9 +32,17 @@ data class NetworkViewState(
     val device: String? = null,
     val app: String? = null,
     val list: LiveList = LiveList(),
-    val filters: NetworkFilters = NetworkFilters(),
+    /** Feature 040: the query line — filters and search words — is the view's whole query. */
+    val line: QueryLineModel = QueryLineModel(),
     /** Statements about the list as a whole: eviction, runs not searched, degradation. */
     val statements: List<Statement> = emptyList(),
+    /** Feature 040: the search words' hits, in the list's order, and the current one. */
+    val hits: HitNavigator = HitNavigator(),
+    /** Hits run top to bottom as the list shows newest first (the list's order switch). */
+    val hitsNewestFirst: Boolean = true,
+    val searching: Boolean = false,
+    /** What the search could not cover (not-searched bodies, an app that cannot search). */
+    val searchStatements: List<Statement> = emptyList(),
     val redact: Boolean = false,
     /** An archive scope (`all`, an epoch id…): the archived history instead of live traffic (feature 011). */
     val archive: String? = null,
@@ -61,20 +74,86 @@ class NetworkController(private val context: ContextController, private val scop
 
     fun list(event: LiveEvent) = mutable.update { it.copy(list = it.list.reduce(event)) }
 
-    fun setFilter(name: String, value: JsonElement) {
-        mutable.update { it.copy(filters = it.filters.with(name, value)) }
-        reload()
+    /**
+     * The query line as typed. A line with problems changes nothing (the field shows them);
+     * a changed filter part is a new query, a changed search part only a new search.
+     */
+    fun setQuery(text: String) {
+        val before = mutable.value.line
+        val line = before.withText(text)
+        if (line.parsed.problems.isNotEmpty()) { mutable.update { it.copy(line = line) }; return }
+        mutable.update { it.copy(line = line) }
+        val sameFilters = before.parsed.problems.isEmpty() && before.parsed.filter == line.parsed.filter && before.parsed.exclude == line.parsed.exclude
+        if (sameFilters) search() else reload()
     }
 
-    /** The All / HTTP / WebSocket switch: the `kinds` filter. */
-    fun setKind(choice: io.yamsergey.dta.present.network.KindChoice) {
-        mutable.update { it.copy(filters = it.filters.withKind(choice)) }
-        reload()
+    /** The All / HTTP / WebSocket switch: the line's kind word. */
+    fun setKind(choice: KindChoice) = setQuery(mutable.value.line.withKind(choice).text)
+
+    fun removeChip(chip: LineChip) = setQuery(mutable.value.line.without(chip).text)
+
+    /** The list's order switch: hits are stepped through top to bottom. */
+    fun setHitsNewestFirst(newestFirst: Boolean) {
+        if (mutable.value.hitsNewestFirst == newestFirst) return
+        mutable.update { it.copy(hitsNewestFirst = newestFirst) }
+        search()
     }
 
-    fun removeFilter(name: String) {
-        mutable.update { it.copy(filters = it.filters.without(name)) }
-        reload()
+    /** Next / previous hit: selected in the list (older pages loaded until it is there). */
+    fun nextHit() = moveHit(forward = true)
+
+    fun previousHit() = moveHit(forward = false)
+
+    private fun moveHit(forward: Boolean) {
+        val moved = mutable.value.hits.let { if (forward) it.next() else it.previous() }
+        mutable.update { it.copy(hits = moved) }
+        moved.current?.id?.let(::selectLoaded)
+    }
+
+    /** Selects [id], loading older pages (at most [REVEAL_PAGES]) while it is not loaded yet. */
+    private fun selectLoaded(id: String) {
+        val c = context.client
+        if (mutable.value.list.rows.any { it.id == id } || c == null) { list(LiveEvent.Selected(id)); return }
+        scope.launch {
+            var pages = 0
+            while (mutable.value.list.rows.none { it.id == id } && pages++ < REVEAL_PAGES) {
+                val cursor = mutable.value.list.older ?: break
+                val r = runCatching { c.call("network.list", params(mutable.value, before = cursor)) }.getOrNull() ?: break
+                list(LiveEvent.Older(r.result.jsonObject))
+            }
+            list(LiveEvent.Selected(id))
+        }
+    }
+
+    private var searchJob: Job? = null
+
+    /** Runs the line's search words (`network.search`), or clears the hits when there are none. */
+    fun search(debounceMs: Long = 0) {
+        searchJob?.cancel()
+        val s = mutable.value
+        val c = context.client
+        if (!s.line.hasSearch || c == null || s.device == null || s.app == null) {
+            mutable.update { it.copy(hits = HitNavigator(), searching = false, searchStatements = emptyList()) }
+            return
+        }
+        searchJob = scope.launch {
+            if (debounceMs > 0) kotlinx.coroutines.delay(debounceMs)
+            mutable.update { it.copy(searching = true) }
+            val params = JsonObject(
+                target(s) + s.line.params() + mapOf("limit" to JsonPrimitive(SEARCH_LIMIT), "order" to JsonPrimitive(if (s.hitsNewestFirst) "newest-first" else "oldest-first")) +
+                    (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
+            )
+            runCatching { DtaJson.decodeFromJsonElement(SearchPage.serializer(), c.call("network.search", params).result) }
+                .onSuccess { page ->
+                    mutable.update {
+                        it.copy(
+                            hits = it.hits.refreshed(page.entries, order = it.list.rows.map { r -> r.id }.let { ids -> if (it.hitsNewestFirst) ids.asReversed() else ids }),
+                            searching = false, searchStatements = Statements.forSearch(page),
+                        )
+                    }
+                }
+                .onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) mutable.update { it.copy(searching = false, error = e.message) } }
+        }
     }
 
     fun setRedact(on: Boolean) {
@@ -122,7 +201,7 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return done(Result.failure(IllegalStateException("No DTA daemon connected.")))
         scope.launch {
             val params = JsonObject(
-                target(s) + s.filters.params() + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                target(s) + s.line.params() + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
                     (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
             )
             val result = runCatching { c.call("network.export", params).result.jsonObject }
@@ -151,7 +230,7 @@ class NetworkController(private val context: ContextController, private val scop
             source = scope.launch {
                 mutable.update { it.copy(loading = true) }
                 runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
-                    .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false) } }
+                    .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false) }; search() }
                     .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false) } }
             }
             return
@@ -161,11 +240,12 @@ class NetworkController(private val context: ContextController, private val scop
             mutable.update { it.copy(loading = true) }
             try {
                 val s = mutable.value
-                client.networkEvents(JsonObject(target(s) + s.filters.params())).collect { data ->
+                client.networkEvents(JsonObject(target(s) + s.line.params())).collect { data ->
                     if (data["selection"] != null) {
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
                         mutable.update { it.copy(list = it.list.reduce(LiveEvent.Loaded(page)), statements = Statements.forNetworkList(page), loading = false, watching = true) }
+                        search()
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
                         val cleared = Statements.forCleared(data)!!
@@ -175,6 +255,8 @@ class NetworkController(private val context: ContextController, private val scop
                         val entry = event["entry"]?.jsonObject ?: return@collect
                         val change = (event["change"] as? JsonPrimitive)?.content
                         list(if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry))
+                        // New traffic may hold the words: the hits are refreshed once it settles.
+                        if (mutable.value.line.hasSearch) search(debounceMs = SEARCH_SETTLE_MS)
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -190,12 +272,15 @@ class NetworkController(private val context: ContextController, private val scop
     private fun target(s: NetworkViewState) = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())
 
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
-        target(s) + s.filters.params(limit = PAGE, before = before) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+        target(s) + s.line.params() + mapOf("limit" to JsonPrimitive(PAGE)) + (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
             (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
     )
 
     companion object {
         const val PAGE = 500
+        const val SEARCH_LIMIT = 1000
+        const val SEARCH_SETTLE_MS = 1000L
+        const val REVEAL_PAGES = 10
     }
 }
 

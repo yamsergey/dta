@@ -27,7 +27,8 @@ import io.yamsergey.dta.present.network.EntryRows
 import io.yamsergey.dta.present.network.KindChoice
 import io.yamsergey.dta.present.network.ListOrder
 import io.yamsergey.dta.present.network.LiveEvent
-import io.yamsergey.dta.present.network.NetworkFilters
+import io.yamsergey.dta.present.network.QueryLineModel
+import io.yamsergey.dta.present.network.Suggestion
 import io.yamsergey.dta.present.network.Row
 import io.yamsergey.dta.present.network.Scrolling
 import io.yamsergey.dta.studio.ContextController
@@ -59,8 +60,8 @@ import javax.swing.table.AbstractTableModel
 /**
  * The Network view (US1, contracts/tool-window.md): one live list of HTTP and WebSocket traffic
  * that never jumps, newest at the bottom or on top as the person prefers, a toggle that follows
- * the newest rows (feature 021), filter chips with "shown of total", pause, and the entry detail
- * beside or below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
+ * the newest rows (feature 021), a query line that filters and searches (040) with its chips,
+ * hit counter and "shown of total", pause, and the entry detail beside or below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
  */
 class NetworkPanel(
     private val project: Project,
@@ -96,6 +97,21 @@ class NetworkPanel(
     }
     private val scroll = JBScrollPane(table)
     private val chips = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
+    /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP. */
+    private val query = com.intellij.ui.components.JBTextField().apply {
+        emptyText.text = "Filter and search: POST status:4xx host:api.example.com -host:… token \"a phrase\""
+        toolTipText = "<html>key:value words filter (method: status: host: url: kind: has:intervention body: run: since:5m until:, GET/POST…, http, ws);<br>" +
+            "-key:value leaves matches out; other words are searched in URLs, headers and bodies and marked, nothing hidden.<br>" +
+            "Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.</html>"
+    }
+    private val hitLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
+    private val previousHit = ActionLink("↑") { stepHit(forward = false) }.apply { toolTipText = "Previous hit (Shift+Enter, Shift+F3)" }
+    private val nextHit = ActionLink("↓") { stepHit(forward = true) }.apply { toolTipText = "Next hit (Enter, F3)" }
+    private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
+    private val suggestionList = com.intellij.ui.components.JBList<Suggestion>().apply {
+        cellRenderer = com.intellij.ui.SimpleListCellRenderer.create("") { it.text + (it.hint?.let { h -> "   $h" } ?: "") }
+    }
+    private var suggestionPopup: com.intellij.openapi.ui.popup.JBPopup? = null
     private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     // The IDE's own segmented control: a plain JToggleButton's pressed state barely shows in the new UI.
@@ -138,23 +154,43 @@ class NetworkPanel(
         val kindSwitch = panel {
             row {
                 kinds = segmentedButton(KindChoice.entries) { text = it.label }
-                    .whenItemSelectedFromUi { choice -> if (last.filters.kind != choice) network.setKind(choice) }
+                    .whenItemSelectedFromUi { choice -> if (last.line.kind != choice) { typing.stop(); network.setKind(choice) } }
             }
         }.apply { isOpaque = false }
         kinds.selectedItem = KindChoice.ALL
-        val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
+        // Row 1: the query line with its hit counter; row 2: its filters as chips and the count; row 3: how the list is shown.
+        val queryRow = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
+            border = JBUI.Borders.empty(4, 8, 2, 8)
+            add(query, BorderLayout.CENTER)
+            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false; add(hitLabel); add(previousHit); add(nextHit) }, BorderLayout.EAST)
+        }
+        val chipRow = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(0, 4)
+            add(chips, BorderLayout.CENTER)
+            add(caption, BorderLayout.EAST)
+        }
+        val more = ActionLink("⋯") { e ->
+            val group = DefaultActionGroup(
+                object : com.intellij.openapi.project.DumbAwareAction("Export HAR…") { override fun actionPerformed(e: AnActionEvent) = exportHar() },
+                object : com.intellij.openapi.project.DumbAwareAction("Clear History…") { override fun actionPerformed(e: AnActionEvent) = clear() },
+            )
+            JBPopupFactory.getInstance().createActionGroupPopup(null, group, com.intellij.ide.DataManager.getInstance().getDataContext(this), JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
+                .showUnderneathOf(e.source as java.awt.Component)
+        }.apply { toolTipText = "Export HAR…, Clear history…" }
+        val viewRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
             add(kindSwitch)
-            add(ActionLink("+ Filter") { addFilter() })
-            add(chips)
-            add(caption)
+            add(source)
             add(orderLink)
             add(followBar.component)
-            add(source)
             add(pause)
             add(redact)
-            add(ActionLink("Export HAR…") { exportHar() })
-            add(ActionLink("Clear") { clear() })
+            add(more)
         }
+        val toolbar = JPanel().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+            listOf(queryRow, chipRow, viewRow).forEach { it.alignmentX = LEFT_ALIGNMENT; add(it) }
+        }
+        bindQuery()
         val master = JPanel(BorderLayout()).apply {
             add(JPanel(BorderLayout()).apply { add(toolbar, BorderLayout.NORTH); add(statements, BorderLayout.SOUTH) }, BorderLayout.NORTH)
             add(scroll, BorderLayout.CENTER)
@@ -191,8 +227,11 @@ class NetworkPanel(
         Keyboard.bind(this, ViewKey.START) { if (model.rowCount > 0) table.changeSelection(0, 0, false, false) }
         Keyboard.bind(this, ViewKey.END) { network.list(LiveEvent.JumpToEnd); table.clearSelection(); scrollToEdge() }
         Keyboard.bind(this, ViewKey.PAUSE) { pause.doClick() }
-        Keyboard.bind(this, ViewKey.FILTERS) { addFilter() }
-        Keyboard.bind(this, ViewKey.SEARCH) { addFilter("url") }
+        Keyboard.bind(this, ViewKey.FILTERS) { query.requestFocusInWindow() }
+        Keyboard.bind(this, ViewKey.SEARCH) { query.requestFocusInWindow() }
+        fun key(stroke: String, action: () -> Unit) = registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+        key("F3") { stepHit(forward = true) }
+        key("shift F3") { stepHit(forward = false) }
         Keyboard.bind(this, ViewKey.COPY) { copySelected() }
         Keyboard.bind(this, ViewKey.OPEN) { detail.requestFocusInWindow() }
         Keyboard.bind(this, ViewKey.BACK) { table.requestFocusInWindow() }
@@ -226,17 +265,33 @@ class NetworkPanel(
         pause.isEnabled = s.archive == null
 
         // A kinds filter the switch cannot express is a chip; then no switch position is lit.
-        val kind = s.filters.kind
+        val kind = s.line.kind
         if (kinds.selectedItem != kind) kinds.selectedItem = kind
-        if (s.filters != previous.filters || chips.componentCount == 0) {
+        // The line is the person's while they type; set from the state only when changed elsewhere (a chip, the switch).
+        if (s.line.text != query.text && !typing.isRunning && s.line.text != previous.line.text) query.text = s.line.text
+        val problems = s.line.parsed.problems.takeIf { s.line.text == query.text }.orEmpty()
+        query.putClientProperty("JComponent.outline", if (problems.isEmpty()) null else "error")
+        if (s.line != previous.line || chips.componentCount == 0) {
             chips.removeAll()
-            s.filters.chips.forEach { chip -> chips.add(ActionLink("${chip.label} ×") { network.removeFilter(chip.name) }) }
+            s.line.chips.forEach { chip -> chips.add(ActionLink("${chip.label} ×") { typing.stop(); network.removeChip(chip) }.apply { toolTipText = "Remove this filter from the line" }) }
         }
+        hitLabel.foreground = if (problems.isEmpty()) com.intellij.ui.JBColor.GRAY else DtaColors.of("status-server")
+        hitLabel.text = when {
+            problems.isNotEmpty() -> problems.first().message
+            !s.line.hasSearch -> ""
+            s.searching && s.hits.total == 0 -> "Searching…"
+            else -> s.hits.label
+        }
+        hitLabel.toolTipText = problems.takeIf { it.size > 1 }?.joinToString("<br>", "<html>", "</html>") { it.message }
+        previousHit.isVisible = s.line.hasSearch && s.hits.total > 0
+        nextHit.isVisible = previousHit.isVisible
         // The caption keeps its width while traffic arrives (024); it starts over on new filters or a cleared list.
-        if (s.filters != previous.filters || s.list.total < previous.list.total) caption.reset()
-        caption.text = s.filters.caption(s.list.shown, s.list.total)
+        if (s.line != previous.line || s.list.total < previous.list.total) caption.reset()
+        val filterCount = s.line.chips.size
+        caption.text = "${s.list.shown} of ${s.list.total} shown" + when (filterCount) { 0 -> ""; 1 -> " · 1 filter"; else -> " · $filterCount filters, combined with AND" }
+        if (s.hits != previous.hits) table.repaint()
         statements.removeAll()
-        (io.yamsergey.dta.present.Statements.forNetworkTab(s.statements) + listOfNotNull(
+        (io.yamsergey.dta.present.Statements.forNetworkTab(s.statements) + s.searchStatements + listOfNotNull(
             if (s.list.paused) io.yamsergey.dta.present.Statement(io.yamsergey.dta.present.StatementKind.PENDING, word = "paused", detail = "paused: ${s.list.backlog} waiting; capture goes on") else null,
         )).forEach { statements.add(StatementMark(it)) }
         s.error?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.of("status-server") }) }
@@ -245,7 +300,7 @@ class NetworkPanel(
         empty.text = when {
             s.app == null -> ""
             s.loading -> "Loading…"
-            s.list.rows.isEmpty() && s.filters.isEmpty -> "No traffic yet. Requests appear here as the app makes them."
+            s.list.rows.isEmpty() && s.line.chips.isEmpty() -> "No traffic yet. Requests appear here as the app makes them."
             s.list.rows.isEmpty() -> "Nothing matches these filters."
             else -> ""
         }
@@ -254,7 +309,9 @@ class NetworkPanel(
         // Reached by a link (025): bring the row into view; one the filters hide is still shown, saying so.
         if (selectedRow != null && s.list.selectedId != previous.list.selectedId) table.scrollRectToVisible(table.getCellRect(selectedRow, 0, true))
         val unlisted = s.list.selectedId != null && selectedRow == null && !s.list.selectedGone && !s.loading
-        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted)
+        val terms = if (s.line.hasSearch) s.line.parsed.terms.map { it.text } else emptyList()
+        val hitTab = s.hits.current?.takeIf { it.id == s.list.selectedId }?.let { s.hits.tabOf(it.hits) }
+        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab)
         revalidate()
         repaint()
     }
@@ -284,6 +341,7 @@ class NetworkPanel(
     /** Shows newest on top or at the bottom, remembered across sessions; the selection and following stay. */
     private fun setOrder(order: ListOrder) {
         PropertiesComponent.getInstance().setValue(ORDER_KEY, order.name, ListOrder.DEFAULT.name)
+        network.setHitsNewestFirst(order == ListOrder.NEWEST_FIRST)
         orderLink.text = if (order == ListOrder.NEWEST_FIRST) "↓ ${order.label}" else "↑ ${order.label}"
         orderLink.toolTipText = "Show ${order.toggled().label.lowercase()}"
         if (model.order == order && model.rowCount > 0) return
@@ -322,32 +380,74 @@ class NetworkPanel(
         CopyPasteManager.getInstance().setContents(StringSelection(url))
     }
 
-    /** Asks for one filter value; the choices are the network.list parameters. */
-    private fun addFilter(preset: String? = null) {
-        val names = NetworkFilters.NAMES
-        fun ask(name: String) {
-            val value = Messages.showInputDialog(project, prompt(name), "Network Filter", null) ?: return
-            if (value.isBlank()) return
-            network.setFilter(name, when (name) {
-                "kinds" -> JsonArray(value.split(',').map { JsonPrimitive(it.trim()) })
-                "intervened" -> JsonPrimitive(value.trim().lowercase() in setOf("true", "yes", "scripted"))
-                "sinceMs", "untilMs" -> JsonPrimitive(value.trim().toLongOrNull() ?: return)
-                else -> JsonPrimitive(value.trim())
-            })
+    /** Feature 040: typing runs the line (debounced), suggestions follow the caret, Enter steps through hits. */
+    private fun bindQuery() {
+        query.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = changed()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = changed()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = changed()
+            private fun changed() {
+                if (query.text == last.line.text) return
+                typing.restart()
+                javax.swing.SwingUtilities.invokeLater { if (query.hasFocus()) suggest() }
+            }
+        })
+        query.addFocusListener(object : java.awt.event.FocusAdapter() {
+            override fun focusLost(e: java.awt.event.FocusEvent) { suggestionPopup?.cancel() }
+        })
+        fun on(stroke: String, action: () -> Unit) {
+            query.registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_FOCUSED)
         }
-        if (preset != null) return ask(preset)
-        JBPopupFactory.getInstance().createPopupChooserBuilder(names).setTitle("Filter by").setItemChosenCallback { ask(it) }.createPopup().showUnderneathOf(chips)
+        on("DOWN") { if (popupShown()) moveSuggestion(1) else suggest() }
+        on("UP") { if (popupShown()) moveSuggestion(-1) }
+        on("TAB") { if (popupShown()) applySuggestion() }
+        on("ENTER") {
+            if (popupShown()) { applySuggestion(); return@on }
+            if (typing.isRunning) { typing.stop(); network.setQuery(query.text) }
+            stepHit(forward = true)
+        }
+        on("shift ENTER") { stepHit(forward = false) }
+        on("ESCAPE") { if (popupShown()) suggestionPopup?.cancel() else table.requestFocusInWindow() }
+        suggestionList.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) { applySuggestion(); query.requestFocusInWindow() }
+        })
     }
 
-    private fun prompt(name: String) = when (name) {
-        "url" -> "URL contains (case-insensitive):"
-        "method" -> "HTTP method:"
-        "status" -> "Status: a code (404), a class (4xx), failed or pending:"
-        "kinds" -> "Kinds, comma-separated (http, ws-connection, ws-message):"
-        "intervened" -> "Scripted only (true) or untouched only (false):"
-        "bodyContains" -> "Body contains (case-sensitive):"
-        "runs" -> "Runs: current or all:"
-        else -> "$name (epoch milliseconds):"
+    private fun popupShown() = suggestionPopup?.isVisible == true
+
+    private fun suggest() {
+        val items = last.line.withText(query.text).suggestions(query.caretPosition, QueryLineModel.seen(model.views()))
+        suggestionPopup?.cancel()
+        if (items.isEmpty()) return
+        suggestionList.setListData(items.toTypedArray())
+        suggestionList.selectedIndex = 0
+        suggestionList.visibleRowCount = minOf(items.size, 8)
+        suggestionPopup = JBPopupFactory.getInstance().createComponentPopupBuilder(JBScrollPane(suggestionList), null)
+            .setRequestFocus(false).setFocusable(false).setCancelOnClickOutside(true).setMinSize(java.awt.Dimension(JBUI.scale(220), 0))
+            .createPopup().also { it.showUnderneathOf(query) }
+    }
+
+    private fun moveSuggestion(by: Int) {
+        val n = suggestionList.model.size
+        if (n == 0) return
+        suggestionList.selectedIndex = (suggestionList.selectedIndex + by).mod(n)
+        suggestionList.ensureIndexIsVisible(suggestionList.selectedIndex)
+    }
+
+    private fun applySuggestion() {
+        val chosen = suggestionList.selectedValue ?: return
+        suggestionPopup?.cancel()
+        val (applied, caret) = last.line.withText(query.text).apply(chosen, query.caretPosition)
+        query.text = applied.text
+        query.caretPosition = caret.coerceAtMost(query.text.length)
+        // A key just completed ("status:") offers its values next.
+        if (chosen.text.endsWith(":")) suggest()
+    }
+
+    /** Down the list = the next hit, whichever order the list shows. */
+    private fun stepHit(forward: Boolean) {
+        if (!last.line.hasSearch) return
+        if (forward) network.nextHit() else network.previousHit()
     }
 
     private data class Column(val title: String, val sample: String?, val tooltip: String? = null)
@@ -361,6 +461,9 @@ class NetworkPanel(
         private val cache = HashMap<Row, EntryRow>()
 
         fun view(row: Row): EntryRow = cache.getOrPut(row) { EntryRows.of(row.entry) }
+
+        /** The newest rows as shown, for the query line's value suggestions (hosts, statuses, methods). */
+        fun views(): List<EntryRow> = rows.takeLast(500).map(::view)
 
         fun rowAt(shown: Int): Row = rows[order.shown(shown, rows.size)]
 
@@ -404,6 +507,10 @@ class NetworkPanel(
             // One renderer draws every cell: a tooltip set for one cell must not show on the next.
         toolTipText = null
         val r = value as? EntryRow ?: return
+            // Feature 040: rows holding the search words are tinted; the current hit more.
+            if (!selected && last.line.hasSearch && last.hits.hitsOf(r.id) != null) {
+                background = if (last.hits.current?.id == r.id) io.yamsergey.dta.studio.ui.SEARCH_MARK else com.intellij.ui.JBColor(java.awt.Color(0xFF, 0xF6, 0xD6), java.awt.Color(0x3D, 0x37, 0x24))
+            }
             val kind = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.of(r.kind.token))
             val muted = SimpleTextAttributes.GRAYED_ATTRIBUTES
             when (column) {

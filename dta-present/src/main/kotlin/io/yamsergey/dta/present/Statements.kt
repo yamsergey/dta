@@ -105,6 +105,12 @@ object Statements {
         (forEntry(detail.obj("entry") ?: JsonObject(emptyMap())) + redaction(detail["redaction"]) + markers(detail["degraded"])).ordered()
 
     /** A `network.list` result as a whole: degradation, runs not searched, eviction. */
+    /** Feature 040: what a search could not cover. */
+    fun forSearch(page: io.yamsergey.dta.protocol.network.SearchPage): List<Statement> = buildList {
+        page.degraded?.let { addAll(markers(io.yamsergey.dta.protocol.rpc.DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.rpc.DegradationMarker.serializer()), it))) }
+        page.notSearched?.forEach { add(Statement(StatementKind.DEGRADED, detail = "not searched: $it")) }
+    }
+
     fun forNetworkList(page: JsonObject): List<Statement> = buildList {
         addAll(markers(page["degraded"]))
         (page["archived"] as? JsonObject)?.takeIf { it.isNotEmpty() }?.let { marks ->

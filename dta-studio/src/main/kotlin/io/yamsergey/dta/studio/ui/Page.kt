@@ -37,12 +37,20 @@ open class Page : JPanel(GridBagLayout()), Scrollable {
     /** A section title, as the IDE's own panels draw them. */
     fun title(text: String) = line(JBLabel(text).apply { font = font.deriveFont(Font.BOLD) }, top = if (row == 0) 0 else 12)
 
+    /** Feature 040: search words marked wherever a field holds them (name or value). */
+    var marks: List<String> = emptyList()
+
     /** Name and value in two aligned columns; the value wraps and can be selected and copied. */
     fun field(name: String, value: String, mono: Boolean = false) {
-        add(JBLabel(name).apply { foreground = JBColor.GRAY; verticalAlignment = SwingConstants.TOP }, GridBagConstraints().apply {
+        val nameMarked = io.yamsergey.dta.present.network.Highlights.spans(name, marks).isNotEmpty()
+        add(JBLabel(name).apply {
+            foreground = if (nameMarked) JBColor.foreground() else JBColor.GRAY
+            if (nameMarked) { isOpaque = true; background = SEARCH_MARK }
+            verticalAlignment = SwingConstants.TOP
+        }, GridBagConstraints().apply {
             gridx = 0; gridy = row; anchor = GridBagConstraints.NORTHWEST; insets = JBUI.insets(2, 0, 2, 12)
         })
-        add(Value(value, mono), GridBagConstraints().apply {
+        add(Value(value, mono).also { mark(it) }, GridBagConstraints().apply {
             gridx = 1; gridy = row++; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL; anchor = GridBagConstraints.NORTHWEST; insets = JBUI.insets(2, 0)
         })
     }
@@ -84,6 +92,11 @@ open class Page : JPanel(GridBagLayout()), Scrollable {
     override fun getScrollableTracksViewportHeight() = false
 
     /** Read-only wrapping text that looks like a label. */
+    private fun mark(area: JTextArea) {
+        val painter = javax.swing.text.DefaultHighlighter.DefaultHighlightPainter(SEARCH_MARK)
+        io.yamsergey.dta.present.network.Highlights.spans(area.text, marks).forEach { area.highlighter.addHighlight(it.first, it.last + 1, painter) }
+    }
+
     private class Value(text: String, mono: Boolean) : JTextArea(text) {
         init {
             isEditable = false
@@ -104,3 +117,6 @@ open class Page : JPanel(GridBagLayout()), Scrollable {
             get() = com.intellij.openapi.editor.colors.EditorColorsManager.getInstance().globalScheme.editorFontName
     }
 }
+
+/** Feature 040: the background of a search word wherever it is marked (the editor's search-result look). */
+val SEARCH_MARK: java.awt.Color = com.intellij.ui.JBColor(java.awt.Color(0xFF, 0xE5, 0x8F), java.awt.Color(0x5C, 0x4D, 0x1E))

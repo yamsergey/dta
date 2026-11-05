@@ -162,4 +162,14 @@ object Highlights {
         hits.filter { it.place == if (response) SearchPlace.RESPONSE_HEADER else SearchPlace.REQUEST_HEADER }.mapNotNull { it.header?.lowercase() }.toSet()
 
     fun url(hits: List<SearchHit>): List<IntRange> = hits.filter { it.place == SearchPlace.URL }.map { it.start until it.end }
+
+    /**
+     * Where the search words are in a text as shown (pretty-printed bodies move the offsets the
+     * hits give): found again with the same fuzzy match, in order.
+     */
+    fun spans(text: String, terms: List<String>): List<IntRange> {
+        if (terms.isEmpty() || text.isEmpty()) return emptyList()
+        val t = io.yamsergey.dta.protocol.network.Fuzzy.Text(text)
+        return terms.flatMap { term -> t.find(term).map { it.start until it.end } }.distinct().sortedBy { it.first }
+    }
 }
