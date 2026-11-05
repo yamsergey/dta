@@ -2,9 +2,7 @@ package io.yamsergey.dta.studio.network
 
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
-import com.intellij.ui.JBSplitter
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBLabel
@@ -13,7 +11,6 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import io.yamsergey.dta.client.DaemonClient
-import io.yamsergey.dta.present.network.BodyRef
 import io.yamsergey.dta.present.network.ContentLines
 import io.yamsergey.dta.present.network.EntryDetail
 import io.yamsergey.dta.present.network.EntryKind
@@ -50,16 +47,15 @@ import javax.swing.ListCellRenderer
 /**
  * Feature 042 (design system "Lists of app content"): a socket's messages, each row its summary
  * and the first lines of the message as Formatted shows it, coloured; "▸ N more lines" expands
- * the row in place (→ / ← and a click on that line); the selected message opens whole in the
- * body viewer below. Nothing depends on a column's width.
+ * the row in place (→ / ← and a click on that line); a double-click opens the message on its
+ * own (all body modes). Nothing depends on a column's width.
  */
 class MessagesView(
-    private val project: Project,
     private val client: DaemonClient?,
     private val target: JsonObject,
     private val scope: CoroutineScope,
     detail: EntryDetail,
-    /** The `network.entry` result: the messages' own JSON (payload info for the body viewer). */
+    /** The `network.entry` result: the messages' own JSON (stored sizes, to tell a cut preview). */
     raw: JsonObject,
     private val marks: List<String>,
     /** The tab's top line: the format control and the caption. */
@@ -95,11 +91,9 @@ class MessagesView(
         emptyText.text = "No messages"
         selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
     }
-    private val body = JPanel(BorderLayout())
     private val mono: Font get() = Font(EditorColorsManager.getInstance().globalScheme.editorFontName, Font.PLAIN, UIUtil.getLabelFont().size)
 
     init {
-        list.addListSelectionListener { e -> if (!e.valueIsAdjusting) showBody(list.selectedValue) }
         list.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
                 val index = list.locationToIndex(e.point).takeIf { it >= 0 } ?: return
@@ -111,13 +105,8 @@ class MessagesView(
         })
         list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { expand(it, true) } }, KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), WHEN_FOCUSED)
         list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { expand(it, false) } }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), WHEN_FOCUSED)
-        body.add(JBLabel("Select a message to see it whole.").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(8, 12) }, BorderLayout.NORTH)
-        val split = JBSplitter(true, 0.6f).apply {
-            firstComponent = JBScrollPane(list)
-            secondComponent = body
-        }
         add(top, BorderLayout.NORTH)
-        add(split, BorderLayout.CENTER)
+        add(JBScrollPane(list), BorderLayout.CENTER)
         detail.messagesMore?.let { add(JBLabel(it).apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 12) }, BorderLayout.SOUTH) }
     }
 
@@ -158,15 +147,6 @@ class MessagesView(
             val payload = envelopeOf(r["envelope"] as? JsonObject)?.takeIf { it.rule != null }?.payload
             withContext(Dispatchers.Main) { item.whole = payload ?: text; relayout() }
         }
-    }
-
-    private fun showBody(item: Item?) {
-        body.removeAll()
-        val c = client
-        val info = item?.payload
-        if (item != null && c != null && info != null) body.add(BodyPane(project, c, target, item.row.id, BodyRef("message", info), scope, marks), BorderLayout.CENTER)
-        body.revalidate()
-        body.repaint()
     }
 
     private fun content(item: Item): ContentLines? {

@@ -254,7 +254,7 @@ class EntryDetailPane(
      */
     private fun messagesPanel(detail: EntryDetail): JComponent {
         val top = FormatControl.top(detail, client, target, scope, edit = ::editFormat, remove = ::removeFormat)
-        return MessagesView(project, client, target, scope, detail, raw ?: JsonObject(emptyMap()), marks, top, open)
+        return MessagesView(client, target, scope, detail, raw ?: JsonObject(emptyMap()), marks, top, open)
     }
 
     /** Feature 039: the connection's format rule — a new one prefilled with its socket, or [rule] to replace. */
