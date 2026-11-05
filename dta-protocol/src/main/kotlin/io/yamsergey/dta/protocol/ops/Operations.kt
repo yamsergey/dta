@@ -245,7 +245,8 @@ object Catalog {
                     "archive", ParamType.STRING,
                     "Archived history instead of the live one (what the device cleared, or earlier installs): all, version:<name>, <fromMs>..<toMs>, or an epoch id from archive list. Entries come marked with their epoch.",
                 ),
-                ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words do not hide rows: the page's hits name the rows holding every word and where.", cliShort = "-q", cliName = "query"),
+                ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
+                ParamSpec("allRows", ParamType.BOOLEAN, "With search words: list every entry the filters keep, hits marked, instead of only the matches.", cliName = "all-rows"),
             ),
         ),
         OperationSpec(

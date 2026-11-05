@@ -72,6 +72,13 @@ data class FormatTestResult(
     }
 }
 
+/** Feature 041: how one rule read a connection's messages, and why the others were not read. */
+@Serializable
+data class FormatUse(val rule: String, val name: String, val read: Int, val of: Int, val unread: List<UnreadCount> = emptyList())
+
+@Serializable
+data class UnreadCount(val reason: String, val count: Int)
+
 @Serializable
 data class FormatSample(val text: String, val envelope: Envelope)
 
@@ -154,6 +161,47 @@ object FormatRules {
         val payload = groups["payload"]
         val note = if (payload != null && rule.payloadFormat == PayloadFormat.JSON && !isJson(payload)) "payload is not JSON" else null
         return Envelope(rule.name, groups["kind"], groups["id"], groups["topic"], payload, rule = rule.id, note = note)
+    }
+
+    /** Feature 041: why [rule] reads nothing of [text]; null when it reads it. */
+    fun whyNot(rule: FormatRule, text: String): String? {
+        if (apply(rule, text) != null) return null
+        if (slow(rule)) return "the pattern took too long"
+        val pattern = rule.pattern?.takeIf { it.isNotEmpty() }
+        if (pattern != null) {
+            val regex = runCatching { Regex(pattern, RegexOption.DOT_MATCHES_ALL) }.getOrNull() ?: return "the pattern does not compile"
+            if (regex.find(text) == null) return "the pattern does not match"
+        }
+        val t = text.trim()
+        if (pattern == null && !((t.startsWith("{") || t.startsWith("[")) && runCatching { json.parseToJsonElement(t) }.isSuccess)) return "not JSON"
+        return "none of the field paths is in it"
+    }
+
+    /**
+     * Feature 041: per rule whose URL pattern covers [url], how many of [messages] it read and why
+     * the others were not; [text] is a message's whole text (null: binary or not available).
+     */
+    fun use(rules: List<FormatRule>, url: String?, messages: List<WsMessageEntry>, text: (WsMessageEntry) -> String?): List<FormatUse> {
+        if (url == null) return emptyList()
+        return rules.filter { glob(it.urlPattern).matches(url) }.map { r ->
+            var read = 0
+            val reasons = LinkedHashMap<String, Int>()
+            fun miss(why: String) { reasons[why] = (reasons[why] ?: 0) + 1 }
+            messages.forEach { m ->
+                val chosen = select(rules, url, m.direction)
+                when {
+                    r.direction != null && r.direction != m.direction ->
+                        miss(if (m.direction == Direction.OUT) "sent by the app; the rule is for received" else "received; the rule is for sent by the app")
+                    chosen != null && chosen.id != r.id -> miss("read by rule ${chosen.name}")
+                    m.opcode == MessageOpcode.BINARY || m.payload.binary -> miss("binary")
+                    else -> {
+                        val t = text(m) ?: return@forEach miss("text not available")
+                        whyNot(r, t)?.let(::miss) ?: read++
+                    }
+                }
+            }
+            FormatUse(r.id, r.name, read, messages.size, reasons.map { UnreadCount(it.key, it.value) })
+        }
     }
 
     /** An object or an array: what a JSON payload is (a bare word would parse as a literal). */

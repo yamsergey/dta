@@ -65,16 +65,27 @@ class NetworkHistoryView(
         var total = 0
         val page = ArrayList<NetworkEntry>(minOf(query.limit, all.size))
         var more = false
+        // Feature 041: search words leave only the entries that hold them, unless every row is asked for.
+        val onlyHits = search != null && !query.allRows
+        val pageHits = HashMap<String, List<SearchHit>>()
         all.forEachIndexed { index, entry ->
-            if (eval != null) {
-                val matched = eval.matches(entry) ?: return@forEachIndexed
-                if (matched.isNotEmpty()) locations[entry.id] = matched
+            var matched: List<MatchLocation>? = null
+            if (eval != null) matched = eval.matches(entry) ?: return@forEachIndexed
+            val inPage = index >= start && page.size < query.limit
+            if (onlyHits) {
+                val h = search!!.hits(entry) ?: return@forEachIndexed
+                if (inPage) pageHits[entry.id] = h
             }
+            if (!matched.isNullOrEmpty()) locations[entry.id] = matched
             total++
             if (index < start) return@forEachIndexed
             if (page.size < query.limit) page += entry else more = true
         }
-        val hits = search?.let { s -> page.mapNotNull { e -> s.hits(e)?.let { e.id to it } }.toMap() }
+        val hits = when {
+            search == null -> null
+            onlyHits -> pageHits
+            else -> page.mapNotNull { e -> search.hits(e)?.let { e.id to it } }.toMap()
+        }
         val notSearched = notSearched(eval, search)
         val coverage = ctx.coverage.copy(searched = all.size, notSearched = notSearched)
         val earliest = chronological.firstOrNull()?.id
@@ -127,6 +138,7 @@ class NetworkHistoryView(
         ((eval?.binaryNotSearched ?: 0) + (eval?.excludedNotSearched ?: 0)).takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
         eval?.binaryUndecoded?.takeIf { it > 0 }?.let { "binary bodies without a schema, searched as bytes only ($it)" },
         search?.notSearched?.takeIf { it > 0 }?.let { "bodies the search could not read: encoding not undone, or not inspectable while redacting ($it)" },
+        search?.byPreview?.takeIf { it > 0 }?.let { "bodies searched by their first ${BodyInfo.PREVIEW_CHARS} characters: not copied from the app yet ($it)" },
         search?.truncated?.takeIf { it > 0 }?.let { "bodies stored cut, searched as far as stored ($it)" },
     ).ifEmpty { null }
 

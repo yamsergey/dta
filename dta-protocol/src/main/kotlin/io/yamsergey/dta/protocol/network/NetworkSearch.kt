@@ -52,6 +52,10 @@ class NetworkSearch(
     var notSearched = 0
         private set
 
+    /** Feature 041: bodies the host has no copy of yet, searched by their preview. */
+    var byPreview = 0
+        private set
+
     /** Bodies stored cut (searched as far as stored). */
     var truncated = 0
         private set
@@ -113,17 +117,26 @@ class NetworkSearch(
         if (info.completeness == Completeness.TRUNCATED) truncated++
         if (info.binary) {
             decoded?.invoke(entry, part)?.let { return Place(place, it, part) }
-            val body = bodyBytes(entry, part) ?: return null
+            val body = bodyBytes(entry, part) ?: run { if (info.storedBytes > 0) notSearched++; return null }
             if (!body.decoded) { notSearched++; return null }
             if (redact) { notSearched++; return null }
             return Place(place, String(body.bytes, Charsets.ISO_8859_1), part, binary = true)
         }
-        val body = bodyBytes(entry, part) ?: return null
+        val body = bodyBytes(entry, part) ?: return previewPlace(info, part, place)
         if (!body.decoded) { notSearched++; return null }
         val text = String(body.bytes, Charsets.UTF_8)
         if (!redact) return Place(place, text, part)
         val r = Redactor.body(text, info.contentType, "")
         return r.text?.let { Place(place, it, part) } ?: run { notSearched++; null }
+    }
+
+    /** Feature 041: no host copy — the preview is what is known; nothing is skipped without a count. */
+    private fun previewPlace(info: BodyInfo, part: BodyPart, place: SearchPlace): Place? {
+        if (info.storedBytes <= 0 && info.preview == null) return null
+        val preview = info.preview ?: run { notSearched++; return null }
+        byPreview++
+        val text = if (redact) Redactor.body(preview, info.contentType, "").text ?: run { notSearched++; return null } else preview
+        return Place(place, text, part)
     }
 
     /** Strings inside binary bytes: the term's UTF-8 bytes, case-insensitive for ASCII letters. */

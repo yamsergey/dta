@@ -97,4 +97,18 @@ class NetworkSearchTest {
     fun `no terms, no hits`() {
         assertNull(search().hits(login))
     }
+
+    @Test
+    fun `a body the host has no copy of is searched by its preview and counted`() {
+        val uncopied = tick.copy(id = "r1:9", payload = body(BodyPart.MESSAGE).copy(preview = """{"type":"order","symbol":"WAYNE"}"""))
+        val s = search("wayne")
+        val hit = s.hits(uncopied)!!.single()
+        assertEquals(SearchPlace.PAYLOAD, hit.place)
+        assertEquals(1, s.byPreview)
+        // Nothing known at all: still counted, not skipped silently.
+        val s2 = search("wayne")
+        assertNull(s2.hits(tick.copy(id = "r1:10")))
+        assertEquals(1, s2.notSearched)
+    }
+
 }

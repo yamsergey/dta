@@ -31,11 +31,24 @@ class HistoryQueryTest {
     )
 
     @Test
-    fun `the line filters and the page marks hits without hiding rows`() {
+    fun `search words leave only the entries that hold them`() {
         val page = view.list(NetworkQuery(q = "-host:telemetry.example.test \"token expired\""))
-        assertEquals(listOf("r1:5", "r1:4", "r1:2", "r1:1"), page.entries.map { it.id })
+        assertEquals(listOf("r1:4", "r1:2"), page.entries.map { it.id })
+        assertEquals(2, page.total)
         assertEquals(setOf("r1:4", "r1:2"), page.hits!!.keys)
         assertEquals(SearchPlace.RESPONSE_BODY, page.hits!!.getValue("r1:2").single().place)
+        // Paging over the matches only.
+        val first = view.list(NetworkQuery(q = "expired", limit = 1))
+        assertEquals(listOf("r1:4"), first.entries.map { it.id })
+        assertEquals(3, first.total)
+        assertEquals(listOf("r1:3"), view.list(NetworkQuery(q = "expired", limit = 1, before = first.next)).entries.map { it.id })
+    }
+
+    @Test
+    fun `all rows keeps every row the filters keep, hits marked`() {
+        val page = view.list(NetworkQuery(q = "-host:telemetry.example.test \"token expired\"", allRows = true))
+        assertEquals(listOf("r1:5", "r1:4", "r1:2", "r1:1"), page.entries.map { it.id })
+        assertEquals(setOf("r1:4", "r1:2"), page.hits!!.keys)
     }
 
     @Test

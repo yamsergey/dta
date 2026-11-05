@@ -74,6 +74,8 @@ data class NetworkQuery(
     val archive: ArchiveScope? = null,
     /** Feature 040: the query line — filters and search words ([QueryLine]). */
     val q: String? = null,
+    /** Feature 041: with search words, list every entry the filters keep (hits marked), not only those with hits. */
+    val allRows: Boolean = false,
 ) {
     /**
      * The filter of [filter] and the line's filters together (the line's win where both give a

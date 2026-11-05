@@ -560,6 +560,8 @@ data class NetworkEntryDetail(
     val degraded: List<DegradationMarker>? = null,
     /** Set when the entry comes from the archive (feature 011). */
     val archived: ArchivedMark? = null,
+    /** Feature 041: ws-connection only — how the app's format rules for its URL read its messages (the daemon's). */
+    val formatUse: List<FormatUse>? = null,
 ) {
     companion object {
         const val MAX_MESSAGES = 1000

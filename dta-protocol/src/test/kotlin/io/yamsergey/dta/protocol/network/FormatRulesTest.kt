@@ -107,4 +107,23 @@ class FormatRulesTest {
 
     private fun spec(pattern: String? = null, kind: String? = null, url: String = "wss://x/*") =
         FormatRuleSpec(name = "orders", urlPattern = url, pattern = pattern, kind = kind)
+
+    @Test
+    fun `why a rule did not read a message`() {
+        assertEquals("the pattern does not match", FormatRules.whyNot(rule(pattern = """^(?<id>\d+)\|(?<kind>\w+)"""), "hello"))
+        assertEquals("not JSON", FormatRules.whyNot(rule(kind = "type"), """{"type":"tick","price":2"""))
+        assertEquals("none of the field paths is in it", FormatRules.whyNot(rule(kind = "h.op"), """{"type":"tick"}"""))
+        assertNull(FormatRules.whyNot(rule(kind = "type"), """{"type":"tick"}"""))
+    }
+
+    @Test
+    fun `a connection's use of its rules, with the reasons for what was not read`() {
+        val r = rule(kind = "type", direction = Direction.IN)
+        fun m(n: Int, d: Direction, t: String) = WsMessageEntry("r1:$n", "r1", n.toLong(), "okhttp3-ws", connectionId = "r1:1", direction = d, opcode = MessageOpcode.TEXT,
+            payload = BodyInfo(BodyPart.MESSAGE, storedBytes = t.length.toLong(), completeness = Completeness.COMPLETE, preview = t), url = "wss://api.example.test/live")
+        val messages = listOf(m(2, Direction.OUT, """{"subscribe":1}"""), m(3, Direction.IN, """{"type":"tick"}"""), m(4, Direction.IN, "pong"), m(5, Direction.IN, """{"type":"tick"}"""))
+        val use = FormatRules.use(listOf(r), "wss://api.example.test/live", messages) { it.payload.preview }
+        assertEquals(listOf(FormatUse("f1", "orders", read = 2, of = 4, unread = listOf(UnreadCount("sent by the app; the rule is for received", 1), UnreadCount("not JSON", 1)))), use)
+    }
+
 }
