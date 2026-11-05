@@ -224,6 +224,10 @@ class DtaDaemon(
     suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage =
         formats.annotate(pkg, networkService(serial, pkg).list(query))
 
+    /** Feature 040: entries holding every search word of the query line, with where. */
+    suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage =
+        networkService(serial, pkg).search(query)
+
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean = false): NetworkEntryDetail =
         formats.annotate(pkg, networkService(serial, pkg).entry(id, redact))
 

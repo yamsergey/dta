@@ -37,6 +37,7 @@ class Formatters(private val style: Style) {
         "capability.report" -> capability(result.obj)
         "layout.tree" -> layout(result.obj)
         "network.list" -> networkList(result.obj)
+        "network.search" -> networkSearch(result.obj)
         "network.entry" -> networkEntry(result.obj)
         "network.body" -> body(result.obj)
         "network.clear" -> "Cleared ${result.obj.long("clearedEntries")} entries."
@@ -299,10 +300,30 @@ class Formatters(private val style: Style) {
         entries.forEach { e ->
             val mark = archived?.obj(e.obj.str("id") ?: "")?.let { "  " + style.mark(Statements.forArchived(it)) }.orEmpty()
             appendLine(entryRow(e.obj, absolute = false) + mark)
+            hitLines(o.obj("hits")?.get(e.obj.str("id") ?: "")).forEach { appendLine(it) }
         }
         if (entries.isEmpty()) appendLine("No entries.")
         append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
+        Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
+    }
+
+    /** Feature 040: where a row holds the search words, under it. */
+    private fun hitLines(json: kotlinx.serialization.json.JsonElement?): List<String> =
+        io.yamsergey.dta.present.network.Hits.lines(io.yamsergey.dta.present.network.Hits.of(json)) { style.paint(it, Token.ACCENT) }
+            .map { "      " + style.paint("▸ ", Token.ACCENT) + it }
+
+    private fun networkSearch(o: JsonObject): String = buildString {
+        val entries = o.arr("entries")
+        entries.forEach { e ->
+            val time = e.obj.long("timeMs")?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(0).toString() } ?: ""
+            appendLine(style.paint(e.obj.str("id") ?: "", Token.INK_MUTED) + "  " + time)
+            hitLines(e.obj["hits"]).forEach { appendLine(it) }
+        }
+        if (entries.isEmpty()) appendLine("Not found.")
+        append(style.paint("${entries.size} of ${o.long("total")} entries with hits, ${o.long("searched")} searched", Token.INK_MUTED))
+        o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
+        o.arr("notSearched").forEach { append("\n" + style.mark(io.yamsergey.dta.present.StatementKind.DEGRADED, "not searched: ${it.jsonContent}")) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
     }
 

@@ -82,6 +82,8 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     var cleared = 0
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) =
         NetworkPage(entries, total = entries.size, coverage = Coverage(searched = 3, stored = 3, persisted = true)).also { queries += pkg to query }
+    override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) =
+        io.yamsergey.dta.protocol.network.SearchPage(emptyList(), 0, searched = entries.size).also { queries += pkg to query }
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = NetworkEntryDetail(entries.first { it.id == id })
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
         BodyResult(BodyInfo(part, 13, contentType = "application/json", completeness = Completeness.COMPLETE), text = "{\"items\":[]}", bytes = 12)

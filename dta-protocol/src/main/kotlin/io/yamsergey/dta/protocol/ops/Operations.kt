@@ -160,6 +160,12 @@ private val STORE = ParamSpec("store", ParamType.STRING, "The store as data list
 private val PASSPHRASE = ParamSpec("passphrase", ParamType.STRING, "SQLCipher passphrase, only for an encrypted database the app has not opened.")
 
 object Catalog {
+    /** Feature 040: the query line, shared by network.list and network.search. */
+    private val QUERY_LINE_HELP =
+        "Query line: key:value words filter (method:, status:, host:, url:, kind:, has:intervention, body:, run:, since:5m, until:; " +
+        "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched, fuzzily " +
+        "(case and separators ignored, one typo allowed in words of 5+ letters, numbers exact), in URLs, headers, bodies and message payloads."
+
     private val NETWORK_FILTERS = listOf(
         ParamSpec("url", ParamType.STRING, "Case-insensitive URL substring; WebSocket messages match by their connection's URL."),
         ParamSpec("method", ParamType.STRING, "HTTP method, case-insensitive."),
@@ -239,6 +245,20 @@ object Catalog {
                     "archive", ParamType.STRING,
                     "Archived history instead of the live one (what the device cleared, or earlier installs): all, version:<name>, <fromMs>..<toMs>, or an epoch id from archive list. Entries come marked with their epoch.",
                 ),
+                ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words do not hide rows: the page's hits name the rows holding every word and where.", cliShort = "-q", cliName = "query"),
+            ),
+        ),
+        OperationSpec(
+            "network.search",
+            "Find where words occur in captured traffic: the entries holding every search word of the query, in list order, each with its hits — the place (url, request/response header, request/response body, payload, envelope), the matched span and a short excerpt. Use it to find where a value appeared without reading every body.",
+            Scope.APP,
+            listOf(
+                ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP At least one search word is needed.", required = true, positional = true),
+                ParamSpec("limit", ParamType.INT, "Entries per page, 1..1000 (default 100)."),
+                ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
+                ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
+                ParamSpec("redact", ParamType.BOOLEAN, "Search URLs, headers and bodies as redacted: masked secrets are not found."),
+                ParamSpec("archive", ParamType.STRING, "Search the archived history: all, version:<name>, <fromMs>..<toMs>, or an epoch id."),
             ),
         ),
         OperationSpec(

@@ -81,6 +81,8 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 ## Network
 
 - `network_list` is one chronological list of HTTP exchanges, WebSocket connections and messages. Filters: `url`, `method`, `status` (`404`, `4xx`, `failed`, `pending`), `kinds`, `sinceMs`/`untilMs`, `bodyContains` (also inside binary bodies), `runs` (`current` = this process only), `intervened`.
+- Or give a query line `q`, as a person types it in the plugin: `POST status:4xx host:api.example.test -host:telemetry.example.test token "expired soon"`. `key:value` words filter (`method status host url kind has:intervention body run since:5m until`, bare `GET`/`POST`…, `http`, `ws`; `-key:value` leaves matches out); the other words are searched (case and separators ignored, one typo in words of 5+ letters, numbers exact) and mark rows in `hits` without hiding any.
+- To find where a value appeared, use `network_search` with `q`: the entries holding every word, each hit with its place (url, request/response header, request/response body, payload), span and excerpt — no need to read every body. `notSearched` says what could not be read.
 - To follow traffic over time: note the time, act, then call `network_list` with `sinceMs`.
 - `network_entry` gives headers, timing, the initiator stack (first app frame marked) and, for a WebSocket connection, its messages.
 - `network_body`: text for text bodies and decoded protobuf; for other binary bodies pass `output` (a file path) and read the file. Large bodies come back as a file automatically.

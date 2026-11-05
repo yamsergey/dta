@@ -94,6 +94,7 @@ class OperationDispatcher(
         "capability.report" to { c -> encode(IdentityReport.serializer(), ops.capabilityReport(c.device, c.app)) },
         "layout.tree" to { c -> encode(LayoutCapture.serializer(), layout(c)) },
         "network.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, query(c.params))) },
+        "network.search" to { c -> encode(io.yamsergey.dta.protocol.network.SearchPage.serializer(), ops.networkSearch(c.device, c.app, query(c.params))) },
         "network.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
         "network.body" to { c -> encode(BodyResult.serializer(), body(c)) },
         "network.clear" to { c -> encode(ClearResult.serializer(), ops.networkClear(c.device, c.app)) },
@@ -301,7 +302,7 @@ class OperationDispatcher(
             params.filterKeys { it !in filterKeys && it != "archive" }.forEach { (k, v) -> put(k, v) }
             archive?.let { put("archive", it) }
         }
-        return NetworkQuery.parse(raw)
+        return NetworkQuery.parse(raw).also { it.resolved() } // a bad query line is refused here, naming each problem
     }
 
     private suspend fun layout(c: Call): LayoutCapture {

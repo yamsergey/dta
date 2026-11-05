@@ -87,6 +87,9 @@ class FakeOperations : DaemonOperations {
     /** The current process's entries a watch with history=current replays; [duringHistory] runs while it is read. */
     var history: List<io.yamsergey.dta.protocol.network.NetworkEntry> = emptyList()
     var duringHistory: suspend () -> Unit = {}
+    var searchQuery: NetworkQuery? = null
+    override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) =
+        io.yamsergey.dta.protocol.network.SearchPage(emptyList(), 0, searched = 0).also { searchQuery = query }
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage {
         lastQuery = query
         if (query.filter?.runs == io.yamsergey.dta.protocol.network.RunScope.CURRENT) {

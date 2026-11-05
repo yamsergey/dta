@@ -231,6 +231,19 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `the query line goes through list and search, a bad one is refused (040)`() {
+        call("network.list", buildJsonObject { put("q", "POST token"); put("status", "4xx") })
+        assertEquals("POST token", fake.lastQuery!!.q)
+        assertEquals("4xx", fake.lastQuery!!.filter!!.status)
+        call("network.search", buildJsonObject { put("q", "token"); put("limit", 5) })
+        assertEquals(5, fake.searchQuery!!.limit)
+        val bad = assertFailsWith<ClientException> { call("network.list", buildJsonObject { put("q", "stats:4xx") }) }
+        assertEquals(ErrorCodes.INVALID_PARAMS, bad.code)
+        assertTrue("did you mean status:" in bad.message!!, bad.message)
+        assertFailsWith<ClientException> { call("network.search", buildJsonObject { put("limit", 5) }) }
+    }
+
+    @Test
     fun `format rule params (039)`() {
         val added = call("network.format.add", buildJsonObject {
             put("urlPattern", "wss://x/*"); put("name", "orders"); put("pattern", "^(?<kind>\\w+)"); put("idPath", "h.rid"); put("direction", "in"); put("payloadFormat", "text")

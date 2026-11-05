@@ -40,6 +40,7 @@ interface DaemonOperations {
     suspend fun capabilityReport(serial: String, pkg: String): IdentityReport
     suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean, screen: io.yamsergey.dta.daemon.layout.ScreenRequest?): LayoutCapture
     suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage
+    suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail
     suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult
     suspend fun networkClear(serial: String, pkg: String): ClearResult
@@ -104,6 +105,7 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean, screen: io.yamsergey.dta.daemon.layout.ScreenRequest?) =
         daemon.layout(serial, pkg, filters, detail, frameworkFrames, screen)
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) = daemon.network(serial, pkg, query)
+    override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) = daemon.networkSearch(serial, pkg, query)
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = daemon.networkEntry(serial, pkg, id, redact)
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
         daemon.networkBody(serial, pkg, id, part, output, redact, allowUnredacted)
