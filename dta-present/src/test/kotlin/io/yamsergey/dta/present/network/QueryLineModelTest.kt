@@ -3,6 +3,7 @@ package io.yamsergey.dta.present.network
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.EntryHits
 import io.yamsergey.dta.protocol.network.Fuzzy
+import io.yamsergey.dta.protocol.network.RecentFilter
 import io.yamsergey.dta.protocol.network.SearchHit
 import io.yamsergey.dta.protocol.network.SearchPlace
 import kotlinx.serialization.json.JsonPrimitive
@@ -14,22 +15,31 @@ class QueryLineModelTest {
     private fun line(t: String) = QueryLineModel(t)
 
     @Test
-    fun `chips come from the line and removing one edits the line`() {
-        val m = line("POST status:4xx  token -host:t.example.test")
-        assertEquals(listOf("POST", "status:4xx", "-host:t.example.test"), m.chips.map { it.label })
-        assertEquals("POST token -host:t.example.test", m.without(m.chips[1]).text)
-        assertEquals(mapOf("q" to JsonPrimitive("POST status:4xx  token -host:t.example.test")), m.params())
+    fun `Enter takes the filter words out of the line (043)`() {
+        val c = line("POST status:4xx  token -host:t.example.test").commit()
+        assertEquals(listOf("POST", "status:4xx", "-host:t.example.test"), c.words)
+        assertEquals("token", c.rest)
+        assertEquals(mapOf("q" to JsonPrimitive("token")), line("token").params())
         assertEquals(emptyMap(), line("  ").params())
     }
 
     @Test
-    fun `the kind switch reads and writes the line`() {
-        assertEquals(KindChoice.ALL, line("token").kind)
-        assertEquals(KindChoice.WEBSOCKET, line("ws token").kind)
-        assertEquals("http token", line("ws token").withKind(KindChoice.HTTP).text)
-        assertEquals("token", line("kind:ws token").withKind(KindChoice.ALL).text)
-        assertEquals("ws -host:x", line("-host:x").withKind(KindChoice.WEBSOCKET).text)
-        assertEquals(null, line("kind:ws-message").kind)
+    fun `the kind switch joins the query, a kind typed in the line wins (043)`() {
+        assertEquals(mapOf("q" to JsonPrimitive("ws token")), line("token").params(KindChoice.WEBSOCKET))
+        assertEquals(mapOf("q" to JsonPrimitive("http")), line("").params(KindChoice.HTTP))
+        assertEquals(mapOf("q" to JsonPrimitive("kind:ws-message")), line("kind:ws-message").params(KindChoice.HTTP))
+        assertEquals(emptyMap(), line("").params(KindChoice.ALL))
+    }
+
+    @Test
+    fun `an empty line offers the app's recent filters, a typed word those that start with it (043)`() {
+        val recent = listOf(RecentFilter("-host:t.example.test", 1000), RecentFilter("-url:/health", 900))
+        val now = 1000L + 5 * 60_000
+        assertEquals(
+            listOf(Suggestion("-host:t.example.test", 0, "5 min ago", recent = true), Suggestion("-url:/health", 0, "5 min ago", recent = true)),
+            line("").suggestions(0, recent = recent, nowMs = now),
+        )
+        assertEquals(listOf("-url:/health"), line("-u").suggestions(2, recent = recent, nowMs = now).filter { it.recent }.map { it.text })
     }
 
     @Test

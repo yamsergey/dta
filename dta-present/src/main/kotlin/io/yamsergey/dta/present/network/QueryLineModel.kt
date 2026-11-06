@@ -1,64 +1,57 @@
 package io.yamsergey.dta.present.network
 
-import io.yamsergey.dta.protocol.network.EntryKind as WireKind
 import io.yamsergey.dta.protocol.network.EntryHits
 import io.yamsergey.dta.protocol.network.ParsedQuery
 import io.yamsergey.dta.protocol.network.QueryLine
+import io.yamsergey.dta.protocol.network.RecentFilter
 import io.yamsergey.dta.protocol.network.SearchHit
 import io.yamsergey.dta.protocol.network.SearchPlace
 import io.yamsergey.dta.protocol.network.BodyPart
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
-/** A filter word of the line shown under it; × removes [start]..[end] from the line. */
-data class LineChip(val label: String, val start: Int, val end: Int, val negated: Boolean)
-
-/** A completion: replace the word at the caret ([from]..caret) with [text]. */
-data class Suggestion(val text: String, val from: Int, val hint: String? = null)
+/** A completion: replace the word at the caret ([from]..caret) with [text]; a [recent] one is saved again as it is. */
+data class Suggestion(val text: String, val from: Int, val hint: String? = null, val recent: Boolean = false)
 
 /** What the traffic shown so far offers as values. */
 data class Seen(val hosts: Set<String> = emptySet(), val statuses: Set<String> = emptySet(), val methods: Set<String> = emptySet())
 
 /**
- * Feature 040: the Network query line as the plugin edits it — the text is the state; chips,
- * the kind switch and the request params all come from it, so line and chips never disagree.
+ * Feature 040: the Network query line as the plugin edits it. Feature 043: what the person is
+ * typing; Enter ([commit]) saves its filter words as chips (kept by the daemon) and leaves the rest.
  */
 data class QueryLineModel(val text: String = "", private val nowMs: () -> Long = System::currentTimeMillis) {
     val parsed: ParsedQuery by lazy { QueryLine.parse(text, nowMs()) }
 
-    val chips: List<LineChip> get() = parsed.tokens.filter { it.key != null }.map { LineChip(it.text, it.start, it.end, it.negated) }
-
     val hasSearch: Boolean get() = parsed.hasSearch && parsed.problems.isEmpty()
-
-    /** The All / HTTP / WebSocket switch position, or null when the line's kinds are something else. */
-    val kind: KindChoice?
-        get() {
-            val kinds = parsed.filter.kinds ?: return KindChoice.ALL
-            return KindChoice.entries.firstOrNull { it != KindChoice.ALL && it.kinds.toSet() == kinds.map(::wire).toSet() }
-        }
 
     fun withText(t: String) = copy(text = t)
 
-    /** The line without the chip's word. */
-    fun without(chip: LineChip): QueryLineModel = withText(tidy(text.removeRange(chip.start, chip.end)))
+    /** Feature 043, Enter: the words to save and the line that stays. */
+    fun commit(): QueryLine.Commit = QueryLine.commit(text, nowMs())
 
-    /** The switch: the line's own kind word replaced (or removed for All). */
-    fun withKind(choice: KindChoice): QueryLineModel {
-        var t = text
-        parsed.tokens.filter { it.key == "kind" && !it.negated }.sortedByDescending { it.start }.forEach { t = t.removeRange(it.start, it.end) }
-        val word = when (choice) { KindChoice.ALL -> null; KindChoice.HTTP -> "http"; KindChoice.WEBSOCKET -> "ws" }
-        return withText(tidy(listOfNotNull(word, t.trim().ifEmpty { null }).joinToString(" ")))
+    /**
+     * `q` for network.list / network.watch / network.export / network.search; empty when there is
+     * nothing to ask. The kind switch joins it unless the line says a kind itself.
+     */
+    fun params(kind: KindChoice = KindChoice.ALL): Map<String, JsonElement> {
+        val typedKind = parsed.tokens.any { it.key == "kind" && !it.negated }
+        val word = when (kind) { KindChoice.ALL -> null; KindChoice.HTTP -> "http"; KindChoice.WEBSOCKET -> "ws" }.takeUnless { typedKind }
+        return listOfNotNull(word, text.trim().ifEmpty { null }).joinToString(" ").takeIf { it.isNotEmpty() }?.let { mapOf("q" to JsonPrimitive(it)) } ?: emptyMap()
     }
 
-    /** `q` for network.list / network.watch / network.export / network.search; empty when the line is. */
-    fun params(): Map<String, JsonElement> = text.trim().takeIf { it.isNotEmpty() }?.let { mapOf("q" to JsonPrimitive(it)) } ?: emptyMap()
-
-    /** Completions for the word ending at [caret]. */
-    fun suggestions(caret: Int, seen: Seen = Seen()): List<Suggestion> {
+    /** Completions for the word ending at [caret]; [recent] filters of the app first (feature 043). */
+    fun suggestions(caret: Int, seen: Seen = Seen(), recent: List<RecentFilter> = emptyList(), nowMs: Long = System.currentTimeMillis()): List<Suggestion> {
         val at = caret.coerceIn(0, text.length)
         var from = at
         while (from > 0 && !text[from - 1].isWhitespace()) from--
         val word = text.substring(from, at)
+        val back = recent.filter { it.word.startsWith(word, ignoreCase = true) && it.word != word }
+            .map { Suggestion(it.word, from, SavedChip.age(it.lastUsedMs, nowMs), recent = true) }
+        return back + typed(from, word, seen)
+    }
+
+    private fun typed(from: Int, word: String, seen: Seen): List<Suggestion> {
         val negated = word.startsWith("-")
         val body = if (negated) word.drop(1) else word
         val n = if (negated) "-" else ""
@@ -93,12 +86,6 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
         val t = text.substring(0, s.from) + insert + text.substring(end)
         return withText(t) to s.from + insert.length
     }
-
-    private fun wire(k: WireKind) = when (k) {
-        WireKind.HTTP -> "http"; WireKind.WS_CONNECTION -> "ws-connection"; WireKind.WS_MESSAGE -> "ws-message"; WireKind.LINK -> "link"
-    }
-
-    private fun tidy(t: String) = t.trim().replace(Regex("\\s{2,}"), " ")
 
     companion object {
         fun seen(rows: List<EntryRow>): Seen = Seen(
