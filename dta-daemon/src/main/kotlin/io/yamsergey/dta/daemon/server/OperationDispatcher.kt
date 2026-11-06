@@ -154,6 +154,11 @@ class OperationDispatcher(
                 notFound("event", e.id)
             }
         },
+        "timeline.episodes" to { c ->
+            val limit = c.long("limit")?.toInt() ?: io.yamsergey.dta.daemon.timeline.EpisodeBuilder.DEFAULT_LIMIT
+            if (limit !in 1..io.yamsergey.dta.daemon.timeline.EpisodeBuilder.MAX_LIMIT) invalid("limit must be within 1..${io.yamsergey.dta.daemon.timeline.EpisodeBuilder.MAX_LIMIT}, was $limit")
+            encode(io.yamsergey.dta.protocol.timeline.EpisodesPage.serializer(), ops.timelineEpisodes(c.device, c.app, limit, c.bool("steps")))
+        },
         "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
         "state.graph" to { c ->
             encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")))

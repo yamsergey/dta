@@ -41,7 +41,7 @@ class OperationCatalogTest {
                 "network.filters.list", "network.filters.add", "network.filters.remove",
                 "links.list", "links.entry", "links.open", "links.verification",
                 "archive.list", "archive.delete",
-                "timeline.events", "timeline.watch", "timeline.causes", "state.current", "state.graph", "state.path",
+                "timeline.events", "timeline.watch", "timeline.causes", "timeline.episodes", "state.current", "state.graph", "state.path",
                 "daemon.status", "daemon.stop",
                 "data.list", "data.db.schema", "data.db.query", "data.db.exec",
                 "data.prefs.read", "data.prefs.set", "data.prefs.remove", "data.proto.read", "data.proto.write",

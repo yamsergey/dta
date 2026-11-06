@@ -129,6 +129,15 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `episodes take a limit within bounds and steps`() {
+        call("timeline.episodes", buildJsonObject { put("limit", 5); put("steps", true) })
+        assertEquals(listOf<Any?>(5, true), fake.lastTimeline)
+        call("timeline.episodes")
+        assertEquals(listOf<Any?>(200, false), fake.lastTimeline)
+        assertTrue(runCatching { call("timeline.episodes", buildJsonObject { put("limit", 0) }) }.exceptionOrNull() != null, "limit 0")
+    }
+
+    @Test
     fun `causes take a direction, depth and inferred, and an unknown event is not found`() {
         call("timeline.causes", buildJsonObject { put("event", "7:6"); put("direction", "effects"); put("depth", 3); put("inferred", true) })
         assertEquals(listOf("7:6", io.yamsergey.dta.protocol.timeline.ChainDirection.EFFECTS, 3, true), fake.lastTimeline)

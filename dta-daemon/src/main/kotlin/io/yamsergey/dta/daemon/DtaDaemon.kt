@@ -342,6 +342,48 @@ class DtaDaemon(
         }
     }
 
+    /**
+     * The session as episodes (feature 045): from what the timeline and the network capture already
+     * hold, nothing new is asked of the app. Saved filters do not apply: neither do they to the timeline.
+     */
+    suspend fun timelineEpisodes(serial: String, pkg: String, limit: Int, steps: Boolean): io.yamsergey.dta.protocol.timeline.EpisodesPage {
+        val service = timelineService(serial, pkg)
+        service.windows?.touch()
+        service.refresh()
+        val events = service.journal.kept()
+        val sockets = ArrayList<io.yamsergey.dta.protocol.network.NetworkEntry>()
+        var note: String? = null
+        val first = events.firstOrNull()?.wallMs
+        if (first != null) {
+            try {
+                val network = networkService(serial, pkg)
+                var before: String? = null
+                var pages = 0
+                do {
+                    val page = network.list(
+                        NetworkQuery(
+                            filter = io.yamsergey.dta.protocol.network.NetworkFilter(
+                                kinds = listOf(io.yamsergey.dta.protocol.network.EntryKind.WS_MESSAGE, io.yamsergey.dta.protocol.network.EntryKind.WS_CONNECTION),
+                                sinceMs = first,
+                            ),
+                            limit = NetworkQuery.MAX_LIMIT,
+                            before = before,
+                            ignoreSavedFilters = true,
+                        ),
+                    )
+                    sockets += page.entries
+                    before = page.next
+                } while (before != null && ++pages < EPISODE_SOCKET_PAGES)
+                if (before != null) note = "only the newest ${sockets.size} socket messages are counted"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                note = "socket messages could not be read: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+        return io.yamsergey.dta.daemon.timeline.EpisodeBuilder().build(events, sockets, service.sources(), limit, steps, note)
+    }
+
     /** Why [event] happened, or what it led to (feature 016). Throws [io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent]. */
     suspend fun timelineCauses(
         serial: String,
@@ -594,6 +636,8 @@ class DtaDaemon(
     fun openConnections(): List<ConnectionKey> = connections.openKeys()
 
     companion object {
+        /** Pages of 1000 read for one answer: an endless stream does not make episodes slow. */
+        private const val EPISODE_SOCKET_PAGES = 5
         /** Larger response bodies are not searched for a shown text (feature 016, inferred `text-match`). */
         private const val MAX_MATCHED_BODY = 64 * 1024
 

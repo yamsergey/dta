@@ -496,6 +496,15 @@ object Catalog {
             ),
         ),
         OperationSpec(
+            "timeline.episodes",
+            "The session as episodes: what the app did from each tap, back, navigation or process start, or after a pause. One line each (title, requests, failures, socket messages); with steps, the sequence of each. A step's link comes only from a recorded cause; requests with none stand in the episode without one. Reads what is already recorded.",
+            Scope.APP,
+            listOf(
+                ParamSpec("limit", ParamType.INT, "The newest episodes, 1..1000 (default 200)."),
+                ParamSpec("steps", ParamType.BOOLEAN, "Include each episode's steps."),
+            ),
+        ),
+        OperationSpec(
             "state.current",
             "What the app is in now: every facet from every source that is on (the screen's structure, open windows, navigation, the app's own facets), with its source and when it changed, and each source's status.",
             Scope.APP, cliPathOverride = listOf("state"),

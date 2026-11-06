@@ -148,6 +148,8 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
             if (history) timeline.page(null, 500, null, sources, kinds).events.forEach { emit(it) }
             timelineLive.collect { e -> if ((sources.isEmpty() || e.source in sources) && (kinds.isEmpty() || e.kind in kinds)) emit(e) }
         }
+    var episodes = io.yamsergey.dta.protocol.timeline.EpisodesPage(emptyList(), 0, emptyList())
+    override suspend fun timelineEpisodes(serial: String, pkg: String, limit: Int, steps: Boolean) = episodes
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
         io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
     override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)
