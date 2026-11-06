@@ -226,7 +226,10 @@ class DaemonServer(
                 val filterKeys = NetworkFilter.serializer().descriptor.let { d -> (0 until d.elementsCount).map { d.getElementName(it) } }
                 val given = DtaJson.decodeFromJsonElement(NetworkFilter.serializer(), JsonObject(params.filterKeys { it in filterKeys }))
                 // Feature 040: the query line's filters apply to new entries too; its search words hide nothing.
-                val line = (params["q"] as? JsonPrimitive)?.content
+                // Feature 043: and the app's saved filters, as in a list, unless the call ignores them.
+                val ignoreSaved = (params["ignoreSavedFilters"] as? JsonPrimitive)?.content == "true"
+                val typed = (params["q"] as? JsonPrimitive)?.content
+                val line = if (ignoreSaved) typed else io.yamsergey.dta.protocol.network.SavedFilters.merge(ops.networkFilters(pkg).saved, typed).q
                 val filter = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given, q = line).resolved().first ?: NetworkFilter()
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val connectionUrls = ConcurrentHashMap<String, String>()
@@ -278,7 +281,7 @@ class DaemonServer(
                             val replayed = HashMap<String, NetworkEntry>()
                             var cursor: String? = null
                             do {
-                                val page = ops.network(serial, pkg, NetworkQuery(filter = filter.copy(runs = RunScope.CURRENT), limit = 1000, order = Order.OLDEST_FIRST, before = cursor))
+                                val page = ops.network(serial, pkg, NetworkQuery(filter = filter.copy(runs = RunScope.CURRENT), limit = 1000, order = Order.OLDEST_FIRST, before = cursor, ignoreSavedFilters = true))
                                 page.entries.forEach { entry ->
                                     replayed[entry.id] = entry
                                     offer(NetworkEntryEvent(entry, EntryChange.CREATED))
