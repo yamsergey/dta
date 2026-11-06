@@ -44,7 +44,8 @@ class Formatters(private val style: Style) {
         "network.export" -> result.obj.let { o ->
             "Exported ${o.long("entries")} entries, ${o.long("webSocketMessages")} WebSocket messages and ${o.long("bodies")} bodies to ${o.str("file")}" +
                 (o.long("bodiesOmitted")?.takeIf { it > 0 }?.let { "; $it bodies left out (the file says why)" } ?: "") +
-                (o.long("messagesNotExported")?.takeIf { it > 0 }?.let { "; $it messages beyond a connection's first 1000 not exported" } ?: "") + "."
+                (o.long("messagesNotExported")?.takeIf { it > 0 }?.let { "; $it messages beyond a connection's first 1000 not exported" } ?: "") + "." +
+                (savedLine(o)?.let { "\n" + it } ?: "")
         }
         "network.script.set", "network.script.status" -> scriptStatus(result.obj)
         "network.script.clear" -> if (result.obj.bool("cleared")) "Network script removed." else "No network script was active."
@@ -61,6 +62,7 @@ class Formatters(private val style: Style) {
         "network.format.list" -> result.arr.joinToString("\n") { formatRule(it.obj) }.ifEmpty { "No format rules. Add one with 'dta network format add'." }
         "network.format.remove" -> "Removed format rule ${result.obj.str("removed")}."
         "network.format.test" -> formatTest(result.obj)
+        "network.filters.list", "network.filters.add", "network.filters.remove" -> savedFilters(result.obj)
         "links.list" -> linksList(result.obj)
         "links.entry" -> linkEntry(result.obj.obj("entry") ?: JsonObject(emptyMap()))
         "links.open" -> linkOpen(result.obj)
@@ -305,8 +307,29 @@ class Formatters(private val style: Style) {
         if (entries.isEmpty()) appendLine("No entries.")
         append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
+        savedLine(o)?.let { append("\n" + style.paint(it, Token.INK_MUTED)) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
     }
+
+    /** Feature 043: an answer says what the app's saved filters did to it. */
+    private fun savedLine(o: JsonObject): String? {
+        val saved = o.obj("saved") ?: return null
+        val words = saved.arr("words").joinToString(", ") { it.jsonContent }
+        return when {
+            saved.bool("ignored") -> "saved filters ignored: $words"
+            saved.long("hidden") != null -> "hidden by saved filters: ${saved.long("hidden")} ($words)"
+            else -> "saved filters: $words"
+        }
+    }
+
+    private fun savedFilters(o: JsonObject): String = buildString {
+        o.str("problem")?.let { appendLine(style.mark(io.yamsergey.dta.present.StatementKind.DEGRADED, it)) }
+        val saved = o.arr("saved")
+        if (saved.isEmpty()) appendLine("No saved filters. Save one with 'dta network filters add'.")
+        saved.forEach { appendLine(it.jsonContent) }
+        val recent = o.arr("recent")
+        if (recent.isNotEmpty()) append(style.paint("recent: " + recent.joinToString(", ") { it.obj.str("word") ?: "" }, Token.INK_MUTED))
+    }.trimEnd()
 
     /** Feature 040: where a row holds the search words, under it. */
     private fun hitLines(json: kotlinx.serialization.json.JsonElement?): List<String> =
@@ -323,6 +346,7 @@ class Formatters(private val style: Style) {
         if (entries.isEmpty()) appendLine("Not found.")
         append(style.paint("${entries.size} of ${o.long("total")} entries with hits, ${o.long("searched")} searched", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
+        savedLine(o)?.let { append("\n" + style.paint(it, Token.INK_MUTED)) }
         o.arr("notSearched").forEach { append("\n" + style.mark(io.yamsergey.dta.present.StatementKind.DEGRADED, "not searched: ${it.jsonContent}")) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
     }
