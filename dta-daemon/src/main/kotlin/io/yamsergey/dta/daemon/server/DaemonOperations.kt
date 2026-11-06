@@ -61,6 +61,10 @@ interface DaemonOperations {
     fun networkFormats(pkg: String): List<io.yamsergey.dta.protocol.network.FormatRule>
     fun networkFormatRemove(pkg: String, id: String): Boolean
     suspend fun networkFormatTest(serial: String, pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec, connection: String?): io.yamsergey.dta.protocol.network.FormatTestResult
+    /** The app's saved network filters (feature 043). */
+    fun networkFilters(pkg: String): io.yamsergey.dta.protocol.network.SavedFilters
+    fun networkFiltersAdd(pkg: String, words: String): io.yamsergey.dta.protocol.network.SavedFilters
+    fun networkFiltersRemove(pkg: String, word: String): Boolean
     /** Opens a URI on the device and says who received it (feature 012). */
     suspend fun linksOpen(serial: String, uri: String, pkg: String?, only: Boolean): io.yamsergey.dta.protocol.network.LinkOpenResult
     /** The app's App Links state (feature 012). */
@@ -126,6 +130,9 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun networkFormatAdd(pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec) = daemon.networkFormatAdd(pkg, spec)
     override fun networkFormats(pkg: String) = daemon.networkFormats(pkg)
     override fun networkFormatRemove(pkg: String, id: String) = daemon.networkFormatRemove(pkg, id)
+    override fun networkFilters(pkg: String) = daemon.networkFilters(pkg)
+    override fun networkFiltersAdd(pkg: String, words: String) = daemon.networkFiltersAdd(pkg, words)
+    override fun networkFiltersRemove(pkg: String, word: String) = daemon.networkFiltersRemove(pkg, word)
     override suspend fun networkFormatTest(serial: String, pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec, connection: String?) =
         daemon.networkFormatTest(serial, pkg, spec, connection)
 }

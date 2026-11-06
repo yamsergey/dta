@@ -123,6 +123,13 @@ class OperationDispatcher(
             if (!ops.networkFormatRemove(c.app, id)) notFound("format rule", id)
             buildJsonObject { put("removed", id) }
         },
+        "network.filters.list" to { c -> encode(io.yamsergey.dta.protocol.network.SavedFilters.serializer(), ops.networkFilters(c.app)) },
+        "network.filters.add" to { c -> encode(io.yamsergey.dta.protocol.network.SavedFilters.serializer(), ops.networkFiltersAdd(c.app, c.required("words"))) },
+        "network.filters.remove" to { c ->
+            val word = c.required("word")
+            if (!ops.networkFiltersRemove(c.app, word)) notFound("saved filter", word)
+            encode(io.yamsergey.dta.protocol.network.SavedFilters.serializer(), ops.networkFilters(c.app))
+        },
         "timeline.events" to { c ->
             encode(
                 io.yamsergey.dta.protocol.timeline.TimelinePage.serializer(),

@@ -76,6 +76,7 @@ class DtaDaemon(
     private val schemas = SchemaRegistry(dataDir)
     /** Feature 039: the user's WebSocket message format rules; every text message returned carries the envelope they read. */
     private val formats = io.yamsergey.dta.daemon.network.MessageFormats(dataDir)
+    private val savedFilters = io.yamsergey.dta.daemon.network.SavedFilterStore(dataDir)
     private val injectedTooling = io.yamsergey.dta.daemon.inject.InjectedTooling(dataDir)
 
     /** The host's network store (feature 011): opened on first use, one per daemon. */
@@ -223,7 +224,7 @@ class DtaDaemon(
     /** Network history of [pkg]: HTTP and WebSocket entries in one list (feature 004). */
     suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage {
         val service = networkService(serial, pkg)
-        val page = service.list(query)
+        val page = savedFilters.applied(pkg, query, { service.list(it) }, { it.total }, { p, saved -> p.copy(saved = saved) })
         return formats.annotate(pkg, page, fullTexts(service, pkg, page.entries.filterIsInstance<io.yamsergey.dta.protocol.network.WsMessageEntry>(), query.redact))
     }
 
@@ -245,8 +246,15 @@ class DtaDaemon(
     }
 
     /** Feature 040: entries holding every search word of the query line, with where. */
-    suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage =
-        networkService(serial, pkg).search(query)
+    suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage {
+        val service = networkService(serial, pkg)
+        return savedFilters.applied(pkg, query, { service.search(it) }, { it.total }, { p, saved -> p.copy(saved = saved) })
+    }
+
+    /** Feature 043: the app's saved network filters. */
+    fun networkFilters(pkg: String) = savedFilters.state(pkg)
+    fun networkFiltersAdd(pkg: String, words: String) = savedFilters.add(pkg, words)
+    fun networkFiltersRemove(pkg: String, word: String) = savedFilters.remove(pkg, word)
 
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean = false): NetworkEntryDetail {
         val service = networkService(serial, pkg)

@@ -110,6 +110,9 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override fun networkFormatAdd(pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec) = spec.toRule("f1", 1)
     override fun networkFormats(pkg: String) = emptyList<io.yamsergey.dta.protocol.network.FormatRule>()
     override fun networkFormatRemove(pkg: String, id: String) = id == "f1"
+    override fun networkFilters(pkg: String) = io.yamsergey.dta.protocol.network.SavedFilters(saved = listOf("-url:/health"))
+    override fun networkFiltersAdd(pkg: String, words: String) = io.yamsergey.dta.protocol.network.SavedFilters(saved = listOf(words))
+    override fun networkFiltersRemove(pkg: String, word: String) = word == "-url:/health"
     override suspend fun networkFormatTest(serial: String, pkg: String, spec: io.yamsergey.dta.protocol.network.FormatRuleSpec, connection: String?) =
         io.yamsergey.dta.protocol.network.FormatTestResult(0, 0, emptyList(), emptyList())
     override fun networkSchemaSync(pkg: String, origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin, files: Map<String, String>, mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>, notes: List<String>) =

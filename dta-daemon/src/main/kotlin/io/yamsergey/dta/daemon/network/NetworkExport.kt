@@ -35,8 +35,10 @@ class NetworkExport(
     suspend fun export(query: NetworkQuery, output: File): NetworkExportResult {
         val listed = mutableListOf<NetworkEntry>()
         var cursor: String? = null
+        var saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null
         do {
             val p = page(query.copy(limit = pageSize, order = Order.OLDEST_FIRST, before = cursor))
+            if (cursor == null) saved = p.saved
             listed += p.entries
             cursor = p.next
         } while (cursor != null && p.entries.isNotEmpty())
@@ -94,7 +96,7 @@ class NetworkExport(
 
         output.absoluteFile.parentFile?.mkdirs()
         output.writeText(DtaJson.encodeToString(JsonObject.serializer(), Har.document(out.sortedBy { it.first }.map { it.second }, version)))
-        return NetworkExportResult(output.path, entries = out.size, webSocketMessages = messages, bodies = bodies, bodiesOmitted = omitted, messagesNotExported = notExported)
+        return NetworkExportResult(output.path, entries = out.size, webSocketMessages = messages, bodies = bodies, bodiesOmitted = omitted, messagesNotExported = notExported, saved = saved)
     }
 
     private fun wire(c: Completeness) = c.name.lowercase().replace('_', '-')

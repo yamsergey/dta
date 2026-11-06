@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -244,6 +245,15 @@ class OperationDispatcherTest {
         assertEquals(ErrorCodes.INVALID_PARAMS, bad.code)
         assertTrue("did you mean status:" in bad.message!!, bad.message)
         assertFailsWith<ClientException> { call("network.search", buildJsonObject { put("limit", 5) }) }
+    }
+
+    @Test
+    fun `saved filter operations (043)`() {
+        assertEquals("-url:/health", (call("network.filters.list").result as JsonObject)["saved"]!!.jsonArray[0].jsonPrimitive.content)
+        assertEquals("status:2xx", (call("network.filters.add", buildJsonObject { put("words", "status:2xx") }).result as JsonObject)["saved"]!!.jsonArray[0].jsonPrimitive.content)
+        assertEquals(ErrorCodes.INVALID_PARAMS, assertFailsWith<ClientException> { call("network.filters.add") }.code)
+        call("network.filters.remove", buildJsonObject { put("word", "-url:/health") })
+        assertEquals(ClientErrorCodes.NOT_FOUND, assertFailsWith<ClientException> { call("network.filters.remove", buildJsonObject { put("word", "x") }) }.code)
     }
 
     @Test

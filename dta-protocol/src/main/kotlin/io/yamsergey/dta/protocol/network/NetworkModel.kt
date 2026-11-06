@@ -589,6 +589,8 @@ data class NetworkExportResult(
     val bodiesOmitted: Int,
     /** Messages beyond what a connection's details carry, not in the file. */
     val messagesNotExported: Int = 0,
+    /** Feature 043: the saved filters behind what was written. */
+    val saved: SavedFiltersApplied? = null,
 )
 
 /** Result of `network_clear`. */
