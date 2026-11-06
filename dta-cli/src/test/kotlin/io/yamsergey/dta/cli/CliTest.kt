@@ -33,6 +33,16 @@ class CliTest {
     @AfterTest
     fun close() = daemon.close()
 
+    // --- saved filters (043)
+
+    @Test
+    fun `filter words starting with a dash are values, also -h`() {
+        assertEquals(0, dta("network", "filters", "add", "-host:a.example.test", "status:2xx", "-url:/health"))
+        assertEquals(listOf("-host:a.example.test", "status:2xx", "-url:/health"), daemon.ops.savedWords.toList())
+        assertEquals(0, dta("network", "filters", "remove", "-url:/health"))
+        assertEquals(listOf("-host:a.example.test", "status:2xx"), daemon.ops.savedWords.toList())
+    }
+
     // --- daemon status / stop (T045)
 
     @Test

@@ -48,6 +48,8 @@ data class ParamSpec(
     val cliName: String? = null,
     /** Not on the command line: its value would not print (an inline image). Agents and the plugin still get it. */
     val cliHidden: Boolean = false,
+    /** The CLI takes the rest of the line as this value, words starting with - included (`-host:x status:2xx`). */
+    val cliWords: Boolean = false,
 )
 
 data class OperationSpec(
@@ -409,13 +411,13 @@ object Catalog {
             "network.filters.add",
             "Save filters for this app: words of the query language (-host:telemetry.example.test status:2xx). They survive restarts and apply to every client. A saved filter of the same key as a new one is replaced. run:, since: and until: belong to one session and are refused.",
             Scope.APP,
-            listOf(ParamSpec("words", ParamType.STRING, "The filter words, separated by spaces.", required = true, positional = true)),
+            listOf(ParamSpec("words", ParamType.STRING, "The filter words, separated by spaces.", required = true, positional = true, cliWords = true)),
         ),
         OperationSpec(
             "network.filters.remove",
             "Stop applying a saved filter; it stays among the app's recent ones.",
             Scope.APP,
-            listOf(ParamSpec("word", ParamType.STRING, "The filter word as network.filters.list gives it.", required = true, positional = true)),
+            listOf(ParamSpec("word", ParamType.STRING, "The filter word as network.filters.list gives it.", required = true, positional = true, cliWords = true)),
         ),
         OperationSpec(
             "links.list",

@@ -1,5 +1,6 @@
 package io.yamsergey.dta.cli
 
+import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.CoreCliktCommand
 import com.github.ajalt.clikt.core.CliktError
@@ -215,7 +216,11 @@ class Cli(
         private val dummy: Any? = null
         private val readers = mutableListOf<Pair<String, () -> JsonElement?>>()
 
+        // Feature 043: `network filters add -host:x` — a word starting with - is a value here, not an option (nor -h).
+        override val treatUnknownOptionsAsArgs = spec.params.any { it.cliWords }
+
         init {
+            if (treatUnknownOptionsAsArgs) context { helpOptionNames = setOf("--help") }
             spec.params.filterNot { it.cliHidden }.forEach { p -> readers += p.name to register(p) }
         }
 
@@ -228,6 +233,10 @@ class Cli(
             val longName = "--" + (p.cliName ?: p.name.replace(Regex("([A-Z])")) { "-" + it.value.lowercase() })
             val names = listOfNotNull(p.cliShort, longName).toTypedArray()
             val absolute: (String) -> String = { if (p.path) File(it).let { f -> if (f.isAbsolute) f else File(cwd, it) }.normalize().path else it }
+            if (p.cliWords) {
+                val v = holder(argument(p.name.uppercase(), help = p.description).multiple(required = true).provideDelegate(this, ::dummy))
+                return { JsonPrimitive(v().joinToString(" ")) }
+            }
             if (p.positional) {
                 return if (p.type == ParamType.STRING_LIST) {
                     val v = holder(argument(p.name.uppercase(), help = p.description).multiple().provideDelegate(this, ::dummy))
