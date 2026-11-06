@@ -48,6 +48,8 @@ enum class EpochCloseReason {
     @kotlinx.serialization.SerialName("data-wiped") DATA_WIPED,
     @kotlinx.serialization.SerialName("reinstalled") REINSTALLED,
     @kotlinx.serialization.SerialName("new-build") NEW_BUILD,
+    /** The journal went back to an earlier state with the same id: an emulator snapshot, restored app data (feature 046). */
+    @kotlinx.serialization.SerialName("rolled-back") ROLLED_BACK,
     @kotlinx.serialization.SerialName("unknown") UNKNOWN,
 }
 

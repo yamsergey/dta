@@ -65,6 +65,18 @@ class HostStoreTest {
     }
 
     @Test
+    fun `a store from before the last record was remembered keeps its positions`() {
+        val s = store()
+        s.setCursor("dev1", "io.example", "j1", "3:40", "r1-1:9")
+        assertEquals(Cursor("j1", "3:40", "r1-1:9"), s.cursor("dev1", "io.example"))
+        s.close(); stores.clear()
+        java.sql.DriverManager.getConnection("jdbc:sqlite:${java.io.File(dir, "dta.db").path}").use { c ->
+            c.createStatement().use { it.execute("ALTER TABLE cursor DROP COLUMN last_id") }
+        }
+        assertEquals(Cursor("j1", "3:40", null), store().cursor("dev1", "io.example"))
+    }
+
+    @Test
     fun `the store survives a restart`() {
         val s = store()
         val epoch = s.openEpoch(device, "io.example", v14, "j1", 1)

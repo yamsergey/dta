@@ -38,7 +38,12 @@ data class InstallationInfo(
 
 data class Epoch(val id: String, val installationId: Long, val journalId: String, val openedMs: Long, val closedMs: Long? = null, val reason: EpochCloseReason? = null)
 
-data class Cursor(val journalId: String, val position: String?)
+data class Cursor(
+    val journalId: String,
+    val position: String?,
+    /** The id of the last record read at [position] (feature 046); null on a position stored by an earlier version. */
+    val lastId: String? = null,
+)
 
 /** A body of an entry on the host: its content, or why it will never be here. */
 data class BodyRef(val sha256: String?, val bytes: Long, val notArchived: String? = null)
@@ -80,6 +85,9 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
             st.execute("PRAGMA journal_mode=WAL")
             st.execute("PRAGMA foreign_keys=ON")
             SCHEMA.forEach(st::execute)
+            // Feature 046: stores from before it have no last_id on their cursors.
+            val columns = st.executeQuery("PRAGMA table_info(cursor)").use { r -> generateSequence { if (r.next()) r.getString("name") else null }.toList() }
+            if ("last_id" !in columns) st.execute("ALTER TABLE cursor ADD COLUMN last_id TEXT")
         }
     }
 
@@ -185,13 +193,13 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
 
     @Synchronized
     fun cursor(deviceKey: String, packageName: String): Cursor? =
-        query("SELECT journal_id, position FROM cursor WHERE device_key=? AND package=?", deviceKey, packageName) { Cursor(it.getString(1), it.getString(2)) }.firstOrNull()
+        query("SELECT journal_id, position, last_id FROM cursor WHERE device_key=? AND package=?", deviceKey, packageName) { Cursor(it.getString(1), it.getString(2), it.getString(3)) }.firstOrNull()
 
     @Synchronized
-    fun setCursor(deviceKey: String, packageName: String, journalId: String, position: String?) {
+    fun setCursor(deviceKey: String, packageName: String, journalId: String, position: String?, lastId: String? = null) {
         update(
-            "INSERT INTO cursor(device_key, package, journal_id, position) VALUES (?,?,?,?) ON CONFLICT(device_key, package) DO UPDATE SET journal_id=excluded.journal_id, position=excluded.position",
-            deviceKey, packageName, journalId, position,
+            "INSERT INTO cursor(device_key, package, journal_id, position, last_id) VALUES (?,?,?,?,?) ON CONFLICT(device_key, package) DO UPDATE SET journal_id=excluded.journal_id, position=excluded.position, last_id=excluded.last_id",
+            deviceKey, packageName, journalId, position, lastId,
         )
     }
 

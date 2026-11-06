@@ -732,7 +732,7 @@ object Catalog {
         ),
         OperationSpec(
             "archive.list",
-            "The network history this computer keeps after devices forgot it (cleared, data wiped, reinstalled): devices › apps › installs › epochs, with dates, why each epoch closed, entry counts and size on disk.",
+            "The network history this computer keeps after devices forgot it (cleared, data wiped, reinstalled, rolled back to an earlier state): devices › apps › installs › epochs, with dates, why each epoch closed, entry counts and size on disk.",
             Scope.NONE,
         ),
         OperationSpec(

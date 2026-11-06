@@ -36,6 +36,15 @@ class ArchiveTreeTest {
     }
 
     @Test
+    fun `a history closed because the journal went back says so in plain words`() {
+        val rolled = Json.parseToJsonElement(
+            """{"devices":[{"key":"abc","serial":"emulator-5554","apps":[{"packageName":"io.example","installations":[
+                {"id":3,"versionName":"1.4.0","versionCode":14,"epochs":[{"id":"e1","openedMs":0,"closedMs":60000,"reason":"rolled-back","entries":5,"bytes":0}]}]}]}],"bytes":0}""",
+        ).jsonObject
+        assertEquals("1970-01-01 00:00 → 00:01 · rolled back · 5 entries · 0 B", ArchiveTree.rows(rolled, ZoneOffset.UTC).last().text)
+    }
+
+    @Test
     fun `an empty archive says so`() {
         assertEquals(emptyList(), ArchiveTree.rows(Json.parseToJsonElement("""{"devices":[],"bytes":0}""").jsonObject, ZoneOffset.UTC))
         assertEquals("Nothing archived yet: when a device clears its history, this computer keeps it here.", ArchiveTree.EMPTY)

@@ -60,8 +60,15 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     var listCalls = 0
     var installation: io.yamsergey.dta.protocol.rpc.AppInstallation? = io.yamsergey.dta.protocol.rpc.AppInstallation("1.4.0", 14, 1, 100, "aa")
     val requests = mutableListOf<String>()
+    /** Ids the app evicted under its size limit: their lines stay in the journal, skipped (feature 046). */
+    val evicted = HashSet<String>()
+    /** Journal lines that cannot be read right now: being written, or cut by a crash. They count as lines (feature 046). */
+    val cutLines = HashSet<Int>()
 
     fun record(entry: NetworkEntry) = records.add(entry)
+
+    /** The journal returned to its first [lines] lines, with the same id: an emulator snapshot (feature 046). */
+    fun goBack(lines: Int) = records.subList(lines, records.size).clear()
 
     /** The device forgot: a new journal, empty, with [why] (`cleared`, `storage-new`). */
     fun reset(newId: String, why: String) {
@@ -71,9 +78,9 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
         bodies.clear()
     }
 
-    private fun latest(): List<NetworkEntry> = LinkedHashMap<String, NetworkEntry>().apply { records.forEach { put(it.id, it) } }.values.toList()
+    private fun latest(): List<NetworkEntry> = LinkedHashMap<String, NetworkEntry>().apply { records.filter { it.id !in evicted }.forEach { put(it.id, it) } }.values.toList()
 
-    fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
+    fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted, earliestMs = latest().minOfOrNull { it.timeMs }.takeIf { evicted.isNotEmpty() }, evicted = evicted.size), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
 
     /** The sidekick's own answer over the same history: the reference the host must equal. */
     fun deviceAnswer(query: NetworkQuery): NetworkPage = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context, bodyBytes = { e, part ->
@@ -93,11 +100,17 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
         return when (method) {
             "network_identity" -> RpcResult(DtaJson.encodeToJsonElement(JournalIdentityResult.serializer(), JournalIdentityResult(journalId, reason, latest().size, persisted, context())))
             "network_journal" -> {
-                val from = str("after")?.toInt() ?: 0
+                // As the sidekick does: positions are segment:line, unreadable and evicted lines are counted and skipped.
+                val after = str("after")
                 val limit = str("limit")?.toInt() ?: 500
-                val page = records.drop(from).take(limit)
-                val next = from + page.size
-                RpcResult(DtaJson.encodeToJsonElement(JournalPageResult.serializer(), JournalPageResult(journalId, page, "$next", next >= records.size)))
+                var line = after?.substringAfter(':')?.toInt() ?: 0
+                val page = ArrayList<NetworkEntry>()
+                while (line < records.size && page.size < limit) {
+                    val at = line++
+                    if (at !in cutLines && records[at].id !in evicted) page += records[at]
+                }
+                val next = if (line == 0) after ?: "0:0" else "0:$line"
+                RpcResult(DtaJson.encodeToJsonElement(JournalPageResult.serializer(), JournalPageResult(journalId, page, next, line >= records.size)))
             }
             "network_body_range" -> {
                 val part = BodyPart.entries.first { DtaJson.encodeToJsonElement(BodyPart.serializer(), it).let { j -> (j as JsonPrimitive).content } == str("part") }

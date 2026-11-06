@@ -203,22 +203,43 @@ class HostIndex(
         val identity = DtaJson.decodeFromJsonElement(JournalIdentityResult.serializer(), app.request("network_identity"))
         if (!identity.persisted) return false
         context = identity.context
-        val current = currentEpoch(app, identity)
-        var position = store.cursor(device.key, packageName)?.position
+        var current = currentEpoch(app, identity)
+        val saved = store.cursor(device.key, packageName)
+        var position = saved?.position
+        var lastId = saved?.lastId
+        // The first page starts on the line of the last record read, so reading it also checks it (feature 046).
+        var check = previousLine(position)
         repeat(catchUpBudgetPages) {
             val params = buildJsonObject {
-                position?.let { put("after", it) }
-                put("limit", pageSize)
+                (check ?: position)?.let { put("after", it) }
+                // One more for the record checked, so that every page moves on.
+                put("limit", if (check != null) pageSize + 1 else pageSize)
             }
             val page = DtaJson.decodeFromJsonElement(JournalPageResult.serializer(), app.request("network_journal", params))
             // The journal changed while reading: the next answer starts the new epoch.
             if (page.journalId != identity.journalId) return true
-            if (page.records.isNotEmpty()) {
-                store.putEntries(current.id, page.records)
-                page.records.forEach { live[it.id] = it }
+            var records = page.records
+            var next = page.next
+            check?.let { line ->
+                check = null
+                when (continuity(app, line, lastId, records.firstOrNull()?.id, identity)) {
+                    Continuity.SAME -> records = records.drop(1)
+                    Continuity.GOES_ON -> if (records.isEmpty() && next == line) next = position!!
+                    Continuity.ROLLED_BACK -> {
+                        current = reopen(app, current, identity)
+                        position = null
+                        lastId = null
+                        return@repeat
+                    }
+                }
             }
-            position = page.next
-            store.setCursor(device.key, packageName, identity.journalId, position)
+            if (records.isNotEmpty()) {
+                store.putEntries(current.id, records)
+                records.forEach { live[it.id] = it }
+                lastId = records.last().id
+            }
+            position = next
+            store.setCursor(device.key, packageName, identity.journalId, position, lastId)
             if (page.end) {
                 lag = 0
                 return true
@@ -226,6 +247,51 @@ class HostIndex(
         }
         lag = (identity.entries - live.size).toLong().coerceAtLeast(0)
         return true
+    }
+
+    private enum class Continuity { SAME, GOES_ON, ROLLED_BACK }
+
+    /**
+     * Is this still the journal the daemon was reading (feature 046)? An emulator's snapshot takes
+     * the journal back with its id, so the id alone cannot say. [first] is what the journal has on
+     * the [line] of the last record read, [lastId].
+     */
+    private suspend fun continuity(app: AppConnection, line: String, lastId: String?, first: String?, identity: JournalIdentityResult): Continuity {
+        val coverage = identity.context.coverage
+        if (lastId == null) {
+            // A position from before the record was remembered: only one beyond the journal shows.
+            return if (first == null && coverage.evicted == 0) Continuity.ROLLED_BACK else Continuity.GOES_ON
+        }
+        if (first == lastId) return Continuity.SAME
+        val time = live[lastId]?.timeMs
+        val evicted = coverage.evicted > 0 && (coverage.earliestMs == null || time == null || time <= coverage.earliestMs!!)
+        if (evicted) return Continuity.GOES_ON
+        // That line was cut when read (being written, or a crash): the record is one line earlier.
+        val earlier = previousLine(line) ?: return Continuity.ROLLED_BACK
+        val params = buildJsonObject {
+            put("after", earlier)
+            put("limit", 1)
+        }
+        val before = DtaJson.decodeFromJsonElement(JournalPageResult.serializer(), app.request("network_journal", params))
+        return if (before.records.firstOrNull()?.id == lastId) Continuity.GOES_ON else Continuity.ROLLED_BACK
+    }
+
+    /** The journal went back: what was read is archived, and it is read again from its start. */
+    private suspend fun reopen(app: AppConnection, current: Epoch, identity: JournalIdentityResult): Epoch {
+        store.closeEpoch(current.id, clock(), EpochCloseReason.ROLLED_BACK, neverReceived)
+        neverReceived = 0
+        val opened = store.openEpoch(device, packageName, installation(app), identity.journalId, clock())
+        live.clear()
+        store.setCursor(device.key, packageName, identity.journalId, null)
+        epoch = opened
+        return opened
+    }
+
+    /** The position one line earlier, for a `segment:line` position; null when there is none. */
+    private fun previousLine(position: String?): String? {
+        val parts = position?.split(':')?.takeIf { it.size == 2 } ?: return null
+        val line = parts[1].toIntOrNull()?.takeIf { it > 0 } ?: return null
+        return "${parts[0]}:${line - 1}"
     }
 
     /** The open epoch of this journal; a different journal closes the old one (the archive) and opens one. */

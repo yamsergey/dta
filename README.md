@@ -56,7 +56,7 @@ dta run -- --offline              # Gradle arguments after --
 
 The app only records: in-flight requests and a window of recent ones stay in its memory, everything else goes to its journal on the device. The daemon reads that journal, keeps the history in `$DTA_HOME/store` and answers every network query from there. Bodies are copied in the background as soon as a request finishes (256 KB at a time, within a bandwidth budget), so a query never waits behind a large body.
 
-When the device forgets (you clear the history, wipe the app's data, or reinstall it), this computer does **not**: the history becomes an archived epoch, labelled with why it closed (cleared, data wiped, reinstalled, new build) and the app version.
+When the device forgets (you clear the history, wipe the app's data, reinstall it, or return an emulator to a snapshot), this computer does **not**: the history becomes an archived epoch, labelled with why it closed (cleared, data wiped, reinstalled, new build, rolled back) and the app version.
 
 ```
 dta network list                      # the live history; the result says how many archived epochs exist
