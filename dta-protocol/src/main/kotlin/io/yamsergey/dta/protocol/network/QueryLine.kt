@@ -90,6 +90,29 @@ object QueryLine {
         return ParsedQuery(filter, exclude, terms, problems, tokens)
     }
 
+    /** Filters that only make sense for the session they were typed in: never saved (feature 043). */
+    val SESSION_KEYS = setOf("run", "since", "until")
+
+    /** Feature 043: [words] the line's savable filter words in order, [rest] the line without them. */
+    @Serializable
+    data class Commit(val words: List<String>, val rest: String)
+
+    /**
+     * Feature 043 (Enter): the filter words that can be saved — valid, not session-only — taken
+     * out of the line; search words, words with problems and session-only filters stay.
+     */
+    fun commit(q: String, nowMs: Long = System.currentTimeMillis()): Commit {
+        val p = parse(q, nowMs)
+        val bad = p.problems.map { it.start until it.end }
+        val take = p.tokens.filter { t -> t.key != null && t.key !in SESSION_KEYS && bad.none { r -> t.start in r || (t.end - 1) in r } }
+        var rest = q
+        take.sortedByDescending { it.start }.forEach { rest = rest.removeRange(it.start, it.end) }
+        return Commit(take.map { it.text }, rest.trim().replace(Regex("\\s{2,}"), " "))
+    }
+
+    /** One word that [commit] would save. */
+    fun savable(word: String): Boolean = commit(word).let { it.words == listOf(word.trim()) && it.rest.isEmpty() }
+
     /** The line for a parsed query, in canonical order: filters, exclusions, search words. */
     fun render(p: ParsedQuery): String = render(p.filter, p.exclude, p.terms)
 
