@@ -58,6 +58,8 @@ data class ContextState(
     val app: String? = null,
     val appRule: AppRule? = null,
     val connection: Connection = Connection.UNKNOWN,
+    /** The last connection event of each device and app, whichever was chosen then. */
+    val knownConnections: Map<Pair<String?, String?>, AppConnectionEvent> = emptyMap(),
     val connectionReason: String? = null,
     val daemon: DaemonInfo = DaemonInfo(),
     val injection: InjectionOutcome? = null,
@@ -83,7 +85,9 @@ data class ContextState(
         }
         is ContextEvent.AppConnection -> {
             val e = event.event
-            if (e.device != device || e.app != app) this else copy(connection = connectionOf(e.state), connectionReason = e.reason)
+            // Remembered for every app: it may connect a moment before it becomes the chosen one (the foreground look lags).
+            val seen = copy(knownConnections = knownConnections + ((e.device to e.app) to e))
+            if (e.device != device || e.app != app) seen else seen.copy(connection = connectionOf(e.state), connectionReason = e.reason)
         }
         is ContextEvent.Injection -> copy(injection = event.outcome, injectionReason = event.reason)
     }
@@ -118,7 +122,8 @@ data class ContextState(
     /** A different device or app: everything that described the old one goes. */
     private fun switched(device: String?, deviceRule: DeviceRule?, app: String?, appRule: AppRule?) = copy(
         device = device, deviceRule = deviceRule, app = app, appRule = appRule,
-        connection = Connection.UNKNOWN, connectionReason = null, generation = generation + 1,
+        connection = knownConnections[device to app]?.let { connectionOf(it.state) } ?: Connection.UNKNOWN,
+        connectionReason = knownConnections[device to app]?.reason, generation = generation + 1,
     )
 
     /** Injection in one line (Daemon tab): on or off, and what the last build did. */

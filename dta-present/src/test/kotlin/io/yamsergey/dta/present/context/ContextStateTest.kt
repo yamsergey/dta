@@ -140,4 +140,14 @@ class ContextStateTest {
         assertEquals(ConnectionLine("● no DTA", "caveat", null), noDta.connectionLine)
         assertNotNull(io.yamsergey.dta.present.Tokens["live"])
     }
+
+    @Test
+    fun `an app that connected before it was chosen reads connected once chosen`() {
+        val other = "com.example.other"
+        var state = ready(ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", other, "connected")))
+        assertEquals(Connection.UNKNOWN, state.connection)
+        state = state.reduce(ContextEvent.AppChosen(other))
+        assertEquals(other, state.app)
+        assertEquals(Connection.CONNECTED, state.connection)
+    }
 }
