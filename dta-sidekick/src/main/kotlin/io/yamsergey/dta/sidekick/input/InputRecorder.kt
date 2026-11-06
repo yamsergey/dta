@@ -50,6 +50,12 @@ class InputRecorder(
     @Volatile
     var composeFailure: String? = null
 
+    /** Feature 044: what this foundation version's click path leaves out. */
+    @Volatile
+    var composeLimit: String? = null
+
+    private fun detail() = DETAIL + (composeLimit?.let { "; $it" } ?: "")
+
     fun status(): SourceStatus {
         composeFailure?.let { failures["Compose"] = it }
         val clicks = failures.filterKeys { it.startsWith("View") }
@@ -63,8 +69,8 @@ class InputRecorder(
         }.entries.joinToString("; ") { (what, causes) -> "$what: " + causes.map { it.value }.distinct().joinToString("; ") }
         return when {
             clicks.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.OFF, lost(failures))
-            failures.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.DEGRADED, lost(failures), DETAIL)
-            else -> SourceStatus(Sources.INPUT, SourceState.ON, detail = DETAIL)
+            failures.isNotEmpty() -> SourceStatus(Sources.INPUT, SourceState.DEGRADED, lost(failures), detail())
+            else -> SourceStatus(Sources.INPUT, SourceState.ON, detail = detail())
         }
     }
 

@@ -79,6 +79,7 @@ object TimelineSources {
                 val compose = io.yamsergey.dta.sidekick.input.ComposeClickRecorder(buffer, scope) { root -> UiRuntime.windowIdOf(root) }
                 compose.install(context.classLoader)
                 input.composeFailure = compose.failure
+                input.composeLimit = compose.limit
             }
             TimelineRuntime.register(Sources.INPUT, input::status)
         } catch (t: Throwable) {
