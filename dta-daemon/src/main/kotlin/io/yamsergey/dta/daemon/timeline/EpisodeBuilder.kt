@@ -19,6 +19,7 @@ import io.yamsergey.dta.protocol.timeline.SourceStatus
 import io.yamsergey.dta.protocol.timeline.Sources
 import io.yamsergey.dta.protocol.timeline.TimelineEvent
 import io.yamsergey.dta.protocol.ui.UiEventKind
+import io.yamsergey.dta.protocol.ui.UiSource
 
 /**
  * Feature 045: kept timeline events and socket entries into episodes. A tap or back starts one; so
@@ -68,21 +69,24 @@ class EpisodeBuilder {
         val out = ArrayList<Open>()
         var epoch: String? = null
         var seenEpochFirst = false
-        for (e in events) {
-            val thisEpoch = e.id.substringBefore(':')
-            val newProcess = thisEpoch != epoch
-            if (newProcess) {
+        // The host samples windows on its own clock, so kept order is not always time order.
+        for (e in events.sortedBy { it.wallMs }) {
+            // The host's own events (`host:n`, `<session>:h<n>`) belong to no process of the app.
+            val own = e.id.startsWith("host:") || e.id.substringAfter(':').startsWith("h")
+            val thisEpoch = if (own) epoch else e.id.substringBefore(':')
+            if (thisEpoch != epoch) {
                 epoch = thisEpoch
                 seenEpochFirst = false
             }
             if (e.kind == Kinds.GAP) {
-                out.lastOrNull()?.let { it.gaps++ }
+                // Elements are not drawn, so their back-off says nothing about what is.
+                if (e.ui?.source != UiSource.ELEMENT) out.lastOrNull()?.let { it.gaps++ }
                 continue
             }
             if (!shown(e)) continue
             val current = out.lastOrNull()
             val starts = current == null || !seenEpochFirst || when (e.kind) {
-                Kinds.CLICK, Kinds.BACK -> true
+                Kinds.CLICK, Kinds.BACK, Kinds.PROCESS_ENDED -> true
                 Kinds.NAV_NAVIGATE, Kinds.NAV_BACK -> current.nav != null || e.wallMs - current.lastMs >= PAUSE_MS
                 else -> e.wallMs - current.lastMs >= PAUSE_MS
             }
@@ -112,8 +116,8 @@ class EpisodeBuilder {
         e.causes.any { it.basis != Basis.INFERRED && !it.fromUnknown && it.from in o.ids && it.from != e.id }
 
     private fun step(e: TimelineEvent, o: Open, hosts: Hosts): EpisodeStep? {
-        fun note(label: String, failed: Boolean = false) =
-            EpisodeStep(e.wallMs, EpisodeLanes.APP, label = label, linked = linked(e, o), failed = failed, eventId = e.id)
+        fun note(label: String) =
+            EpisodeStep(e.wallMs, EpisodeLanes.APP, label = label, linked = linked(e, o), eventId = e.id)
         return when {
             e.input != null -> EpisodeStep(
                 e.wallMs, EpisodeLanes.USER, EpisodeLanes.APP,
@@ -140,7 +144,7 @@ class EpisodeBuilder {
                 }
             }
             e.kind == SCREEN_CHANGED -> note("screen changed")
-            e.kind == Kinds.PROCESS_ENDED -> note("process ended", failed = true)
+            e.kind == Kinds.PROCESS_ENDED -> note("process ended")
             e.ui != null -> {
                 val u = e.ui!!
                 val name = u.window?.let { w -> w.title ?: w.owner?.substringAfterLast('.') ?: w.kind.name.lowercase() } ?: "window"
@@ -234,7 +238,7 @@ class EpisodeBuilder {
     /** A short text says what was tapped; a long one (a whole row) is worse than the element's key. */
     private fun tapLabel(e: TimelineEvent, quoted: Boolean): String {
         val text = e.input?.text?.trim()?.takeIf { it.isNotEmpty() && it.length <= SHORT_TEXT }
-        val key = e.input?.element?.key
+        val key = e.input?.element?.key?.substringBefore('|')
         return when {
             text != null && (key == null || !key.contains(':')) -> if (quoted) "\"$text\"" else text
             key != null -> key

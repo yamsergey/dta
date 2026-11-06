@@ -22,6 +22,7 @@ import io.yamsergey.dta.protocol.timeline.SocketCount
 import io.yamsergey.dta.protocol.timeline.Sources
 import io.yamsergey.dta.protocol.timeline.TimelineEvent
 import io.yamsergey.dta.protocol.ui.ElementRef
+import io.yamsergey.dta.protocol.ui.UiSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -158,6 +159,36 @@ class EpisodeBuilderTest {
         assertEquals(2, page.episodes.size)
         assertEquals(1L, page.startWallMs)
         assertFalse(page.episodes.any { it.steps.isNotEmpty() })
+    }
+
+    @Test
+    fun `a tap's key is said without its node type, and an element back-off is not a gap in what is drawn`() {
+        val gap = ev(1_001, Sources.TIMELINE, Kinds.GAP) {
+            copy(ui = io.yamsergey.dta.protocol.ui.UiEvent(id, seq, monoMs, wallMs, io.yamsergey.dta.protocol.ui.UiEventKind.GAP, UiSource.ELEMENT))
+        }
+        val e = EpisodeBuilder().build(listOf(tap(1_000, "row:TYRL|Composable", "A long row text that says too much to read"), gap), emptyList()).episodes.single()
+        assertEquals("Tap row:TYRL", e.title)
+        assertEquals(0, e.gaps)
+    }
+
+    @Test
+    fun `the host's own events are not a new process`() {
+        val ended = TimelineEvent("host:9", 0, 0, 20_000, Sources.TIMELINE, Kinds.PROCESS_ENDED)
+        val page = EpisodeBuilder().build(
+            listOf(ev(1_000, Sources.NAV, Kinds.NAV_NAVIGATE, epoch = 7, s = 1) { copy(nav = NavPayload("n", "navigate", "a.HomeRoute")) }, ended, ev(21_000, Sources.SCREEN, EpisodeBuilder.SCREEN_CHANGED, epoch = 8, s = 1)),
+            emptyList(),
+        )
+        assertEquals(listOf("App start → Home", "Process ended", "App start"), page.episodes.map { it.title })
+    }
+
+    @Test
+    fun `a window sampled on the host's clock falls into the episode of its time, a process end stands alone and is no failure`() {
+        val window = ev(1_500, Sources.SCREEN, EpisodeBuilder.SCREEN_CHANGED, s = 200).copy(id = "u1:h3")
+        val ended = TimelineEvent("host:9", 0, 0, 1_600, Sources.TIMELINE, Kinds.PROCESS_ENDED)
+        val page = EpisodeBuilder().build(listOf(window, tap(1_000, "go", "Go"), ended), emptyList())
+        assertEquals(listOf("Tap Go", "Process ended"), page.episodes.map { it.title })
+        assertEquals(listOf(2, 1), page.episodes.map { it.steps.size })
+        assertEquals(0, page.episodes[1].failures)
     }
 
     @Test
