@@ -88,6 +88,26 @@ class CliTest {
     }
 
     @Test
+    fun `timeline episodes prints a line per episode, and its steps when asked`() {
+        daemon.ops.episodes = io.yamsergey.dta.protocol.timeline.EpisodesPage(
+            listOf(
+                io.yamsergey.dta.protocol.timeline.Episode(
+                    "1:1", 1_000, 1_100, "Tap Go → Home", requests = 1,
+                    steps = listOf(
+                        io.yamsergey.dta.protocol.timeline.EpisodeStep(1_000, "user", "app", "tap \"Go\""),
+                        io.yamsergey.dta.protocol.timeline.EpisodeStep(1_001, "app", label = "→ Home", linked = true),
+                    ),
+                ),
+            ),
+            1, listOf(io.yamsergey.dta.protocol.timeline.EpisodeLane("user", "You"), io.yamsergey.dta.protocol.timeline.EpisodeLane("app", "App")), startWallMs = 1_000,
+        )
+        assertEquals(0, dta("timeline", "episodes", "--steps"), stderr)
+        assertTrue("0:00.0  Tap Go → Home  ·  1 request" in stdout, stdout)
+        assertTrue("You → App  tap \"Go\"" in stdout, stdout)
+        assertTrue("App  ⤷ Home" in stdout, stdout)
+    }
+
+    @Test
     fun `timeline causes prints the chain and state prints the facets`() {
         daemon.ops.timeline.ingest(io.yamsergey.dta.protocol.timeline.TimelineRead(1, listOf(click, toast), lastSeq = 2))
         assertEquals(0, dta("timeline", "causes", "1:2"), stderr)
