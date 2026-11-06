@@ -76,6 +76,8 @@ data class NetworkQuery(
     val q: String? = null,
     /** Feature 041: with search words, list every entry the filters keep (hits marked), not only those with hits. */
     val allRows: Boolean = false,
+    /** Feature 043: do not apply the app's saved filters to this call (they stay saved). */
+    val ignoreSavedFilters: Boolean = false,
 ) {
     /**
      * The filter of [filter] and the line's filters together (the line's win where both give a

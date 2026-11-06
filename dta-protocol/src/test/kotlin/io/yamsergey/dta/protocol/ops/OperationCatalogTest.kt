@@ -38,6 +38,7 @@ class OperationCatalogTest {
                 "network.schema.add", "network.schema.list", "network.schema.remove", "network.schema.sync",
                 "network.mapping.add", "network.mapping.list", "network.mapping.remove",
                 "network.format.add", "network.format.test", "network.format.list", "network.format.remove",
+                "network.filters.list", "network.filters.add", "network.filters.remove",
                 "links.list", "links.entry", "links.open", "links.verification",
                 "archive.list", "archive.delete",
                 "timeline.events", "timeline.watch", "timeline.causes", "state.current", "state.graph", "state.path",

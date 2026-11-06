@@ -247,6 +247,7 @@ object Catalog {
                 ),
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
                 ParamSpec("allRows", ParamType.BOOLEAN, "With search words: list every entry the filters keep, hits marked, instead of only the matches.", cliName = "all-rows"),
+                ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result says what they hid.", cliName = "no-saved-filters"),
             ),
         ),
         OperationSpec(
@@ -260,6 +261,7 @@ object Catalog {
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
                 ParamSpec("redact", ParamType.BOOLEAN, "Search URLs, headers and bodies as redacted: masked secrets are not found."),
                 ParamSpec("archive", ParamType.STRING, "Search the archived history: all, version:<name>, <fromMs>..<toMs>, or an epoch id."),
+                ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result says what they hid.", cliName = "no-saved-filters"),
             ),
         ),
         OperationSpec(
@@ -297,6 +299,7 @@ object Catalog {
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
                 ParamSpec("archive", ParamType.STRING, "Archived history instead of the live one (as network.list)."),
                 ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network list.", cliShort = "-q", cliName = "query"),
+                ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result says what they hid.", cliName = "no-saved-filters"),
             ),
         ),
         OperationSpec(
@@ -395,6 +398,23 @@ object Catalog {
         OperationSpec(
             "network.format.remove", "Remove a format rule; its messages return to DTA's built-in formats.", Scope.APP,
             listOf(ParamSpec("id", ParamType.STRING, "Rule id from network.format.list.", required = true, positional = true)),
+        ),
+        OperationSpec(
+            "network.filters.list",
+            "The app's saved network filters and the ones it had before. Saved filters apply to every network list, search and export unless the call says ignoreSavedFilters; results say what they hid.",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "network.filters.add",
+            "Save filters for this app: words of the query language (-host:telemetry.example.test status:2xx). They survive restarts and apply to every client. A saved filter of the same key as a new one is replaced. run:, since: and until: belong to one session and are refused.",
+            Scope.APP,
+            listOf(ParamSpec("words", ParamType.STRING, "The filter words, separated by spaces.", required = true, positional = true)),
+        ),
+        OperationSpec(
+            "network.filters.remove",
+            "Stop applying a saved filter; it stays among the app's recent ones.",
+            Scope.APP,
+            listOf(ParamSpec("word", ParamType.STRING, "The filter word as network.filters.list gives it.", required = true, positional = true)),
         ),
         OperationSpec(
             "links.list",

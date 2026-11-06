@@ -529,6 +529,8 @@ data class NetworkPage(
     val fields: Map<String, List<String>>? = null,
     /** Feature 040: the page's rows that hold every search word of the query line, and where. */
     val hits: Map<String, List<SearchHit>>? = null,
+    /** Feature 043: the saved filters behind this page and what they hid. */
+    val saved: SavedFiltersApplied? = null,
 )
 
 /** One entry's search hits (feature 040). */
@@ -546,6 +548,8 @@ data class SearchPage(
     val searched: Int,
     val notSearched: List<String>? = null,
     val degraded: List<DegradationMarker>? = null,
+    /** Feature 043: the saved filters behind this page and what they hid. */
+    val saved: SavedFiltersApplied? = null,
 )
 
 /** Result of `network_entry`. */
