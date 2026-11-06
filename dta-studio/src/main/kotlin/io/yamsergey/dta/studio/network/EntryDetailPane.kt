@@ -305,6 +305,11 @@ class EntryDetailPane(
         // Wraps instead of cutting the sentence off; the daemon's own words stay in the tooltip.
         placeholder.text = "<html><div style='text-align:center'>${text.replace("&", "&amp;").replace("<", "&lt;")}</div></html>"
         placeholder.toolTipText = detail
+        // Feature 043: nothing selected yet, the mascot above the sentence.
+        placeholder.icon = if (text == SELECT) MASCOT else null
+        placeholder.horizontalTextPosition = SwingConstants.CENTER
+        placeholder.verticalTextPosition = SwingConstants.BOTTOM
+        placeholder.iconTextGap = JBUI.scale(14)
         removeAll()
         add(placeholder, BorderLayout.CENTER)
         revalidate()
@@ -332,5 +337,6 @@ class EntryDetailPane(
 
     private companion object {
         const val SELECT = "Select an entry to see its headers, bodies and initiator."
+        private val MASCOT by lazy { com.intellij.openapi.util.IconLoader.getIcon("/icons/mascot.svg", EntryDetailPane::class.java.classLoader) }
     }
 }

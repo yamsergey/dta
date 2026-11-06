@@ -8,8 +8,9 @@ import io.yamsergey.dta.present.network.LiveEvent
 import io.yamsergey.dta.present.network.LiveList
 import io.yamsergey.dta.present.network.HitNavigator
 import io.yamsergey.dta.present.network.KindChoice
-import io.yamsergey.dta.present.network.LineChip
 import io.yamsergey.dta.present.network.QueryLineModel
+import io.yamsergey.dta.protocol.network.SavedFilters
+import io.yamsergey.dta.protocol.network.SavedFiltersApplied
 import io.yamsergey.dta.protocol.network.SearchPage
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.studio.ContextController
@@ -43,8 +44,12 @@ data class NetworkViewState(
     val searching: Boolean = false,
     /** What the search could not cover (not-searched bodies, an app that cannot search). */
     val searchStatements: List<Statement> = emptyList(),
-    /** Feature 041: search words leave only the matching rows; off, every row stays with the hits marked. */
-    val onlyMatches: Boolean = true,
+    /** Feature 043: the kind switch, a filter of this session beside the line. */
+    val kind: KindChoice = KindChoice.ALL,
+    /** Feature 043: the app's saved filters (chips) and the ones it had before. */
+    val saved: SavedFilters = SavedFilters(),
+    /** Feature 043: what the saved filters did to the last list. */
+    val savedApplied: SavedFiltersApplied? = null,
     val redact: Boolean = false,
     /** An archive scope (`all`, an epoch id…): the archived history instead of live traffic (feature 011). */
     val archive: String? = null,
@@ -86,15 +91,83 @@ class NetworkController(private val context: ContextController, private val scop
         if (line.parsed.problems.isNotEmpty()) { mutable.update { it.copy(line = line) }; return }
         mutable.update { it.copy(line = line) }
         val sameFilters = before.parsed.problems.isEmpty() && before.parsed.filter == line.parsed.filter && before.parsed.exclude == line.parsed.exclude
-        // Feature 041: with only the matches listed, other words are other rows.
-        val sameRows = sameFilters && (!mutable.value.onlyMatches || before.parsed.terms == line.parsed.terms)
-        if (sameRows) search() else requery()
+        // Feature 041: only the matches are listed, so other words are other rows.
+        if (sameFilters && before.parsed.terms == line.parsed.terms) search() else requery()
     }
 
-    /** The All / HTTP / WebSocket switch: the line's kind word. */
-    fun setKind(choice: KindChoice) = setQuery(mutable.value.line.withKind(choice).text)
+    /** The All / HTTP / WebSocket switch. */
+    fun setKind(choice: KindChoice) {
+        if (mutable.value.kind == choice) return
+        mutable.update { it.copy(kind = choice) }
+        requery()
+    }
 
-    fun removeChip(chip: LineChip) = setQuery(mutable.value.line.without(chip).text)
+    /**
+     * Feature 043, Enter: the line's filter words become the app's saved filters and leave the
+     * line. False when it had none to save (Enter then steps to the next hit).
+     */
+    fun commitLine(text: String): Boolean {
+        val commit = mutable.value.line.withText(text).commit()
+        if (commit.words.isEmpty()) return false
+        val rest = mutable.value.line.withText(commit.rest)
+        mutable.update { it.copy(line = rest) }
+        changeSaved("network.filters.add", "words", commit.words.joinToString(" "))
+        return true
+    }
+
+    /** A recent filter saved again, in one choice. */
+    fun addSaved(word: String) = changeSaved("network.filters.add", "words", word)
+
+    /** × on a chip: no longer applied; it stays among the recent ones. */
+    fun removeSaved(word: String) = changeSaved("network.filters.remove", "word", word)
+
+    /** A click on a chip: its word back in the line for editing; Enter saves it again. */
+    fun editSaved(word: String) {
+        val text = listOf(word, mutable.value.line.text.trim()).filter { it.isNotEmpty() }.joinToString(" ")
+        mutable.update { it.copy(line = it.line.withText(text)) }
+        changeSaved("network.filters.remove", "word", word)
+    }
+
+    private fun changeSaved(op: String, param: String, value: String) {
+        val c = context.client ?: return
+        val s = mutable.value
+        if (s.app == null) return
+        scope.launch {
+            runCatching { c.call(op, JsonObject(target(s) + mapOf(param to JsonPrimitive(value)))).result }
+                .onSuccess { result -> mutable.update { it.copy(saved = DtaJson.decodeFromJsonElement(SavedFilters.serializer(), result), error = null) }; requery() }
+                .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName) } }
+        }
+    }
+
+    /**
+     * Feature 043: what another client changed shows without a restart, and the count of what the
+     * filters hide follows new traffic. Only while the app has saved filters or might get some.
+     */
+    private fun followSaved(client: DaemonClient) {
+        savedJob?.cancel()
+        savedJob = scope.launch {
+            while (true) {
+                val s = mutable.value
+                if (s.app != null && s.device != null) {
+                    val fresh = runCatching { DtaJson.decodeFromJsonElement(SavedFilters.serializer(), client.call("network.filters.list", target(s)).result) }.getOrNull()
+                    if (fresh != null && fresh != s.saved) {
+                        val rows = fresh.saved != s.saved.saved
+                        mutable.update { it.copy(saved = fresh) }
+                        if (rows) requery()
+                    } else if (fresh != null && fresh.saved.isNotEmpty() && s.archive == null) {
+                        runCatching { client.call("network.list", JsonObject(params(s).toMap() + ("limit" to JsonPrimitive(1)))).result.jsonObject }
+                            .onSuccess { page -> mutable.update { it.copy(savedApplied = applied(page)) } }
+                    }
+                }
+                kotlinx.coroutines.delay(SAVED_POLL_MS)
+            }
+        }
+    }
+
+    private var savedJob: Job? = null
+
+    private fun applied(page: JsonObject): SavedFiltersApplied? =
+        page["saved"]?.let { DtaJson.decodeFromJsonElement(SavedFiltersApplied.serializer(), it) }
 
     /** The list's order switch: hits are stepped through top to bottom. */
     fun setHitsNewestFirst(newestFirst: Boolean) {
@@ -144,7 +217,7 @@ class NetworkController(private val context: ContextController, private val scop
             if (debounceMs > 0) kotlinx.coroutines.delay(debounceMs)
             mutable.update { it.copy(searching = true) }
             val params = JsonObject(
-                target(s) + s.line.params() + mapOf("limit" to JsonPrimitive(SEARCH_LIMIT), "order" to JsonPrimitive(if (s.hitsNewestFirst) "newest-first" else "oldest-first")) +
+                target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive(SEARCH_LIMIT), "order" to JsonPrimitive(if (s.hitsNewestFirst) "newest-first" else "oldest-first")) +
                     (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
             )
             runCatching { DtaJson.decodeFromJsonElement(SearchPage.serializer(), c.call("network.search", params).result) }
@@ -160,13 +233,6 @@ class NetworkController(private val context: ContextController, private val scop
         }
     }
 
-    /** Feature 041: only the rows holding the search words, or every row with the hits marked. */
-    fun setOnlyMatches(on: Boolean) {
-        if (mutable.value.onlyMatches == on) return
-        mutable.update { it.copy(onlyMatches = on) }
-        if (mutable.value.line.hasSearch) requery()
-    }
-
     private var relistJob: Job? = null
 
     /** Feature 041: new traffic while only matches are listed — listed again once it settles (an entry matches only once searched). */
@@ -176,7 +242,7 @@ class NetworkController(private val context: ContextController, private val scop
         relistJob = scope.launch {
             kotlinx.coroutines.delay(SEARCH_SETTLE_MS)
             runCatching { c.call("network.list", params(mutable.value)).result.jsonObject }
-                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page)) }; search() }
+                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page), savedApplied = applied(page)) }; search() }
         }
     }
 
@@ -190,7 +256,7 @@ class NetworkController(private val context: ContextController, private val scop
 
     private fun loaded(page: JsonObject) = LiveEvent.Loaded(page, quiet = quietNext.also { quietNext = false })
 
-    private fun filtering(s: NetworkViewState) = s.onlyMatches && s.line.hasSearch
+    private fun filtering(s: NetworkViewState) = s.line.hasSearch
 
     fun setRedact(on: Boolean) {
         mutable.update { it.copy(redact = on) }
@@ -237,7 +303,7 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return done(Result.failure(IllegalStateException("No DTA daemon connected.")))
         scope.launch {
             val params = JsonObject(
-                target(s) + s.line.params() + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                target(s) + s.line.params(s.kind) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
                     (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
             )
             val result = runCatching { c.call("network.export", params).result.jsonObject }
@@ -262,15 +328,17 @@ class NetworkController(private val context: ContextController, private val scop
             it.copy(
                 device = target.device, app = target.app, watching = false, error = null,
                 list = if (sameApp) it.list else LiveList(), statements = if (sameApp) it.statements else emptyList(),
+                saved = if (sameApp) it.saved else SavedFilters(), savedApplied = if (sameApp) it.savedApplied else null,
             )
         }
         val client = target.client ?: return
+        if (!sameApp || savedJob == null) followSaved(client)
         // The archive answers without the app running; it is a snapshot, not watched.
         if (mutable.value.archive != null && target.device != null && target.app != null) {
             source = scope.launch {
                 mutable.update { it.copy(loading = true) }
                 runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
-                    .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), loading = false) }; search() }
+                    .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), savedApplied = applied(page), loading = false) }; search() }
                     .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false) } }
             }
             return
@@ -280,12 +348,12 @@ class NetworkController(private val context: ContextController, private val scop
             mutable.update { it.copy(loading = true) }
             try {
                 val s = mutable.value
-                client.networkEvents(JsonObject(target(s) + s.line.params())).collect { data ->
+                client.networkEvents(JsonObject(target(s) + s.line.params(s.kind))).collect { data ->
                     if (data["selection"] != null) {
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
                         val e = loaded(page)
-                        mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), loading = false, watching = true) }
+                        mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), savedApplied = applied(page), loading = false, watching = true) }
                         search()
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
@@ -319,8 +387,8 @@ class NetworkController(private val context: ContextController, private val scop
     private fun target(s: NetworkViewState) = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())
 
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
-        target(s) + s.line.params() + mapOf("limit" to JsonPrimitive(PAGE)) +
-            (if (!s.onlyMatches && s.line.hasSearch) mapOf("allRows" to JsonPrimitive(true)) else emptyMap()) + (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+        target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive(PAGE)) +
+            (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
             (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
     )
 
@@ -329,6 +397,7 @@ class NetworkController(private val context: ContextController, private val scop
         const val SEARCH_LIMIT = 1000
         const val SEARCH_SETTLE_MS = 1000L
         const val REVEAL_PAGES = 10
+        const val SAVED_POLL_MS = 5000L
     }
 }
 

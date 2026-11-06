@@ -68,7 +68,7 @@ class NetworkControllerTest {
     private suspend fun until(check: () -> Boolean) = withTimeout(5_000) { while (!check()) kotlinx.coroutines.delay(20) }
 
     @Test
-    fun `the query line is the list's query, search words list only the matches unless every row is asked for (040, 041)`() = runBlocking<Unit> {
+    fun `the query line is the list's query, search words list only the matches (040, 041, 043)`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 && it.watching }
         network.setQuery("status:4xx")
@@ -84,13 +84,6 @@ class NetworkControllerTest {
         // Feature 041: only the matches are listed — the words are the list's query.
         until { daemon.ops.queries.last().second.q == "status:4xx api" }
         assertEquals(false, daemon.ops.queries.last().second.allRows)
-        // Every row, hits marked: one more list with allRows; then another word only searches.
-        network.setOnlyMatches(false)
-        until { daemon.ops.queries.last().second.allRows }
-        val lists2 = daemon.ops.queries.size
-        network.setQuery("status:4xx apis")
-        until { daemon.ops.searches.any { it.q == "status:4xx apis" } }
-        assertEquals(lists2, daemon.ops.queries.size, "with every row shown a search word does not re-query the list")
         network.setQuery("status:4xx api")
         await { it.hits.total == 1 }
         network.nextHit()
@@ -132,14 +125,41 @@ class NetworkControllerTest {
     }
 
     @Test
-    fun `the kind switch writes the line and queries WebSocket traffic only, then everything again`() = runBlocking<Unit> {
+    fun `the kind switch queries WebSocket traffic only, then everything again, and stays out of the line (043)`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 }
         network.setKind(io.yamsergey.dta.present.network.KindChoice.WEBSOCKET)
         until { daemon.ops.queries.any { it.second.q == "ws" } }
-        assertEquals(io.yamsergey.dta.present.network.KindChoice.WEBSOCKET, network.state.value.line.kind)
+        assertEquals("", network.state.value.line.text)
         network.setKind(io.yamsergey.dta.present.network.KindChoice.ALL)
         until { daemon.ops.queries.last().second.q == null }
+    }
+
+    @Test
+    fun `Enter saves the line's filters, the search word stays, the list asks with what is left (043)`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("-host:t.example.test status:2xx ACME")
+        assertTrue(network.commitLine("-host:t.example.test status:2xx ACME"))
+        val saved = await { it.saved.saved == listOf("-host:t.example.test", "status:2xx") }
+        assertEquals("ACME", saved.line.text)
+        assertEquals(listOf("-host:t.example.test", "status:2xx"), daemon.ops.savedWords.toList())
+        until { daemon.ops.queries.last().second.q == "ACME" }
+        assertEquals(false, network.commitLine("ACME"), "only search words: nothing to save")
+    }
+
+    @Test
+    fun `removing a chip, editing one, and another client's change (043)`() = runBlocking<Unit> {
+        daemon.ops.savedWords += listOf("-url:/a", "status:2xx")
+        session.start()
+        await { it.saved.saved.size == 2 }
+        network.removeSaved("-url:/a")
+        await { it.saved.saved == listOf("status:2xx") }
+        network.editSaved("status:2xx")
+        val edited = await { it.saved.saved.isEmpty() }
+        assertEquals("status:2xx", edited.line.text)
+        daemon.ops.savedWords += "-url:/b"
+        withTimeout(8_000) { network.state.first { it.saved.saved == listOf("-url:/b") } }
     }
 
     @Test

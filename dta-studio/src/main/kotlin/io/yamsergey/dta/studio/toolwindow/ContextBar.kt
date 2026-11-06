@@ -23,6 +23,8 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
     private val apps = ComboBox<String>()
     private val connection = JBLabel()
     private var updating = false
+    /** What the bar's owner does when its contents' widths changed. */
+    var onChanged: () -> Unit = {}
 
     init {
         add(JBLabel("Device")); add(devices)
@@ -52,8 +54,30 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
         connection.text = line?.text ?: ""
         connection.foreground = line?.let { if (it.token == "ink-muted") com.intellij.ui.JBColor.GRAY else DtaColors.of(it.token) }
         connection.toolTipText = line?.reason
+        onChanged()
         revalidate()
         repaint()
+    }
+
+    /**
+     * Feature 043: the bar lives in the title bar now, which does not wrap: in a narrow window the
+     * two combos give up width so the connection state stays visible.
+     */
+    fun fit(available: Int) {
+        val gap = JBUI.scale(8)
+        val others = components.filter { it !== devices && it !== apps }.sumOf { it.preferredSize.width + gap } + 2 * gap
+        devices.preferredSize = null
+        apps.preferredSize = null
+        val room = (available - others).coerceAtLeast(JBUI.scale(160))
+        val d = devices.preferredSize
+        val a = apps.preferredSize
+        if (d.width + a.width > room) {
+            val half = room / 2
+            val dw = if (d.width <= half) d.width else if (a.width <= half) room - a.width else half
+            devices.preferredSize = java.awt.Dimension(dw, d.height)
+            apps.preferredSize = java.awt.Dimension((room - dw).coerceAtMost(a.width), a.height)
+        }
+        revalidate()
     }
 
     private fun onOpen(action: () -> Unit) = object : PopupMenuListener {

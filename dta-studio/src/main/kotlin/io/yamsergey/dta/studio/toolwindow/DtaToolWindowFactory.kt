@@ -86,7 +86,6 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         }
         val top = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(bar)
             add(banner)
         }
         val root = JPanel(BorderLayout()).apply {
@@ -96,6 +95,15 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(root, "", false))
         // The injection switch, also in Settings › Tools › DTA (FR-021).
         toolWindow.setTitleActions(listOf(io.yamsergey.dta.studio.inject.ToggleInjectionAction()))
+        // Feature 043: the title bar carries the mascot and the device and app instead of the name, one row less.
+        toolWindow.component.putClientProperty(com.intellij.openapi.wm.impl.content.ToolWindowContentUi.HIDE_ID_LABEL, "true")
+        (toolWindow as? com.intellij.openapi.wm.ex.ToolWindowEx)?.setTabActions(HeaderBar(bar))
+        // Room left beside the mascot and the title actions (the checkbox, options, hide).
+        val refit = { bar.fit(toolWindow.component.width - com.intellij.util.ui.JBUI.scale(TITLE_RESERVED)) }
+        bar.onChanged = refit
+        toolWindow.component.addComponentListener(object : java.awt.event.ComponentAdapter() {
+            override fun componentResized(e: java.awt.event.ComponentEvent?) = refit()
+        })
 
         service.scope.launch {
             controller.state.collect { state ->
@@ -114,4 +122,19 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             }
         }
     }
+}
+
+private const val TITLE_RESERVED = 140
+
+/** The title bar's mascot and context line (feature 043). */
+private class HeaderBar(private val bar: ContextBar) : com.intellij.openapi.actionSystem.AnAction(), com.intellij.openapi.actionSystem.ex.CustomComponentAction, DumbAware {
+    override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = Unit
+    override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+    override fun createCustomComponent(presentation: com.intellij.openapi.actionSystem.Presentation, place: String): javax.swing.JComponent =
+        JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, com.intellij.util.ui.JBUI.scale(4), 0)).apply {
+            isOpaque = false
+            add(com.intellij.ui.components.JBLabel(com.intellij.openapi.util.IconLoader.getIcon("/icons/mascot-16.svg", HeaderBar::class.java.classLoader)))
+            bar.isOpaque = false
+            add(bar)
+        }
 }

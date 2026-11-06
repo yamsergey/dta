@@ -60,8 +60,9 @@ import javax.swing.table.AbstractTableModel
 /**
  * The Network view (US1, contracts/tool-window.md): one live list of HTTP and WebSocket traffic
  * that never jumps, newest at the bottom or on top as the person prefers, a toggle that follows
- * the newest rows (feature 021), a query line that filters and searches (040) with its chips,
- * hit counter and "shown of total", pause, and the entry detail beside or below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
+ * the newest rows (feature 021), a query line that filters and searches (040), the app's saved
+ * filters as chips (043), a tool strip at the table's left and a caption under it as the IDE's
+ * own lists have, and the entry detail beside or below it. Everything shown comes from [NetworkController]'s state; this class only binds it.
  */
 class NetworkPanel(
     private val project: Project,
@@ -75,6 +76,22 @@ class NetworkPanel(
         setShowGrid(false)
         autoResizeMode = JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS
         sizeColumns(this)
+        // Feature 043: the list is ordered from its headers.
+        val plainHeader = tableHeader.defaultRenderer
+        tableHeader.defaultRenderer = javax.swing.table.TableCellRenderer { t, value, selected, focus, row, column ->
+            plainHeader.getTableCellRendererComponent(t, value, selected, focus, row, column).also { c ->
+                (c as? javax.swing.JLabel)?.apply {
+                    horizontalTextPosition = javax.swing.SwingConstants.LEADING
+                    icon = this@NetworkPanel.model.sortIcon(t.convertColumnIndexToModel(column))
+                }
+            }
+        }
+        tableHeader.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                val column = convertColumnIndexToModel(columnAtPoint(e.point))
+                if (column >= 0) sortBy(column)
+            }
+        })
         // A column that needs explaining says so on its header.
         tableHeader.addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
             override fun mouseMoved(e: java.awt.event.MouseEvent) {
@@ -96,28 +113,17 @@ class NetworkPanel(
         })
     }
     private val scroll = JBScrollPane(table)
-    // Wrapping rows: a narrow pane moves controls to the next line instead of cutting them off.
-    private val chips = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
+    // Feature 043: the app's saved filters; wrapping rows, a narrow pane moves chips to the next line.
+    private val chips = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))).apply { isOpaque = false }
+    private var chipsShown: List<String>? = null
     /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP. */
     private val query = com.intellij.ui.components.JBTextField().apply {
         emptyText.text = "Filter and search: POST status:4xx host:api.example.com -host:… token \"a phrase\""
         toolTipText = "<html>key:value words filter (method: status: host: url: kind: has:intervention body: run: since:5m until:, GET/POST…, http, ws);<br>" +
-            "-key:value leaves matches out; other words are searched in URLs, headers, bodies and messages: only the matches are listed (All rows shows the rest too).<br>" +
-            "Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.</html>"
+            "-key:value leaves matches out; other words are searched in URLs, headers, bodies and messages: only the matches are listed.<br>" +
+            "Enter saves the filters for this app as chips; with only search words Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.</html>"
     }
     private val hitLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
-    private val previousHit = ActionLink("↑") { stepHit(forward = false) }.apply { toolTipText = "Previous hit (Shift+Enter, Shift+F3)" }
-    private val nextHit = ActionLink("↓") { stepHit(forward = true) }.apply { toolTipText = "Next hit (Enter, F3)" }
-    /** Feature 041: every row with the hits marked, instead of only the matches. */
-    private val allRows = com.intellij.ui.components.JBCheckBox("All rows").apply {
-        isOpaque = false
-        toolTipText = "Show every row the filters keep, the matches marked, instead of only the matches"
-        isSelected = PropertiesComponent.getInstance().getBoolean(ALL_ROWS_KEY, false)
-        addActionListener {
-            PropertiesComponent.getInstance().setValue(ALL_ROWS_KEY, isSelected, false)
-            network.setOnlyMatches(!isSelected)
-        }
-    }
     private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
     private val suggestionList = com.intellij.ui.components.JBList<Suggestion>().apply {
         cellRenderer = com.intellij.ui.SimpleListCellRenderer.create("") { it.text + (it.hint?.let { h -> "   $h" } ?: "") }
@@ -127,14 +133,11 @@ class NetworkPanel(
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     // The IDE's own segmented control: a plain JToggleButton's pressed state barely shows in the new UI.
     private lateinit var kinds: SegmentedButton<KindChoice>
-    private val pause = JBCheckBox("Pause")
-    private val redact = JBCheckBox("Redact")
     /** Live traffic, or the history this computer kept after the device forgot it (feature 011). */
     private val source = com.intellij.openapi.ui.ComboBox(arrayOf(LIVE, ARCHIVE)).apply {
         toolTipText = "Live: the app's traffic now. Archive: history the device cleared or lost, kept on this computer (browse it in the Daemon tab)."
     }
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
-    private val orderLink = ActionLink("") { setOrder(model.order.toggled()) }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
     /** Feature 026: copy actions, with the view's redaction. */
     private val copyMenu = io.yamsergey.dta.studio.network.EntryCopyMenu(project, scope, { context.client }) {
@@ -146,18 +149,37 @@ class NetworkPanel(
     private val splitter = JBSplitter(false, "dta.network.split", 0.68f)
     private var programmaticScroll = false
     private var scrollValue = 0
-    /** "Scroll to the newest", as the IDE's Build and Run views have it: shows and sets following. */
-    private val follow = object : ToggleAction("Scroll to the Newest", "Follow new rows; scrolling away or selecting a row stops it", AllIcons.RunConfigurations.Scroll_down) {
+    private inner class Toggle(text: String, icon: javax.swing.Icon, private val enabled: () -> Boolean = { true }, private val on: () -> Boolean, private val set: (Boolean) -> Unit) : ToggleAction(text, null, icon) {
         override fun getActionUpdateThread() = ActionUpdateThread.EDT
-        override fun isSelected(e: AnActionEvent) = last.list.following
-        override fun setSelected(e: AnActionEvent, state: Boolean) {
-            if (state) { network.list(LiveEvent.JumpToEnd); scrollToEdge() } else network.list(LiveEvent.ScrolledAway)
-        }
+        override fun isSelected(e: AnActionEvent) = on()
+        override fun setSelected(e: AnActionEvent, state: Boolean) = set(state)
+        override fun update(e: AnActionEvent) { super.update(e); e.presentation.isEnabled = enabled() }
     }
-    private val followBar = ActionManager.getInstance().createActionToolbar("DtaNetworkFollow", DefaultActionGroup(follow), true).apply {
+
+    private inner class Act(text: String, icon: javax.swing.Icon, private val enabled: () -> Boolean = { true }, private val run: () -> Unit) : com.intellij.openapi.project.DumbAwareAction(text, null, icon) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun actionPerformed(e: AnActionEvent) = run()
+        override fun update(e: AnActionEvent) { e.presentation.isEnabled = enabled() }
+    }
+
+    /** Feature 043: the list's actions in a vertical strip at its left, as the IDE's Logcat and Run views have them. */
+    private val strip = ActionManager.getInstance().createActionToolbar("DtaNetworkList", DefaultActionGroup(
+        Act("Clear History…", AllIcons.Actions.GC) { clear() },
+        Toggle("Pause", AllIcons.Actions.Pause, enabled = { last.archive == null }, on = { last.list.paused }) { network.list(if (it) LiveEvent.Pause else LiveEvent.Resume) },
+        // "Scroll to the newest", as the IDE's Build and Run views have it: shows and sets following.
+        Toggle("Scroll to the Newest", AllIcons.RunConfigurations.Scroll_down, on = { last.list.following }) { state ->
+            if (state) { network.list(LiveEvent.JumpToEnd); scrollToEdge() } else network.list(LiveEvent.ScrolledAway)
+        },
+        Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { last.line.hasSearch && last.hits.total > 0 }) { stepHit(forward = false) },
+        Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { last.line.hasSearch && last.hits.total > 0 }) { stepHit(forward = true) },
+        com.intellij.openapi.actionSystem.Separator.getInstance(),
+        Toggle("Redact Secrets", AllIcons.Actions.ToggleVisibility, on = { last.redact }) { network.setRedact(it) },
+        com.intellij.openapi.actionSystem.Separator.getInstance(),
+        Act("Export HAR…", AllIcons.ToolbarDecorator.Export) { exportHar() },
+    ), false).apply {
         targetComponent = this@NetworkPanel
         component.isOpaque = false
-        component.border = JBUI.Borders.empty()
+        component.border = JBUI.Borders.emptyRight(2)
     }
     private var last = NetworkViewState()
 
@@ -165,37 +187,23 @@ class NetworkPanel(
         val kindSwitch = panel {
             row {
                 kinds = segmentedButton(KindChoice.entries) { text = it.label }
-                    .whenItemSelectedFromUi { choice -> if (last.line.kind != choice) { typing.stop(); network.setKind(choice) } }
+                    .whenItemSelectedFromUi { choice -> if (last.kind != choice) { typing.stop(); network.setKind(choice) } }
             }
         }.apply { isOpaque = false }
         kinds.selectedItem = KindChoice.ALL
-        // Row 1: the query line with its hit counter; row 2: its filters as chips and the count; row 3: how the list is shown.
+        // Row 1: the query line with its hit counter; row 2: the saved filters; row 3: what the list holds.
         val queryRow = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
             border = JBUI.Borders.empty(4, 8, 2, 8)
             add(query, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false; add(hitLabel); add(previousHit); add(nextHit); add(allRows) }, BorderLayout.EAST)
+            add(hitLabel, BorderLayout.EAST)
         }
         val chipRow = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(0, 4)
             add(chips, BorderLayout.CENTER)
-            add(caption, BorderLayout.EAST)
         }
-        val more = ActionLink("⋯") { e ->
-            val group = DefaultActionGroup(
-                object : com.intellij.openapi.project.DumbAwareAction("Export HAR…") { override fun actionPerformed(e: AnActionEvent) = exportHar() },
-                object : com.intellij.openapi.project.DumbAwareAction("Clear History…") { override fun actionPerformed(e: AnActionEvent) = clear() },
-            )
-            JBPopupFactory.getInstance().createActionGroupPopup(null, group, com.intellij.ide.DataManager.getInstance().getDataContext(this), JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
-                .showUnderneathOf(e.source as java.awt.Component)
-        }.apply { toolTipText = "Export HAR…, Clear history…" }
         val viewRow = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
             add(kindSwitch)
             add(source)
-            add(orderLink)
-            add(followBar.component)
-            add(pause)
-            add(redact)
-            add(more)
         }
         val toolbar = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
@@ -204,19 +212,24 @@ class NetworkPanel(
         bindQuery()
         val master = JPanel(BorderLayout()).apply {
             add(JPanel(BorderLayout()).apply { add(toolbar, BorderLayout.NORTH); add(statements, BorderLayout.SOUTH) }, BorderLayout.NORTH)
+            add(strip.component, BorderLayout.WEST)
             add(scroll, BorderLayout.CENTER)
-            add(JPanel(BorderLayout()).apply { add(newBar, BorderLayout.WEST); add(empty, BorderLayout.CENTER) }, BorderLayout.SOUTH)
+            // Feature 043: what the list shows and what the filters hid sit under it.
+            add(JPanel(BorderLayout(JBUI.scale(12), 0)).apply {
+                border = JBUI.Borders.empty(2, 6, 0, 4)
+                add(caption, BorderLayout.WEST)
+                add(empty, BorderLayout.CENTER)
+                add(newBar, BorderLayout.EAST)
+            }, BorderLayout.SOUTH)
         }
         splitter.firstComponent = master
         splitter.secondComponent = detail
         add(splitter, BorderLayout.CENTER)
         // Detail to the right when wide, below when narrow (patterns.md).
         addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent?) { splitter.orientation = width < JBUI.scale(900) }
+            override fun componentResized(e: ComponentEvent?) { splitter.orientation = width < JBUI.scale(NARROW) }
         })
 
-        pause.addActionListener { network.list(if (pause.isSelected) LiveEvent.Pause else LiveEvent.Resume) }
-        redact.addActionListener { network.setRedact(redact.isSelected) }
         source.addActionListener {
             val wanted = if (source.selectedItem == ARCHIVE) (last.archive ?: "all") else null
             if (wanted != last.archive) network.setArchive(wanted)
@@ -235,10 +248,9 @@ class NetworkPanel(
             Scrolling.event(last.list.following, moved, atEdge())?.let { network.list(it) }
         }
         setOrder(ListOrder.of(PropertiesComponent.getInstance().getValue(ORDER_KEY)))
-        network.setOnlyMatches(!allRows.isSelected)
         Keyboard.bind(this, ViewKey.START) { if (model.rowCount > 0) table.changeSelection(0, 0, false, false) }
         Keyboard.bind(this, ViewKey.END) { network.list(LiveEvent.JumpToEnd); table.clearSelection(); scrollToEdge() }
-        Keyboard.bind(this, ViewKey.PAUSE) { pause.doClick() }
+        Keyboard.bind(this, ViewKey.PAUSE) { network.list(if (last.list.paused) LiveEvent.Resume else LiveEvent.Pause) }
         Keyboard.bind(this, ViewKey.FILTERS) { query.requestFocusInWindow() }
         Keyboard.bind(this, ViewKey.SEARCH) { query.requestFocusInWindow() }
         fun key(stroke: String, action: () -> Unit) = registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
@@ -266,26 +278,28 @@ class NetworkPanel(
         val added = try { model.update(s.list.rows) } finally { scroll.validate(); programmaticScroll = false }
         // Keep the selection on its row by id, whatever moved around it.
         s.list.selectedId?.let { id -> model.indexOf(id)?.let { i -> if (table.selectedRow != i) { model.updating = true; table.setRowSelectionInterval(i, i); model.updating = false } } }
-        if (s.list.following) scrollToEdge()
+        if (s.list.following && model.sort == null) scrollToEdge()
         // Rows added above what the person is reading push it down; scroll by as much so nothing jumps.
         else if (added > 0 && model.order == ListOrder.NEWEST_FIRST) keepInPlace(added)
-        if (s.list.following != previous.list.following) followBar.updateActionsAsync()
+        if (s.list.following != previous.list.following || s.list.paused != previous.list.paused || s.redact != previous.redact ||
+            s.hits.total != previous.hits.total || s.line.hasSearch != previous.line.hasSearch || s.archive != previous.archive) strip.updateActionsAsync()
 
         // Set from the archive browser too: the switch follows the state.
         val wanted = if (s.archive != null) ARCHIVE else LIVE
         if (source.selectedItem != wanted) source.selectedItem = wanted
-        pause.isEnabled = s.archive == null
 
-        // A kinds filter the switch cannot express is a chip; then no switch position is lit.
-        val kind = s.line.kind
-        if (kinds.selectedItem != kind) kinds.selectedItem = kind
+        if (kinds.selectedItem != s.kind) kinds.selectedItem = s.kind
         // The line is the person's while they type; set from the state only when changed elsewhere (a chip, the switch).
         if (s.line.text != query.text && !typing.isRunning && s.line.text != previous.line.text) query.text = s.line.text
         val problems = s.line.parsed.problems.takeIf { s.line.text == query.text }.orEmpty()
         query.putClientProperty("JComponent.outline", if (problems.isEmpty()) null else "error")
-        if (s.line != previous.line || chips.componentCount == 0) {
+        if (s.saved.saved != chipsShown) {
+            chipsShown = s.saved.saved
             chips.removeAll()
-            s.line.chips.forEach { chip -> chips.add(ActionLink("${chip.label} ×") { typing.stop(); network.removeChip(chip) }.apply { toolTipText = "Remove this filter from the line" }) }
+            s.saved.saved.forEach { word ->
+                chips.add(io.yamsergey.dta.studio.network.FilterChip(word, edit = { typing.stop(); network.editSaved(word); query.requestFocusInWindow() }, remove = { network.removeSaved(word) }))
+            }
+            chips.isVisible = s.saved.saved.isNotEmpty()
         }
         hitLabel.foreground = if (problems.isEmpty()) com.intellij.ui.JBColor.GRAY else DtaColors.of("status-server")
         hitLabel.text = when {
@@ -295,15 +309,12 @@ class NetworkPanel(
             else -> s.hits.label
         }
         hitLabel.toolTipText = problems.takeIf { it.size > 1 }?.joinToString("<br>", "<html>", "</html>") { it.message }
-        previousHit.isVisible = s.line.hasSearch && s.hits.total > 0
-        nextHit.isVisible = previousHit.isVisible
-        allRows.isVisible = s.line.hasSearch
         // The caption keeps its width while traffic arrives (024); it starts over on new filters or a cleared list.
         if (s.line != previous.line || s.list.total < previous.list.total) caption.reset()
-        val filterCount = s.line.chips.size
-        caption.text = "${s.list.shown} of ${s.list.total} shown" + when (filterCount) { 0 -> ""; 1 -> " · 1 filter"; else -> " · $filterCount filters, combined with AND" }
+        caption.text = io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.total, s.savedApplied)
         if (s.hits != previous.hits) table.repaint()
         statements.removeAll()
+        s.saved.problem?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.text(io.yamsergey.dta.present.StatementKind.DEGRADED) }) }
         (io.yamsergey.dta.present.Statements.forNetworkTab(s.statements) + s.searchStatements + listOfNotNull(
             if (s.list.paused) io.yamsergey.dta.present.Statement(io.yamsergey.dta.present.StatementKind.PENDING, word = "paused", detail = "paused: ${s.list.backlog} waiting; capture goes on") else null,
         )).forEach { statements.add(StatementMark(it)) }
@@ -313,7 +324,7 @@ class NetworkPanel(
         empty.text = when {
             s.app == null -> ""
             s.loading -> "Loading…"
-            s.list.rows.isEmpty() && s.line.chips.isEmpty() -> "No traffic yet. Requests appear here as the app makes them."
+            s.list.rows.isEmpty() && s.saved.saved.isEmpty() && s.line.text.isBlank() && s.kind == io.yamsergey.dta.present.network.KindChoice.ALL -> "No traffic yet. Requests appear here as the app makes them."
             s.list.rows.isEmpty() -> "Nothing matches these filters."
             else -> ""
         }
@@ -353,12 +364,21 @@ class NetworkPanel(
         programmaticScroll = false
     }
 
+    /** Feature 043, a click on a header: Time is the list's order, any other column sorts the loaded rows; again reverses. */
+    private fun sortBy(column: Int) {
+        if (column == 0) {
+            if (model.sort != null) model.setSort(null) else setOrder(model.order.toggled())
+        } else {
+            model.setSort(if (model.sort?.column == column) model.sort!!.copy(ascending = !model.sort!!.ascending) else io.yamsergey.dta.present.network.RowSort(column))
+        }
+        table.tableHeader.repaint()
+        show(last)
+    }
+
     /** Shows newest on top or at the bottom, remembered across sessions; the selection and following stay. */
     private fun setOrder(order: ListOrder) {
         PropertiesComponent.getInstance().setValue(ORDER_KEY, order.name, ListOrder.DEFAULT.name)
         network.setHitsNewestFirst(order == ListOrder.NEWEST_FIRST)
-        orderLink.text = if (order == ListOrder.NEWEST_FIRST) "↓ ${order.label}" else "↑ ${order.label}"
-        orderLink.toolTipText = "Show ${order.toggled().label.lowercase()}"
         if (model.order == order && model.rowCount > 0) return
         model.reorder(order)
         val selected = last.list.selectedId?.let { model.indexOf(it) }
@@ -416,12 +436,21 @@ class NetworkPanel(
         on("DOWN") { if (popupShown()) moveSuggestion(1) else suggest() }
         on("UP") { if (popupShown()) moveSuggestion(-1) }
         on("TAB") { if (popupShown()) applySuggestion() }
-        // Enter is the field's own accept action: a suggestion when the list is open, else the next hit.
+        // Enter is the field's own accept action: a suggestion when the list is open; the line's filters saved as chips; else the next hit.
         query.addActionListener {
             if (popupShown()) { applySuggestion(); return@addActionListener }
-            if (typing.isRunning) { typing.stop(); network.setQuery(query.text) }
+            typing.stop()
+            if (network.commitLine(query.text)) {
+                query.text = network.state.value.line.text
+                return@addActionListener
+            }
+            network.setQuery(query.text)
             stepHit(forward = true)
         }
+        // Feature 043: focusing the empty line offers the app's recent filters.
+        query.addFocusListener(object : java.awt.event.FocusAdapter() {
+            override fun focusGained(e: java.awt.event.FocusEvent) { if (query.text.isEmpty()) javax.swing.SwingUtilities.invokeLater { if (query.hasFocus()) suggest() } }
+        })
         on("shift ENTER") { stepHit(forward = false) }
         on("ESCAPE") { if (popupShown()) suggestionPopup?.cancel() else table.requestFocusInWindow() }
         suggestionList.addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -432,7 +461,7 @@ class NetworkPanel(
     private fun popupShown() = suggestionPopup?.isVisible == true
 
     private fun suggest() {
-        val items = last.line.withText(query.text).suggestions(query.caretPosition, QueryLineModel.seen(model.views()))
+        val items = last.line.withText(query.text).suggestions(query.caretPosition, QueryLineModel.seen(model.views()), last.saved.recent)
         suggestionPopup?.cancel()
         if (items.isEmpty()) return
         suggestionList.setListData(items.toTypedArray())
@@ -453,6 +482,12 @@ class NetworkPanel(
     private fun applySuggestion() {
         val chosen = suggestionList.selectedValue ?: return
         suggestionPopup?.cancel()
+        // Feature 043: a recent filter comes back as a chip in one choice.
+        if (chosen.recent) {
+            query.text = query.text.removeRange(chosen.from, query.caretPosition.coerceAtLeast(chosen.from))
+            network.addSaved(chosen.text)
+            return
+        }
         val (applied, caret) = last.line.withText(query.text).apply(chosen, query.caretPosition)
         query.text = applied.text
         query.caretPosition = caret.coerceAtMost(query.text.length)
@@ -475,15 +510,44 @@ class NetworkPanel(
             private set
         var updating = false
         private val cache = HashMap<Row, EntryRow>()
+        var sort: io.yamsergey.dta.present.network.RowSort? = null
+            private set
+        private var sorted: List<Row> = emptyList()
+
+        fun setSort(next: io.yamsergey.dta.present.network.RowSort?) {
+            sort = next
+            resort()
+            updating = true
+            fireTableDataChanged()
+            updating = false
+        }
+
+        private fun resort() {
+            val s = sort ?: return
+            val by = s.comparator()
+            sorted = rows.sortedWith { a, b -> by.compare(view(a), view(b)) }
+        }
+
+        fun sortIcon(column: Int): javax.swing.Icon? {
+            val up = AllIcons.General.ArrowUp
+            val down = AllIcons.General.ArrowDown
+            return when {
+                sort?.column == column -> if (sort!!.ascending) up else down
+                sort == null && column == 0 -> if (order == ListOrder.OLDEST_FIRST) up else down
+                else -> null
+            }
+        }
 
         fun view(row: Row): EntryRow = cache.getOrPut(row) { EntryRows.of(row.entry) }
 
         /** The newest rows as shown, for the query line's value suggestions (hosts, statuses, methods). */
         fun views(): List<EntryRow> = rows.takeLast(500).map(::view)
 
-        fun rowAt(shown: Int): Row = rows[order.shown(shown, rows.size)]
+        fun rowAt(shown: Int): Row = if (sort != null) sorted[shown] else rows[order.shown(shown, rows.size)]
 
-        fun indexOf(id: String): Int? = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { order.shown(it, rows.size) }
+        fun indexOf(id: String): Int? =
+            if (sort != null) sorted.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+            else rows.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { order.shown(it, rows.size) }
 
         fun reorder(next: ListOrder) {
             order = next
@@ -499,6 +563,12 @@ class NetworkPanel(
             updating = true
             rows = next
             if (cache.size > 20_000) cache.clear()
+            if (sort != null) {
+                resort()
+                fireTableDataChanged()
+                updating = false
+                return 0
+            }
             var added = 0
             when {
                 next.size >= before.size && before.indices.all { before[it].id == next[it].id } -> {
@@ -527,7 +597,6 @@ class NetworkPanel(
             // Feature 041: with only the matches listed every row is one: only the current hit stands out.
             if (!selected && last.line.hasSearch && last.hits.hitsOf(r.id) != null) {
                 if (last.hits.current?.id == r.id) background = io.yamsergey.dta.studio.ui.SEARCH_MARK
-                else if (!last.onlyMatches) background = com.intellij.ui.JBColor(java.awt.Color(0xFF, 0xF6, 0xD6), java.awt.Color(0x3D, 0x37, 0x24))
             }
             val kind = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.of(r.kind.token))
             val muted = SimpleTextAttributes.GRAYED_ATTRIBUTES
@@ -558,7 +627,8 @@ class NetworkPanel(
 
     private companion object {
         const val ORDER_KEY = "dta.network.order"
-        const val ALL_ROWS_KEY = "dta.network.allRows"
+        /** Below this the detail goes under the list; a 900 px tool window still has them side by side. */
+        const val NARROW = 860
         const val LIVE = "Live"
         const val ARCHIVE = "Archive"
 
