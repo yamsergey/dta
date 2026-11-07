@@ -10,6 +10,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class SequenceViewTest {
+    @Test
+    fun `rows arriving do not read as the user scrolling away, only a moved bar does`() {
+        val w = ScrollWatch()
+        assertTrue(w.userMoved(100, adjusting = false, programmatic = false), "first look")
+        assertEquals(false, w.userMoved(100, adjusting = false, programmatic = false), "the bar grew, its value stayed")
+        assertEquals(false, w.userMoved(200, adjusting = false, programmatic = true), "our own scroll")
+        assertEquals(false, w.userMoved(150, adjusting = true, programmatic = false), "still dragging")
+        assertTrue(w.userMoved(150, adjusting = false, programmatic = false), "the drag ended there")
+    }
+
     private fun flow(id: String, name: String, start: Long, end: Long?, rows: Int = 0, shown: Int = rows, gone: Boolean = false) =
         SequenceFlow(Flow(id, name, startMs = start, endMs = end), rows, shown, gone)
     private fun inFlow(ms: Long, vararg flows: String) = SequenceStep(ms, "user", "app", "tap", flows = flows.toList())

@@ -83,6 +83,7 @@ class TimelinePanel(
     private var binding = false
     private var sequenceShown = false
     private var programmaticScroll = false
+    private val scrollWatch = io.yamsergey.dta.present.timeline.ScrollWatch()
     private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Filter: text, URL, id" }
     private val unexplained = JBCheckBox("No known cause")
     private val inferred = JBCheckBox("Inferred links").apply { toolTipText = "Draw links inferred from timing and matching data (dashed); off by default" }
@@ -277,7 +278,7 @@ class TimelinePanel(
         inLine("ENTER") { controller.sequence { it.nextHit() } }
         inLine("shift ENTER") { controller.sequence { it.previousHit() } }
         sequenceScroll.verticalScrollBar.addAdjustmentListener {
-            if (programmaticScroll || it.valueIsAdjusting) return@addAdjustmentListener
+            if (!scrollWatch.userMoved(it.value, it.valueIsAdjusting, programmaticScroll)) return@addAdjustmentListener
             val atEnd = atEnd()
             val view = state.sequence
             if (view.following != atEnd && !view.paused && view.steps.isNotEmpty()) controller.sequence { v -> v.copy(following = atEnd) }

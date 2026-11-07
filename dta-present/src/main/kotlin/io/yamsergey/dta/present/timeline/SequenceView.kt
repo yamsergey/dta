@@ -78,6 +78,18 @@ object SequenceText {
 
 enum class SequenceAction(val label: String) { RESUME("Resume"), SHOW_ALL("Show all"), END_FLOW("End flow") }
 
+/** Tells the user's scrolling from a list growing: a scroll bar reports both alike. */
+class ScrollWatch {
+    private var last = Int.MIN_VALUE
+
+    fun userMoved(value: Int, adjusting: Boolean, programmatic: Boolean): Boolean {
+        if (adjusting) return false
+        val moved = value != last
+        last = value
+        return moved && !programmatic
+    }
+}
+
 /** What the Sequence view draws, top to bottom: rows, and a line above a flow's first (feature 049). */
 sealed interface SequenceItem {
     data class Line(val flow: SequenceFlow) : SequenceItem
