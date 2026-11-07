@@ -92,7 +92,7 @@ class TimelinePanel(
     private val status = JBLabel().apply { foreground = JBColor.GRAY }
     private lateinit var viewSwitch: SegmentedButton<ViewChoice>
     private val cards = JPanel(CardLayout())
-    private val sequence = SequenceComponent(onOpen = openNetwork)
+    private val sequence = SequenceComponent(onOpen = openNetwork, onFlowMenu = { f, e -> flowLineMenu(f).show(e.component, e.x, e.y) })
     private val sequenceTitles = sequence.Titles()
     private val sequenceScroll = JBScrollPane(sequence).apply { horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER; border = JBUI.Borders.empty() }
     private val sequenceNote = JBLabel().apply {
@@ -118,7 +118,7 @@ class TimelinePanel(
         when (state.sequence.action) {
             SequenceAction.RESUME -> controller.sequence { it.pause(false) }
             SequenceAction.SHOW_ALL -> controller.sequence { it.showAll() }
-            SequenceAction.END_FLOW -> Unit
+            SequenceAction.END_FLOW -> controller.endFlow()
             null -> Unit
         }
     }.apply { isVisible = false }
@@ -135,8 +135,26 @@ class TimelinePanel(
         override fun update(e: AnActionEvent) { e.presentation.isEnabled = enabled() }
     }
 
+    /** Feature 049: Start Flow, or End Flow while one is recording. */
+    private inner class FlowToggle : DumbAwareAction() {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun actionPerformed(e: AnActionEvent) {
+            if (state.sequence.recording != null) controller.endFlow() else askToStart()
+        }
+
+        override fun update(e: AnActionEvent) {
+            val recording = state.sequence.recording
+            e.presentation.text = recording?.let { "End Flow: ${it.flow.name}" } ?: "Start Flow…"
+            e.presentation.icon = if (recording != null) AllIcons.Actions.Suspend else AllIcons.Debugger.Db_set_breakpoint
+            e.presentation.isEnabled = state.app != null
+        }
+    }
+
     /** Feature 048: the list's actions in a vertical strip at its left, in the Network list's order. */
     private val strip = ActionManager.getInstance().createActionToolbar("DtaTimelineSequence", DefaultActionGroup(
+        FlowToggle(),
+        Act("Flows", AllIcons.Actions.ListFiles, enabled = { state.sequence.flows.isNotEmpty() }) { flowsMenu().show(sequenceScroll, JBUI.scale(4), JBUI.scale(4)) },
+        Separator.getInstance(),
         Act("Clear View… (Nothing Is Deleted)", AllIcons.Actions.GC) { clear() },
         Toggle("Pause", AllIcons.Actions.Pause, on = { state.sequence.paused }) { on -> controller.sequence { it.pause(on) } },
         Toggle("Scroll to the Newest", AllIcons.RunConfigurations.Scroll_down, on = { state.sequence.following }) { on ->
@@ -271,6 +289,15 @@ class TimelinePanel(
         return bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(8)
     }
 
+    private fun scrollToItem(i: Int) {
+        javax.swing.SwingUtilities.invokeLater {
+            sequence.validate()
+            programmaticScroll = true
+            sequence.scrollRectToVisible(sequence.rowBounds(i))
+            programmaticScroll = false
+        }
+    }
+
     private fun scrollToEnd() {
         javax.swing.SwingUtilities.invokeLater {
             sequence.validate()
@@ -285,6 +312,43 @@ class TimelinePanel(
     private fun clear() {
         val yes = Messages.showYesNoDialog(this, "The view will start from now. Nothing is deleted: the app's journal and the Network history stay, and Show all brings the earlier rows back.", "Clear the Timeline View", null)
         if (yes == Messages.YES) controller.sequence { it.clear() }
+    }
+
+    private val flowName = object : com.intellij.openapi.ui.InputValidator {
+        override fun checkInput(text: String) = text.trim().length <= io.yamsergey.dta.protocol.timeline.Flow.MAX_NAME
+        override fun canClose(text: String) = checkInput(text)
+    }
+
+    private fun askToStart() {
+        val name = Messages.showInputDialog(
+            this,
+            "Name (optional). What happens from now until you end it is this flow, background traffic included.",
+            "Start a Flow", null, "", flowName,
+        ) ?: return
+        controller.startFlow(name)
+    }
+
+    /** The app's flows, newest first; choosing one goes to its line. */
+    private fun flowsMenu() = JPopupMenu().apply {
+        state.sequence.flowMenu().forEach { item ->
+            add(javax.swing.JMenuItem("${item.name}  ·  ${item.meta}").apply {
+                isEnabled = item.enabled
+                addActionListener { controller.sequence { it.goToFlow(item.id) } }
+            })
+        }
+    }
+
+    private fun flowLineMenu(f: io.yamsergey.dta.protocol.timeline.SequenceFlow) = JPopupMenu().apply {
+        add(javax.swing.JMenuItem("Rename…").apply {
+            addActionListener {
+                val name = Messages.showInputDialog(this@TimelinePanel, "Name", "Rename the Flow", null, f.flow.name, object : com.intellij.openapi.ui.InputValidator {
+                    override fun checkInput(text: String) = text.isNotBlank() && flowName.checkInput(text)
+                    override fun canClose(text: String) = checkInput(text)
+                }) ?: return@addActionListener
+                controller.renameFlow(f.flow.id, name)
+            }
+        })
+        add(javax.swing.JMenuItem("Remove (nothing recorded is deleted)").apply { addActionListener { controller.removeFlow(f.flow.id) } })
     }
 
     private fun zoom(factor: Double) {
@@ -353,6 +417,8 @@ class TimelinePanel(
             s.sequenceError?.let { "The sequence could not be read: $it" },
             input?.let { "Taps may be missing: ${it.reason ?: it.state.name.lowercase()}" },
             page?.socketsNote,
+            page?.flowsNote,
+            s.flowError?.let { "The flow: $it" },
         ).joinToString(" · ")
         sequenceNote.text = note
         sequenceNote.isVisible = note.isNotEmpty()
@@ -363,7 +429,9 @@ class TimelinePanel(
         if (previous.sequence === v && previous.app == s.app && sequenceShown) return
         sequenceShown = true
         // The strip follows the state at once, not at the toolbar's next look.
-        if (v.paused != previous.sequence.paused || v.following != previous.sequence.following || v.hitRows.isEmpty() != previous.sequence.hitRows.isEmpty()) strip.updateActionsAsync()
+        if (v.paused != previous.sequence.paused || v.following != previous.sequence.following || v.hitRows.isEmpty() != previous.sequence.hitRows.isEmpty() ||
+            v.recording?.flow != previous.sequence.recording?.flow || v.flows.isEmpty() != previous.sequence.flows.isEmpty() || s.app != previous.app
+        ) strip.updateActionsAsync()
         val empty = when {
             s.app == null -> "Choose an app with DTA inside."
             page != null && page.total > 0 -> "Nothing matches this filter."
@@ -372,14 +440,15 @@ class TimelinePanel(
         }
         sequence.show(v, empty)
         sequenceTitles.repaint()
-        if (v.currentRow >= 0 && v.currentRow != previous.sequence.currentRow) {
-            javax.swing.SwingUtilities.invokeLater {
-                sequence.validate()
-                programmaticScroll = true
-                sequence.scrollRectToVisible(sequence.rowBounds(v.currentRow))
-                programmaticScroll = false
+        val target = v.flowTarget?.let(v::itemOfFlow) ?: -1
+        when {
+            target >= 0 -> {
+                scrollToItem(target)
+                controller.sequence { it.copy(flowTarget = null) }
             }
-        } else if (v.following) scrollToEnd()
+            v.currentRow >= 0 && v.currentRow != previous.sequence.currentRow -> scrollToItem(v.itemOfStep(v.currentRow))
+            v.following -> scrollToEnd()
+        }
     }
 
     private enum class ViewChoice(val label: String) { SEQUENCE("Sequence"), LIST("List") }

@@ -4,8 +4,10 @@ import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import io.yamsergey.dta.present.timeline.LaneTitles
+import io.yamsergey.dta.present.timeline.SequenceItem
 import io.yamsergey.dta.present.timeline.SequenceText
 import io.yamsergey.dta.present.timeline.SequenceView
+import io.yamsergey.dta.protocol.timeline.SequenceFlow
 import io.yamsergey.dta.protocol.timeline.SequenceLanes
 import io.yamsergey.dta.protocol.timeline.SequenceStep
 import io.yamsergey.dta.studio.ui.DtaColors
@@ -29,13 +31,16 @@ import javax.swing.SwingConstants
 
 /**
  * The Sequence view (feature 048): one flat sequence diagram, a row per step, nothing grouped.
- * Everything drawn comes from [SequenceView]; causes are never decided here.
+ * Everything drawn comes from [SequenceView]; causes are never decided here. Feature 049: a flow
+ * is a line above its first row and a tint on its rows; nothing moves or hides because of it.
  */
 class SequenceComponent(
     private val onOpen: (String) -> Unit,
+    private val onFlowMenu: (SequenceFlow, MouseEvent) -> Unit = { _, _ -> },
 ) : JComponent(), Scrollable {
     private var view = SequenceView()
-    private var rows: List<SequenceStep> = emptyList()
+    private var items: List<SequenceItem> = emptyList()
+    private var names: Map<String, String> = emptyMap()
     private var positions: Map<String, Double> = emptyMap()
     private var empty = ""
     private var hovered = -1
@@ -47,8 +52,11 @@ class SequenceComponent(
         toolTipText = ""
         val mouse = object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                rows.getOrNull(rowAt(e.y))?.entryId?.let(onOpen)
+                if (e.button == MouseEvent.BUTTON1) stepAt(e.y)?.entryId?.let(onOpen)
             }
+
+            override fun mousePressed(e: MouseEvent) = popup(e)
+            override fun mouseReleased(e: MouseEvent) = popup(e)
 
             override fun mouseMoved(e: MouseEvent) = hover(rowAt(e.y))
             override fun mouseExited(e: MouseEvent) = hover(-1)
@@ -60,40 +68,52 @@ class SequenceComponent(
     fun show(next: SequenceView, emptyText: String) {
         view = next
         empty = emptyText
-        rows = next.steps
+        items = next.items
+        names = next.flowNames
         positions = next.positions()
         hovered = -1
         revalidate()
         repaint()
     }
 
-    /** Where a row stands, to bring it into view. */
+    /** Where an item stands, to bring it into view. */
     fun rowBounds(i: Int) = Rectangle(0, i * rowHeight, width, rowHeight)
 
     /** Where a lane stands at this component's width; the lanes' titles above line up with it. */
     fun laneX(id: String): Int = gutter + ((width - gutter) * (positions[id] ?: positions[SequenceLanes.APP] ?: 0.0)).toInt()
 
-    private fun rowAt(y: Int): Int = if (y < 0 || rowHeight == 0) -1 else (y / rowHeight).takeIf { it < rows.size } ?: -1
+    private fun rowAt(y: Int): Int = if (y < 0 || rowHeight == 0) -1 else (y / rowHeight).takeIf { it < items.size } ?: -1
+
+    private fun stepAt(y: Int): SequenceStep? = (items.getOrNull(rowAt(y)) as? SequenceItem.Row)?.step
+
+    private fun popup(e: MouseEvent) {
+        if (!e.isPopupTrigger) return
+        (items.getOrNull(rowAt(e.y)) as? SequenceItem.Line)?.let { onFlowMenu(it.flow, e) }
+    }
 
     private fun hover(i: Int) {
         if (i == hovered) return
         hovered = i
-        cursor = if (rows.getOrNull(i)?.entryId != null) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
+        cursor = if ((items.getOrNull(i) as? SequenceItem.Row)?.step?.entryId != null) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
         repaint()
     }
 
-    override fun getToolTipText(e: MouseEvent): String? = rows.getOrNull(rowAt(e.y))?.let { s ->
-        SequenceText.hover(s) + if (s.entryId != null) "\n(click to open in Network)" else ""
+    override fun getToolTipText(e: MouseEvent): String? = when (val item = items.getOrNull(rowAt(e.y))) {
+        is SequenceItem.Row -> SequenceText.hover(item.step, names) + if (item.step.entryId != null) "\n(click to open in Network)" else ""
+        is SequenceItem.Line -> SequenceText.flowTitle(item.flow) + flowMeta(item.flow) + "\nRows are in it by time, not by a proved cause."
+        null -> null
     }?.let { "<html>" + it.replace("&", "&amp;").replace("<", "&lt;").replace("\n", "<br>") + "</html>" }
+
+    private fun flowMeta(f: SequenceFlow) = SequenceText.flowMeta(f, view.page?.startWallMs ?: 0, view.startMs)
 
     override fun getToolTipLocation(e: MouseEvent): Point? = null
 
-    override fun getPreferredSize() = Dimension(0, maxOf(rows.size * rowHeight, rowHeight))
+    override fun getPreferredSize() = Dimension(0, maxOf(items.size * rowHeight, rowHeight))
     override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
     override fun getScrollableUnitIncrement(r: Rectangle, o: Int, d: Int) = if (o == SwingConstants.VERTICAL) rowHeight else JBUI.scale(16)
     override fun getScrollableBlockIncrement(r: Rectangle, o: Int, d: Int) = if (o == SwingConstants.VERTICAL) r.height else r.width
     override fun getScrollableTracksViewportWidth() = true
-    override fun getScrollableTracksViewportHeight() = rows.isEmpty()
+    override fun getScrollableTracksViewportHeight() = items.isEmpty()
 
     override fun paintComponent(g0: Graphics) {
         val g = g0.create() as Graphics2D
@@ -102,26 +122,54 @@ class SequenceComponent(
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
             g.color = UIUtil.getPanelBackground()
             g.fillRect(0, 0, width, height)
-            if (rows.isEmpty()) {
+            if (items.isEmpty()) {
                 g.color = JBColor.GRAY
                 g.drawString(empty, JBUI.scale(12), JBUI.scale(24))
                 return
             }
             val clip = g.clipBounds
             val from = maxOf(clip.y / rowHeight, 0)
-            val to = minOf((clip.y + clip.height) / rowHeight, rows.size - 1)
-            for (i in from..to) row(g, rows[i], i * rowHeight, i)
+            val to = minOf((clip.y + clip.height) / rowHeight, items.size - 1)
+            for (i in from..to) {
+                when (val item = items[i]) {
+                    is SequenceItem.Row -> row(g, item, i * rowHeight, i)
+                    is SequenceItem.Line -> line(g, item.flow, i * rowHeight)
+                }
+            }
         } finally {
             g.dispose()
         }
     }
 
-    private fun row(g: Graphics2D, s: SequenceStep, y: Int, i: Int) {
+    /** A flow's line: its name, then when and how many, over the tint its rows have. */
+    private fun line(g: Graphics2D, f: SequenceFlow, y: Int) {
+        val h = rowHeight
+        g.color = FLOW
+        g.fillRect(0, y, width, h)
+        g.color = GRID
+        positions.keys.forEach { val x = laneX(it); g.drawLine(x, y, x, y + h) }
+        val base = g.font
+        val left = JBUI.scale(8)
+        val room = width - 2 * left
+        g.font = base.deriveFont(Font.BOLD)
+        val title = fit(SequenceText.flowTitle(f), g.fontMetrics, room)
+        val baseline = y + (h + g.fontMetrics.ascent - g.fontMetrics.descent) / 2
+        g.color = UIUtil.getLabelForeground()
+        g.drawString(title, left, baseline)
+        val used = g.fontMetrics.stringWidth(title)
+        g.font = base
+        g.color = JBColor.GRAY
+        g.drawString(fit(flowMeta(f), g.fontMetrics, room - used), left + used, baseline)
+    }
+
+    private fun row(g: Graphics2D, item: SequenceItem.Row, y: Int, i: Int) {
+        val s = item.step
         val h = rowHeight
         when {
-            i == view.currentRow -> { g.color = UIUtil.getListSelectionBackground(false); g.fillRect(0, y, width, h) }
+            item.index == view.currentRow -> { g.color = UIUtil.getListSelectionBackground(false); g.fillRect(0, y, width, h) }
             s.hit -> { g.color = HIT; g.fillRect(0, y, width, h) }
             i == hovered && s.entryId != null -> { g.color = HOVER; g.fillRect(0, y, width, h) }
+            item.flow != null -> { g.color = FLOW; g.fillRect(0, y, width, h) }
         }
         g.color = GRID
         positions.keys.forEach { val x = laneX(it); g.drawLine(x, y, x, y + h) }
@@ -234,5 +282,6 @@ class SequenceComponent(
         val TAG = JBColor(Color(0xEBECF0), Color(0x393B40))
         val HOVER = JBColor(Color(0xF0F1F2), Color(0x2B2D30))
         val HIT = JBColor(Color(0xFFF6D6), Color(0x3D3724))
+        val FLOW = JBColor(Color(0xEDF3FF), Color(0x25324D))
     }
 }

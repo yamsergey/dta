@@ -49,6 +49,8 @@ data class TimelineTabState(
     val showSequence: Boolean = true,
     val sequence: SequenceView = SequenceView(),
     val sequenceError: String? = null,
+    /** Feature 049: why the last thing asked of a flow was refused. */
+    val flowError: String? = null,
 )
 
 /**
@@ -91,6 +93,30 @@ class TimelineController(private val context: ContextController, private val sco
         mutable.update { it.copy(sequence = change(it.sequence)) }
         val now = mutable.value.sequence
         if (before.query != now.query || before.startMs != now.startMs || before.paused != now.paused) refreshSequence()
+    }
+
+    /** Feature 049: flows are the daemon's; each answer is read back through the sequence. */
+    fun startFlow(name: String?) = flowCall("timeline.flow.start", name?.takeIf { it.isNotBlank() }?.let { mapOf("name" to JsonPrimitive(it)) }.orEmpty())
+
+    fun endFlow() = flowCall("timeline.flow.end")
+
+    fun renameFlow(id: String, name: String) = flowCall("timeline.flow.rename", mapOf("flow" to JsonPrimitive(id), "name" to JsonPrimitive(name)))
+
+    fun removeFlow(id: String) = flowCall("timeline.flow.remove", mapOf("flow" to JsonPrimitive(id)))
+
+    private fun flowCall(operation: String, params: Map<String, JsonPrimitive> = emptyMap()) {
+        val client = context.client ?: return
+        scope.launch {
+            try {
+                client.call(operation, JsonObject(target(mutable.value) + params))
+                mutable.update { it.copy(flowError = null) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutable.update { it.copy(flowError = e.message ?: e.javaClass.simpleName) }
+            }
+            runCatching { readSequence(client) }
+        }
     }
 
     private fun refreshSequence() {
