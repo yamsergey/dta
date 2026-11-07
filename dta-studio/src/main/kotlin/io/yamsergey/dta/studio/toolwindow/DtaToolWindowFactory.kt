@@ -35,6 +35,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         val scriptPanel = ScriptPanel(project, controller, service.scope)
         val schemasPanel = SchemasPanel(project, controller, service.scope, service.schemaSync)
         val linksPanel = LinksPanel(project, controller, service.scope)
+        // Feature 048: set once the Runtime tab exists.
+        var openViewModels: () -> Unit = {}
         val timelinePanel = TimelinePanel(
             service.timeline, service.scope,
             openNetwork = { id ->
@@ -42,6 +44,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                 tabs.selectedIndex = 0
             },
             openLayout = { tabs.selectedComponent = layoutPanel },
+            openViewModels = { openViewModels() },
         )
         // Feature 027: the app's stores, for the device and app the context line shows.
         val appCall: suspend (String, kotlinx.serialization.json.JsonObject) -> kotlinx.serialization.json.JsonObject = { op, params ->
@@ -57,6 +60,12 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         // Feature 028: what the running process holds.
         val runtimePanel = io.yamsergey.dta.studio.data.RuntimePanel(project, service.scope, call = appCall)
         var runtimeFor: Pair<String?, String?>? = null
+        openViewModels = {
+            // The tab's own loading is skipped: the panel reads once, for this.
+            controller.state.value.let { st -> runtimeFor = st.device to st.app }
+            tabs.selectedComponent = runtimePanel
+            runtimePanel.openViewModels()
+        }
         var dataFor: Pair<String?, String?>? = null
         tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))

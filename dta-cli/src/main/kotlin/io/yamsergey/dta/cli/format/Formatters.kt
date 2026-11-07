@@ -68,7 +68,7 @@ class Formatters(private val style: Style) {
         "links.open" -> linkOpen(result.obj)
         "links.verification" -> verification(result.obj)
         "timeline.events" -> timelineEvents(result)
-        "timeline.episodes" -> io.yamsergey.dta.present.timeline.EpisodeText.lines(decode(io.yamsergey.dta.protocol.timeline.EpisodesPage.serializer(), result)).joinToString("\n")
+        "timeline.sequence" -> io.yamsergey.dta.present.timeline.SequenceText.lines(decode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), result)).joinToString("\n")
         "timeline.causes" -> TimelineEventText.chain(decode(io.yamsergey.dta.protocol.timeline.CauseChain.serializer(), result))
         "state.current" -> TimelineEventText.state(decode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), result))
         "state.graph" -> TimelineEventText.graph(decode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), result))

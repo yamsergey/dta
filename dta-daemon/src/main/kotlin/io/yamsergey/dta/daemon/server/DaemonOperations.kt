@@ -75,7 +75,7 @@ interface DaemonOperations {
     suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.timeline.TimelinePage
     fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.timeline.TimelineEvent>
     suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain
-    suspend fun timelineEpisodes(serial: String, pkg: String, limit: Int, steps: Boolean): io.yamsergey.dta.protocol.timeline.EpisodesPage
+    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?): io.yamsergey.dta.protocol.timeline.SequencePage
     suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState
     suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph
     suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath
@@ -93,7 +93,7 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) = daemon.timelineWatch(serial, pkg, history, sources, kinds)
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
         daemon.timelineCauses(serial, pkg, event, direction, depth, inferred)
-    override suspend fun timelineEpisodes(serial: String, pkg: String, limit: Int, steps: Boolean) = daemon.timelineEpisodes(serial, pkg, limit, steps)
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?) = daemon.timelineSequence(serial, pkg, limit, q, sinceMs)
     override suspend fun stateCurrent(serial: String, pkg: String) = daemon.stateCurrent(serial, pkg)
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean) = daemon.stateGraph(serial, pkg, facets, minHoldMs, inferred)
     override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) = daemon.statePath(serial, pkg, from, to, facets)

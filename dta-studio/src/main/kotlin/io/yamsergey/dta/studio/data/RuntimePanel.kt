@@ -63,6 +63,7 @@ class RuntimePanel(
 
     private val status = JBLabel(" ").apply { foreground = JBColor.GRAY; setCopyable(true) }
     private val root = DefaultMutableTreeNode()
+    private var viewModelsWanted = false
     private val treeModel = DefaultTreeModel(root)
     val tree = Tree(treeModel)
     private val cards = CardLayout()
@@ -138,6 +139,22 @@ class RuntimePanel(
         }, BorderLayout.CENTER)
     }
 
+    /** Feature 048: the ViewModels alive now, asked for from the Timeline; read only for this. */
+    fun openViewModels() {
+        if (root.childCount == 0) {
+            viewModelsWanted = true
+            load()
+        } else {
+            selectViewModels()
+        }
+    }
+
+    private fun selectViewModels() {
+        val node = root.children().asSequence().map { it as DefaultMutableTreeNode }.firstOrNull { it.userObject == Section.VIEWMODELS } ?: return
+        tree.clearSelection()
+        tree.selectionPath = javax.swing.tree.TreePath(arrayOf<Any>(root, node))
+    }
+
     /** Reads navigation hosts, ViewModels and functions again and rebuilds the tree. */
     fun load() {
         scope.launch {
@@ -165,6 +182,10 @@ class RuntimePanel(
                 status.text = listOfNotNull(nav.exceptionOrNull(), vms.exceptionOrNull()).firstOrNull()?.message
                     ?: (nav.getOrNull()?.completeness.orEmpty() + vms.getOrNull()?.completeness.orEmpty()).firstOrNull()?.reason
                     ?: "${nav.getOrNull()?.hosts?.size ?: 0} navigation hosts, ${vms.getOrNull()?.viewModels?.size ?: 0} ViewModels."
+                if (viewModelsWanted) {
+                    viewModelsWanted = false
+                    selectViewModels()
+                }
             })
         }
     }

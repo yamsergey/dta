@@ -1,6 +1,15 @@
 package io.yamsergey.dta.studio.toolwindow
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Separator
+import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.ColoredTableCellRenderer
 import com.intellij.ui.JBColor
 import com.intellij.ui.JBSplitter
@@ -13,13 +22,16 @@ import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
+import io.yamsergey.dta.present.timeline.SequenceAction
+import io.yamsergey.dta.present.timeline.SequenceView
 import io.yamsergey.dta.present.timeline.TimelineChange
 import io.yamsergey.dta.present.timeline.TimelineEventText
 import io.yamsergey.dta.present.timeline.TimelineFilter
+import io.yamsergey.dta.protocol.network.QueryLine
 import io.yamsergey.dta.protocol.timeline.Sources
 import io.yamsergey.dta.protocol.timeline.TimelineEvent
 import io.yamsergey.dta.protocol.ui.SourceState
-import io.yamsergey.dta.studio.timeline.EpisodesComponent
+import io.yamsergey.dta.studio.timeline.SequenceComponent
 import io.yamsergey.dta.studio.timeline.LanesComponent
 import io.yamsergey.dta.studio.timeline.TimelineController
 import io.yamsergey.dta.studio.timeline.TimelineDetailPane
@@ -57,6 +69,7 @@ class TimelinePanel(
     scope: CoroutineScope,
     openNetwork: (String) -> Unit,
     openLayout: () -> Unit,
+    openViewModels: () -> Unit,
 ) : JPanel(BorderLayout()) {
     private var state = TimelineTabState()
     private val lanes = LanesComponent(controller)
@@ -68,7 +81,8 @@ class TimelinePanel(
         setDefaultRenderer(Any::class.java, RowRenderer())
     }
     private var binding = false
-    private var episodesShown = false
+    private var sequenceShown = false
+    private var programmaticScroll = false
     private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Filter: text, URL, id" }
     private val unexplained = JBCheckBox("No known cause")
     private val inferred = JBCheckBox("Inferred links").apply { toolTipText = "Draw links inferred from timing and matching data (dashed); off by default" }
@@ -78,13 +92,64 @@ class TimelinePanel(
     private val status = JBLabel().apply { foreground = JBColor.GRAY }
     private lateinit var viewSwitch: SegmentedButton<ViewChoice>
     private val cards = JPanel(CardLayout())
-    private val episodes = EpisodesComponent(onToggle = { controller.toggleEpisode(it) }, onOpen = openNetwork)
-    private val episodesScroll = JBScrollPane(episodes).apply { horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER; border = JBUI.Borders.empty() }
-    private val episodeSummary = JBLabel().apply { foreground = JBColor.GRAY }
-    private val episodeNote = JBLabel().apply {
+    private val sequence = SequenceComponent(onOpen = openNetwork)
+    private val sequenceTitles = sequence.Titles()
+    private val sequenceScroll = JBScrollPane(sequence).apply { horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER; border = JBUI.Borders.empty() }
+    private val sequenceNote = JBLabel().apply {
         foreground = DtaColors.of("caveat")
         border = JBUI.Borders.empty(2, 8)
         isVisible = false
+    }
+    /** Feature 048: Network's query line over the sequence. */
+    private val query = com.intellij.ui.components.JBTextField().apply {
+        emptyText.text = "Filter and search: status:5xx host:api.example.test -method:GET token"
+        toolTipText = "<html>key:value words keep matching rows, a response with its request (method: status: host: url: kind: since: until:, GET/POST…, http, ws; -key:value leaves matches out);<br>" +
+            "other words mark the rows holding them: Enter / Shift+Enter (F3 / Shift+F3) go to the next / previous.</html>"
+    }
+    private val hitLabel = JBLabel().apply { foreground = JBColor.GRAY }
+    private val typing = javax.swing.Timer(250) { controller.sequence { it.withQuery(query.text) } }.apply { isRepeats = false }
+    private val queryRow = JPanel(BorderLayout(JBUI.scale(6), 0)).apply {
+        isOpaque = false
+        add(query, BorderLayout.CENTER)
+        add(hitLabel, BorderLayout.EAST)
+    }
+    private val caption = JBLabel().apply { foreground = JBColor.GRAY }
+    private val captionAction = com.intellij.ui.components.ActionLink("") { _ ->
+        when (state.sequence.action) {
+            SequenceAction.RESUME -> controller.sequence { it.pause(false) }
+            SequenceAction.SHOW_ALL -> controller.sequence { it.showAll() }
+            null -> Unit
+        }
+    }.apply { isVisible = false }
+
+    private inner class Toggle(text: String, icon: javax.swing.Icon, private val on: () -> Boolean, private val set: (Boolean) -> Unit) : ToggleAction(text, null, icon) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun isSelected(e: AnActionEvent) = on()
+        override fun setSelected(e: AnActionEvent, state: Boolean) = set(state)
+    }
+
+    private inner class Act(text: String, icon: javax.swing.Icon, private val enabled: () -> Boolean = { true }, private val run: () -> Unit) : DumbAwareAction(text, null, icon) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun actionPerformed(e: AnActionEvent) = run()
+        override fun update(e: AnActionEvent) { e.presentation.isEnabled = enabled() }
+    }
+
+    /** Feature 048: the list's actions in a vertical strip at its left, in the Network list's order. */
+    private val strip = ActionManager.getInstance().createActionToolbar("DtaTimelineSequence", DefaultActionGroup(
+        Act("Clear View… (Nothing Is Deleted)", AllIcons.Actions.GC) { clear() },
+        Toggle("Pause", AllIcons.Actions.Pause, on = { state.sequence.paused }) { on -> controller.sequence { it.pause(on) } },
+        Toggle("Scroll to the Newest", AllIcons.RunConfigurations.Scroll_down, on = { state.sequence.following }) { on ->
+            controller.sequence { it.copy(following = on) }
+            if (on) scrollToEnd()
+        },
+        Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { state.sequence.hitRows.isNotEmpty() }) { controller.sequence { it.previousHit() } },
+        Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { state.sequence.hitRows.isNotEmpty() }) { controller.sequence { it.nextHit() } },
+        Separator.getInstance(),
+        Act("ViewModels Now: Runtime › ViewModels (Alive Now, Not at the Time of a Row)", AllIcons.Nodes.Class) { openViewModels() },
+    ), false).apply {
+        targetComponent = this@TimelinePanel
+        component.isOpaque = false
+        component.border = JBUI.Borders.emptyRight(2)
     }
     private val detail = TimelineDetailPane(
         onSelect = { controller.select(it) },
@@ -130,29 +195,40 @@ class TimelinePanel(
             add(split, BorderLayout.CENTER)
         }
         val diagram = JPanel(BorderLayout()).apply {
+            add(strip.component, BorderLayout.WEST)
             add(JPanel(BorderLayout()).apply {
-                add(episodeNote, BorderLayout.NORTH)
-                add(episodes.Titles(), BorderLayout.SOUTH)
-            }, BorderLayout.NORTH)
-            add(episodesScroll, BorderLayout.CENTER)
+                add(JPanel(BorderLayout()).apply {
+                    add(sequenceNote, BorderLayout.NORTH)
+                    add(sequenceTitles, BorderLayout.SOUTH)
+                }, BorderLayout.NORTH)
+                add(sequenceScroll, BorderLayout.CENTER)
+                add(JPanel(BorderLayout(JBUI.scale(12), 0)).apply {
+                    border = JBUI.Borders.empty(2, 6, 0, 4)
+                    add(caption, BorderLayout.CENTER)
+                    add(captionAction, BorderLayout.EAST)
+                }, BorderLayout.SOUTH)
+            }, BorderLayout.CENTER)
         }
-        cards.add(diagram, EPISODES)
+        cards.add(diagram, SEQUENCE)
         cards.add(list, LIST)
         val switch = panel {
             row {
                 viewSwitch = segmentedButton(ViewChoice.entries) { text = it.label }
-                    .whenItemSelectedFromUi { controller.setShowEpisodes(it == ViewChoice.EPISODES) }
+                    .whenItemSelectedFromUi { controller.setShowSequence(it == ViewChoice.SEQUENCE) }
             }
         }.apply { isOpaque = false }
-        viewSwitch.selectedItem = ViewChoice.EPISODES
-        add(JPanel(BorderLayout()).apply {
+        viewSwitch.selectedItem = ViewChoice.SEQUENCE
+        add(JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
             border = JBUI.Borders.emptyRight(8)
             add(switch, BorderLayout.WEST)
-            add(episodeSummary, BorderLayout.EAST)
+            add(queryRow, BorderLayout.CENTER)
         }, BorderLayout.NORTH)
         add(cards, BorderLayout.CENTER)
 
-        Keyboard.bind(this, ViewKey.END) { controller.change(TimelineChange.Follow(true)) }
+        bindSequence()
+        Keyboard.bind(this, ViewKey.END) {
+            if (state.showSequence) { controller.sequence { it.copy(following = true) }; scrollToEnd() } else controller.change(TimelineChange.Follow(true))
+        }
         Keyboard.bind(this, ViewKey.ZOOM_IN) { zoom(1 / 1.5) }
         Keyboard.bind(this, ViewKey.ZOOM_OUT) { zoom(1.5) }
         Keyboard.bind(this, ViewKey.OPEN) {
@@ -164,6 +240,50 @@ class TimelinePanel(
         scope.launch {
             controller.state.collect { s -> withContext(Dispatchers.Main) { show(s) } }
         }
+    }
+
+    private fun bindSequence() {
+        query.document.addDocumentListener(object : com.intellij.ui.DocumentAdapter() {
+            override fun textChanged(e: DocumentEvent) {
+                val problems = QueryLine.parse(query.text).problems
+                query.putClientProperty("JComponent.outline", if (problems.isEmpty()) null else "error")
+                query.repaint()
+                typing.restart()
+            }
+        })
+        fun key(stroke: String, action: () -> Unit) = registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
+        fun inLine(stroke: String, action: () -> Unit) = query.registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_FOCUSED)
+        key("F3") { if (state.showSequence) controller.sequence { it.nextHit() } }
+        key("shift F3") { if (state.showSequence) controller.sequence { it.previousHit() } }
+        inLine("ENTER") { controller.sequence { it.nextHit() } }
+        inLine("shift ENTER") { controller.sequence { it.previousHit() } }
+        sequenceScroll.verticalScrollBar.addAdjustmentListener {
+            if (programmaticScroll || it.valueIsAdjusting) return@addAdjustmentListener
+            val atEnd = atEnd()
+            val view = state.sequence
+            if (view.following != atEnd && !view.paused && view.steps.isNotEmpty()) controller.sequence { v -> v.copy(following = atEnd) }
+        }
+    }
+
+    private fun atEnd(): Boolean {
+        val bar = sequenceScroll.verticalScrollBar
+        return bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(8)
+    }
+
+    private fun scrollToEnd() {
+        javax.swing.SwingUtilities.invokeLater {
+            sequence.validate()
+            sequenceScroll.validate()
+            programmaticScroll = true
+            val bar = sequenceScroll.verticalScrollBar
+            bar.value = bar.maximum
+            programmaticScroll = false
+        }
+    }
+
+    private fun clear() {
+        val yes = Messages.showYesNoDialog(this, "The view will start from now. Nothing is deleted: the app's journal and the Network history stay, and Show all brings the earlier rows back.", "Clear the Timeline View", null)
+        if (yes == Messages.YES) controller.sequence { it.clear() }
     }
 
     private fun zoom(factor: Double) {
@@ -192,7 +312,7 @@ class TimelinePanel(
     private fun show(s: TimelineTabState) {
         val previous = state
         state = s
-        showEpisodes(previous, s)
+        showSequence(previous, s)
         lanes.show(s)
         if (follow.isSelected != s.view.window.follow) follow.isSelected = s.view.window.follow
         if (inferred.isSelected != s.inferred) inferred.isSelected = s.inferred
@@ -218,35 +338,48 @@ class TimelinePanel(
         detail.show(s)
     }
 
-    private fun showEpisodes(previous: TimelineTabState, s: TimelineTabState) {
-        (cards.layout as CardLayout).show(cards, if (s.showEpisodes) EPISODES else LIST)
-        val choice = if (s.showEpisodes) ViewChoice.EPISODES else ViewChoice.LIST
+    private fun showSequence(previous: TimelineTabState, s: TimelineTabState) {
+        (cards.layout as CardLayout).show(cards, if (s.showSequence) SEQUENCE else LIST)
+        val choice = if (s.showSequence) ViewChoice.SEQUENCE else ViewChoice.LIST
         if (viewSwitch.selectedItem != choice) viewSwitch.selectedItem = choice
-        episodeSummary.text = if (s.showEpisodes) s.episodes.summary else ""
-        val page = s.episodes.page
+        queryRow.isVisible = s.showSequence
+        val v: SequenceView = s.sequence
+        // Another app starts a new view: the line follows, unless someone is typing in it.
+        if (v.query != query.text && !typing.isRunning) query.text = v.query
+        val page = v.page
         val input = page?.sources?.firstOrNull { it.name == Sources.INPUT && it.state != SourceState.ON }
         val note = listOfNotNull(
-            s.episodesError?.let { "The episodes could not be read: $it" },
+            s.sequenceError?.let { "The sequence could not be read: $it" },
             input?.let { "Taps may be missing: ${it.reason ?: it.state.name.lowercase()}" },
             page?.socketsNote,
         ).joinToString(" · ")
-        episodeNote.text = note
-        episodeNote.isVisible = note.isNotEmpty()
-        if (previous.episodes === s.episodes && previous.app == s.app && episodesShown) return
-        episodesShown = true
-        val bar = episodesScroll.verticalScrollBar
-        val atEnd = bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(8)
-        val grew = previous.episodes.page?.total != page?.total
-        val empty = if (s.app == null) "Choose an app with DTA inside." else "No episodes yet: use the app."
-        episodes.show(s.episodes, empty)
-        if (atEnd || grew) javax.swing.SwingUtilities.invokeLater {
-            episodes.validate()
-            episodesScroll.validate()
-            bar.value = bar.maximum
+        sequenceNote.text = note
+        sequenceNote.isVisible = note.isNotEmpty()
+        caption.text = v.caption
+        captionAction.text = v.action?.label.orEmpty()
+        captionAction.isVisible = v.action != null
+        hitLabel.text = v.hitLabel(QueryLine.parse(v.query).terms.isNotEmpty()).orEmpty()
+        if (previous.sequence === v && previous.app == s.app && sequenceShown) return
+        sequenceShown = true
+        val empty = when {
+            s.app == null -> "Choose an app with DTA inside."
+            page != null && page.total > 0 -> "Nothing matches this filter."
+            v.startMs != null -> "Nothing since the view started."
+            else -> "Nothing recorded yet: use the app."
         }
+        sequence.show(v, empty)
+        sequenceTitles.repaint()
+        if (v.currentRow >= 0 && v.currentRow != previous.sequence.currentRow) {
+            javax.swing.SwingUtilities.invokeLater {
+                sequence.validate()
+                programmaticScroll = true
+                sequence.scrollRectToVisible(sequence.rowBounds(v.currentRow))
+                programmaticScroll = false
+            }
+        } else if (v.following) scrollToEnd()
     }
 
-    private enum class ViewChoice(val label: String) { EPISODES("Episodes"), LIST("List") }
+    private enum class ViewChoice(val label: String) { SEQUENCE("Sequence"), LIST("List") }
 
     private fun select(id: String?) {
         val i = id?.let(rows::indexOf)
@@ -257,7 +390,7 @@ class TimelinePanel(
     }
 
     private companion object {
-        const val EPISODES = "episodes"
+        const val SEQUENCE = "sequence"
         const val LIST = "list"
     }
 

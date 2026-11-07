@@ -3,14 +3,14 @@ package io.yamsergey.dta.studio.timeline
 import io.yamsergey.dta.client.DaemonClient
 import io.yamsergey.dta.present.context.Connection
 import io.yamsergey.dta.present.timeline.ChainView
-import io.yamsergey.dta.present.timeline.EpisodesView
+import io.yamsergey.dta.present.timeline.SequenceView
 import io.yamsergey.dta.present.timeline.TimelineChange
 import io.yamsergey.dta.present.timeline.TimelineFilter
 import io.yamsergey.dta.present.timeline.TimelineView
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.timeline.CauseChain
 import io.yamsergey.dta.protocol.timeline.CurrentState
-import io.yamsergey.dta.protocol.timeline.EpisodesPage
+import io.yamsergey.dta.protocol.timeline.SequencePage
 import io.yamsergey.dta.protocol.timeline.Kinds
 import io.yamsergey.dta.protocol.timeline.TimelineEvent
 import io.yamsergey.dta.protocol.timeline.TimelinePage
@@ -45,10 +45,10 @@ data class TimelineTabState(
     val loading: Boolean = false,
     val watching: Boolean = false,
     val error: String? = null,
-    /** Feature 045: the Episodes view is the one shown (else the list). */
-    val showEpisodes: Boolean = true,
-    val episodes: EpisodesView = EpisodesView(),
-    val episodesError: String? = null,
+    /** Feature 048: the Sequence view is the one shown (else the list). */
+    val showSequence: Boolean = true,
+    val sequence: SequenceView = SequenceView(),
+    val sequenceError: String? = null,
 )
 
 /**
@@ -80,27 +80,39 @@ class TimelineController(private val context: ContextController, private val sco
         active = on
     }
 
-    fun setShowEpisodes(on: Boolean) {
-        mutable.update { it.copy(showEpisodes = on) }
-        if (on) refreshEpisodes()
+    fun setShowSequence(on: Boolean) {
+        mutable.update { it.copy(showSequence = on) }
+        if (on) refreshSequence()
     }
 
-    fun toggleEpisode(id: String) = mutable.update { it.copy(episodes = it.episodes.toggle(id)) }
+    /** Feature 048: anything done to the Sequence view; a change of what is read is read at once. */
+    fun sequence(change: (SequenceView) -> SequenceView) {
+        val before = mutable.value.sequence
+        mutable.update { it.copy(sequence = change(it.sequence)) }
+        val now = mutable.value.sequence
+        if (before.query != now.query || before.startMs != now.startMs || before.paused != now.paused) refreshSequence()
+    }
 
-    private fun refreshEpisodes() {
+    private fun refreshSequence() {
         val client = context.client ?: return
-        scope.launch { runCatching { readEpisodes(client) } }
+        scope.launch { runCatching { readSequence(client) } }
     }
 
-    private suspend fun readEpisodes(client: DaemonClient) {
-        val params = target(mutable.value) + mapOf("limit" to JsonPrimitive(EPISODES), "steps" to JsonPrimitive(true))
+    private suspend fun readSequence(client: DaemonClient) {
+        val view = mutable.value.sequence
+        val query = view.query.trim()
+        val params = target(mutable.value) + buildMap {
+            put("limit", JsonPrimitive(SEQUENCE))
+            if (query.isNotEmpty()) put("q", JsonPrimitive(query))
+            view.startMs?.let { put("sinceMs", JsonPrimitive(it)) }
+        }
         try {
-            val page = DtaJson.decodeFromJsonElement(EpisodesPage.serializer(), client.call("timeline.episodes", JsonObject(params)).result)
-            mutable.update { it.copy(episodes = it.episodes.copy(page = page), episodesError = null) }
+            val page = DtaJson.decodeFromJsonElement(SequencePage.serializer(), client.call("timeline.sequence", JsonObject(params)).result)
+            mutable.update { it.copy(sequence = it.sequence.receive(page, query), sequenceError = null) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            mutable.update { it.copy(episodesError = e.message ?: e.javaClass.simpleName) }
+            mutable.update { it.copy(sequenceError = e.message ?: e.javaClass.simpleName) }
         }
     }
 
@@ -150,7 +162,7 @@ class TimelineController(private val context: ContextController, private val sco
         chainJob?.cancel()
         val moved = mutable.value.device != target.device || mutable.value.app != target.app
         mutable.update {
-            val base = if (moved) TimelineTabState(inferred = it.inferred, showEpisodes = it.showEpisodes) else it
+            val base = if (moved) TimelineTabState(inferred = it.inferred, showSequence = it.showSequence) else it
             base.copy(device = target.device, app = target.app, watching = false, error = null)
         }
         val client = target.client ?: return
@@ -163,10 +175,10 @@ class TimelineController(private val context: ContextController, private val sco
                     if (active) runCatching { readState(client) }
                 }
             }
-            val episodes = launch {
+            val sequence = launch {
                 while (isActive) {
-                    if (active && mutable.value.showEpisodes) readEpisodes(client)
-                    delay(EPISODES_EVERY_MS)
+                    if (active && mutable.value.showSequence) readSequence(client)
+                    delay(SEQUENCE_EVERY_MS)
                 }
             }
             try {
@@ -189,7 +201,7 @@ class TimelineController(private val context: ContextController, private val sco
                 mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName) }
             } finally {
                 refresher.cancel()
-                episodes.cancel()
+                sequence.cancel()
                 mutable.update { it.copy(loading = false, watching = false) }
             }
         }
@@ -219,7 +231,7 @@ class TimelineController(private val context: ContextController, private val sco
     companion object {
         const val PAGE = 500
         const val STATE_EVERY_MS = 5_000L
-        const val EPISODES = 500
-        const val EPISODES_EVERY_MS = 1_500L
+        const val SEQUENCE = 2_000
+        const val SEQUENCE_EVERY_MS = 1_500L
     }
 }

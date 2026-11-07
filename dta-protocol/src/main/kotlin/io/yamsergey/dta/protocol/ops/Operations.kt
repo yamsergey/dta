@@ -496,12 +496,13 @@ object Catalog {
             ),
         ),
         OperationSpec(
-            "timeline.episodes",
-            "The session as episodes: what the app did from each tap, back, navigation or process start, or after a pause. One line each (title, requests, failures, socket messages); with steps, the sequence of each. A step's link comes only from a recorded cause; requests with none stand in the episode without one. Reads what is already recorded.",
+            "timeline.sequence",
+            "The session as one sequence, in time order: taps, back, navigation, requests and responses, screens by name, windows, toasts, socket traffic, process starts and ends. Nothing is grouped. A step is linked only by a recorded cause; requests with none stand without one. Runs of received socket messages are one row (tick ×3). Reads what is already recorded.",
             Scope.APP,
             listOf(
-                ParamSpec("limit", ParamType.INT, "The newest episodes, 1..1000 (default 200)."),
-                ParamSpec("steps", ParamType.BOOLEAN, "Include each episode's steps."),
+                ParamSpec("q", ParamType.STRING, "Query line: method:, status:, host:, url:, kind:, since:, until: (and bare GET/POST…, http, ws; -key:value leaves matches out) keep matching rows, a response with its request; other words mark the rows holding them.", cliShort = "-q", cliName = "query"),
+                ParamSpec("limit", ParamType.INT, "The newest rows, 1..2000 (default 200)."),
+                ParamSpec("sinceMs", ParamType.LONG, "Only rows at or after this epoch millisecond (device clock)."),
             ),
         ),
         OperationSpec(

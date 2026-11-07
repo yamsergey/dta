@@ -343,10 +343,12 @@ class DtaDaemon(
     }
 
     /**
-     * The session as episodes (feature 045): from what the timeline and the network capture already
+     * The session as one sequence (feature 048): from what the timeline and the network capture already
      * hold, nothing new is asked of the app. Saved filters do not apply: neither do they to the timeline.
      */
-    suspend fun timelineEpisodes(serial: String, pkg: String, limit: Int, steps: Boolean): io.yamsergey.dta.protocol.timeline.EpisodesPage {
+    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?): io.yamsergey.dta.protocol.timeline.SequencePage {
+        // A bad line is refused before anything is read.
+        io.yamsergey.dta.daemon.timeline.SequenceBuilder.parse(q)
         val service = timelineService(serial, pkg)
         service.windows?.touch()
         service.refresh()
@@ -373,7 +375,7 @@ class DtaDaemon(
                     )
                     sockets += page.entries
                     before = page.next
-                } while (before != null && ++pages < EPISODE_SOCKET_PAGES)
+                } while (before != null && ++pages < SEQUENCE_SOCKET_PAGES)
                 if (before != null) note = "only the newest ${sockets.size} socket messages are counted"
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -381,7 +383,7 @@ class DtaDaemon(
                 note = "socket messages could not be read: ${e.message ?: e.javaClass.simpleName}"
             }
         }
-        return io.yamsergey.dta.daemon.timeline.EpisodeBuilder().build(events, sockets, service.sources(), limit, steps, note)
+        return io.yamsergey.dta.daemon.timeline.SequenceBuilder().build(events, sockets, service.sources(), limit, q, sinceMs, note)
     }
 
     /** Why [event] happened, or what it led to (feature 016). Throws [io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent]. */
@@ -636,8 +638,8 @@ class DtaDaemon(
     fun openConnections(): List<ConnectionKey> = connections.openKeys()
 
     companion object {
-        /** Pages of 1000 read for one answer: an endless stream does not make episodes slow. */
-        private const val EPISODE_SOCKET_PAGES = 5
+        /** Pages of 1000 read for one answer: an endless stream does not make the sequence slow. */
+        private const val SEQUENCE_SOCKET_PAGES = 5
         /** Larger response bodies are not searched for a shown text (feature 016, inferred `text-match`). */
         private const val MAX_MATCHED_BODY = 64 * 1024
 

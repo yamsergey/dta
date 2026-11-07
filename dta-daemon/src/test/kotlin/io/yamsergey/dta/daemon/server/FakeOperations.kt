@@ -156,11 +156,11 @@ class FakeOperations : DaemonOperations {
     }
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
         kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.timeline.TimelineEvent>()
-    var episodes = io.yamsergey.dta.protocol.timeline.EpisodesPage(emptyList(), 0, emptyList())
-    override suspend fun timelineEpisodes(serial: String, pkg: String, limit: Int, steps: Boolean): io.yamsergey.dta.protocol.timeline.EpisodesPage {
-        calls += "timelineEpisodes"
-        lastTimeline = listOf(limit, steps)
-        return episodes
+    var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?): io.yamsergey.dta.protocol.timeline.SequencePage {
+        calls += "timelineSequence"
+        lastTimeline = listOf(limit, q, sinceMs)
+        return sequence
     }
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain {
         calls += "timelineCauses"

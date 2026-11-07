@@ -129,12 +129,12 @@ class OperationDispatcherTest {
     }
 
     @Test
-    fun `episodes take a limit within bounds and steps`() {
-        call("timeline.episodes", buildJsonObject { put("limit", 5); put("steps", true) })
-        assertEquals(listOf<Any?>(5, true), fake.lastTimeline)
-        call("timeline.episodes")
-        assertEquals(listOf<Any?>(200, false), fake.lastTimeline)
-        assertTrue(runCatching { call("timeline.episodes", buildJsonObject { put("limit", 0) }) }.exceptionOrNull() != null, "limit 0")
+    fun `the sequence takes a limit within bounds, a query and a start`() {
+        call("timeline.sequence", buildJsonObject { put("limit", 5); put("q", "status:5xx"); put("sinceMs", 9L) })
+        assertEquals(listOf<Any?>(5, "status:5xx", 9L), fake.lastTimeline)
+        call("timeline.sequence")
+        assertEquals(listOf<Any?>(200, null, null), fake.lastTimeline)
+        assertTrue(runCatching { call("timeline.sequence", buildJsonObject { put("limit", 0) }) }.exceptionOrNull() != null, "limit 0")
     }
 
     @Test
