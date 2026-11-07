@@ -92,11 +92,12 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             add(top, BorderLayout.NORTH)
             add(tabs, BorderLayout.CENTER)
         }
+        // Feature 043: the title bar carries the mascot and the device and app instead of the name, one row less.
+        // Before addContent: the platform reads this on each title update and adding content is one, so one always comes after it.
+        toolWindow.component.putClientProperty(com.intellij.openapi.wm.impl.content.ToolWindowContentUi.HIDE_ID_LABEL, "true")
         toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(root, "", false))
         // The injection switch, also in Settings › Tools › DTA (FR-021).
         toolWindow.setTitleActions(listOf(io.yamsergey.dta.studio.inject.ToggleInjectionAction()))
-        // Feature 043: the title bar carries the mascot and the device and app instead of the name, one row less.
-        toolWindow.component.putClientProperty(com.intellij.openapi.wm.impl.content.ToolWindowContentUi.HIDE_ID_LABEL, "true")
         (toolWindow as? com.intellij.openapi.wm.ex.ToolWindowEx)?.setTabActions(HeaderBar(bar))
         // Room left beside the mascot and the title actions (the checkbox, options, hide).
         val refit = { bar.fit(toolWindow.component.width - com.intellij.util.ui.JBUI.scale(TITLE_RESERVED)) }
