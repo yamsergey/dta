@@ -112,7 +112,7 @@ data class SequenceView(
     val caption: String
         get() {
             val p = page ?: return ""
-            val shown = if (p.matched < p.total) "${p.matched} of ${p.total} rows shown · ${p.total - p.matched} hidden by the filter" else "${p.total} rows"
+            val shown = if (p.matched < p.total) "${p.matched} of ${p.total} rows shown · ${p.total - p.matched} hidden by the filter" else rows(p.total)
             return listOfNotNull(
                 "Paused".takeIf { paused },
                 shown,
@@ -121,6 +121,8 @@ data class SequenceView(
                 startMs?.let { "from ${SequenceText.clock(it, p.startWallMs)}, ${p.beforeStart} before it are not shown" },
             ).joinToString(" · ")
         }
+
+    private fun rows(n: Int) = if (n == 1) "1 row" else "$n rows"
 
     /** What the link beside the caption does. */
     val action: SequenceAction?

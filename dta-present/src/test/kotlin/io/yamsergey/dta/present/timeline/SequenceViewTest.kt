@@ -56,7 +56,7 @@ class SequenceViewTest {
         val paused = SequenceView().receive(one, "").pause(true).receive(two, "")
         assertEquals(1, paused.steps.size)
         assertEquals(2, paused.waiting)
-        assertEquals("Paused · 1 rows · 2 new waiting", paused.caption)
+        assertEquals("Paused · 1 row · 2 new waiting", paused.caption)
         assertEquals(SequenceAction.RESUME, paused.action)
         assertEquals(3, paused.pause(false).steps.size)
         assertTrue(paused.pause(false).following)

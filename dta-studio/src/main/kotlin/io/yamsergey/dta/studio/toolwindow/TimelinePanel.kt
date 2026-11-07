@@ -361,6 +361,8 @@ class TimelinePanel(
         hitLabel.text = v.hitLabel(QueryLine.parse(v.query).terms.isNotEmpty()).orEmpty()
         if (previous.sequence === v && previous.app == s.app && sequenceShown) return
         sequenceShown = true
+        // The strip follows the state at once, not at the toolbar's next look.
+        if (v.paused != previous.sequence.paused || v.following != previous.sequence.following || v.hitRows.isEmpty() != previous.sequence.hitRows.isEmpty()) strip.updateActionsAsync()
         val empty = when {
             s.app == null -> "Choose an app with DTA inside."
             page != null && page.total > 0 -> "Nothing matches this filter."
