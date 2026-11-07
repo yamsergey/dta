@@ -26,4 +26,19 @@ class SavedFiltersFormatTest {
         assertEquals("-url:/a\nrecent: status:2xx", format("network.filters.list", """{"saved":["-url:/a"],"recent":[{"word":"status:2xx","lastUsedMs":1}]}"""))
         assertEquals("No saved filters. Save one with 'dta network filters add'.", format("network.filters.list", "{}"))
     }
+
+    @Test
+    fun `flows read as what happened`() {
+        val flow = """{"id":"f2","name":"Buy ACME","startMs":5}"""
+        assertEquals("Started f2 Buy ACME. Rows are in it by time only.", format("timeline.flow.start", """{"flow":$flow}"""))
+        assertEquals("Started f2 Buy ACME. Rows are in it by time only.\nEnded f1 Login.", format("timeline.flow.start", """{"flow":$flow,"ended":{"id":"f1","name":"Login","startMs":1,"endMs":5}}"""))
+        assertEquals("Ended f2 Buy ACME.", format("timeline.flow.end", flow))
+        assertEquals("f2 is now Buy ACME.", format("timeline.flow.rename", flow))
+        assertEquals("Removed f2. Nothing recorded is deleted.", format("timeline.flow.remove", """{"removed":"f2"}"""))
+        assertEquals("No flows. Start one with 'dta timeline flow start'.", format("timeline.flow.list", """{"flows":[]}"""))
+        assertEquals(
+            "f1  Login  ended  3 rows  older rows no longer kept\nf2  Buy ACME  recording  1 row",
+            format("timeline.flow.list", """{"flows":[{"flow":{"id":"f1","name":"Login","startMs":1,"endMs":5},"rows":3,"rowsGone":true},{"flow":$flow,"rows":1}]}"""),
+        )
+    }
 }

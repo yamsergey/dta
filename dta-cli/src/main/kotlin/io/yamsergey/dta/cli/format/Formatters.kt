@@ -68,6 +68,11 @@ class Formatters(private val style: Style) {
         "links.open" -> linkOpen(result.obj)
         "links.verification" -> verification(result.obj)
         "timeline.events" -> timelineEvents(result)
+        "timeline.flow.start" -> flowStarted(result.obj)
+        "timeline.flow.end" -> "Ended ${result.obj.str("id")} ${result.obj.str("name")}."
+        "timeline.flow.rename" -> "${result.obj.str("id")} is now ${result.obj.str("name")}."
+        "timeline.flow.remove" -> "Removed ${result.obj.str("removed")}. Nothing recorded is deleted."
+        "timeline.flow.list" -> flowList(decode(io.yamsergey.dta.protocol.timeline.FlowList.serializer(), result))
         "timeline.sequence" -> io.yamsergey.dta.present.timeline.SequenceText.lines(decode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), result)).joinToString("\n")
         "timeline.causes" -> TimelineEventText.chain(decode(io.yamsergey.dta.protocol.timeline.CauseChain.serializer(), result))
         "state.current" -> TimelineEventText.state(decode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), result))
@@ -321,6 +326,23 @@ class Formatters(private val style: Style) {
             saved.long("hidden") != null -> "hidden by saved filters: ${saved.long("hidden")} ($words)"
             else -> "saved filters: $words"
         }
+    }
+
+    private fun flowStarted(o: JsonObject): String = buildString {
+        val flow = o["flow"]!!.obj
+        append("Started ${flow.str("id")} ${flow.str("name")}. Rows are in it by time only.")
+        o["ended"]?.obj?.let { append("\nEnded ${it.str("id")} ${it.str("name")}.") }
+    }
+
+    private fun flowList(list: io.yamsergey.dta.protocol.timeline.FlowList): String {
+        val lines = list.flows.map { f ->
+            listOfNotNull(
+                f.flow.id, f.flow.name, if (f.flow.recording) "recording" else "ended",
+                io.yamsergey.dta.present.timeline.SequenceText.rows(f.rows),
+                "older rows no longer kept".takeIf { f.rowsGone },
+            ).joinToString("  ")
+        }
+        return (listOfNotNull(list.note) + lines.ifEmpty { listOf("No flows. Start one with 'dta timeline flow start'.") }).joinToString("\n")
     }
 
     private fun savedFilters(o: JsonObject): String = buildString {

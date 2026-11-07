@@ -77,6 +77,7 @@ class DtaDaemon(
     /** Feature 039: the user's WebSocket message format rules; every text message returned carries the envelope they read. */
     private val formats = io.yamsergey.dta.daemon.network.MessageFormats(dataDir)
     private val savedFilters = io.yamsergey.dta.daemon.network.SavedFilterStore(dataDir)
+    private val flows = io.yamsergey.dta.daemon.timeline.FlowStore(dataDir)
     private val injectedTooling = io.yamsergey.dta.daemon.inject.InjectedTooling(dataDir)
 
     /** The host's network store (feature 011): opened on first use, one per daemon. */
@@ -346,9 +347,29 @@ class DtaDaemon(
      * The session as one sequence (feature 048): from what the timeline and the network capture already
      * hold, nothing new is asked of the app. Saved filters do not apply: neither do they to the timeline.
      */
-    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?): io.yamsergey.dta.protocol.timeline.SequencePage {
-        // A bad line is refused before anything is read.
+    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String? = null): io.yamsergey.dta.protocol.timeline.SequencePage {
+        // A bad line or an unknown flow is refused before anything is read.
         io.yamsergey.dta.daemon.timeline.SequenceBuilder.parse(q)
+        val only = flow?.let { flows.resolve(serial, pkg, it) }
+        val recorded = readRecorded(serial, pkg)
+        return io.yamsergey.dta.daemon.timeline.SequenceBuilder().build(
+            recorded.events, recorded.sockets, recorded.sources, limit, q, sinceMs, recorded.note,
+            flows = flows.list(serial, pkg), only = only, flowsNote = flows.problem(serial, pkg),
+        )
+    }
+
+    private class Recorded(
+        val events: List<io.yamsergey.dta.protocol.timeline.TimelineEvent>,
+        val sockets: List<io.yamsergey.dta.protocol.network.NetworkEntry>,
+        val sources: List<io.yamsergey.dta.protocol.timeline.SourceStatus>,
+        val note: String?,
+    ) {
+        /** The newest moment anything recorded tells of; a flow's boundary goes after it. */
+        val newestMs: Long?
+            get() = (events.map { it.wallMs } + sockets.flatMap { listOfNotNull(it.timeMs, (it as? io.yamsergey.dta.protocol.network.WsConnectionEntry)?.closedAtMs) }).maxOrNull()
+    }
+
+    private suspend fun readRecorded(serial: String, pkg: String): Recorded {
         val service = timelineService(serial, pkg)
         service.windows?.touch()
         service.refresh()
@@ -383,8 +404,28 @@ class DtaDaemon(
                 note = "socket messages could not be read: ${e.message ?: e.javaClass.simpleName}"
             }
         }
-        return io.yamsergey.dta.daemon.timeline.SequenceBuilder().build(events, sockets, service.sources(), limit, q, sinceMs, note)
+        return Recorded(events, sockets, service.sources(), note)
     }
+
+    /** Feature 049: a flow starts after the newest row recorded; there must be an app to record it. */
+    suspend fun timelineFlowStart(serial: String, pkg: String, name: String?): io.yamsergey.dta.protocol.timeline.FlowStarted {
+        if (discovery.listInstances().none { it.serial == serial && it.packageName == pkg }) {
+            throw io.yamsergey.dta.daemon.adb.AppNotRunningException("$pkg is not running with DTA inside on $serial, so a flow cannot start")
+        }
+        return flows.start(serial, pkg, name, readRecorded(serial, pkg).newestMs)
+    }
+
+    /** With the app gone too: a flow must end after a crash, at what was kept. */
+    suspend fun timelineFlowEnd(serial: String, pkg: String) = flows.end(serial, pkg, readRecorded(serial, pkg).newestMs)
+
+    suspend fun timelineFlowList(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.FlowList {
+        val page = timelineSequence(serial, pkg, 1, null, null)
+        return io.yamsergey.dta.protocol.timeline.FlowList(page.flows, page.flowsNote)
+    }
+
+    fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String) = flows.rename(serial, pkg, flow, name)
+
+    fun timelineFlowRemove(serial: String, pkg: String, flow: String) = flows.remove(serial, pkg, flow)
 
     /** Why [event] happened, or what it led to (feature 016). Throws [io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent]. */
     suspend fun timelineCauses(

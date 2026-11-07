@@ -118,6 +118,7 @@ class TimelinePanel(
         when (state.sequence.action) {
             SequenceAction.RESUME -> controller.sequence { it.pause(false) }
             SequenceAction.SHOW_ALL -> controller.sequence { it.showAll() }
+            SequenceAction.END_FLOW -> Unit
             null -> Unit
         }
     }.apply { isVisible = false }

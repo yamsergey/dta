@@ -234,8 +234,8 @@ class Cli(
             val names = listOfNotNull(p.cliShort, longName).toTypedArray()
             val absolute: (String) -> String = { if (p.path) File(it).let { f -> if (f.isAbsolute) f else File(cwd, it) }.normalize().path else it }
             if (p.cliWords) {
-                val v = holder(argument(p.name.uppercase(), help = p.description).multiple(required = true).provideDelegate(this, ::dummy))
-                return { JsonPrimitive(v().joinToString(" ")) }
+                val v = holder(argument(p.name.uppercase(), help = p.description).multiple(required = p.required).provideDelegate(this, ::dummy))
+                return { v().takeIf { it.isNotEmpty() }?.let { JsonPrimitive(it.joinToString(" ")) } }
             }
             if (p.positional) {
                 return if (p.type == ParamType.STRING_LIST) {

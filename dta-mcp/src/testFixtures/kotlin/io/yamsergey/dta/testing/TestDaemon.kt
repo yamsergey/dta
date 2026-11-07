@@ -149,7 +149,13 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
             timelineLive.collect { e -> if ((sources.isEmpty() || e.source in sources) && (kinds.isEmpty() || e.kind in kinds)) emit(e) }
         }
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?) = sequence
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?) = sequence
+    private val flowStore by lazy { io.yamsergey.dta.daemon.timeline.FlowStore(java.nio.file.Files.createTempDirectory("test-flows").toFile()) }
+    override suspend fun timelineFlowStart(serial: String, pkg: String, name: String?) = flowStore.start(serial, pkg, name, sequence.steps.lastOrNull()?.wallMs)
+    override suspend fun timelineFlowEnd(serial: String, pkg: String) = flowStore.end(serial, pkg, sequence.steps.lastOrNull()?.wallMs)
+    override suspend fun timelineFlowList(serial: String, pkg: String) = io.yamsergey.dta.protocol.timeline.FlowList(flowStore.list(serial, pkg).map { io.yamsergey.dta.protocol.timeline.SequenceFlow(it) })
+    override fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String) = flowStore.rename(serial, pkg, flow, name)
+    override fun timelineFlowRemove(serial: String, pkg: String, flow: String) = flowStore.remove(serial, pkg, flow)
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
         io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
     override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)

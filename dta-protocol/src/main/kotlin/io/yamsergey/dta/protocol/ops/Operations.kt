@@ -497,13 +497,37 @@ object Catalog {
         ),
         OperationSpec(
             "timeline.sequence",
-            "The session as one sequence, in time order: taps, back, navigation, requests and responses, screens by name, windows, toasts, socket traffic, process starts and ends. Nothing is grouped. A step is linked only by a recorded cause; requests with none stand without one. Runs of received socket messages are one row (tick ×3). Reads what is already recorded.",
+            "The session as one sequence, in time order: taps, back, navigation, requests and responses, screens by name, windows, toasts, socket traffic, process starts and ends. Nothing is grouped; the page lists named flows and each step names those holding it by time. A step is linked only by a recorded cause; requests with none stand without one. Runs of received socket messages are one row (tick ×3). Reads what is already recorded.",
             Scope.APP,
             listOf(
                 ParamSpec("q", ParamType.STRING, "Query line: method:, status:, host:, url:, kind:, since:, until: (and bare GET/POST…, http, ws; -key:value leaves matches out) keep matching rows, a response with its request; other words mark the rows holding them.", cliShort = "-q", cliName = "query"),
                 ParamSpec("limit", ParamType.INT, "The newest rows, 1..2000 (default 200)."),
                 ParamSpec("sinceMs", ParamType.LONG, "Only rows at or after this epoch millisecond (device clock)."),
+                ParamSpec("flow", ParamType.STRING, "Only this flow's rows: an id, or a name only one flow has."),
             ),
+        ),
+        OperationSpec(
+            "timeline.flow.start",
+            "Start a named flow: what is recorded from now until it ends is in it, background traffic included. A row is in a flow by its time only, not by a proved cause. One flow records at a time: starting another ends the first, and the answer says so. Flows survive process and daemon restarts. Needs the app running; nothing is added to the app.",
+            Scope.APP,
+            listOf(ParamSpec("name", ParamType.STRING, "At most 80 characters; Flow N when left out.", positional = true, cliWords = true)),
+        ),
+        OperationSpec("timeline.flow.end", "End the flow that is recording, after the newest row recorded. Works with the app gone.", Scope.APP),
+        OperationSpec(
+            "timeline.flow.list",
+            "The app's flows on this device, oldest first, with how many kept rows each holds by time and whether older ones are no longer kept. They stay until removed.",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "timeline.flow.rename", "Rename a flow; every client shows the new name.", Scope.APP,
+            listOf(
+                ParamSpec("flow", ParamType.STRING, "An id, or a name only one flow has.", required = true),
+                ParamSpec("name", ParamType.STRING, "The new name, at most 80 characters.", required = true, positional = true, cliWords = true),
+            ),
+        ),
+        OperationSpec(
+            "timeline.flow.remove", "Remove a flow's highlight. Nothing recorded is deleted.", Scope.APP,
+            listOf(ParamSpec("flow", ParamType.STRING, "An id, or a name only one flow has.", required = true, positional = true)),
         ),
         OperationSpec(
             "state.current",

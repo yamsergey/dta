@@ -61,6 +61,73 @@ class SequenceBuilderTest {
     private fun ws(ms: Long, dir: Direction, text: String) = WsMessageEntry("r:$ms", "r", ms, "okhttp3-ws", null, "c", dir, MessageOpcode.TEXT, body(text))
     private fun labels(events: List<TimelineEvent>, q: String? = null) = SequenceBuilder().build(events, emptyList(), q = q).steps.map { it.label }
 
+    private fun flow(id: String, start: Long, end: Long?) = io.yamsergey.dta.protocol.timeline.Flow(id, id.uppercase(), startMs = start, endMs = end)
+
+    @Test
+    fun `each row names the flows holding it by time, a boundary being after the row before it`() {
+        val page = SequenceBuilder().build(
+            listOf(tap(1_000, "before"), tap(2_001, "first"), req(2_500, "/background"), tap(3_000, "after")),
+            emptyList(), flows = listOf(flow("f1", 2_001, 3_000)),
+        )
+        assertEquals(listOf(emptyList(), listOf("f1"), listOf("f1"), emptyList()), page.steps.map { it.flows })
+        assertEquals(2, page.flows.single().rows)
+        assertEquals(2, page.flows.single().shown)
+        assertEquals(4, page.total, "nothing is taken away")
+    }
+
+    @Test
+    fun `a recording flow holds everything from its start, one with nothing in it stays with 0 rows`() {
+        val page = SequenceBuilder().build(
+            listOf(tap(1_000, "a"), tap(9_000, "b")),
+            emptyList(), flows = listOf(flow("f1", 2_000, 3_000), flow("f2", 8_000, null)),
+        )
+        assertEquals(listOf(0, 1), page.flows.map { it.rows })
+        assertEquals(listOf("f2"), page.steps[1].flows)
+    }
+
+    @Test
+    fun `counts say how many of a flow's rows a filter and the start moment leave`() {
+        val events = listOf(req(2_000, "/a"), res(2_100, 500, 100, "e2000"), req(2_200, "/b"), req(2_300, "/c"))
+        val flows = listOf(flow("f1", 2_000, 3_000))
+        val filtered = SequenceBuilder().build(events, emptyList(), q = "status:5xx", flows = flows).flows.single()
+        assertEquals(4, filtered.rows)
+        assertEquals(2, filtered.shown)
+        val fromLater = SequenceBuilder().build(events, emptyList(), sinceMs = 2_200, flows = flows).flows.single()
+        assertEquals(4, fromLater.rows)
+        assertEquals(2, fromLater.shown)
+    }
+
+    @Test
+    fun `asked for one flow, only its rows and its entry come back`() {
+        val f1 = flow("f1", 2_000, 3_000)
+        val page = SequenceBuilder().build(
+            listOf(tap(1_000, "a"), tap(2_500, "b"), tap(3_500, "c")),
+            emptyList(), flows = listOf(f1, flow("f2", 3_000, null)), only = f1,
+        )
+        assertEquals(listOf("tap b"), page.steps.map { it.label })
+        assertEquals(1, page.total)
+        assertEquals(listOf("f1"), page.flows.map { it.flow.id })
+        assertEquals("f1", page.onlyFlow)
+    }
+
+    @Test
+    fun `a run of socket messages ends at a flow's boundary`() {
+        val page = SequenceBuilder().build(
+            listOf(tap(1_000, "a")),
+            listOf(ws(2_000, Direction.IN, """{"type":"tick"}"""), ws(2_500, Direction.IN, """{"type":"tick"}"""), ws(3_000, Direction.IN, """{"type":"tick"}"""), ws(3_500, Direction.IN, """{"type":"tick"}""")),
+            flows = listOf(flow("f1", 2_500, 3_500)),
+        )
+        assertEquals(listOf("tap a", "tick ×1", "tick ×2", "tick ×1"), page.steps.map { it.label })
+        assertEquals(listOf(emptyList(), emptyList(), listOf("f1"), emptyList()), page.steps.map { it.flows })
+    }
+
+    @Test
+    fun `a flow older than what is kept says so, one from the beginning does not`() {
+        val events = listOf(tap(5_000, "a"))
+        val page = SequenceBuilder().build(events, emptyList(), flows = listOf(flow("f1", 1_000, 2_000), flow("f2", 0, null), flow("f3", 6_000, null)))
+        assertEquals(listOf(true, false, false), page.flows.map { it.rowsGone })
+    }
+
     @Test
     fun `rows stay in time order with nothing between them, however long the pause`() {
         val t = tap(1_000, "row:ACME")

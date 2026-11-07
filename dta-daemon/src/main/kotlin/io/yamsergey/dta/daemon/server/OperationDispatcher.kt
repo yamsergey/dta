@@ -157,7 +157,19 @@ class OperationDispatcher(
         "timeline.sequence" to { c ->
             val limit = c.long("limit")?.toInt() ?: io.yamsergey.dta.daemon.timeline.SequenceBuilder.DEFAULT_LIMIT
             if (limit !in 1..io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT) invalid("limit must be within 1..${io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT}, was $limit")
-            encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs")))
+            val flow = c.string("flow")
+            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs"), flow)) }
+        },
+        "timeline.flow.start" to { c -> encode(io.yamsergey.dta.protocol.timeline.FlowStarted.serializer(), ops.timelineFlowStart(c.device, c.app, c.string("name"))) },
+        "timeline.flow.end" to { c -> encode(io.yamsergey.dta.protocol.timeline.Flow.serializer(), ops.timelineFlowEnd(c.device, c.app)) },
+        "timeline.flow.list" to { c -> encode(io.yamsergey.dta.protocol.timeline.FlowList.serializer(), ops.timelineFlowList(c.device, c.app)) },
+        "timeline.flow.rename" to { c ->
+            val flow = c.required("flow")
+            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.Flow.serializer(), ops.timelineFlowRename(c.device, c.app, flow, c.required("name"))) }
+        },
+        "timeline.flow.remove" to { c ->
+            val flow = c.required("flow")
+            knownFlow(flow) { buildJsonObject { put("removed", ops.timelineFlowRemove(c.device, c.app, flow).id) } }
         },
         "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
         "state.graph" to { c ->
@@ -456,6 +468,12 @@ class OperationDispatcher(
     }
 
     private fun unavailable(capability: String, reason: String) = buildJsonObject { put("capability", capability); put("reason", reason) }
+
+    private inline fun <T> knownFlow(ref: String?, read: () -> T): T = try {
+        read()
+    } catch (_: io.yamsergey.dta.daemon.timeline.FlowStore.UnknownFlow) {
+        notFound("flow", ref.orEmpty())
+    }
 
     private fun notFound(what: String, id: String): Nothing =
         throw ClientException(ClientErrorCodes.NOT_FOUND, "No $what '$id'", buildJsonObject { put("what", what); put("id", id) })

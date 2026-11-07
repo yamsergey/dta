@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 /**
  * Feature 048: the timeline as one flat sequence diagram. A step is a row of it, in time order;
- * nothing is grouped by any rule (replaces 045's episodes).
+ * nothing is grouped by any rule (replaces 045's episodes). Feature 049: named flows highlight it.
  */
 object SequenceLanes {
     const val USER = "user"
@@ -40,6 +40,8 @@ data class SequenceStep(
     val hit: Boolean = false,
     /** A process start or end, or a gap: drawn so that it cannot be missed. */
     val boundary: Boolean = false,
+    /** Feature 049: the flows whose interval holds it, by time only. */
+    val flows: List<String> = emptyList(),
 )
 
 @Serializable
@@ -61,4 +63,10 @@ data class SequencePage(
     val sources: List<SourceStatus> = emptyList(),
     /** Why socket messages are missing or incomplete; null when they are all here. */
     val socketsNote: String? = null,
+    /** Feature 049: oldest first; only the one asked for when [onlyFlow] is set. */
+    val flows: List<SequenceFlow> = emptyList(),
+    /** The rows are this flow's only. */
+    val onlyFlow: String? = null,
+    /** Why stored flows could not be read. */
+    val flowsNote: String? = null,
 )

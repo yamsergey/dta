@@ -13,9 +13,11 @@ import io.yamsergey.dta.protocol.network.WsState
 import io.yamsergey.dta.protocol.rpc.InvalidParamsException
 import io.yamsergey.dta.protocol.timeline.Basis
 import io.yamsergey.dta.protocol.timeline.Facets
+import io.yamsergey.dta.protocol.timeline.Flow
 import io.yamsergey.dta.protocol.timeline.InputAction
 import io.yamsergey.dta.protocol.timeline.Kinds
 import io.yamsergey.dta.protocol.timeline.NetworkPhase
+import io.yamsergey.dta.protocol.timeline.SequenceFlow
 import io.yamsergey.dta.protocol.timeline.SequenceLane
 import io.yamsergey.dta.protocol.timeline.SequenceLanes
 import io.yamsergey.dta.protocol.timeline.SequencePage
@@ -30,6 +32,7 @@ import io.yamsergey.dta.protocol.ui.UiSource
  * Feature 048: kept timeline events and socket entries as one flat sequence, in time order.
  * Nothing is grouped by any rule. Links come only from recorded causes; screens are named only
  * from what was recorded; a run of received socket messages is one row, as they are too many.
+ * Feature 049: a row names the flows whose interval holds it, by time only; no row goes anywhere.
  */
 class SequenceBuilder {
     /** What a request and its response are read as together. */
@@ -46,7 +49,9 @@ class SequenceBuilder {
         val socketUrl: String? = null,
         /** A received socket message waiting to join its neighbours, by the name it calls itself. */
         val received: String? = null,
-    )
+    ) {
+        fun withStep(next: SequenceStep) = Row(next, exchange, socket, socketUrl, received)
+    }
 
     fun build(
         events: List<TimelineEvent>,
@@ -56,15 +61,31 @@ class SequenceBuilder {
         q: String? = null,
         sinceMs: Long? = null,
         socketsNote: String? = null,
+        flows: List<Flow> = emptyList(),
+        only: Flow? = null,
+        flowsNote: String? = null,
     ): SequencePage {
         val query = parse(q)
         val hosts = hostLanes(events)
         val messages = sockets.filterIsInstance<WsMessageEntry>().sortedBy { it.timeMs }
         val connections = sockets.filterIsInstance<WsConnectionEntry>()
-        val rows = joinReceived((eventRows(events, hosts) + socketRows(messages, connections)).sortedBy { it.step.wallMs })
-        val fromStart = rows.filter { sinceMs == null || it.step.wallMs >= sinceMs }
+        val oldest = (events.map { it.wallMs } + sockets.map { it.timeMs }).minOrNull()
+        val ordered = (eventRows(events, hosts) + socketRows(messages, connections)).sortedBy { it.step.wallMs }
+        val rows = joinReceived(ordered, flows.flatMap { listOfNotNull(it.startMs, it.endMs) }.toSortedSet()).map { r ->
+            val holding = flows.filter { it.holds(r.step.wallMs) }.map { it.id }
+            if (holding.isEmpty()) r else r.withStep(r.step.copy(flows = holding))
+        }
+        val fromStart = rows.filter { (sinceMs == null || it.step.wallMs >= sinceMs) && (only == null || only.holds(it.step.wallMs)) }
         val matched = fromStart.filter { matches(it, query) }
         val steps = matched.takeLast(limit).map { r -> if (hit(r, query)) r.step.copy(hit = true) else r.step }
+        val listed = flows.filter { only == null || it.id == only.id }.map { f ->
+            SequenceFlow(
+                flow = f,
+                rows = rows.count { f.holds(it.step.wallMs) },
+                shown = matched.count { f.holds(it.step.wallMs) },
+                rowsGone = f.startMs > 0 && oldest != null && f.startMs < oldest,
+            )
+        }
         val lanes = buildList {
             add(SequenceLane(SequenceLanes.USER, "You"))
             add(SequenceLane(SequenceLanes.APP, "App"))
@@ -83,6 +104,9 @@ class SequenceBuilder {
             startWallMs = rows.firstOrNull()?.step?.wallMs ?: 0,
             sources = sources,
             socketsNote = socketsNote,
+            flows = listed,
+            onlyFlow = only?.id,
+            flowsNote = flowsNote,
         )
     }
 
@@ -271,8 +295,8 @@ class SequenceBuilder {
         return out
     }
 
-    /** Neighbouring received messages are one row, `tick ×2, quote ×1`; any other row ends the run. */
-    private fun joinReceived(rows: List<Row>): List<Row> {
+    /** Neighbouring received messages are one row, `tick ×2, quote ×1`; any other row or a flow's boundary ends the run. */
+    private fun joinReceived(rows: List<Row>, boundaries: java.util.SortedSet<Long>): List<Row> {
         val out = ArrayList<Row>()
         var i = 0
         while (i < rows.size) {
@@ -284,7 +308,9 @@ class SequenceBuilder {
             }
             val counts = LinkedHashMap<String, Int>()
             var j = i
-            while (j < rows.size && rows[j].received != null) {
+            // The run ends where the next boundary after its first message is reached.
+            val until = boundaries.tailSet(r.step.wallMs + 1).firstOrNull()
+            while (j < rows.size && rows[j].received != null && (until == null || rows[j].step.wallMs < until)) {
                 counts.merge(rows[j].received!!, 1, Int::plus)
                 j++
             }

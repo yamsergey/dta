@@ -75,7 +75,13 @@ interface DaemonOperations {
     suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.timeline.TimelinePage
     fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.timeline.TimelineEvent>
     suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain
-    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?): io.yamsergey.dta.protocol.timeline.SequencePage
+    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?): io.yamsergey.dta.protocol.timeline.SequencePage
+    /** Named flows over the sequence (feature 049). */
+    suspend fun timelineFlowStart(serial: String, pkg: String, name: String?): io.yamsergey.dta.protocol.timeline.FlowStarted
+    suspend fun timelineFlowEnd(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.Flow
+    suspend fun timelineFlowList(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.FlowList
+    fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String): io.yamsergey.dta.protocol.timeline.Flow
+    fun timelineFlowRemove(serial: String, pkg: String, flow: String): io.yamsergey.dta.protocol.timeline.Flow
     suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState
     suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph
     suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath
@@ -93,7 +99,12 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) = daemon.timelineWatch(serial, pkg, history, sources, kinds)
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
         daemon.timelineCauses(serial, pkg, event, direction, depth, inferred)
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?) = daemon.timelineSequence(serial, pkg, limit, q, sinceMs)
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?) = daemon.timelineSequence(serial, pkg, limit, q, sinceMs, flow)
+    override suspend fun timelineFlowStart(serial: String, pkg: String, name: String?) = daemon.timelineFlowStart(serial, pkg, name)
+    override suspend fun timelineFlowEnd(serial: String, pkg: String) = daemon.timelineFlowEnd(serial, pkg)
+    override suspend fun timelineFlowList(serial: String, pkg: String) = daemon.timelineFlowList(serial, pkg)
+    override fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String) = daemon.timelineFlowRename(serial, pkg, flow, name)
+    override fun timelineFlowRemove(serial: String, pkg: String, flow: String) = daemon.timelineFlowRemove(serial, pkg, flow)
     override suspend fun stateCurrent(serial: String, pkg: String) = daemon.stateCurrent(serial, pkg)
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean) = daemon.stateGraph(serial, pkg, facets, minHoldMs, inferred)
     override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) = daemon.statePath(serial, pkg, from, to, facets)

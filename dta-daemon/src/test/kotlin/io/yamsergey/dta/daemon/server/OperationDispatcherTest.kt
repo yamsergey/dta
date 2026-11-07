@@ -131,10 +131,27 @@ class OperationDispatcherTest {
     @Test
     fun `the sequence takes a limit within bounds, a query and a start`() {
         call("timeline.sequence", buildJsonObject { put("limit", 5); put("q", "status:5xx"); put("sinceMs", 9L) })
-        assertEquals(listOf<Any?>(5, "status:5xx", 9L), fake.lastTimeline)
+        assertEquals(listOf<Any?>(5, "status:5xx", 9L, null), fake.lastTimeline)
         call("timeline.sequence")
-        assertEquals(listOf<Any?>(200, null, null), fake.lastTimeline)
+        assertEquals(listOf<Any?>(200, null, null, null), fake.lastTimeline)
         assertTrue(runCatching { call("timeline.sequence", buildJsonObject { put("limit", 0) }) }.exceptionOrNull() != null, "limit 0")
+    }
+
+    @Test
+    fun `flows go through their operations, an unknown one is not found`() {
+        call("timeline.sequence", buildJsonObject { put("flow", "f1") })
+        assertEquals(listOf<Any?>(200, null, null, "f1"), fake.lastTimeline)
+        assertEquals(ClientErrorCodes.NOT_FOUND, assertFailsWith<ClientException> { call("timeline.sequence", buildJsonObject { put("flow", "gone") }) }.code)
+        val started = call("timeline.flow.start", buildJsonObject { put("name", "Buy ACME") }).result as JsonObject
+        assertEquals("Buy ACME", started["flow"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertEquals("Flow 1", (call("timeline.flow.start").result as JsonObject)["flow"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertEquals(9L, (call("timeline.flow.end").result as JsonObject)["endMs"]!!.jsonPrimitive.content.toLong())
+        assertEquals(1, (call("timeline.flow.list").result as JsonObject)["flows"]!!.jsonArray.size)
+        assertEquals("New", (call("timeline.flow.rename", buildJsonObject { put("flow", "f1"); put("name", "New") }).result as JsonObject)["name"]!!.jsonPrimitive.content)
+        assertEquals(ErrorCodes.INVALID_PARAMS, assertFailsWith<ClientException> { call("timeline.flow.rename", buildJsonObject { put("flow", "f1") }) }.code)
+        assertEquals(ClientErrorCodes.NOT_FOUND, assertFailsWith<ClientException> { call("timeline.flow.rename", buildJsonObject { put("flow", "gone"); put("name", "x") }) }.code)
+        assertEquals("f1", (call("timeline.flow.remove", buildJsonObject { put("flow", "f1") }).result as JsonObject)["removed"]!!.jsonPrimitive.content)
+        assertEquals(ClientErrorCodes.NOT_FOUND, assertFailsWith<ClientException> { call("timeline.flow.remove", buildJsonObject { put("flow", "gone") }) }.code)
     }
 
     @Test

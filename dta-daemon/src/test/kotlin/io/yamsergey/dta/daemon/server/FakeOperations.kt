@@ -157,10 +157,23 @@ class FakeOperations : DaemonOperations {
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
         kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.timeline.TimelineEvent>()
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?): io.yamsergey.dta.protocol.timeline.SequencePage {
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?): io.yamsergey.dta.protocol.timeline.SequencePage {
         calls += "timelineSequence"
-        lastTimeline = listOf(limit, q, sinceMs)
+        lastTimeline = listOf(limit, q, sinceMs, flow)
+        if (flow == "gone") throw io.yamsergey.dta.daemon.timeline.FlowStore.UnknownFlow(flow)
         return sequence
+    }
+    private val aFlow = io.yamsergey.dta.protocol.timeline.Flow("f1", "Buy ACME", startMs = 5)
+    override suspend fun timelineFlowStart(serial: String, pkg: String, name: String?) = io.yamsergey.dta.protocol.timeline.FlowStarted(aFlow.copy(name = name ?: "Flow 1"))
+    override suspend fun timelineFlowEnd(serial: String, pkg: String) = aFlow.copy(endMs = 9)
+    override suspend fun timelineFlowList(serial: String, pkg: String) = io.yamsergey.dta.protocol.timeline.FlowList(listOf(io.yamsergey.dta.protocol.timeline.SequenceFlow(aFlow, 2)))
+    override fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String): io.yamsergey.dta.protocol.timeline.Flow {
+        if (flow == "gone") throw io.yamsergey.dta.daemon.timeline.FlowStore.UnknownFlow(flow)
+        return aFlow.copy(name = name)
+    }
+    override fun timelineFlowRemove(serial: String, pkg: String, flow: String): io.yamsergey.dta.protocol.timeline.Flow {
+        if (flow == "gone") throw io.yamsergey.dta.daemon.timeline.FlowStore.UnknownFlow(flow)
+        return aFlow
     }
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain {
         calls += "timelineCauses"
