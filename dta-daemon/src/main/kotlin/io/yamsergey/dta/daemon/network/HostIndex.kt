@@ -51,6 +51,9 @@ class HostIndex(
     private val clock: () -> Long = System::currentTimeMillis,
     /** The app's protobuf decoding (its schemas and mappings), for search in decoded bodies (US6). */
     private val decoding: () -> io.yamsergey.dta.daemon.network.proto.BodyDecoding = { io.yamsergey.dta.daemon.network.proto.BodyDecoding.NONE },
+    /** Feature 051: a text message's envelope by the app's format rules, for `type:` and `topic:`. */
+    private val readEnvelope: (io.yamsergey.dta.protocol.network.WsMessageEntry, String) -> io.yamsergey.dta.protocol.network.Envelope? =
+        { _, text -> io.yamsergey.dta.protocol.network.WsFormats.detect(text) },
     private val connection: suspend () -> AppConnection,
 ) {
     /** Journal records per request, and requests per answer before the rest is left to the next one. */
@@ -65,9 +68,8 @@ class HostIndex(
     /** Entries the device cleared that the host never read, known when the clear went through the daemon. */
     private var neverReceived = 0
 
-    private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, ::hostBodyBytes) { entry, part ->
-        decodedJson(entry, part, epoch?.id, live::get)
-    }
+    private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, ::hostBodyBytes,
+        { entry, part -> decodedJson(entry, part, epoch?.id, live::get) }, readEnvelope)
 
     suspend fun list(query: NetworkQuery): NetworkPage = mutex.withLock {
         query.archive?.let { return archived(query, it) }
@@ -166,7 +168,9 @@ class HostIndex(
                 val raw = info?.let { rawBody(epochOf.getValue(entry.id), entry.id, part) }
                 raw?.let { BodyCodec.decode(it, info.encoding).let { d -> NetworkFilterEval.BodyBytes(d.bytes, d.decoded) } }
             },
-        ) { entry, part -> decodedJson(entry, part, epochOf[entry.id], entries::get) }
+            { entry, part -> decodedJson(entry, part, epochOf[entry.id], entries::get) },
+            readEnvelope,
+        )
     }
 
     private fun rawBody(epochId: String, entryId: String, part: BodyPart): ByteArray? {

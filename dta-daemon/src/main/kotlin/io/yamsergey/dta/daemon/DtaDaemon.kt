@@ -90,7 +90,7 @@ class DtaDaemon(
 
     private fun hostIndex(serial: String, pkg: String): io.yamsergey.dta.daemon.network.HostIndex =
         hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
-            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }) {
+            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }, readEnvelope = { m, text -> formats.envelope(pkg, m.url, m.direction, text) }) {
                 if (kotlinx.coroutines.currentCoroutineContext()[HeldOnly] != null) {
                     connections.held(key) ?: throw io.yamsergey.dta.daemon.connection.ConnectionLostException("${key.packageName} is not connected")
                 } else {

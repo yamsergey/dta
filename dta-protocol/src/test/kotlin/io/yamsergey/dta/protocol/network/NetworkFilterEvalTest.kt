@@ -89,9 +89,9 @@ class NetworkFilterEvalTest {
     }
 
     @Test
-    fun `body contains is case-sensitive`() {
+    fun `body contains ignores case in text bodies (051)`() {
         val e = eval(NetworkFilter(bodyContains = "ACCOUNT_ID"))
-        assertEquals(emptyList(), all.filter { e.matches(it) != null })
+        assertEquals(listOf(ok.id, message.id), all.filter { e.matches(it) != null }.map { it.id })
         assertEquals(0, e.binaryNotSearched, "binary bodies are searched now")
     }
 

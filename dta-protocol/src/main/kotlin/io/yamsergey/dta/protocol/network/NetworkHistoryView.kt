@@ -39,7 +39,17 @@ class NetworkHistoryView(
     private val bodyBytes: (NetworkEntry, BodyPart) -> NetworkFilterEval.BodyBytes?,
     /** Decoded protobuf for body search; the host has the schemas, the app does not (feature 011). */
     private val decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
+    /** Feature 051: a text message's envelope from its text and its socket's URL (the host has the app's rules). */
+    private val readEnvelope: (WsMessageEntry, String) -> Envelope? = { _, text -> WsFormats.detect(text) },
 ) {
+    /** The envelope of a text message for `type:`/`topic:`: the whole stored text when here, else the preview. */
+    private fun envelopeOf(m: WsMessageEntry): Envelope? {
+        if (m.opcode != MessageOpcode.TEXT || m.payload.binary) return null
+        val text = bodyBytes(m, BodyPart.MESSAGE)?.takeIf { it.decoded }?.let { String(it.bytes, Charsets.UTF_8) } ?: m.payload.preview ?: return null
+        val url = m.url ?: (byId(m.connectionId) as? WsConnectionEntry)?.url
+        return readEnvelope(m.copy(url = url), text)
+    }
+
     fun list(query: NetworkQuery): NetworkPage {
         val ctx = context()
         val (filter, terms) = query.resolved()
@@ -51,6 +61,7 @@ class NetworkHistoryView(
                 connectionUrl = { id -> (byId(id) as? WsConnectionEntry)?.url },
                 bodyBytes = bodyBytes,
                 decoded = decoded,
+                envelope = ::envelopeOf,
             )
         }
         // Links (012) are in the same history; network views show them only when kinds asks.
@@ -110,7 +121,7 @@ class NetworkHistoryView(
         val (filter, terms) = query.resolved()
         if (terms.isEmpty()) throw InvalidParamsException("query: no search words; give words or a \"phrase\" to find (filters alone are network.list)")
         val s = search(terms, query.redact)!!
-        val eval = filter?.let { NetworkFilterEval(it, ctx.runId, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, bodyBytes) }
+        val eval = filter?.let { NetworkFilterEval(it, ctx.runId, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, ::envelopeOf, bodyBytes) }
         val chronological = entries().let { all -> if (filter?.kinds == null) all.filter { it !is LinkEntry } else all }
         val all = if (query.order == Order.NEWEST_FIRST) chronological.asReversed() else chronological
         var passed = query.before == null

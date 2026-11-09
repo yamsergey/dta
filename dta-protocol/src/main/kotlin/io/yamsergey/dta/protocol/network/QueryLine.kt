@@ -32,10 +32,41 @@ data class ParsedQuery(
  * `http` / `ws` are filters too, everything else is a search word or a "quoted phrase".
  */
 object QueryLine {
-    val KEYS = listOf("method", "status", "host", "url", "kind", "has", "body", "run", "since", "until")
+    /** Feature 051: a filter key as suggestions show it: what it matches and which kinds of entries it applies to. */
+    data class KeyInfo(val name: String, val hint: String, val kinds: Set<EntryKind>)
+
+    private val ALL = setOf(EntryKind.HTTP, EntryKind.WS_CONNECTION, EntryKind.WS_MESSAGE)
+    private val HTTP_ONLY = setOf(EntryKind.HTTP)
+    private val MESSAGES = setOf(EntryKind.WS_MESSAGE)
+
+    val KEY_INFO = listOf(
+        KeyInfo("body", "text in a body: request, response or message (case ignored)", ALL),
+        KeyInfo("url", "text in the URL (a message: its socket's)", ALL),
+        KeyInfo("host", "the URL's host; *.example.com takes subdomains", ALL),
+        KeyInfo("status", "HTTP 200, 4xx, failed, pending; socket open, closed, connecting, a close code", setOf(EntryKind.HTTP, EntryKind.WS_CONNECTION)),
+        KeyInfo("method", "HTTP method", HTTP_ONLY),
+        KeyInfo("header", "a header by name, or name=text in its value (HTTP, socket handshake)", setOf(EntryKind.HTTP, EntryKind.WS_CONNECTION)),
+        KeyInfo("req", "text in the HTTP request body", HTTP_ONLY),
+        KeyInfo("resp", "text in the HTTP response body", HTTP_ONLY),
+        KeyInfo("mime", "text in a body's content type: json, html, protobuf", setOf(EntryKind.HTTP, EntryKind.WS_MESSAGE)),
+        KeyInfo("duration", "HTTP call time: >1s, <200ms", HTTP_ONLY),
+        KeyInfo("size", "body bytes: >100k, <=1k", setOf(EntryKind.HTTP, EntryKind.WS_MESSAGE)),
+        KeyInfo("dir", "socket messages sent or received", MESSAGES),
+        KeyInfo("frame", "socket messages: text or binary", MESSAGES),
+        KeyInfo("type", "text in a socket message's type, as its format reads it", MESSAGES),
+        KeyInfo("topic", "text in a socket message's topic or channel", MESSAGES),
+        KeyInfo("conn", "one socket connection and its messages, by id", setOf(EntryKind.WS_CONNECTION, EntryKind.WS_MESSAGE)),
+        KeyInfo("kind", "http, ws, ws-connection, ws-message", ALL),
+        KeyInfo("has", "intervention: entries the network script changed", ALL),
+        KeyInfo("run", "current or all app runs (this session only)", ALL),
+        KeyInfo("since", "newer than: 5m, 2h, 1d (this session only)", ALL),
+        KeyInfo("until", "older than: 5m, 2h, 1d (this session only)", ALL),
+    )
+    val KEYS = KEY_INFO.map { it.name }
     val METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
     private val NOT_NEGATABLE = setOf("run", "since", "until", "has")
-    private val STATUS = Regex("""[1-5]\d\d|[1-5]xx|failed|pending""")
+    private val STATUS = Regex("""[1-5]\d\d|[1-5]xx|failed|pending|open|closed|connecting|[1-4]\d\d\d""")
+    private val BOUND = Regex("""(>=|<=|>|<)(\d+)([a-z]*)""")
     private val RELATIVE = Regex("""(\d+)([smhd])""")
     private val WS = listOf(EntryKind.WS_CONNECTION, EntryKind.WS_MESSAGE)
 
@@ -72,7 +103,27 @@ object QueryLine {
             if (raw.negated && key in NOT_NEGATABLE && key != "has") { problem("$key: cannot be negated"); continue }
             val one: NetworkFilter = when (key) {
                 "method" -> NetworkFilter(method = value.uppercase())
-                "status" -> if (STATUS.matches(value)) NetworkFilter(status = value) else { problem("status: takes a code (200), a class (4xx), failed or pending; was '$value'"); continue }
+                "status" -> if (STATUS.matches(value)) NetworkFilter(status = value) else { problem("status: takes a code (200), a class (4xx), failed, pending, or for sockets open, closed, connecting, a close code (1006); was '$value'"); continue }
+                "dir" -> when (value) { "sent" -> NetworkFilter(direction = Direction.OUT); "received" -> NetworkFilter(direction = Direction.IN); else -> { problem("dir: takes sent or received; was '$value'"); continue } }
+                "frame" -> when (value) { "text" -> NetworkFilter(frame = MessageOpcode.TEXT); "binary" -> NetworkFilter(frame = MessageOpcode.BINARY); else -> { problem("frame: takes text or binary; was '$value'"); continue } }
+                "type" -> NetworkFilter(envelopeType = value)
+                "topic" -> NetworkFilter(topic = value)
+                "conn" -> NetworkFilter(connection = value)
+                "mime" -> NetworkFilter(mime = value)
+                "req" -> NetworkFilter(requestContains = value)
+                "resp" -> NetworkFilter(responseContains = value)
+                "header" -> {
+                    val name = value.substringBefore('=').trim()
+                    if (name.isEmpty()) { problem("header: takes a name, or name=text; was '$value'"); continue }
+                    NetworkFilter(headerName = name.lowercase(), headerValue = value.substringAfter('=', "").takeIf { '=' in value })
+                }
+                "duration", "size" -> bound(key, value)?.let { (lower, n) ->
+                    if (key == "duration") { if (lower) NetworkFilter(minDurationMs = n) else NetworkFilter(maxDurationMs = n) }
+                    else { if (lower) NetworkFilter(minSize = n) else NetworkFilter(maxSize = n) }
+                } ?: run {
+                    problem(if (key == "duration") "duration: takes >, >=, < or <= and a time (200ms, 1s, 2m); was '$value'" else "size: takes >, >=, < or <= and bytes (500, 10k, 2m); was '$value'")
+                    continue
+                }
                 "host" -> NetworkFilter(host = value)
                 "url" -> NetworkFilter(url = value)
                 "body" -> NetworkFilter(bodyContains = value)
@@ -83,8 +134,13 @@ object QueryLine {
                     ?: run { problem("$key: takes a time ago (5m, 2h, 1d) or epoch milliseconds; was '$value'"); continue }
                 else -> error(key)
             }
+            val onceKey = when (key) {
+                "duration" -> if (one.minDurationMs != null) "duration>" else "duration<"
+                "size" -> if (one.minSize != null) "size>" else "size<"
+                else -> key
+            }
             if (raw.negated && key != "has") exclude += one
-            else filter = once(filter, key, seen, ::problem) { merge(it, one) }
+            else filter = once(filter, onceKey, seen, ::problem) { it.overlay(one) }
             tokens += QueryToken(raw.start, raw.end, raw.text, key, raw.negated && key != "has" || (key == "has" && raw.negated))
         }
         return ParsedQuery(filter, exclude, terms, problems, tokens)
@@ -132,6 +188,19 @@ object QueryLine {
             }
             f.intervened?.let { add(if (it) "has:intervention" else "-has:intervention") }
             f.bodyContains?.let { add("${n}body:${quote(it)}") }
+            f.requestContains?.let { add("${n}req:${quote(it)}") }
+            f.responseContains?.let { add("${n}resp:${quote(it)}") }
+            f.headerName?.let { add("${n}header:" + quote(it + (f.headerValue?.let { v -> "=$v" } ?: ""))) }
+            f.mime?.let { add("${n}mime:${quote(it)}") }
+            f.minDurationMs?.let { add("${n}duration:>=${duration(it)}") }
+            f.maxDurationMs?.let { add("${n}duration:<=${duration(it)}") }
+            f.minSize?.let { add("${n}size:>=$it") }
+            f.maxSize?.let { add("${n}size:<=$it") }
+            f.direction?.let { add("${n}dir:${if (it == Direction.OUT) "sent" else "received"}") }
+            f.frame?.let { add("${n}frame:${if (it == MessageOpcode.TEXT) "text" else "binary"}") }
+            f.envelopeType?.let { add("${n}type:${quote(it)}") }
+            f.topic?.let { add("${n}topic:${quote(it)}") }
+            f.connection?.let { add("${n}conn:${quote(it)}") }
             f.runs?.let { add("run:${if (it == RunScope.CURRENT) "current" else "all"}") }
             f.sinceMs?.let { add("since:$it") }
             f.untilMs?.let { add("until:$it") }
@@ -162,15 +231,26 @@ object QueryLine {
     }
 
     private inline fun once(filter: NetworkFilter, key: String, seen: MutableSet<String>, problem: (String) -> Unit, set: (NetworkFilter) -> NetworkFilter): NetworkFilter {
-        if (!seen.add(key)) { problem("$key: given twice; one value per filter (use -$key: to leave some out)"); return filter }
+        if (!seen.add(key)) { val k = key.trimEnd('>', '<'); problem("$k: given twice; one value per filter (use -$k: to leave some out)"); return filter }
         return set(filter)
     }
 
-    private fun merge(a: NetworkFilter, b: NetworkFilter) = a.copy(
-        method = b.method ?: a.method, status = b.status ?: a.status, host = b.host ?: a.host, url = b.url ?: a.url,
-        kinds = b.kinds ?: a.kinds, intervened = b.intervened ?: a.intervened, bodyContains = b.bodyContains ?: a.bodyContains,
-        runs = b.runs ?: a.runs, sinceMs = b.sinceMs ?: a.sinceMs, untilMs = b.untilMs ?: a.untilMs,
-    )
+    /** `>1s` → (lower bound, 1001 ms); `<=10k` → (upper bound, 10240); inclusive bounds. */
+    private fun bound(key: String, v: String): Pair<Boolean, Long>? {
+        val m = BOUND.matchEntire(v) ?: return null
+        val (op, digits, unit) = m.destructured
+        val n = digits.toLongOrNull() ?: return null
+        val scale = if (key == "duration") when (unit) { "ms" -> 1L; "s" -> 1_000L; "m" -> 60_000L; else -> return null }
+            else when (unit) { "" -> 1L; "k" -> 1024L; "m" -> 1024L * 1024; else -> return null }
+        val x = n * scale
+        return when (op) { ">" -> true to x + 1; ">=" -> true to x; "<" -> false to x - 1; else -> false to x }
+    }
+
+    private fun duration(ms: Long): String = when {
+        ms % 60_000 == 0L && ms > 0 -> "${ms / 60_000}m"
+        ms % 1_000 == 0L && ms > 0 -> "${ms / 1_000}s"
+        else -> "${ms}ms"
+    }
 
     /** Words split on spaces; quotes group (a quote left open runs to the end); `key:"a b"` keeps its value whole. */
     private fun split(q: String): List<Raw> {

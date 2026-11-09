@@ -137,7 +137,7 @@ class McpTools(
             Device and app may be omitted: one connected device and the foreground app are chosen, and the result's selection says so.
             Results state how values were obtained: fallback captures, degraded markers, incomplete bodies, script interventions. Read them before drawing conclusions.
             To follow traffic over time, call network_list with sinceMs set to the time of your previous call.
-            To find where a value appeared in traffic, use network_search with words (q); network_list takes the same query line (filters like status:4xx host:x, -key:value to leave out).
+            To find where a value appeared in traffic, use network_search with words (q); network_list takes the same query line (filters like status:4xx host:x body:text dir:received type:order.update, -key:value to leave out).
             WebSocket text messages carry an envelope (format, kind, id, topic, payload); for an app's own protocol, try a rule with network_format_test and keep it with network_format_add.
         """.trimIndent()
     }

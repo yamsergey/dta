@@ -58,7 +58,48 @@ data class NetworkFilter(
     val host: String? = null,
     /** Feature 040: entries matching any of these are left out (each a filter of its own). */
     val exclude: List<NetworkFilter>? = null,
-)
+    /** Feature 051: WebSocket messages sent ([Direction.OUT]) or received. */
+    val direction: Direction? = null,
+    /** Feature 051: WebSocket messages by frame type. */
+    val frame: MessageOpcode? = null,
+    /** Feature 051: text in a text message's type, as its format reads it (038/039); case ignored. */
+    val envelopeType: String? = null,
+    /** Feature 051: text in a text message's topic, as its format reads it; case ignored. */
+    val topic: String? = null,
+    /** Feature 051: a WebSocket connection by id, with its messages. */
+    val connection: String? = null,
+    /** Feature 051: a request, response or handshake header by name, case ignored... */
+    val headerName: String? = null,
+    /** ...whose value holds this text, case ignored. */
+    val headerValue: String? = null,
+    /** Feature 051: text in a body's content type, case ignored. */
+    val mime: String? = null,
+    /** Feature 051: an HTTP call's duration bounds, inclusive. */
+    val minDurationMs: Long? = null,
+    val maxDurationMs: Long? = null,
+    /** Feature 051: body bytes (request + response, or the message), stored or declared; inclusive bounds. */
+    val minSize: Long? = null,
+    val maxSize: Long? = null,
+    /** Feature 051: text in an HTTP request body only (the app-side one too); case ignored. */
+    val requestContains: String? = null,
+    /** Feature 051: text in an HTTP response body only; case ignored. */
+    val responseContains: String? = null,
+) {
+    /** [other]'s fields where it has them, this one's elsewhere; exclusions add up. */
+    fun overlay(other: NetworkFilter): NetworkFilter = NetworkFilter(
+        url = other.url ?: url, method = other.method ?: method, status = other.status ?: status, kinds = other.kinds ?: kinds,
+        sinceMs = other.sinceMs ?: sinceMs, untilMs = other.untilMs ?: untilMs, bodyContains = other.bodyContains ?: bodyContains,
+        runs = other.runs ?: runs, intervened = other.intervened ?: intervened, activity = other.activity ?: activity,
+        delivery = other.delivery ?: delivery, host = other.host ?: host,
+        exclude = ((exclude ?: emptyList()) + (other.exclude ?: emptyList())).ifEmpty { null },
+        direction = other.direction ?: direction, frame = other.frame ?: frame, envelopeType = other.envelopeType ?: envelopeType,
+        topic = other.topic ?: topic, connection = other.connection ?: connection,
+        headerName = other.headerName ?: headerName, headerValue = if (other.headerName != null) other.headerValue else headerValue,
+        mime = other.mime ?: mime, minDurationMs = other.minDurationMs ?: minDurationMs, maxDurationMs = other.maxDurationMs ?: maxDurationMs,
+        minSize = other.minSize ?: minSize, maxSize = other.maxSize ?: maxSize,
+        requestContains = other.requestContains ?: requestContains, responseContains = other.responseContains ?: responseContains,
+    )
+}
 
 /** `network_list` params (contract §2). Shared so daemon and sidekick agree (constitution VI). */
 @Serializable
@@ -89,14 +130,7 @@ data class NetworkQuery(
         if (p.problems.isNotEmpty()) {
             throw InvalidParamsException("query: " + p.problems.joinToString("; ") { "${line.substring(it.start, it.end)} — ${it.message}" })
         }
-        val base = filter ?: NetworkFilter()
-        val f = p.filter
-        val merged = base.copy(
-            url = f.url ?: base.url, method = f.method ?: base.method, status = f.status ?: base.status, kinds = f.kinds ?: base.kinds,
-            sinceMs = f.sinceMs ?: base.sinceMs, untilMs = f.untilMs ?: base.untilMs, bodyContains = f.bodyContains ?: base.bodyContains,
-            runs = f.runs ?: base.runs, intervened = f.intervened ?: base.intervened, host = f.host ?: base.host,
-            exclude = ((base.exclude ?: emptyList()) + p.exclude).ifEmpty { null },
-        )
+        val merged = (filter ?: NetworkFilter()).overlay(p.filter.copy(exclude = p.exclude.ifEmpty { null }))
         return merged.takeIf { it != NetworkFilter() } to p.terms
     }
 
