@@ -37,7 +37,7 @@ class QueryLineModelTest {
         val now = 1000L + 5 * 60_000
         assertEquals(
             listOf(Suggestion("-host:t.example.test", 0, "5 min ago", recent = true), Suggestion("-url:/health", 0, "5 min ago", recent = true)),
-            line("").suggestions(0, recent = recent, nowMs = now),
+            line("").suggestions(0, recent = recent, nowMs = now).filter { it.recent },
         )
         assertEquals(listOf("-url:/health"), line("-u").suggestions(2, recent = recent, nowMs = now).filter { it.recent }.map { it.text })
     }
@@ -45,7 +45,7 @@ class QueryLineModelTest {
     @Test
     fun `suggestions for keys, values seen, and applying one`() {
         val seen = Seen(hosts = setOf("api.example.test", "cdn.example.test"), statuses = setOf("401"))
-        assertEquals(listOf("status:", "since:"), line("s").suggestions(1).map { it.text })
+        assertEquals(listOf("status:", "size:", "since:"), line("s").suggestions(1).map { it.text })
         assertEquals(listOf("POST", "PUT", "PATCH").toSet(), line("P").suggestions(1).map { it.text }.toSet())
         assertEquals(listOf("status:4xx", "status:401"), line("status:4").suggestions(8, seen).map { it.text })
         assertEquals(listOf("-host:api.example.test"), line("token -host:a").suggestions(13, seen).map { it.text })
@@ -55,7 +55,44 @@ class QueryLineModelTest {
         val (done, c2) = applied.apply(applied.suggestions(12).first { it.text == "status:4xx" }, 12)
         assertEquals("POST status:4xx ", done.text)
         assertEquals(16, c2)
-        assertTrue(line("").suggestions(0).isEmpty())
+        assertTrue(line("token ").suggestions(6).isEmpty(), "a space after a search word stays quiet")
+    }
+
+    @Test
+    fun `an empty line lists every key with its hint, recent filters first (051)`() {
+        val recent = listOf(RecentFilter("-host:t.example.test", 1000))
+        val all = line("").suggestions(0, recent = recent, nowMs = 2000)
+        assertEquals("-host:t.example.test", all.first().text)
+        val keys = all.filter { !it.recent }
+        assertEquals(io.yamsergey.dta.protocol.network.QueryLine.KEYS.map { "$it:" }, keys.map { it.text })
+        assertTrue(keys.all { !it.hint.isNullOrBlank() })
+        assertEquals("body:", keys.first().text)
+        assertTrue(keys.first().hint!!.contains("case ignored"))
+        // Down mid-line asks for the list too.
+        assertEquals(keys.map { it.text }, line("token ").suggestions(6, explicit = true).map { it.text })
+    }
+
+    @Test
+    fun `the kind switch puts its keys first (051)`() {
+        val ws = line("").suggestions(0, kind = KindChoice.WEBSOCKET).map { it.text.removeSuffix(":") }
+        val firstHttpOnly = ws.indexOf("method")
+        listOf("dir", "frame", "type", "topic", "conn").forEach { assertTrue(ws.indexOf(it) < firstHttpOnly, it) }
+        val http = line("").suggestions(0, kind = KindChoice.HTTP).map { it.text.removeSuffix(":") }
+        listOf("method", "header", "req", "resp", "duration").forEach { assertTrue(http.indexOf(it) < http.indexOf("dir"), it) }
+        assertEquals("bo", "bo")
+        assertEquals(listOf("body:"), line("bo").suggestions(2).map { it.text })
+        assertTrue(line("bo").suggestions(2).single().hint!!.isNotBlank())
+    }
+
+    @Test
+    fun `values for the new keys (051)`() {
+        assertEquals(listOf("dir:sent", "dir:received"), line("dir:").suggestions(4).map { it.text })
+        assertEquals(listOf("frame:text", "frame:binary"), line("frame:").suggestions(6).map { it.text })
+        assertTrue(line("status:").suggestions(7).map { it.text }.containsAll(listOf("status:4xx", "status:open", "status:closed", "status:1006")))
+        assertTrue(line("mime:").suggestions(5).map { it.text }.contains("mime:json"))
+        assertTrue(line("duration:").suggestions(9).map { it.text }.contains("duration:>1s"))
+        assertTrue(line("size:").suggestions(5).map { it.text }.contains("size:>100k"))
+        assertEquals(listOf("-dir:sent", "-dir:received"), line("-dir:").suggestions(5).map { it.text })
     }
 
     private fun hit(id: String, place: SearchPlace = SearchPlace.RESPONSE_BODY, part: BodyPart? = BodyPart.RESPONSE, header: String? = null, start: Int = 0) =

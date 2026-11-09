@@ -1,6 +1,7 @@
 package io.yamsergey.dta.present.network
 
 import io.yamsergey.dta.protocol.network.EntryHits
+import io.yamsergey.dta.protocol.network.EntryKind as Kind
 import io.yamsergey.dta.protocol.network.ParsedQuery
 import io.yamsergey.dta.protocol.network.QueryLine
 import io.yamsergey.dta.protocol.network.RecentFilter
@@ -41,24 +42,46 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
     }
 
     /** Completions for the word ending at [caret]; [recent] filters of the app first (feature 043). */
-    fun suggestions(caret: Int, seen: Seen = Seen(), recent: List<RecentFilter> = emptyList(), nowMs: Long = System.currentTimeMillis()): List<Suggestion> {
+    fun suggestions(
+        caret: Int,
+        seen: Seen = Seen(),
+        recent: List<RecentFilter> = emptyList(),
+        nowMs: Long = System.currentTimeMillis(),
+        /** Feature 051: the kind switch; its keys come first. */
+        kind: KindChoice = KindChoice.ALL,
+        /** Feature 051: asked for (Down): every key even mid-line. */
+        explicit: Boolean = false,
+    ): List<Suggestion> {
         val at = caret.coerceIn(0, text.length)
         var from = at
         while (from > 0 && !text[from - 1].isWhitespace()) from--
         val word = text.substring(from, at)
         val back = recent.filter { it.word.startsWith(word, ignoreCase = true) && it.word != word }
             .map { Suggestion(it.word, from, SavedChip.age(it.lastUsedMs, nowMs), recent = true) }
-        return back + typed(from, word, seen)
+        // Feature 051: an empty line (or Down) lists every key, so none has to be remembered.
+        if (word.isEmpty()) return back + if (text.isBlank() || explicit) keys(kind).map { Suggestion("${it.name}:", from, it.hint) } else emptyList()
+        return back + typed(from, word, seen, kind)
     }
 
-    private fun typed(from: Int, word: String, seen: Seen): List<Suggestion> {
+    /** Every key; the kind switch's own keys first, in the language's order otherwise. */
+    private fun keys(kind: KindChoice): List<QueryLine.KeyInfo> {
+        val wanted = when (kind) {
+            KindChoice.ALL -> return QueryLine.KEY_INFO
+            KindChoice.HTTP -> setOf(Kind.HTTP)
+            KindChoice.WEBSOCKET -> setOf(Kind.WS_CONNECTION, Kind.WS_MESSAGE)
+        }
+        // Keys only for the chosen kind first, then the shared ones, then the rest.
+        return QueryLine.KEY_INFO.sortedBy { k -> if (k.kinds.all { it in wanted }) 0 else if (k.kinds.any { it in wanted }) 1 else 2 }
+    }
+
+    private fun typed(from: Int, word: String, seen: Seen, kind: KindChoice): List<Suggestion> {
         val negated = word.startsWith("-")
         val body = if (negated) word.drop(1) else word
         val n = if (negated) "-" else ""
         val colon = body.indexOf(':')
         if (colon < 0) {
             if (body.isEmpty() && !negated) return emptyList()
-            val keys = QueryLine.KEYS.filter { it.startsWith(body.lowercase()) && it != body.lowercase() }.map { Suggestion("$n$it:", from) }
+            val keys = keys(kind).filter { it.name.startsWith(body.lowercase()) && it.name != body.lowercase() }.map { Suggestion("$n${it.name}:", from, it.hint) }
             val bare = if (negated) emptyList() else (listOf("http", "ws") + QueryLine.METHODS).filter { it.startsWith(body, ignoreCase = true) && it != body }
                 .map { Suggestion(it, from, if (it in QueryLine.METHODS) "method" else "kind") }
             return keys + bare
@@ -66,7 +89,12 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
         val key = body.substring(0, colon).lowercase()
         val value = body.substring(colon + 1)
         val values = when (key) {
-            "status" -> listOf("2xx", "3xx", "4xx", "5xx", "failed", "pending") + seen.statuses.sorted()
+            "status" -> listOf("2xx", "3xx", "4xx", "5xx", "failed", "pending") + seen.statuses.sorted() + listOf("open", "closed", "connecting", "1000", "1006")
+            "dir" -> listOf("sent", "received")
+            "frame" -> listOf("text", "binary")
+            "mime" -> listOf("json", "html", "xml", "protobuf", "text/plain", "image")
+            "duration" -> listOf(">1s", ">500ms", "<100ms")
+            "size" -> listOf(">100k", ">1m", "<1k")
             "host" -> seen.hosts.sorted()
             "method" -> (QueryLine.METHODS + seen.methods).toSortedSet().toList()
             "kind" -> listOf("http", "ws", "ws-connection", "ws-message")

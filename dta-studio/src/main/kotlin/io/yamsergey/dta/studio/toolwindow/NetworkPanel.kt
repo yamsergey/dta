@@ -118,15 +118,23 @@ class NetworkPanel(
     private var chipsShown: List<String>? = null
     /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP. */
     private val query = com.intellij.ui.components.JBTextField().apply {
-        emptyText.text = "Filter and search: POST status:4xx host:api.example.com -host:… token \"a phrase\""
-        toolTipText = "<html>key:value words filter (method: status: host: url: kind: has:intervention body: run: since:5m until:, GET/POST…, http, ws);<br>" +
+        emptyText.text = "Filter and search: body:text status:4xx dir:received host:… -host:… token \"a phrase\" (click for every filter)"
+        toolTipText = "<html>key:value words filter. Any entry: body: url: host: kind: has:intervention run: since:5m until:<br>" +
+            "HTTP: method: (or GET/POST…) status: header: req: resp: mime: duration:&gt;1s size:&gt;100k<br>" +
+            "WebSocket: dir:sent|received frame:text|binary type: topic: conn: status:open|closed|1006<br>" +
             "-key:value leaves matches out; other words are searched in URLs, headers, bodies and messages: only the matches are listed.<br>" +
             "Enter saves the filters for this app as chips; with only search words Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.</html>"
     }
     private val hitLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
     private val suggestionList = com.intellij.ui.components.JBList<Suggestion>().apply {
-        cellRenderer = com.intellij.ui.SimpleListCellRenderer.create("") { it.text + (it.hint?.let { h -> "   $h" } ?: "") }
+        // Feature 051: the hint in gray after the word, so every key explains itself.
+        cellRenderer = object : com.intellij.ui.ColoredListCellRenderer<Suggestion>() {
+            override fun customizeCellRenderer(list: javax.swing.JList<out Suggestion>, value: Suggestion, index: Int, selected: Boolean, hasFocus: Boolean) {
+                append(value.text)
+                value.hint?.let { append("   $it", com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+            }
+        }
     }
     private var suggestionPopup: com.intellij.openapi.ui.popup.JBPopup? = null
     private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
@@ -433,7 +441,7 @@ class NetworkPanel(
         fun on(stroke: String, action: () -> Unit) {
             query.registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_FOCUSED)
         }
-        on("DOWN") { if (popupShown()) moveSuggestion(1) else suggest() }
+        on("DOWN") { if (popupShown()) moveSuggestion(1) else suggest(explicit = true) }
         on("UP") { if (popupShown()) moveSuggestion(-1) }
         on("TAB") { if (popupShown()) applySuggestion() }
         // Enter is the field's own accept action: a suggestion when the list is open; the line's filters saved as chips; else the next hit.
@@ -460,13 +468,15 @@ class NetworkPanel(
 
     private fun popupShown() = suggestionPopup?.isVisible == true
 
-    private fun suggest() {
-        val items = last.line.withText(query.text).suggestions(query.caretPosition, QueryLineModel.seen(model.views()), last.saved.recent)
+    private fun suggest(explicit: Boolean = false) {
+        val items = last.line.withText(query.text).suggestions(
+            query.caretPosition, QueryLineModel.seen(model.views()), last.saved.recent, kind = kinds.selectedItem ?: KindChoice.ALL, explicit = explicit,
+        )
         suggestionPopup?.cancel()
         if (items.isEmpty()) return
         suggestionList.setListData(items.toTypedArray())
         suggestionList.selectedIndex = 0
-        suggestionList.visibleRowCount = minOf(items.size, 8)
+        suggestionList.visibleRowCount = minOf(items.size, 12)
         suggestionPopup = JBPopupFactory.getInstance().createComponentPopupBuilder(JBScrollPane(suggestionList), null)
             .setRequestFocus(false).setFocusable(false).setCancelOnClickOutside(true).setMinSize(java.awt.Dimension(JBUI.scale(220), 0))
             .createPopup().also { it.showUnderneathOf(query) }
