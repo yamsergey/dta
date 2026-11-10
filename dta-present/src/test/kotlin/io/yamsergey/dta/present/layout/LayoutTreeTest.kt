@@ -114,7 +114,8 @@ class LayoutTreeTest {
         assertTrue(d.fields.any { it.first == "Bounds" && Regex("""-?\d+,-?\d+ – -?\d+,-?\d+ \(\d+×\d+\)""").matches(it.second) }, "${d.fields}")
         assertEquals(Source("ComposeScreens.kt", 46), d.source)
         assertEquals("text", d.parameters.first().name)
-        assertEquals(listOf("MixedContent (MainActivity.kt:115)", "Column (ComposeScreens.kt:45)"), d.callChain.take(2))
+        assertEquals(listOf("MixedContent (MainActivity.kt:115)", "Column (ComposeScreens.kt:45)"), d.callChain.take(2).map { it.text })
+        assertEquals(Source("MainActivity.kt", 115), d.callChain.first().source)
         assertEquals(emptyList(), d.statements)
     }
 
@@ -145,5 +146,26 @@ class LayoutTreeTest {
         assertTrue(d.fields.contains("Resource id" to "io.yamsergey.dta.fixture.channel:id/disturbance_counter"))
         assertNull(d.source)
         assertNull(NodeDetail.of(mixed, listOf(0, 9)))
+    }
+
+    @Test
+    fun `054 - a source carries its package and origin, and the app calls above it are offered`() {
+        val capture = Json.parseToJsonElement(
+            """{"screen":{"widthPx":100,"heightPx":100},"source":"sidekick","windows":[{"type":"application","zOrder":0,"root":
+               {"type":"compose","id":1,"bounds":{"left":0,"top":0,"right":10,"bottom":10},"name":"Screen","sourceFile":"Home.kt","lineNumber":10,"packageName":"io.example.ui","children":[
+                 {"type":"compose","id":2,"bounds":{"left":0,"top":0,"right":10,"bottom":10},"name":"Header","sourceFile":"h.kt","lineNumber":3,"unknownOrigin":true,"children":[
+                   {"type":"compose","id":3,"bounds":{"left":0,"top":0,"right":10,"bottom":10},"name":"Text","sourceFile":"Text.kt","lineNumber":70,"library":true,"packageName":"androidx.compose.material3",
+                    "callChain":[{"name":"Screen","sourceFile":"Home.kt","lineNumber":10,"packageName":"io.example.ui"},{"name":"Text","sourceFile":"Text.kt","lineNumber":70,"library":true,"packageName":"androidx.compose.material3"},{"name":"Inner"}]}]}]}}]}""",
+        ).jsonObject
+        val tree = LayoutTree.of(capture)
+        val d = NodeDetail.of(tree, listOf(0, 0, 0))!!
+        assertEquals(Source("Text.kt", 70, "androidx.compose.material3", library = true), d.source)
+        assertEquals(listOf("Screen (Home.kt:10)"), d.callers.map { it.text }, "app calls above only; unknown and library ones are not offered")
+        assertEquals(Source("Home.kt", 10, "io.example.ui"), d.callers.single().source)
+        assertEquals(listOf(Source("Home.kt", 10, "io.example.ui"), Source("Text.kt", 70, "androidx.compose.material3", library = true), null), d.callChain.map { it.source })
+        assertTrue(d.fields.contains("Package" to "androidx.compose.material3"))
+        val header = NodeDetail.of(tree, listOf(0, 0))!!
+        assertEquals(Source("h.kt", 3, unknown = true), header.source)
+        assertTrue(header.fields.contains("Origin" to "unknown (package not among the app's)"))
     }
 }

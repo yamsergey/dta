@@ -34,4 +34,23 @@ class SourceNavigatorTest : BasePlatformTestCase() {
         com.intellij.testFramework.PlatformTestUtil.waitWhileBusy { !missing }
         assertTrue(missing)
     }
+
+    fun `test 054 - a source with a package is found under that package only`() {
+        myFixture.addFileToProject("lib/src/com/example/other/Screen.kt", "package com.example.other\n")
+        myFixture.addFileToProject("app/src/com/example/shop/Screen.kt", "package com.example.shop\n")
+        val found = SourceNavigator(project).candidates(Source("Screen.kt", 3, packageName = "com.example.other"), "com.example.shop").map { it.path }
+        assertEquals(1, found.size)
+        assertTrue(found.single(), found.single().endsWith("com/example/other/Screen.kt"))
+    }
+
+    fun `test 054 - an app file outside its package directory is still found by name`() {
+        myFixture.addFileToProject("app/src/flat/Screen.kt", "package com.example.shop\n")
+        val found = SourceNavigator(project).candidates(Source("Screen.kt", 3, packageName = "com.example.shop"), "com.example.shop")
+        assertEquals(1, found.size)
+    }
+
+    fun `test 054 - a library source not in the project is the class to open`() {
+        assertEquals("androidx.compose.material3.TextKt", SourceNavigator.facadeClass(Source("Text.kt", 70, "androidx.compose.material3", library = true)))
+        assertNull(SourceNavigator.facadeClass(Source("Text.kt", 70)))
+    }
 }

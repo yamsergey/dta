@@ -34,6 +34,12 @@ object Degradations {
         Codes.COMPOSE_SOURCE_INFO_MISSING to
             "Compose source lines are missing: the app was compiled without Compose source information. Run the debug build; " +
             "if the project sets composeCompiler { includeSourceInformation = false }, turn it on.",
+        Codes.COMPOSE_CALL_PACKAGES_UNKNOWN to
+            "Some composable calls are in packages the app does not ship under these names (often a minified build), so they " +
+            "cannot be told app or library code; they are marked unknown and used as a call site only when no app call encloses the node.",
+        Codes.COMPOSE_PACKAGES_UNREADABLE to
+            "The app's packages could not be read (or were not read yet), so composable calls were told app or library by a fixed " +
+            "list of Compose packages; a call site may point into a library. Capture again; the reason follows the code.",
         Codes.FILTER_NEEDS_RICHER_DETAIL to
             "Nothing matched the type filter at this detail level, where layout containers are not captured. " +
             "Ask for detail layout or composition.",

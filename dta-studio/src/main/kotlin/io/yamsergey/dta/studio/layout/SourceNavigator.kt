@@ -22,11 +22,22 @@ import java.awt.Component
  */
 class SourceNavigator(private val project: Project) {
 
-    /** The project files [source] may mean, best first; empty when it is not in this project. */
+    /**
+     * The files [source] may mean, best first; empty when none is found. With a package (feature
+     * 054) only files under that package's directories: project files for app code, library
+     * sources too for library code; an app file kept outside its package directory is still found
+     * by name, as before.
+     */
     fun candidates(source: Source, pkg: String?): List<VirtualFile> = ApplicationManager.getApplication().runReadAction(
         Computable {
-            val files = FilenameIndex.getVirtualFilesByName(source.file, GlobalSearchScope.projectScope(project)).toList()
-            rank(files, pkg) { it.path }
+            val scope = if (source.library) GlobalSearchScope.allScope(project) else GlobalSearchScope.projectScope(project)
+            val files = FilenameIndex.getVirtualFilesByName(source.file, scope).toList()
+            val inPackage = source.packageName?.let { p -> files.filter { it.path.endsWith("/${p.replace('.', '/')}/${source.file}") } }.orEmpty()
+            when {
+                inPackage.isNotEmpty() -> rank(inPackage, pkg) { it.path }
+                source.library -> emptyList()
+                else -> rank(files, pkg) { it.path }
+            }
         },
     )
 
@@ -46,6 +57,9 @@ class SourceNavigator(private val project: Project) {
             .expireWith(project)
             .finishOnUiThread(ModalityState.defaultModalityState()) { files ->
                 when {
+                    // Library code without attached sources: its file facade, as a network frame opens (feature 054).
+                    files.isEmpty() && facadeClass(source) != null ->
+                        io.yamsergey.dta.studio.source.FrameNavigator(project).open(facadeClass(source)!!, "", null, source.line, onMissing)
                     files.isEmpty() -> onMissing()
                     files.size == 1 || preferred(files.map { it.path }, pkg) -> navigate(files.first(), source.line)
                     else -> JBPopupFactory.getInstance().createPopupChooserBuilder(files)
@@ -61,6 +75,12 @@ class SourceNavigator(private val project: Project) {
     private fun navigate(file: VirtualFile, line: Int) = OpenFileDescriptor(project, file, (line - 1).coerceAtLeast(0), 0).navigate(true)
 
     companion object {
+        /** The class Kotlin compiles a library file's top-level functions into (`Text.kt` → `…TextKt`). */
+        fun facadeClass(source: Source): String? {
+            val pkg = source.packageName?.takeIf { source.library } ?: return null
+            return "$pkg.${source.file.substringBeforeLast('.')}Kt"
+        }
+
         /** Paths containing the package's directories first, then by path; stable for equal ranks. */
         fun <T> rank(items: List<T>, pkg: String?, path: (T) -> String): List<T> {
             val dir = pkg?.replace('.', '/')?.let { "/$it/" }

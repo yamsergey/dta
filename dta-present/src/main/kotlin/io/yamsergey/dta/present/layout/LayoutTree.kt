@@ -124,8 +124,24 @@ data class LayoutTree(
     }
 }
 
-/** A node's source line; the IDE resolves [file] in the project. */
-data class Source(val file: String, val line: Int)
+/**
+ * A node's (or call's) source line; the IDE resolves [file] by [packageName] when known
+ * (feature 054). [library]: library code; [unknown]: neither app nor library could be told.
+ */
+data class Source(
+    val file: String,
+    val line: Int,
+    val packageName: String? = null,
+    val library: Boolean = false,
+    val unknown: Boolean = false,
+) {
+    companion object {
+        /** The source of a node or a call-chain frame, when it names a file and a line. */
+        fun of(o: JsonObject): Source? = o.str("sourceFile")?.let { f ->
+            o.long("lineNumber")?.let { Source(f, it.toInt(), o.str("packageName"), o.bool("library"), o.bool("unknownOrigin")) }
+        }
+    }
+}
 
 /** The detail pane of the selected node (information.md). */
 data class NodeDetail(
@@ -134,9 +150,14 @@ data class NodeDetail(
     val fields: List<Pair<String, String>>,
     val source: Source?,
     val parameters: List<Parameter>,
-    val callChain: List<String>,
+    val callChain: List<Call>,
     val statements: List<Statement>,
+    /** Feature 054: the app calls above this node (nearest first), offered when its source is not found. */
+    val callers: List<Call> = emptyList(),
 ) {
+    /** A call as shown ("Name (File.kt:12)") and its source when it has one. */
+    data class Call(val text: String, val source: Source?)
+
     /** [note]: `cut` (the value was cut at its bound) or `default` (not passed by the caller), feature 018. */
     data class Parameter(val name: String, val value: String, val type: String, val note: String? = null)
 
@@ -165,6 +186,8 @@ data class NodeDetail(
                 n.str("selected")?.let { add("Selected" to it) }
                 n.str("provenance")?.let { add("Provenance" to it) }
                 if (n.bool("library")) add("Library" to "true")
+                n.str("packageName")?.let { add("Package" to it) }
+                if (n.bool("unknownOrigin")) add("Origin" to "unknown (package not among the app's)")
                 n.long("sameCallAs")?.let { add("Same call as" to "#$it (its parameters are there)") }
                 n.long("defaultParameters")?.let { add("Defaults" to "$it parameters at their defaults, not listed") }
             }
@@ -172,7 +195,7 @@ data class NodeDetail(
                 title = node.row.name,
                 breadcrumb = breadcrumb,
                 fields = fields,
-                source = n.str("sourceFile")?.let { f -> n.long("lineNumber")?.let { Source(f, it.toInt()) } },
+                source = Source.of(n),
                 parameters = n.arr("parameters").map { p ->
                     (p as JsonObject).let {
                         val note = when {
@@ -183,10 +206,23 @@ data class NodeDetail(
                         Parameter(it.str("name") ?: "", it.str("value") ?: "", it.str("type") ?: "", note)
                     }
                 },
-                callChain = n.arr("callChain").map { f -> (f as JsonObject).let { "${it.str("name")}" + (it.str("sourceFile")?.let { s -> " ($s:${it.long("lineNumber") ?: "?"})" } ?: "") } },
+                callChain = n.arr("callChain").map { f -> call(f as JsonObject) },
                 statements = node.row.statements,
+                callers = (path.size - 1 downTo 1).mapNotNull { tree.node(path.take(it))?.json }
+                    .filter { a -> Source.of(a)?.let { !it.library && !it.unknown } == true }
+                    .map(::call)
+                    .filter { it.source != Source.of(n) }
+                    .distinctBy { it.source }
+                    .take(MAX_CALLERS),
             )
         }
+
+        private const val MAX_CALLERS = 3
+
+        private fun call(o: JsonObject) = Call(
+            "${o.str("name")}" + (o.str("sourceFile")?.let { s -> " ($s:${o.long("lineNumber") ?: "?"})" } ?: ""),
+            Source.of(o),
+        )
 
         private fun bounds(b: JsonObject): String {
             val (l, t, r, bt) = listOf("left", "top", "right", "bottom").map { b.long(it) ?: 0 }
