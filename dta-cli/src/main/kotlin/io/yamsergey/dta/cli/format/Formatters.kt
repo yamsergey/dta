@@ -296,8 +296,14 @@ class Formatters(private val style: Style) {
         return listOfNotNull(
             tag, row.name, row.ids.joinToString(" ").ifEmpty { null }?.let { style.paint(it, Token.INK_MUTED) }, row.text,
             row.interactions.joinToString(",").ifEmpty { null }?.let { style.paint(it, Token.INK_MUTED) },
-            row.source?.let { style.paint(it, Token.INK_MUTED) }, "disabled".takeIf { row.disabled },
+            row.source?.let { style.paint(it + callOrigin(n), Token.INK_MUTED) }, "disabled".takeIf { row.disabled },
         ).joinToString(" ") + markers(n["degraded"]).joinToString("") { " $it" }
+    }
+
+    /** Feature 054: the call site's package, or `(?)` when it could not be told app or library. */
+    private fun callOrigin(n: JsonObject): String = when {
+        n["unknownOrigin"]?.jsonPrimitive?.content == "true" -> " (?)"
+        else -> n.str("packageName")?.let { " ($it)" }.orEmpty()
     }
 
     // --- Network
