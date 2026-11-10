@@ -12,6 +12,8 @@ object FrameClassifier {
         "java.", "javax.", "kotlin.", "kotlinx.", "android.", "androidx.", "com.android.", "dalvik.", "libcore.",
         "sun.", "okhttp3.", "okio.", "retrofit2.", "com.squareup.", "io.reactivex.", "rx.",
         "com.neovisionaries.", "org.java_websocket.", "io.yamsergey.dta.sidekick.", "io.yamsergey.dta.shim.",
+        // Feature 054: UI libraries of Compose apps (Material components, accompanist, Play services; image loading).
+        "com.google.", "coil.", "coil3.",
     )
 
     /** The capture machinery itself: never part of what the app did. */
@@ -19,7 +21,16 @@ object FrameClassifier {
     private val THREAD_STACK = "java.lang.Thread" to "getStackTrace"
     private const val SHIM = "io.yamsergey.dta.shim."
 
-    fun isApp(className: String): Boolean = LIBRARY_PACKAGES.none { className.startsWith(it) }
+    /**
+     * App code unless under a library prefix; the app's own package ([appPackage]) is app code
+     * first, even when it starts like a library (feature 054: one rule for frames and Compose calls).
+     */
+    fun isApp(className: String, appPackage: String? = null): Boolean =
+        (appPackage != null && (className == appPackage || className.startsWith("$appPackage."))) ||
+            LIBRARY_PACKAGES.none { className.startsWith(it) }
+
+    /** [isApp] for a package name (a Compose call knows its package, not its class). */
+    fun isAppPackage(packageName: String, appPackage: String? = null): Boolean = isApp("$packageName.", appPackage)
 
     /**
      * Glue the compiler generates for lambdas (D8/R8 desugaring, debug builds included): it sits

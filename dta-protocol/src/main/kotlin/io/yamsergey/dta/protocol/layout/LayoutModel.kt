@@ -23,6 +23,10 @@ object DegradationCodes {
     // Feature 003 (research R5).
     const val COMPOSE_DETAIL_REDUCED = "compose-detail-reduced"
     const val COMPOSE_SOURCE_INFO_MISSING = "compose-source-info-missing"
+    /** Feature 054: calls whose package is not among the app's packages (counted in the reason). */
+    const val COMPOSE_CALL_PACKAGES_UNKNOWN = "compose-call-packages-unknown"
+    /** Feature 054: the app's packages could not be read (or not yet); calls classified by a fixed list. */
+    const val COMPOSE_PACKAGES_UNREADABLE = "compose-packages-unreadable"
     const val FILTER_NEEDS_RICHER_DETAIL = "filter-needs-richer-detail"
 
     // Feature 004 (data-model §Degradation codes).
@@ -105,6 +109,10 @@ data class Frame(
     val sourceFile: String? = null,
     val lineNumber: Int? = null,
     val library: Boolean? = null,
+    /** Feature 054: the call's package, when found among the app's packages. */
+    val packageName: String? = null,
+    /** Feature 054: true when the package could not be told (neither app nor library). */
+    val unknownOrigin: Boolean? = null,
 ) {
     constructor(name: String, sourceFile: String?, lineNumber: Int?, library: Boolean) :
         this(name, sourceFile, lineNumber, library.takeIf { it })
@@ -227,6 +235,10 @@ data class ComposeNode(
     val sourceFile: String? = null,
     val lineNumber: Int? = null,
     val library: Boolean? = null,
+    /** Feature 054: the call site's package, when found among the app's packages. */
+    val packageName: String? = null,
+    /** Feature 054: true when the call site's package could not be told (neither app nor library). */
+    val unknownOrigin: Boolean? = null,
     val parameters: List<Parameter>? = null,
     /** Feature 018: another node of the same call carries the parameters — this one's id. */
     val sameCallAs: Long? = null,
