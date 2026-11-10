@@ -14,6 +14,21 @@ object DecodedFields {
         return buildList { walk(root, "", needle, ignoreCase, this) }
     }
 
+    /** Feature 053: paths of the values [test] accepts. */
+    fun paths(json: String, test: (String) -> Boolean): List<String> {
+        val root = runCatching { Json.parseToJsonElement(json) }.getOrNull() ?: return emptyList()
+        return buildList { walkWith(root, "", test, this) }
+    }
+
+    private fun walkWith(e: JsonElement, path: String, test: (String) -> Boolean, out: MutableList<String>) {
+        when (e) {
+            is JsonObject -> e.forEach { (k, v) -> walkWith(v, if (path.isEmpty()) k else "$path.$k", test, out) }
+            is JsonArray -> e.forEachIndexed { i, v -> walkWith(v, "$path[$i]", test, out) }
+            JsonNull -> Unit
+            is JsonPrimitive -> if (test(e.content)) out += path.ifEmpty { "(value)" }
+        }
+    }
+
     private fun walk(e: JsonElement, path: String, needle: String, ignoreCase: Boolean, out: MutableList<String>) {
         when (e) {
             is JsonObject -> e.forEach { (k, v) -> walk(v, if (path.isEmpty()) k else "$path.$k", needle, ignoreCase, out) }

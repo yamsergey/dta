@@ -44,7 +44,7 @@ data class NetworkFilter(
     val kinds: List<EntryKind>? = null,
     val sinceMs: Long? = null,
     val untilMs: Long? = null,
-    /** Case-sensitive substring of decoded text bodies and payloads; never binary. */
+    /** Substring of decoded text bodies and payloads, case ignored (051); binary as bytes. */
     val bodyContains: String? = null,
     /** Default: all runs. */
     val runs: RunScope? = null,
@@ -84,7 +84,22 @@ data class NetworkFilter(
     val requestContains: String? = null,
     /** Feature 051: text in an HTTP response body only; case ignored. */
     val responseContains: String? = null,
+    /** Feature 053: a pattern found in some body (request, response or message); case ignored unless its flags say. */
+    val bodyPattern: String? = null,
+    /** Feature 053: a pattern found in the HTTP request body. */
+    val requestPattern: String? = null,
+    /** Feature 053: a pattern found in the HTTP response body. */
+    val responsePattern: String? = null,
 ) {
+    /** Feature 053: has a body pattern of its own or in an exclusion. */
+    val hasPattern: Boolean get() = bodyPattern != null || requestPattern != null || responsePattern != null || exclude?.any { it.hasPattern } == true
+
+    /** Feature 053: the same filter without body patterns (for an app that would read them as nothing). */
+    fun withoutPatterns(): NetworkFilter = copy(
+        bodyPattern = null, requestPattern = null, responsePattern = null,
+        exclude = exclude?.map { it.withoutPatterns() }?.filter { it != NetworkFilter() }?.ifEmpty { null },
+    )
+
     /** [other]'s fields where it has them, this one's elsewhere; exclusions add up. */
     fun overlay(other: NetworkFilter): NetworkFilter = NetworkFilter(
         url = other.url ?: url, method = other.method ?: method, status = other.status ?: status, kinds = other.kinds ?: kinds,
@@ -98,6 +113,8 @@ data class NetworkFilter(
         mime = other.mime ?: mime, minDurationMs = other.minDurationMs ?: minDurationMs, maxDurationMs = other.maxDurationMs ?: maxDurationMs,
         minSize = other.minSize ?: minSize, maxSize = other.maxSize ?: maxSize,
         requestContains = other.requestContains ?: requestContains, responseContains = other.responseContains ?: responseContains,
+        bodyPattern = other.bodyPattern ?: bodyPattern, requestPattern = other.requestPattern ?: requestPattern,
+        responsePattern = other.responsePattern ?: responsePattern,
     )
 }
 

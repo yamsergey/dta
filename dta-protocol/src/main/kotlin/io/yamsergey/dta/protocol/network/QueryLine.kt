@@ -40,14 +40,14 @@ object QueryLine {
     private val MESSAGES = setOf(EntryKind.WS_MESSAGE)
 
     val KEY_INFO = listOf(
-        KeyInfo("body", "text in a body: request, response or message (case ignored)", ALL),
+        KeyInfo("body", "text in a body: request, response or message (case ignored); /regex/ for a pattern", ALL),
         KeyInfo("url", "text in the URL (a message: its socket's)", ALL),
         KeyInfo("host", "the URL's host; *.example.com takes subdomains", ALL),
         KeyInfo("status", "HTTP 200, 4xx, failed, pending; socket open, closed, connecting, a close code", setOf(EntryKind.HTTP, EntryKind.WS_CONNECTION)),
         KeyInfo("method", "HTTP method", HTTP_ONLY),
         KeyInfo("header", "a header by name, or name=text in its value (HTTP, socket handshake)", setOf(EntryKind.HTTP, EntryKind.WS_CONNECTION)),
-        KeyInfo("req", "text in the HTTP request body", HTTP_ONLY),
-        KeyInfo("resp", "text in the HTTP response body", HTTP_ONLY),
+        KeyInfo("req", "text or /regex/ in the HTTP request body", HTTP_ONLY),
+        KeyInfo("resp", "text or /regex/ in the HTTP response body", HTTP_ONLY),
         KeyInfo("mime", "text in a body's content type: json, html, protobuf", setOf(EntryKind.HTTP, EntryKind.WS_MESSAGE)),
         KeyInfo("duration", "HTTP call time: >1s, <200ms", HTTP_ONLY),
         KeyInfo("size", "body bytes: >100k, <=1k", setOf(EntryKind.HTTP, EntryKind.WS_MESSAGE)),
@@ -70,7 +70,11 @@ object QueryLine {
     private val RELATIVE = Regex("""(\d+)([smhd])""")
     private val WS = listOf(EntryKind.WS_CONNECTION, EntryKind.WS_MESSAGE)
 
-    private class Raw(val start: Int, val end: Int, val text: String, val quoted: Boolean, val key: String?, val value: String?, val negated: Boolean)
+    /** [pattern]: feature 053, the text between the slashes of `body:/…/` (also req, resp). */
+    private class Raw(val start: Int, val end: Int, val text: String, val quoted: Boolean, val key: String?, val value: String?, val negated: Boolean, val pattern: String? = null)
+
+    /** Feature 053: keys whose `/…/` value is a pattern. */
+    val PATTERN_KEYS = setOf("body", "req", "resp")
 
     fun parse(q: String, nowMs: Long = System.currentTimeMillis()): ParsedQuery {
         var filter = NetworkFilter()
@@ -99,6 +103,12 @@ object QueryLine {
                 problem("unknown filter '$key:'" + if (distance(near, key) <= 2) " — did you mean $near:?" else "; filters: ${KEYS.joinToString(" ") { "$it:" }}")
                 continue
             }
+            raw.pattern?.let { text ->
+                when (val c = BodyPattern.compile(text)) {
+                    is BodyPattern.Result.Bad -> { problem("$key: ${c.reason}"); continue }
+                    is BodyPattern.Result.Ok -> Unit
+                }
+            }
             if (value.isEmpty()) { problem("$key: needs a value"); continue }
             if (raw.negated && key in NOT_NEGATABLE && key != "has") { problem("$key: cannot be negated"); continue }
             val one: NetworkFilter = when (key) {
@@ -110,8 +120,8 @@ object QueryLine {
                 "topic" -> NetworkFilter(topic = value)
                 "conn" -> NetworkFilter(connection = value)
                 "mime" -> NetworkFilter(mime = value)
-                "req" -> NetworkFilter(requestContains = value)
-                "resp" -> NetworkFilter(responseContains = value)
+                "req" -> raw.pattern?.let { NetworkFilter(requestPattern = it) } ?: NetworkFilter(requestContains = value)
+                "resp" -> raw.pattern?.let { NetworkFilter(responsePattern = it) } ?: NetworkFilter(responseContains = value)
                 "header" -> {
                     val name = value.substringBefore('=').trim()
                     if (name.isEmpty()) { problem("header: takes a name, or name=text; was '$value'"); continue }
@@ -126,7 +136,7 @@ object QueryLine {
                 }
                 "host" -> NetworkFilter(host = value)
                 "url" -> NetworkFilter(url = value)
-                "body" -> NetworkFilter(bodyContains = value)
+                "body" -> raw.pattern?.let { NetworkFilter(bodyPattern = it) } ?: NetworkFilter(bodyContains = value)
                 "kind" -> kinds(value)?.let { NetworkFilter(kinds = it) } ?: run { problem("kind: takes http, ws, ws-connection or ws-message; was '$value'"); continue }
                 "has" -> if (value == "intervention") NetworkFilter(intervened = !raw.negated) else { problem("has: takes intervention; was '$value'"); continue }
                 "run" -> if (value == "current") NetworkFilter(runs = RunScope.CURRENT) else if (value == "all") NetworkFilter(runs = RunScope.ALL) else { problem("run: takes current or all; was '$value'"); continue }
@@ -187,9 +197,12 @@ object QueryLine {
                 if (name != null) add(if (negated) "-kind:$name" else name) else k.forEach { add("${n}kind:${kindName(it)}") }
             }
             f.intervened?.let { add(if (it) "has:intervention" else "-has:intervention") }
-            f.bodyContains?.let { add("${n}body:${quote(it)}") }
-            f.requestContains?.let { add("${n}req:${quote(it)}") }
-            f.responseContains?.let { add("${n}resp:${quote(it)}") }
+            f.bodyContains?.let { add("${n}body:${literal(it)}") }
+            f.requestContains?.let { add("${n}req:${literal(it)}") }
+            f.responseContains?.let { add("${n}resp:${literal(it)}") }
+            f.bodyPattern?.let { add("${n}body:/$it/") }
+            f.requestPattern?.let { add("${n}req:/$it/") }
+            f.responsePattern?.let { add("${n}resp:/$it/") }
             f.headerName?.let { add("${n}header:" + quote(it + (f.headerValue?.let { v -> "=$v" } ?: ""))) }
             f.mime?.let { add("${n}mime:${quote(it)}") }
             f.minDurationMs?.let { add("${n}duration:>=${duration(it)}") }
@@ -210,6 +223,9 @@ object QueryLine {
     private fun kindName(k: EntryKind) = when (k) {
         EntryKind.HTTP -> "http"; EntryKind.WS_CONNECTION -> "ws-connection"; EntryKind.WS_MESSAGE -> "ws-message"; EntryKind.LINK -> "link"
     }
+
+    /** Feature 053: body text that would read as a pattern is quoted. */
+    private fun literal(v: String) = if (v.length >= 2 && v.startsWith('/') && v.endsWith('/') && !v.any { it.isWhitespace() || it == '"' }) "\"$v\"" else quote(v)
 
     private fun quote(v: String) = if (v.any { it.isWhitespace() || it == '"' }) "\"${v.replace("\"", "")}\"" else v
 
@@ -266,6 +282,12 @@ object QueryLine {
                 if (text.isNotBlank()) out += Raw(start, i, text, true, null, null, false)
                 continue
             }
+            slashed(q, start)?.let { (end, key, pattern) ->
+                val word = q.substring(start, end)
+                out += Raw(start, end, word, false, key, "/$pattern/", word.startsWith("-"), pattern)
+                i = end
+                continue
+            }
             var inQuote = false
             while (i < q.length && (inQuote || !q[i].isWhitespace())) { if (q[i] == '"') inQuote = !inQuote; i++ }
             val word = q.substring(start, i)
@@ -277,6 +299,26 @@ object QueryLine {
             } else out += Raw(start, i, word, false, null, null, false)
         }
         return out
+    }
+
+    /**
+     * Feature 053: `body:/…/` (req, resp too; `-` allowed) at [start]: runs to the first unescaped
+     * `/` that ends a word, spaces included. Null when the word is not one (no such slash: literal text).
+     */
+    private fun slashed(q: String, start: Int): Triple<Int, String, String>? {
+        val keyStart = if (q[start] == '-') start + 1 else start
+        val colon = q.indexOf(':', keyStart).takeIf { it > keyStart } ?: return null
+        val key = q.substring(keyStart, colon).lowercase()
+        if (key !in PATTERN_KEYS || q.substring(keyStart, colon).any { !it.isLetter() }) return null
+        val open = colon + 1
+        if (open >= q.length || q[open] != '/') return null
+        var j = open + 1
+        while (j < q.length) {
+            if (q[j] == '\\') { j += 2; continue }
+            if (q[j] == '/' && (j + 1 == q.length || q[j + 1].isWhitespace())) return Triple(j + 1, key, q.substring(open + 1, j))
+            j++
+        }
+        return null
     }
 
     /** Levenshtein distance (short strings: keys and words). */

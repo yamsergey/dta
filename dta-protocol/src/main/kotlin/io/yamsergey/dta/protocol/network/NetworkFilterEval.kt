@@ -21,6 +21,8 @@ class NetworkFilterEval(
     private val decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
     /** Feature 051: a text message's envelope as its format reads it (whole text when known); null: none or binary. */
     private val envelope: ((WsMessageEntry) -> Envelope?)? = null,
+    /** Feature 053: time for body patterns, shared with the exclusions (one answer, one budget). */
+    val budget: PatternBudget = PatternBudget(),
     private val bodyBytes: (NetworkEntry, BodyPart) -> BodyBytes?,
 ) {
     /** [decoded] is false when the Content-Encoding could not be undone ([bytes] are as sent). */
@@ -38,6 +40,15 @@ class NetworkFilterEval(
     val fieldPaths = LinkedHashMap<String, MutableList<String>>()
 
     private val needleBytes = HashMap<String, ByteArray>()
+
+    /** Feature 053: where the body pattern matched, by entry id (first match per body). */
+    val patternHits = LinkedHashMap<String, MutableList<SearchHit>>()
+
+    /** Feature 053: binary bodies no schema decodes, which patterns do not look at. */
+    var patternBinary = 0
+        private set
+
+    private val compiled = HashMap<String, java.util.regex.Pattern>()
 
     /** Null when [entry] does not match; otherwise where it matched (empty when no location applies). */
     fun matches(entry: NetworkEntry): List<MatchLocation>? {
@@ -122,6 +133,17 @@ class NetworkFilterEval(
             if (hits.isEmpty()) return null
             locations += hits
         }
+        filter.requestPattern?.let { p ->
+            if (entry !is HttpEntry) return null
+            locations += patternMatches(entry, p) { it == BodyPart.REQUEST || it == BodyPart.APP_REQUEST }.ifEmpty { return null }
+        }
+        filter.responsePattern?.let { p ->
+            if (entry !is HttpEntry) return null
+            locations += patternMatches(entry, p) { it == BodyPart.RESPONSE || it == BodyPart.APP_RESPONSE }.ifEmpty { return null }
+        }
+        filter.bodyPattern?.let { p ->
+            locations += patternMatches(entry, p) { true }.ifEmpty { return null }
+        }
         return locations.distinct()
     }
 
@@ -130,6 +152,45 @@ class NetworkFilterEval(
             decodedHit(entry, info, part, needle)?.let { return@mapNotNull it }
             if (contains(entry, info, part, needle)) location(part, info.binary) else null
         }.distinct()
+
+    private fun pattern(text: String) = compiled.getOrPut(text) {
+        when (val c = BodyPattern.compile(text)) {
+            is BodyPattern.Result.Ok -> c.pattern
+            is BodyPattern.Result.Bad -> throw io.yamsergey.dta.protocol.rpc.InvalidParamsException("body pattern /$text/: ${c.reason}")
+        }
+    }
+
+    /** Feature 053: the bodies of [entry] in [parts] where [text] matches, within the budget; records the spans. */
+    private fun patternMatches(entry: NetworkEntry, text: String, parts: (BodyPart) -> Boolean): List<MatchLocation> {
+        val p = pattern(text)
+        return bodies(entry).filter { parts(it.second) }.mapNotNull { (info, part) ->
+            val body = bodyBytes(entry, part) ?: return@mapNotNull null
+            val decodedJson = if (info.binary) {
+                decoded?.invoke(entry, part) ?: run { patternBinary++; return@mapNotNull null }
+            } else null
+            val haystack = decodedJson ?: String(body.bytes, Charsets.UTF_8)
+            val found = budget.find(p, haystack) as? PatternBudget.Outcome.Found ?: return@mapNotNull null
+            patternHits.getOrPut(entry.id) { mutableListOf() } += SearchHit(
+                entry.id, place(part), "/$text/", found.start, found.end,
+                Fuzzy.excerpt(haystack, Fuzzy.Span(found.start, found.end)), part,
+            )
+            if (decodedJson != null) {
+                val paths = DecodedFields.paths(decodedJson) { v -> budget.find(p, v) is PatternBudget.Outcome.Found }
+                if (paths.isNotEmpty()) fieldPaths.getOrPut(entry.id) { mutableListOf() } += paths
+                when (part) {
+                    BodyPart.REQUEST, BodyPart.APP_REQUEST -> MatchLocation.REQUEST_BODY_DECODED
+                    BodyPart.RESPONSE, BodyPart.APP_RESPONSE -> MatchLocation.RESPONSE_BODY_DECODED
+                    BodyPart.MESSAGE, BodyPart.APP_MESSAGE -> MatchLocation.PAYLOAD_DECODED
+                }
+            } else location(part, false)
+        }.distinct()
+    }
+
+    private fun place(part: BodyPart) = when (part) {
+        BodyPart.REQUEST, BodyPart.APP_REQUEST -> SearchPlace.REQUEST_BODY
+        BodyPart.RESPONSE, BodyPart.APP_RESPONSE -> SearchPlace.RESPONSE_BODY
+        BodyPart.MESSAGE, BodyPart.APP_MESSAGE -> SearchPlace.PAYLOAD
+    }
 
     private fun urlOf(entry: NetworkEntry): String? = when (entry) {
         is HttpEntry -> entry.url
@@ -142,11 +203,14 @@ class NetworkFilterEval(
     private val exclusions = HashMap<NetworkFilter, NetworkFilterEval>()
 
     private fun excluded(f: NetworkFilter): NetworkFilterEval = exclusions.getOrPut(f) {
-        NetworkFilterEval(f, liveRunId, connectionUrl, decoded, envelope, bodyBytes)
+        NetworkFilterEval(f, liveRunId, connectionUrl, decoded, envelope, budget, bodyBytes)
     }
 
     /** Not searched by the exclusions' body searches. */
     val excludedNotSearched: Int get() = exclusions.values.sumOf { it.binaryNotSearched }
+
+    /** Feature 053: binary bodies patterns did not look at, here and in the exclusions. */
+    val patternBinaryAll: Int get() = patternBinary + exclusions.values.sumOf { it.patternBinary }
 
     /** The decoded location when a schema decodes the body and a field holds the needle. */
     private fun decodedHit(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): MatchLocation? {

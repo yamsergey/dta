@@ -41,6 +41,8 @@ class NetworkHistoryView(
     private val decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
     /** Feature 051: a text message's envelope from its text and its socket's URL (the host has the app's rules). */
     private val readEnvelope: (WsMessageEntry, String) -> Envelope? = { _, text -> WsFormats.detect(text) },
+    /** Feature 053: a fresh time budget for the body patterns of one answer. */
+    private val patternBudget: () -> PatternBudget = { PatternBudget() },
 ) {
     /** The envelope of a text message for `type:`/`topic:`: the whole stored text when here, else the preview. */
     private fun envelopeOf(m: WsMessageEntry): Envelope? {
@@ -62,6 +64,7 @@ class NetworkHistoryView(
                 bodyBytes = bodyBytes,
                 decoded = decoded,
                 envelope = ::envelopeOf,
+                budget = patternBudget(),
             )
         }
         // Links (012) are in the same history; network views show them only when kinds asks.
@@ -92,11 +95,13 @@ class NetworkHistoryView(
             if (index < start) return@forEachIndexed
             if (page.size < query.limit) page += entry else more = true
         }
-        val hits = when {
+        val wordHits = when {
             search == null -> null
             onlyHits -> pageHits
             else -> page.mapNotNull { e -> search.hits(e)?.let { e.id to it } }.toMap()
         }
+        // Feature 053: where the body patterns matched, next to the words' hits.
+        val hits = withPatternHits(wordHits, eval, page.map { it.id })
         val notSearched = notSearched(eval, search)
         val coverage = ctx.coverage.copy(searched = all.size, notSearched = notSearched)
         val earliest = chronological.firstOrNull()?.id
@@ -119,9 +124,10 @@ class NetworkHistoryView(
     fun search(query: NetworkQuery): SearchPage {
         val ctx = context()
         val (filter, terms) = query.resolved()
-        if (terms.isEmpty()) throw InvalidParamsException("query: no search words; give words or a \"phrase\" to find (filters alone are network.list)")
-        val s = search(terms, query.redact)!!
-        val eval = filter?.let { NetworkFilterEval(it, ctx.runId, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, ::envelopeOf, bodyBytes) }
+        val patterns = filter?.let { it.bodyPattern != null || it.requestPattern != null || it.responsePattern != null } == true
+        if (terms.isEmpty() && !patterns) throw InvalidParamsException("query: no search words; give words, a \"phrase\" or a body:/pattern/ to find (filters alone are network.list)")
+        val s = search(terms, query.redact)
+        val eval = filter?.let { NetworkFilterEval(it, ctx.runId, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, ::envelopeOf, patternBudget(), bodyBytes) }
         val chronological = entries().let { all -> if (filter?.kinds == null) all.filter { it !is LinkEntry } else all }
         val all = if (query.order == Order.NEWEST_FIRST) chronological.asReversed() else chronological
         var passed = query.before == null
@@ -132,7 +138,7 @@ class NetworkHistoryView(
         for (entry in all) {
             if (eval != null && eval.matches(entry) == null) continue
             searched++
-            val h = s.hits(entry) ?: continue
+            val h = (if (s != null) s.hits(entry) ?: continue else emptyList()) + eval?.patternHits?.get(entry.id).orEmpty()
             total++
             if (!passed) { if (entry.id == query.before) passed = true; continue }
             if (page.size < query.limit) page += EntryHits(entry.id, entry.timeMs, h) else more = true
@@ -145,7 +151,18 @@ class NetworkHistoryView(
         NetworkSearch(it, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, bodyBytes, redact)
     }
 
+    /** Feature 053: the words' hits plus the pattern spans, for the entries in [ids]. */
+    private fun withPatternHits(words: Map<String, List<SearchHit>>?, eval: NetworkFilterEval?, ids: List<String>): Map<String, List<SearchHit>>? {
+        val spans = eval?.patternHits?.takeIf { it.isNotEmpty() } ?: return words
+        return ids.mapNotNull { id ->
+            val all = words?.get(id).orEmpty() + spans[id].orEmpty()
+            all.takeIf { it.isNotEmpty() }?.let { id to it }
+        }.toMap()
+    }
+
     private fun notSearched(eval: NetworkFilterEval?, search: NetworkSearch?): List<String>? = listOfNotNull(
+        eval?.budget?.skipped?.takeIf { it > 0 }?.let { "bodies skipped: pattern too slow ($it)" },
+        eval?.patternBinaryAll?.takeIf { it > 0 }?.let { "binary bodies without a schema, not matched by patterns ($it)" },
         ((eval?.binaryNotSearched ?: 0) + (eval?.excludedNotSearched ?: 0)).takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
         eval?.binaryUndecoded?.takeIf { it > 0 }?.let { "binary bodies without a schema, searched as bytes only ($it)" },
         search?.notSearched?.takeIf { it > 0 }?.let { "bodies the search could not read: encoding not undone, or not inspectable while redacting ($it)" },
