@@ -72,6 +72,9 @@ class Formatters(private val style: Style) {
         "timeline.flow.end" -> "Ended ${result.obj.str("id")} ${result.obj.str("name")}."
         "timeline.flow.rename" -> "${result.obj.str("id")} is now ${result.obj.str("name")}."
         "timeline.flow.remove" -> "Removed ${result.obj.str("removed")}. Nothing recorded is deleted."
+        "timeline.enabled" -> decode(io.yamsergey.dta.protocol.timeline.TimelineSwitch.serializer(), result).let { t ->
+            "Timeline ${if (t.on) "on" else "off"} for this app" + (if (t.recording) "; recording now" else "; not recording") + (t.note?.let { " ($it)" } ?: "")
+        }
         "timeline.flow.list" -> flowList(decode(io.yamsergey.dta.protocol.timeline.FlowList.serializer(), result))
         "timeline.sequence" -> io.yamsergey.dta.present.timeline.SequenceText.lines(decode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), result)).joinToString("\n")
         "timeline.causes" -> TimelineEventText.chain(decode(io.yamsergey.dta.protocol.timeline.CauseChain.serializer(), result))

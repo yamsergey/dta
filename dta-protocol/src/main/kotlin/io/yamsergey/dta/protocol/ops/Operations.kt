@@ -516,9 +516,9 @@ object Catalog {
         ),
         OperationSpec(
             "timeline.enabled",
-            "Whether the app records its timeline (feature 056: off by default). Without on: the state. on=true: record from now and from every app start; on=false: stop. Kept by the app across restarts.",
+            "Whether the app records its timeline (feature 056: off by default). Without set: the state. on: record from now and from every app start; off: stop (from the app's next start). Kept by the app across restarts.",
             Scope.APP,
-            listOf(ParamSpec("on", ParamType.BOOLEAN, "true turns the timeline on for this app, false off; leave out to read.")),
+            listOf(ParamSpec("set", ParamType.ENUM, "on or off for this app; leave out to read.", enumValues = listOf("on", "off"), positional = true)),
         ),
         OperationSpec("timeline.flow.end", "End the flow that is recording, after the newest row recorded. Works with the app gone.", Scope.APP),
         OperationSpec(

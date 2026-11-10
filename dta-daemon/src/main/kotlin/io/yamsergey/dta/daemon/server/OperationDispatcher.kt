@@ -172,7 +172,7 @@ class OperationDispatcher(
             val flow = c.required("flow")
             knownFlow(flow) { buildJsonObject { put("removed", ops.timelineFlowRemove(c.device, c.app, flow).id) } }
         },
-        "timeline.enabled" to { c -> encode(io.yamsergey.dta.protocol.timeline.TimelineSwitch.serializer(), ops.timelineEnabled(c.device, c.app, c.boolOrNull("on"))) },
+        "timeline.enabled" to { c -> encode(io.yamsergey.dta.protocol.timeline.TimelineSwitch.serializer(), ops.timelineEnabled(c.device, c.app, when (c.string("set")) { null -> null; "on" -> true; "off" -> false; else -> invalid("set is on or off") })) },
         "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
         "state.graph" to { c ->
             encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")))

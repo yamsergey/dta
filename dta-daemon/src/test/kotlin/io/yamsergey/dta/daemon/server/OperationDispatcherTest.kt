@@ -295,7 +295,7 @@ class OperationDispatcherTest {
     @Test
     fun `the timeline switch is read and set per app (056)`() {
         assertEquals("false", call("timeline.enabled").result.jsonObject["on"].toString())
-        assertEquals("true", call("timeline.enabled", buildJsonObject { put("on", true) }).result.jsonObject["on"].toString())
+        assertEquals("true", call("timeline.enabled", buildJsonObject { put("set", "on") }).result.jsonObject["on"].toString())
         assertTrue(fake.calls.contains("timelineEnabled com.example.shop true"), fake.calls.toString())
     }
 

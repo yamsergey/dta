@@ -128,7 +128,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                     if (device == null || app == null) return@collect
                     runCatching {
                         client.call("timeline.enabled", kotlinx.serialization.json.buildJsonObject {
-                            put("device", kotlinx.serialization.json.JsonPrimitive(device)); put("app", kotlinx.serialization.json.JsonPrimitive(app)); put("on", kotlinx.serialization.json.JsonPrimitive(on))
+                            put("device", kotlinx.serialization.json.JsonPrimitive(device)); put("app", kotlinx.serialization.json.JsonPrimitive(app)); put("set", kotlinx.serialization.json.JsonPrimitive(if (on) "on" else "off"))
                         })
                     }.onFailure { com.intellij.openapi.diagnostic.logger<DtaToolWindowFactory>().info("timeline switch not sent to $app: ${it.message}") }
                 }

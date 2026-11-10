@@ -19,6 +19,8 @@ class TimelineSwitchTest {
     @Test
     fun `an operation reads and sets it`() {
         val spec = Catalog.all.single { it.name == "timeline.enabled" }
-        assertEquals(ParamType.BOOLEAN, spec.params.single { it.name == "on" }.type)
+        val set = spec.params.single { it.name == "set" }
+        assertEquals(ParamType.ENUM, set.type)
+        assertEquals(listOf("on", "off"), set.enumValues)
     }
 }

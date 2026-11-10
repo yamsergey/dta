@@ -364,6 +364,6 @@ data class StatePath(
 @Serializable
 data class TimelineSwitch(val on: Boolean, val recording: Boolean, val note: String? = null) {
     companion object {
-        const val OFF_REASON = "Timeline is off for this app: turn it on in Settings › Tools › DTA, or with dta timeline enabled --on true"
+        const val OFF_REASON = "Timeline is off for this app: turn it on in Settings › Tools › DTA, or with dta timeline enabled on"
     }
 }
