@@ -10,8 +10,8 @@ import java.util.Locale
 
 /**
  * Feature 056: the Network source switch after "Live": the app's archived sessions (closed epochs)
- * newest first, named by when they ran and how they ended, then "All archived". A session from an
- * older installation names its version.
+ * newest first, named by when they ran and how they ended, then "All archived". A session of
+ * another app version names it.
  */
 object ArchiveSessions {
     const val MAX = 20
@@ -30,7 +30,7 @@ object ArchiveSessions {
             val meta = listOfNotNull(
                 entries(e.entries),
                 reason(e.reason),
-                installation.versionName?.takeIf { installation !== newest }?.let { "v$it" },
+                installation.versionName?.takeIf { it != newest?.versionName }?.let { "v$it" },
             ).joinToString(" · ")
             Item(e.id, span(e.openedMs, e.closedMs!!, today, zone), meta)
         }

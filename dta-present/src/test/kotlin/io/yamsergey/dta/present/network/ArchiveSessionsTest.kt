@@ -43,7 +43,7 @@ class ArchiveSessionsTest {
         assertEquals("Yesterday 18:10–18:42", items[1].label)
         assertEquals("88 entries · new build", items[1].meta)
         assertEquals("Nov 8 09:12–09:30", items[2].label)
-        assertEquals("40 entries · reinstalled · v1.2", items[2].meta, "another installation names its version")
+        assertEquals("40 entries · reinstalled · v1.2", items[2].meta, "another version is named; the current one is not")
         assertEquals("All archived" to "3 sessions · 1,332 entries", items[3].label to items[3].meta)
     }
 

@@ -25,4 +25,26 @@ class DtaSettingsTest : BasePlatformTestCase() {
         assertEquals(listOf("io.yamsergey.dta.settings.agents"), app)
         assertEquals(listOf("io.yamsergey.dta.settings.protobuf"), proj)
     }
+
+    fun `test the General page turns the timeline on`() {
+        val settings = InjectionSettings.get()
+        val before = settings.timeline
+        try {
+            settings.timeline = false
+            val page = io.yamsergey.dta.studio.inject.InjectionConfigurable()
+            val root = page.createComponent()!!
+            fun boxes(c: java.awt.Component): List<javax.swing.JCheckBox> =
+                (if (c is javax.swing.JCheckBox) listOf(c) else emptyList()) + ((c as? java.awt.Container)?.components?.flatMap(::boxes) ?: emptyList())
+            val box = boxes(root).single { it.text.startsWith("Timeline") }
+            assertFalse(box.isSelected)
+            box.isSelected = true
+            assertTrue(page.isModified)
+            page.apply()
+            assertTrue(settings.timeline)
+            assertTrue(settings.timelineFlow.value)
+            page.disposeUIResources()
+        } finally {
+            settings.timeline = before
+        }
+    }
 }

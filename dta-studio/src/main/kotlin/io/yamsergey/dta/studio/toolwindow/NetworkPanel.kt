@@ -153,6 +153,9 @@ class NetworkPanel(
     private val sources = javax.swing.DefaultComboBoxModel(arrayOf(liveChoice))
     private val source = com.intellij.openapi.ui.ComboBox(sources).apply {
         toolTipText = "Live: the app's traffic now. Below it: the app's sessions kept on this computer after the device cleared or lost them (delete them in the Daemon tab)."
+        // The closed switch fits a session's time; the open list (the IDE's popup) is as wide as its rows.
+        prototypeDisplayValue = SourceChoice(null, "Today 14:02–14:35")
+        isSwingPopup = false
         renderer = object : com.intellij.ui.ColoredListCellRenderer<SourceChoice>() {
             override fun customizeCellRenderer(list: javax.swing.JList<out SourceChoice>, value: SourceChoice?, index: Int, selected: Boolean, focus: Boolean) {
                 value ?: return
@@ -359,8 +362,8 @@ class NetworkPanel(
             updatingSources = true
             try { selectSource(s.archive) } finally { updatingSources = false }
         }
-        // Another app: its own sessions.
-        context.state.value.let { st -> if (sessionsFor != null && sessionsFor != st.device to st.app) loadSessions() }
+        // Read ahead for the app shown (the open list does not grow while open); refreshed again on each opening.
+        context.state.value.let { st -> if (st.app != null && sessionsFor != st.device to st.app) loadSessions() }
 
         if (kinds.selectedItem != s.kind) kinds.selectedItem = s.kind
         // The line is the person's while they type; set from the state only when changed elsewhere (a chip, the switch).
