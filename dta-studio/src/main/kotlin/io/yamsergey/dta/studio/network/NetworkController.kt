@@ -363,7 +363,9 @@ class NetworkController(private val context: ContextController, private val scop
                         val event = data["event"]?.jsonObject ?: return@collect
                         val entry = event["entry"]?.jsonObject ?: return@collect
                         val change = (event["change"] as? JsonPrimitive)?.content
-                        if (filtering(mutable.value)) {
+                        // A body filter the event's preview could not decide: the list (host copy) decides.
+                        val unchecked = (data["bodyFilterUnchecked"] as? JsonPrimitive)?.content == "true"
+                        if (filtering(mutable.value) || unchecked) {
                             // Only matches are listed: a listed row may change in place; anything new waits for the next list.
                             if (change == "updated" && mutable.value.list.rows.any { it.id == entry["id"]?.let { i -> (i as? JsonPrimitive)?.content } }) list(LiveEvent.Updated(entry))
                             relist()
