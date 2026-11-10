@@ -7,6 +7,8 @@ import io.yamsergey.dta.protocol.network.NetworkQuery
 import io.yamsergey.dta.protocol.network.NetworkEntry
 import io.yamsergey.dta.protocol.network.NetworkFilter
 import io.yamsergey.dta.protocol.network.NetworkFilterEval
+import io.yamsergey.dta.protocol.network.NetworkHistoryView
+import io.yamsergey.dta.protocol.network.PatternBudget
 import io.yamsergey.dta.protocol.network.WsConnectionEntry
 import io.yamsergey.dta.protocol.ops.AppConnectionEvent
 import io.yamsergey.dta.protocol.ops.AppList
@@ -233,8 +235,16 @@ class DaemonServer(
                 val filter = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given, q = line).resolved().first ?: NetworkFilter()
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val connectionUrls = ConcurrentHashMap<String, String>()
-                val eval = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, bodyBytes = { _, _ -> null })
-                val buffer = Channel<NetworkEntryEvent>(subscriberBuffer)
+                // Body filters on live events: an event carries only the preview, so a body the preview
+                // is all of is matched here; any other is passed marked, and the client lists again
+                // (the list matches the host copy). Neither dropped nor let through silently.
+                // Each event gets its own pattern time; a pattern out of time leaves the event unchecked too.
+                var unchecked = false
+                fun eval(budget: PatternBudget) = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, budget = budget, bodyBytes = { entry, part ->
+                    NetworkHistoryView.bodyOf(entry, part)?.wholeText()?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
+                        ?: run { unchecked = true; null }
+                })
+                val buffer = Channel<Pair<NetworkEntryEvent, Boolean>>(subscriberBuffer)
                 val dropped = AtomicBoolean(false)
                 // history=current: the running process's entries first, then the live ones.
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
@@ -242,7 +252,7 @@ class DaemonServer(
                 val events = ops.networkEvents(serial, pkg) { subscribed.complete(Unit) }
                 val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     launch {
-                        for (event in buffer) {
+                        for ((event, bodyUnchecked) in buffer) {
                             val marker = if (dropped.getAndSet(false)) {
                                 listOf(DegradationMarker("network", "network-events-dropped: this client fell behind; use network.list with sinceMs to catch up"))
                             } else {
@@ -257,6 +267,7 @@ class DaemonServer(
                                         put("device", serial)
                                         put("app", pkg)
                                         put("event", DtaJson.encodeToJsonElement(NetworkEntryEvent.serializer(), event))
+                                        if (bodyUnchecked) put("bodyFilterUnchecked", true)
                                         marker?.let { put("degraded", DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(DegradationMarker.serializer()), it)) }
                                     },
                                 ),
@@ -265,7 +276,11 @@ class DaemonServer(
                     }
                     fun offer(event: NetworkEntryEvent) {
                         (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
-                        if (eval.matches(event.entry) != null && buffer.trySend(event).isFailure) dropped.set(true)
+                        unchecked = false
+                        val budget = PatternBudget(perBodyMs = 20, totalMs = 50)
+                        val matched = eval(budget).matches(event.entry) != null
+                        if (budget.skipped > 0) unchecked = true
+                        if ((matched || unchecked) && buffer.trySend(event to unchecked).isFailure) dropped.set(true)
                     }
                     try {
                         if (!history) {

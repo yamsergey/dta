@@ -121,6 +121,39 @@ class DaemonServerTest {
         a.close(); b.close()
     }
 
+    private fun message(n: Int, text: String, stored: Long = text.length.toLong()) = NetworkEntryEvent(
+        io.yamsergey.dta.protocol.network.WsMessageEntry(
+            "r1-1:$n", "r1-1", n.toLong(), "okhttp3-ws", connectionId = "r1-1:0",
+            direction = io.yamsergey.dta.protocol.network.Direction.IN, opcode = io.yamsergey.dta.protocol.network.MessageOpcode.TEXT,
+            payload = io.yamsergey.dta.protocol.network.BodyInfo(
+                io.yamsergey.dta.protocol.network.BodyPart.MESSAGE, storedBytes = stored,
+                completeness = io.yamsergey.dta.protocol.network.Completeness.COMPLETE, preview = text,
+            ),
+        ),
+        EntryChange.CREATED,
+    )
+
+    @Test
+    fun `body filters apply to live messages by their whole preview, an undecided body is passed marked`() = runBlocking<Unit> {
+        val drop = connect()
+        val keep = connect()
+        fun id(o: JsonObject) = o["event"]!!.jsonObject["entry"]!!.jsonObject["id"]!!.jsonPrimitive.content
+        val dropped = async { withTimeout(5_000) { drop.networkEvents(buildJsonObject { put("q", "-body:echo") }).take(3).toList() } }
+        val kept = async { withTimeout(5_000) { keep.networkEvents(buildJsonObject { put("q", "body:/echo \\d+/") }).take(3).toList() } }
+        delay(300)
+        fake.events.emit(message(1, "echo 1"))
+        fake.events.emit(message(2, "tick"))
+        fake.events.emit(message(3, "echo 3"))
+        fake.events.emit(message(4, "tick", stored = 4_000))
+        val d = dropped.await().drop(1)
+        assertEquals(listOf("r1-1:2", "r1-1:4"), d.map(::id))
+        assertNull(d[0]["bodyFilterUnchecked"])
+        assertEquals("true", d[1]["bodyFilterUnchecked"]!!.jsonPrimitive.content)
+        val k = kept.await().drop(1)
+        assertEquals(listOf("r1-1:1", "r1-1:3"), k.map(::id))
+        drop.close(); keep.close()
+    }
+
     @Test
     fun `a watch with history=current first replays the running process, then follows it, losing nothing`() = runBlocking<Unit> {
         val pending = HttpEntry("r1-1:2", "r1-1", 2, "okhttp3", method = "GET", url = "https://api.example.com/2", state = HttpState.PENDING)

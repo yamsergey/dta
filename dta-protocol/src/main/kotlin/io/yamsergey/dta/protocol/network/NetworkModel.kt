@@ -102,6 +102,16 @@ data class BodyInfo(
         }
     }
 
+    /**
+     * The body's text when the preview is all of it (complete, not encoded, not binary, and the
+     * same size), else null: what a live event can match body filters against without the host copy.
+     */
+    fun wholeText(): String? {
+        val text = preview ?: return null
+        if (binary || completeness != Completeness.COMPLETE || !(encoding == null || encoding.equals("identity", true))) return null
+        return text.takeIf { it.toByteArray(Charsets.UTF_8).size.toLong() == storedBytes }
+    }
+
     companion object {
         const val PREVIEW_CHARS = 256
     }
