@@ -142,9 +142,68 @@ class NetworkPanel(
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     // The IDE's own segmented control: a plain JToggleButton's pressed state barely shows in the new UI.
     private lateinit var kinds: SegmentedButton<KindChoice>
-    /** Live traffic, or the history this computer kept after the device forgot it (feature 011). */
-    private val source = com.intellij.openapi.ui.ComboBox(arrayOf(LIVE, ARCHIVE)).apply {
-        toolTipText = "Live: the app's traffic now. Archive: history the device cleared or lost, kept on this computer (browse it in the Daemon tab)."
+    /**
+     * Live traffic, or one of the app's sessions this computer kept after the device forgot them
+     * (feature 011), listed by when they ran (feature 056), then all of them.
+     */
+    private data class SourceChoice(val scope: String?, val label: String, val meta: String = "", val enabled: Boolean = true) {
+        override fun toString() = label
+    }
+    private val liveChoice = SourceChoice(null, LIVE, "the app now")
+    private val sources = javax.swing.DefaultComboBoxModel(arrayOf(liveChoice))
+    private val source = com.intellij.openapi.ui.ComboBox(sources).apply {
+        toolTipText = "Live: the app's traffic now. Below it: the app's sessions kept on this computer after the device cleared or lost them (delete them in the Daemon tab)."
+        renderer = object : com.intellij.ui.ColoredListCellRenderer<SourceChoice>() {
+            override fun customizeCellRenderer(list: javax.swing.JList<out SourceChoice>, value: SourceChoice?, index: Int, selected: Boolean, focus: Boolean) {
+                value ?: return
+                append(value.label, if (value.enabled) com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES else com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                // The meta only in the open list: the closed switch stays one short word or time.
+                if (index >= 0 && value.meta.isNotEmpty()) append("   ${value.meta}", com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
+            }
+        }
+        addPopupMenuListener(object : javax.swing.event.PopupMenuListener {
+            override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent?) = loadSessions()
+            override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent?) = Unit
+            override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent?) = Unit
+        })
+    }
+    private var sessionsFor: Pair<String?, String?>? = null
+
+    /** The app's archived sessions, read off the UI thread, into the switch (the choice kept). */
+    private fun loadSessions() {
+        val client = context.client ?: return
+        val st = context.state.value
+        sessionsFor = st.device to st.app
+        scope.launch {
+            val items = runCatching {
+                val listing = io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(
+                    io.yamsergey.dta.protocol.network.ArchiveListing.serializer(), client.call("archive.list").result,
+                )
+                io.yamsergey.dta.present.network.ArchiveSessions.of(listing, st.device, st.app, System.currentTimeMillis())
+            }.getOrNull() ?: return@launch
+            javax.swing.SwingUtilities.invokeLater {
+                val keep = (source.selectedItem as? SourceChoice)?.scope
+                updatingSources = true
+                try {
+                    sources.removeAllElements()
+                    sources.addElement(liveChoice)
+                    items.forEach { sources.addElement(SourceChoice(it.scope, it.label, it.meta, it.enabled)) }
+                    selectSource(keep)
+                } finally {
+                    updatingSources = false
+                }
+            }
+        }
+    }
+    private var updatingSources = false
+
+    /** Selects the choice of [scope]; one set elsewhere (the Daemon tab) that the list lacks is added. */
+    private fun selectSource(scope: String?) {
+        val at = (0 until sources.size).firstOrNull { sources.getElementAt(it).scope == scope }
+        if (at != null) { source.selectedIndex = at; return }
+        val added = SourceChoice(scope, "Archived: $scope")
+        sources.addElement(added)
+        source.selectedItem = added
     }
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
@@ -240,8 +299,10 @@ class NetworkPanel(
         })
 
         source.addActionListener {
-            val wanted = if (source.selectedItem == ARCHIVE) (last.archive ?: "all") else null
-            if (wanted != last.archive) network.setArchive(wanted)
+            if (updatingSources) return@addActionListener
+            val chosen = source.selectedItem as? SourceChoice ?: return@addActionListener
+            if (!chosen.enabled) { selectSource(last.archive); return@addActionListener }
+            if (chosen.scope != last.archive) network.setArchive(chosen.scope)
         }
         table.selectionModel.addListSelectionListener { e ->
             if (e.valueIsAdjusting || model.updating) return@addListSelectionListener
@@ -294,8 +355,12 @@ class NetworkPanel(
             s.hits.total != previous.hits.total || s.line.hasSearch != previous.line.hasSearch || s.archive != previous.archive) strip.updateActionsAsync()
 
         // Set from the archive browser too: the switch follows the state.
-        val wanted = if (s.archive != null) ARCHIVE else LIVE
-        if (source.selectedItem != wanted) source.selectedItem = wanted
+        if ((source.selectedItem as? SourceChoice)?.scope != s.archive) {
+            updatingSources = true
+            try { selectSource(s.archive) } finally { updatingSources = false }
+        }
+        // Another app: its own sessions.
+        context.state.value.let { st -> if (sessionsFor != null && sessionsFor != st.device to st.app) loadSessions() }
 
         if (kinds.selectedItem != s.kind) kinds.selectedItem = s.kind
         // The line is the person's while they type; set from the state only when changed elsewhere (a chip, the switch).
@@ -641,7 +706,6 @@ class NetworkPanel(
         /** Below this the detail goes under the list; a 900 px tool window still has them side by side. */
         const val NARROW = 860
         const val LIVE = "Live"
-        const val ARCHIVE = "Archive"
 
         /** [sample] is the widest content the column shows; null = flexible, takes what is left. */
         val COLUMNS = listOf(
