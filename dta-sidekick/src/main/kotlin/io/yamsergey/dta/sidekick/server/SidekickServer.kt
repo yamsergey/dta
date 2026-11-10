@@ -91,6 +91,11 @@ object SidekickServer {
             }
             DiagnosticMethods.install(this)
             io.yamsergey.dta.sidekick.timeline.TimelineMethods.install(this)
+            // Feature 056: the app's timeline switch.
+            context?.let { c ->
+                val sources = io.yamsergey.dta.sidekick.timeline.TimelineSources
+                io.yamsergey.dta.sidekick.timeline.TimelineSwitchMethods(sources.store(c), { sources.running }, { sources.start(c) }).install(this)
+            }
             // Feature 027: the app's stores, on request only.
             context?.let { io.yamsergey.dta.sidekick.data.DataMethods(it).install(this) }
             // Feature 028: what the running process holds.

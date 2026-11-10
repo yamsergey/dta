@@ -26,7 +26,20 @@ object TimelineSources {
     var network: NetworkTimeline? = null
         private set
 
+    @Volatile
     private var started = false
+
+    /** Feature 056: whether the sources run in this process. */
+    val running: Boolean get() = started
+
+    /** Feature 056: where this app keeps its timeline switch. */
+    fun store(context: Context) = TimelineSwitchStore(java.io.File(context.noBackupFilesDir, "dta"))
+
+    /** Feature 056: the app-start entry: the sources when this app's switch is on, else the off statement. */
+    fun startIfOn(context: Context) {
+        if (store(context).on) start(context)
+        else if (!started) TimelineRuntime.register(TimelineSwitchMethods.SOURCE) { TimelineSwitchMethods.offStatus() }
+    }
 
     @Volatile
     private var app: AppStateBridge? = null
@@ -35,6 +48,7 @@ object TimelineSources {
     fun start(context: Context) {
         if (started) return
         started = true
+        TimelineRuntime.unregister(TimelineSwitchMethods.SOURCE)
         val buffer = TimelineRuntime.start { name, data -> SidekickServer.sessions.publish(name, data) }
         TimelineRuntime.scopeCause = { scope.current() }
         network = NetworkTimeline(buffer)

@@ -37,5 +37,10 @@ object TimelineRuntime {
     }
 
     @Synchronized
+    fun unregister(name: String) {
+        statuses.remove(name)
+    }
+
+    @Synchronized
     fun sources(): List<SourceStatus> = statuses.values.mapNotNull { runCatching(it).getOrNull() }
 }

@@ -29,7 +29,8 @@ class SidekickInitializer : Initializer<Unit> {
         // The journal of short-lived UI (feature 015); idempotent like the network start.
         runCatching { io.yamsergey.dta.sidekick.ui.UiRuntime.start(context) { name, data -> SidekickServer.sessions.publish(name, data) } }
         // The timeline's other sources (feature 016): input with its handling scope, network.
-        runCatching { io.yamsergey.dta.sidekick.timeline.TimelineSources.start(context) }
+        // Feature 056: only when this app's timeline switch is on (off by default; one file check).
+        runCatching { io.yamsergey.dta.sidekick.timeline.TimelineSources.startIfOn(context) }
         // Links that reach an activity (feature 012), recorded into the same history.
         runCatching { io.yamsergey.dta.sidekick.links.LinkRecorder.start(context.applicationContext as android.app.Application) }
         SidekickServer.start(
