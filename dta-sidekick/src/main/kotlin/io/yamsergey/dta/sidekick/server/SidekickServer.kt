@@ -68,6 +68,12 @@ object SidekickServer {
 
         val layoutMethod = LayoutCaptureMethod(
             presence = composePresence,
+            // Feature 054: built on first use, on its own thread; a capture waits for it at most 1 s.
+            packageIndex = { waitMs ->
+                context?.let { io.yamsergey.dta.sidekick.layout.compose.PackageIndexHolder.of(it).await(waitMs) }
+                    ?: io.yamsergey.dta.sidekick.layout.compose.PackageIndexHolder.State.Failed("no app context")
+            },
+            appPackage = packageName,
             screenProvider = { screenMetadata(packageName) },
         )
 

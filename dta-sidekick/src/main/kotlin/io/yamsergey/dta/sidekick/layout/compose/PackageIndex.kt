@@ -57,12 +57,17 @@ object DexPackages {
     }
 }
 
+/** The packages a Compose package hash may name. */
+interface PackageIndexLookup {
+    fun packagesOf(hash: Int): List<String>
+}
+
 /** Packages by Compose's package hash; a hash may name several packages. */
-class PackageIndex(packages: Set<String>) {
+class PackageIndex(packages: Set<String>) : PackageIndexLookup {
     private val byHash: Map<Int, List<String>> = packages.groupBy(ComposableClassifier::packageHash)
     val size: Int = packages.size
 
-    fun packagesOf(hash: Int): List<String> = byHash[hash].orEmpty()
+    override fun packagesOf(hash: Int): List<String> = byHash[hash].orEmpty()
 }
 
 /**

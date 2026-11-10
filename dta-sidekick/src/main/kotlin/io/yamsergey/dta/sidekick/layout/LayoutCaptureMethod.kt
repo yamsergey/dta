@@ -13,7 +13,9 @@ import io.yamsergey.dta.protocol.layout.Node
 import io.yamsergey.dta.protocol.layout.Screen
 import io.yamsergey.dta.protocol.layout.Window
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
+import io.yamsergey.dta.sidekick.layout.compose.CallClassifier
 import io.yamsergey.dta.sidekick.layout.compose.ComposePresence
+import io.yamsergey.dta.sidekick.layout.compose.PackageIndexHolder
 import io.yamsergey.dta.sidekick.layout.compose.ContainerAssembly
 import io.yamsergey.dta.sidekick.layout.compose.LayoutRecords
 import io.yamsergey.dta.sidekick.layout.compose.ToolingTree
@@ -35,11 +37,17 @@ class LayoutCaptureMethod(
     private val viewCapture: ViewCapture = ViewCapture(),
     private val timeoutMs: Long = 5_000,
     private val mainHandler: Handler = Handler(Looper.getMainLooper()),
+    /** Feature 054: the app's packages; awaited here, on the request thread, never on main. */
+    private val packageIndex: (waitMs: Long) -> PackageIndexHolder.State = { PackageIndexHolder.State.Failed("no app context") },
+    private val appPackage: String? = null,
     private val screenProvider: () -> Screen,
 ) {
     fun capture(params: LayoutTreeParams = LayoutTreeParams()): LayoutCapture {
         val filter = params.filter
-        val result = runOnMainThread { captureOnMain(params.detail, params.frameworkFrames) }
+        // Never wait on the main thread: there the index is used only if it is already built.
+        val wait = if (Looper.myLooper() == Looper.getMainLooper()) 0L else INDEX_WAIT_MS
+        val packages = if (presence.composePresent && presence.tier2Available) packageIndex(wait) else null
+        val result = runOnMainThread { captureOnMain(params.detail, params.frameworkFrames, packages) }
         val degraded = mutableListOf<DegradationMarker>()
         degraded += result.degraded
 
@@ -76,18 +84,30 @@ class LayoutCaptureMethod(
         val delivered: DetailLevel,
     )
 
-    private fun captureOnMain(level: DetailLevel, frameworkFrames: Boolean): MainResult {
+    private fun captureOnMain(level: DetailLevel, frameworkFrames: Boolean, packages: PackageIndexHolder.State?): MainResult {
         val degraded = mutableListOf<DegradationMarker>()
         val captured = viewCapture.captureWindows()
         val tier2 = presence.tier2Available
         presence.tier2Skip?.let { degraded += DegradationMarker(LayoutCapability.NAME, it) }
+        // Feature 054: one classifier per capture (it counts unknown calls across hosts).
+        val classifier = CallClassifier((packages as? PackageIndexHolder.State.Ready)?.index, appPackage)
 
         val hosts = mutableListOf<HostResolution>()
         val windows = captured.map { window ->
             val composeWalks = window.composeHosts.mapNotNull { (hostId, hostView) ->
-                captureComposeHost(hostId, hostView, tier2, level, frameworkFrames)?.also { hosts += it }?.walk
+                captureComposeHost(hostId, hostView, tier2, level, frameworkFrames, classifier)?.also { hosts += it }?.walk
             }
             Window(window.title, window.type, window.zOrder, TreeMerger.merge(window.walk, composeWalks))
+        }
+        if (hosts.isNotEmpty() && tier2) {
+            when (packages) {
+                is PackageIndexHolder.State.Ready, null -> Unit
+                PackageIndexHolder.State.NotReady -> degraded += DegradationMarker(LayoutCapability.NAME, "${DegradationCodes.COMPOSE_PACKAGES_UNREADABLE}: not ready yet")
+                is PackageIndexHolder.State.Failed -> degraded += DegradationMarker(LayoutCapability.NAME, "${DegradationCodes.COMPOSE_PACKAGES_UNREADABLE}: ${packages.reason}")
+            }
+            if (classifier.unknownCalls > 0) {
+                degraded += DegradationMarker(LayoutCapability.NAME, "${DegradationCodes.COMPOSE_CALL_PACKAGES_UNKNOWN}: ${classifier.unknownCalls} calls")
+            }
         }
         // Capture-level summary of per-host tooling failures (feature 002).
         if (hosts.any { it.enrichmentFailed }) {
@@ -104,11 +124,12 @@ class LayoutCaptureMethod(
         tier2: Boolean,
         level: DetailLevel,
         frameworkFrames: Boolean,
+        classifier: CallClassifier,
     ): HostResolution? {
         if (!presence.composePresent) return null
         val host = SemanticsCapture().capture(hostView) ?: return null
         val semantic = ComposeWalkResult(hostId, host.tree, host.embeddedHosts)
-        val tooling = if (tier2) runCatching { enrich(hostId, hostView, host, level, frameworkFrames) } else null
+        val tooling = if (tier2) runCatching { enrich(hostId, hostView, host, level, frameworkFrames, classifier) } else null
         return LevelResolution.resolveHost(level, semantic, tooling)
     }
 
@@ -119,8 +140,9 @@ class LayoutCaptureMethod(
         host: SemanticsCapture.HostCapture,
         level: DetailLevel,
         frameworkFrames: Boolean,
+        classifier: CallClassifier,
     ): ToolingOutcome {
-        val read = ToolingEnrichment().read(hostView)
+        val read = ToolingEnrichment(classifier).read(hostView)
         val labels = ToolingTree.label(read.groups)
         if (labels.isEmpty()) error("tooling produced no groups")
         val labeled = EnrichmentOverlay.applyOrNull(host.tree, labels)!!
@@ -161,5 +183,7 @@ class LayoutCaptureMethod(
         return result!!.getOrThrow()
     }
 }
+
+private const val INDEX_WAIT_MS = 1_000L
 
 class LayoutCaptureTimeout(message: String) : Exception(message)

@@ -13,6 +13,9 @@ data class EnrichmentEntry(
     val library: Boolean,
     /** The call this entry's node belongs to (feature 018): one per user or library frame. */
     val callKey: Int? = null,
+    /** Feature 054: the call's package when known; [unknown] when it could not be told. */
+    val packageName: String? = null,
+    val unknown: Boolean = false,
 )
 
 /**
@@ -39,6 +42,8 @@ object EnrichmentOverlay {
                     lineNumber = entry.lineNumber,
                     parameters = entry.parameters.ifEmpty { null },
                     library = entry.library,
+                    packageName = entry.packageName,
+                    unknownOrigin = entry.unknown.takeIf { it },
                     callKey = entry.callKey,
                     children = mapped,
                 )

@@ -17,7 +17,7 @@ import java.lang.reflect.Method
  *
  * The join key to the Tier-1 semantics tree is the layout node's semanticsId.
  */
-class ToolingEnrichment {
+class ToolingEnrichment(private val classifier: CallClassifier = CallClassifier(null, null)) {
 
     /** The tooling forest of one host plus the layout nodes its groups own,
      * keyed by semanticsId (read later for container geometry). */
@@ -54,7 +54,9 @@ class ToolingEnrichment {
 
         val packageHash = (location?.let { api.packageHash.invoke(it) } as Int?) ?: -1
 
-        val userFrame = ComposableClassifier.isMeaningful(name) && !ComposableClassifier.isLibrary(sourceFile, packageHash)
+        // Feature 054: each meaningful call classified once (and counted when unknown).
+        val origin = if (ComposableClassifier.isMeaningful(name)) classifier.of(sourceFile, packageHash) else null
+        val userFrame = origin != null && !origin.library
         val parameters = if (userFrame) parametersOf(api, context) else emptyList()
 
         val layoutId = (group.node as? LayoutInfo)?.let { node ->
@@ -68,6 +70,7 @@ class ToolingEnrichment {
             layoutId = layoutId,
             children = children.map { it as ToolingGroup },
             packageHash = packageHash,
+            origin = origin,
         )
     }
 

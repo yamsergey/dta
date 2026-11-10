@@ -20,7 +20,13 @@ data class ToolingGroup(
     val layoutId: Long?,
     val children: List<ToolingGroup>,
     val packageHash: Int = -1,
-)
+    /** Feature 054: the call's origin as classified at capture; null → the fixed list decides. */
+    val origin: CallOrigin? = null,
+) {
+    /** [origin], or the pre-054 verdict for groups built without one. */
+    val resolvedOrigin: CallOrigin
+        get() = origin ?: CallOrigin(if (ComposableClassifier.isLibrary(sourceFile, packageHash)) CallOrigin.Kind.LIBRARY else CallOrigin.Kind.APP)
+}
 
 /** A layout node discovered through tooling (feature 003 `layout` level):
  * its actual layout parent comes from LayoutInfo.parentInfo, not from slot
@@ -43,44 +49,48 @@ object ToolingTree {
         val sourceFile: String?,
         val line: Int?,
         val parameters: List<Parameter>,
-        val library: Boolean,
+        val origin: CallOrigin,
         /** One per call (feature 018): every layout node the call owns shares it. */
         val callKey: Int,
     )
 
     /**
-     * Labels every layout id with the nearest enclosing USER composable, or
-     * the nearest meaningful library composable when no user one encloses it.
-     * The first occurrence of an id wins.
+     * Labels every layout id with the nearest enclosing APP composable, else
+     * the nearest one whose package is unknown (feature 054, marked), else the
+     * nearest meaningful library composable. The first occurrence of an id wins.
      */
     fun label(roots: List<ToolingGroup>): Map<Long, EnrichmentEntry> {
         val out = HashMap<Long, EnrichmentEntry>()
         var calls = 0
-        fun walk(group: ToolingGroup, nearest: Frame?, nearestUser: Frame?) {
+        fun walk(group: ToolingGroup, nearest: Frame?, nearestApp: Frame?, nearestUnknown: Frame?) {
             val frame = if (ComposableClassifier.isMeaningful(group.name)) {
                 Frame(
                     ComposableClassifier.normalize(group.name!!),
                     group.sourceFile,
                     group.line,
                     group.parameters,
-                    ComposableClassifier.isLibrary(group.sourceFile, group.packageHash),
+                    group.resolvedOrigin,
                     ++calls,
                 )
             } else {
                 null
             }
             val context = frame ?: nearest
-            val userContext = if (frame != null && !frame.library) frame else nearestUser
+            val appContext = if (frame?.origin?.kind == CallOrigin.Kind.APP) frame else nearestApp
+            val unknownContext = if (frame?.origin?.kind == CallOrigin.Kind.UNKNOWN) frame else nearestUnknown
 
             val id = group.layoutId
             if (id != null && id !in out) {
-                (userContext ?: context)?.let {
-                    out[id] = EnrichmentEntry(it.name, it.sourceFile, it.line, it.parameters, it.library, it.callKey)
+                (appContext ?: unknownContext ?: context)?.let {
+                    out[id] = EnrichmentEntry(
+                        it.name, it.sourceFile, it.line, it.parameters, it.origin.library, it.callKey,
+                        packageName = it.origin.packageName, unknown = it.origin.unknown,
+                    )
                 }
             }
-            group.children.forEach { walk(it, context, userContext) }
+            group.children.forEach { walk(it, context, appContext, unknownContext) }
         }
-        roots.forEach { walk(it, null, null) }
+        roots.forEach { walk(it, null, null, null) }
         return out
     }
 
@@ -109,9 +119,14 @@ object ToolingTree {
             fun walk(group: ToolingGroup, stack: List<WireFrame>) {
                 var next = stack
                 if (ComposableClassifier.isMeaningful(group.name)) {
-                    val library = ComposableClassifier.isLibrary(group.sourceFile, group.packageHash)
-                    if (!library || frameworkFrames) {
-                        next = stack + WireFrame(ComposableClassifier.normalize(group.name!!), group.sourceFile, group.line, library)
+                    val origin = group.resolvedOrigin
+                    if (!origin.library || frameworkFrames) {
+                        next = stack + WireFrame(
+                            ComposableClassifier.normalize(group.name!!), group.sourceFile, group.line,
+                            library = origin.library.takeIf { it },
+                            packageName = origin.packageName,
+                            unknownOrigin = origin.unknown.takeIf { it },
+                        )
                     }
                 }
                 group.layoutId?.let { id ->
