@@ -267,6 +267,31 @@ class HostIndexTest {
     }
 
     @Test
+    fun `body patterns search the host copy, bodies included (053)`() = runBlocking<Unit> {
+        val app = FakeJournalApp().also(::corpus)
+        val host = index(app)
+        val page = host.list(NetworkQuery(q = """resp:/"cart":"item-1\d"/""", limit = 50))
+        assertEquals(setOf("r1-1:11", "r1-1:16"), page.entries.map { it.id }.toSet())
+        assertEquals(setOf("r1-1:11", "r1-1:16"), page.hits!!.keys)
+        val req = host.list(NetworkQuery(q = "req:item", limit = 50))
+        assertEquals(emptyList<String>(), req.entries.map { it.id }, "request bodies are fetched too: none hold it")
+        val found = host.search(NetworkQuery(q = "body:/item-2[05]/"))
+        assertEquals(listOf("r1-1:26", "r1-1:21"), found.entries.map { it.id })
+    }
+
+    @Test
+    fun `without storage, a body pattern is not sent to the app and is said to be left out (053)`() = runBlocking<Unit> {
+        val app = FakeJournalApp(persisted = false).also(::corpus)
+        val host = index(app)
+        val page = host.list(NetworkQuery(q = "status:4xx resp:/item-\\d+/"))
+        assertEquals(app.deviceAnswer(NetworkQuery(filter = NetworkFilter(status = "4xx"))).entries, page.entries)
+        assertTrue(page.degraded!!.any { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SEARCH_UNAVAILABLE })
+        val excluded = host.list(NetworkQuery(q = "-body:/item/"))
+        assertEquals(app.deviceAnswer(NetworkQuery()).entries, excluded.entries)
+        assertTrue(excluded.degraded!!.any { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SEARCH_UNAVAILABLE })
+    }
+
+    @Test
     fun `a filtered list over 100k entries answers in under 200 ms (SC-003)`() = runBlocking<Unit> {
         val app = FakeJournalApp()
         repeat(100_000) { http(app, it + 1, url = "https://api/item/$it", status = if (it % 10 == 0) 404 else 200) }

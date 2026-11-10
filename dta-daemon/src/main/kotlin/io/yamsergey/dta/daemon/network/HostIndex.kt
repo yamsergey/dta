@@ -101,7 +101,8 @@ class HostIndex(
 
     private fun needsBodies(query: NetworkQuery): Boolean {
         val (filter, terms) = query.resolved()
-        return terms.isNotEmpty() || filter?.bodyContains != null || filter?.exclude?.any { it.bodyContains != null } == true
+        fun bodies(f: NetworkFilter) = f.bodyContains != null || f.requestContains != null || f.responseContains != null || f.hasPattern
+        return terms.isNotEmpty() || filter?.let { bodies(it) || it.exclude?.any(::bodies) == true } == true
     }
 
     /**
@@ -424,8 +425,9 @@ class HostIndex(
          */
         suspend fun appAnswers(app: AppConnection, query: NetworkQuery): NetworkPage {
             val (filter, terms) = query.resolved()
-            val unsupported = terms.isNotEmpty() || filter?.host != null || filter?.exclude != null
-            val sent = query.copy(q = null, filter = filter?.copy(host = null, exclude = null)?.takeIf { it != NetworkFilter() })
+            // Feature 053: body patterns stay here too: an app could read them as nothing at all.
+            val unsupported = terms.isNotEmpty() || filter?.host != null || filter?.exclude != null || filter?.hasPattern == true
+            val sent = query.copy(q = null, filter = filter?.withoutPatterns()?.copy(host = null, exclude = null)?.takeIf { it != NetworkFilter() })
             val page = DtaJson.decodeFromJsonElement(NetworkPage.serializer(), app.request("network_list", sent.toJson()))
             if (!unsupported) return page
             return page.copy(degraded = page.degraded.orEmpty() + DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE))
