@@ -22,6 +22,15 @@ network scripts, and give coding agents the same tools over a local MCP server.<
                                  id="io.yamsergey.dta.settings"
                                  displayName="DTA"
                                  instance="io.yamsergey.dta.studio.inject.InjectionConfigurable"/>
+        <!-- Feature 056: the former Agents and Schemas tabs. -->
+        <applicationConfigurable parentId="io.yamsergey.dta.settings"
+                                 id="io.yamsergey.dta.settings.agents"
+                                 displayName="Agents"
+                                 instance="io.yamsergey.dta.studio.settings.AgentsConfigurable"/>
+        <projectConfigurable parentId="io.yamsergey.dta.settings"
+                             id="io.yamsergey.dta.settings.protobuf"
+                             displayName="Protobuf"
+                             instance="io.yamsergey.dta.studio.settings.ProtobufConfigurable"/>
         <postStartupActivity implementation="io.yamsergey.dta.studio.agents.AgentServerStartup"/>
     </extensions>
 

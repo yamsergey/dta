@@ -18,6 +18,8 @@ class InjectionSettings : SimplePersistentStateComponent<InjectionSettings.Optio
         var enabled by property(true)
         /** Compose's tooling data added where a Compose app lacks it (feature 010 US6). */
         var tooling by property(true)
+        /** Feature 056: the Timeline feature; off by default. */
+        var timeline by property(false)
     }
 
     private val changes = MutableStateFlow(true)
@@ -38,9 +40,22 @@ class InjectionSettings : SimplePersistentStateComponent<InjectionSettings.Optio
             state.tooling = value
         }
 
+    private val timelineChanges = MutableStateFlow(false)
+
+    /** Feature 056: the Timeline switch as it changes (the tab and the connected app follow it). */
+    val timelineFlow: StateFlow<Boolean> = timelineChanges.asStateFlow()
+
+    var timeline: Boolean
+        get() = state.timeline
+        set(value) {
+            state.timeline = value
+            timelineChanges.value = value
+        }
+
     override fun loadState(state: Options) {
         super.loadState(state)
         changes.value = state.enabled
+        timelineChanges.value = state.timeline
     }
 
     companion object {

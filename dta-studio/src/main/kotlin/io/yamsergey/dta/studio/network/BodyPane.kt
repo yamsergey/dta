@@ -93,6 +93,10 @@ class BodyPane(
         } else {
             header.add(JBLabel(loaded.header.line))
             loaded.header.statements.forEach { header.add(StatementMark(it)) }
+            // Feature 056: schemas are set in Settings › Tools › DTA › Protobuf.
+            if (loaded.header.statements.any { it.detail?.startsWith("not decoded") == true }) {
+                header.add(ActionLink("Protobuf settings…") { io.yamsergey.dta.studio.settings.openProtobufSettings(project) })
+            }
             if (loaded.tooLarge) {
                 val file = loaded.content as BodyContent.File
                 header.add(ActionLink("Open in editor") { openInEditor(file.path) })

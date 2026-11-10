@@ -8,11 +8,11 @@ import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.openapi.application.ApplicationManager
 import io.yamsergey.dta.studio.DtaApplicationService
-import io.yamsergey.dta.studio.agents.AgentServerService
-import io.yamsergey.dta.studio.agents.AgentServerSettings
 import io.yamsergey.dta.studio.DtaProjectService
 import io.yamsergey.dta.studio.ui.BannerPanel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
@@ -33,7 +33,6 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         }
         val layoutPanel = LayoutPanel(project, service.layout, service.scope)
         val scriptPanel = ScriptPanel(project, controller, service.scope)
-        val schemasPanel = SchemasPanel(project, controller, service.scope, service.schemaSync)
         val linksPanel = LinksPanel(project, controller, service.scope)
         // Feature 048: set once the Runtime tab exists.
         var openViewModels: () -> Unit = {}
@@ -67,31 +66,32 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             runtimePanel.openViewModels()
         }
         var dataFor: Pair<String?, String?>? = null
+        // Feature 056: Agents and Schemas live in Settings › Tools › DTA; Timeline is a feature switched there.
         tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
-            addTab("Timeline", timelinePanel)
             addTab("Data", dataPanel)
             addTab("Runtime", runtimePanel)
             addTab("Links", linksPanel)
             addTab("Layout", layoutPanel)
             addTab("Script", scriptPanel)
-            addTab("Schemas", schemasPanel)
             addTab("Daemon", daemonPanel)
-            val agents = AgentServerService.get()
-            addTab("Agents", AgentsPanel(agents.controller, ApplicationManager.getApplication().getService(AgentServerSettings::class.java), service.scope))
         }
+        val settings = io.yamsergey.dta.studio.inject.InjectionSettings.get()
+        fun showTimeline(on: Boolean) {
+            val at = tabs.indexOfComponent(timelinePanel)
+            if (on && at < 0) tabs.insertTab("Timeline", null, timelinePanel, null, 1)
+            if (!on && at >= 0) tabs.removeTabAt(at)
+        }
+        showTimeline(settings.timeline)
         // A layout is a snapshot: captured only while its tab is the one shown.
         tabs.addChangeListener {
             service.layout.setActive(tabs.selectedComponent === layoutPanel)
             service.timeline.setActive(tabs.selectedComponent === timelinePanel)
             if (tabs.selectedComponent === runtimePanel) controller.state.value.let { st -> if (runtimeFor != st.device to st.app) { runtimeFor = st.device to st.app; runtimePanel.load() } }
             if (tabs.selectedComponent === dataPanel) controller.state.value.let { st -> if (dataFor != st.device to st.app) { dataFor = st.device to st.app; dataPanel.load() } }
-            // Script and Schemas are refreshed when shown and after their actions; Links while shown.
+            // Script is refreshed when shown and after its actions; Links while shown.
             if (tabs.selectedComponent === linksPanel) linksPanel.show(controller.state.value) else linksPanel.stopRefreshing()
-            when (tabs.selectedComponent) {
-                scriptPanel -> scriptPanel.show(controller.state.value)
-                schemasPanel -> schemasPanel.show(controller.state.value)
-            }
+            if (tabs.selectedComponent === scriptPanel) scriptPanel.show(controller.state.value)
         }
         val top = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -106,7 +106,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         toolWindow.component.putClientProperty(com.intellij.openapi.wm.impl.content.ToolWindowContentUi.HIDE_ID_LABEL, "true")
         toolWindow.contentManager.addContent(ContentFactory.getInstance().createContent(root, "", false))
         // The injection switch, also in Settings › Tools › DTA (FR-021).
-        toolWindow.setTitleActions(listOf(io.yamsergey.dta.studio.inject.ToggleInjectionAction()))
+        // Feature 056: the gear opens Settings › Tools › DTA.
+        toolWindow.setTitleActions(listOf(io.yamsergey.dta.studio.settings.OpenDtaSettingsAction(), io.yamsergey.dta.studio.inject.ToggleInjectionAction()))
         (toolWindow as? com.intellij.openapi.wm.ex.ToolWindowEx)?.setTabActions(HeaderBar(bar))
         // Room left beside the mascot and the title actions (the checkbox, options, hide).
         val refit = { bar.fit(toolWindow.component.width - com.intellij.util.ui.JBUI.scale(TITLE_RESERVED)) }
@@ -115,6 +116,23 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             override fun componentResized(e: java.awt.event.ComponentEvent?) = refit()
         })
 
+        // Feature 056: the tab follows the switch; the connected app is told, so it records (or not) from its next start.
+        service.scope.launch {
+            settings.timelineFlow.collect { on -> withContext(Dispatchers.Main) { showTimeline(on) } }
+        }
+        service.scope.launch {
+            combine(controller.state, settings.timelineFlow) { st, on -> Triple(st.device, st.app.takeIf { st.connection == io.yamsergey.dta.present.context.Connection.CONNECTED }, on) }
+                .distinctUntilChanged()
+                .collect { (device, app, on) ->
+                    val client = controller.client ?: return@collect
+                    if (device == null || app == null) return@collect
+                    runCatching {
+                        client.call("timeline.enabled", kotlinx.serialization.json.buildJsonObject {
+                            put("device", kotlinx.serialization.json.JsonPrimitive(device)); put("app", kotlinx.serialization.json.JsonPrimitive(app)); put("on", kotlinx.serialization.json.JsonPrimitive(on))
+                        })
+                    }.onFailure { com.intellij.openapi.diagnostic.logger<DtaToolWindowFactory>().info("timeline switch not sent to $app: ${it.message}") }
+                }
+        }
         service.scope.launch {
             controller.state.collect { state ->
                 withContext(Dispatchers.Main) {
@@ -125,7 +143,6 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                     if (tabs.selectedComponent === dataPanel && dataFor != state.device to state.app) { dataFor = state.device to state.app; dataPanel.load() }
                     when (tabs.selectedComponent) {
                         scriptPanel -> scriptPanel.show(state)
-                        schemasPanel -> schemasPanel.show(state)
                         linksPanel -> linksPanel.show(state)
                     }
                 }
