@@ -355,3 +355,15 @@ data class StatePath(
     val steps: List<Transition>,
     val found: Boolean,
 )
+
+/**
+ * Feature 056: whether the app records the timeline. Off by default; the IDE (or an agent) sets it
+ * per app and the app keeps it across restarts. [recording]: its sources run now (they start at the
+ * app's start, or at once when switched on); [note] says what a change means for the running process.
+ */
+@Serializable
+data class TimelineSwitch(val on: Boolean, val recording: Boolean, val note: String? = null) {
+    companion object {
+        const val OFF_REASON = "Timeline is off for this app: turn it on in Settings › Tools › DTA, or with dta timeline enabled --on true"
+    }
+}

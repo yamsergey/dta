@@ -196,6 +196,12 @@ class FakeOperations : DaemonOperations {
         return io.yamsergey.dta.protocol.timeline.StatePath(from, to ?: "", emptyList(), found = false)
     }
     override fun archiveList() = io.yamsergey.dta.protocol.network.ArchiveListing(emptyList(), 0)
+    var timelineOn = false
+    override suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch {
+        calls += "timelineEnabled $pkg $on"
+        on?.let { timelineOn = it }
+        return io.yamsergey.dta.protocol.timeline.TimelineSwitch(timelineOn, timelineOn)
+    }
     override fun data(serial: String, pkg: String): io.yamsergey.dta.daemon.data.DataService = throw UnsupportedOperationException("app data")
     override fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean) =
         io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, io.yamsergey.dta.protocol.network.ArchiveDeleted(0, 0, 0, 0))

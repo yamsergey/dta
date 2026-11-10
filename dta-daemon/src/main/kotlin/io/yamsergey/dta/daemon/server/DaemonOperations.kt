@@ -83,6 +83,8 @@ interface DaemonOperations {
     fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String): io.yamsergey.dta.protocol.timeline.Flow
     fun timelineFlowRemove(serial: String, pkg: String, flow: String): io.yamsergey.dta.protocol.timeline.Flow
     suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState
+    /** Feature 056: read or set whether the app records its timeline. */
+    suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch
     suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph
     suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath
     /** The host's network archive (feature 011). */
@@ -106,6 +108,7 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String) = daemon.timelineFlowRename(serial, pkg, flow, name)
     override fun timelineFlowRemove(serial: String, pkg: String, flow: String) = daemon.timelineFlowRemove(serial, pkg, flow)
     override suspend fun stateCurrent(serial: String, pkg: String) = daemon.stateCurrent(serial, pkg)
+    override suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?) = daemon.timelineEnabled(serial, pkg, on)
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean) = daemon.stateGraph(serial, pkg, facets, minHoldMs, inferred)
     override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) = daemon.statePath(serial, pkg, from, to, facets)
     override fun archiveList() = daemon.archiveList()

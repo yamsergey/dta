@@ -80,6 +80,7 @@ class OperationDispatcher(
 
         fun string(name: String): String? = (params[name] as? JsonPrimitive)?.content
         fun bool(name: String): Boolean = (params[name] as? JsonPrimitive)?.booleanOrNull ?: false
+        fun boolOrNull(name: String): Boolean? = (params[name] as? JsonPrimitive)?.let { it.booleanOrNull ?: it.content.toBooleanStrictOrNull() }
         fun long(name: String): Long? = (params[name] as? JsonPrimitive)?.longOrNull
         fun strings(name: String): List<String>? = (params[name] as? JsonArray)?.map { (it as JsonPrimitive).content }
         fun required(name: String): String = string(name) ?: throw InvalidParamsException("missing required parameter '$name'")
@@ -171,6 +172,7 @@ class OperationDispatcher(
             val flow = c.required("flow")
             knownFlow(flow) { buildJsonObject { put("removed", ops.timelineFlowRemove(c.device, c.app, flow).id) } }
         },
+        "timeline.enabled" to { c -> encode(io.yamsergey.dta.protocol.timeline.TimelineSwitch.serializer(), ops.timelineEnabled(c.device, c.app, c.boolOrNull("on"))) },
         "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
         "state.graph" to { c ->
             encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")))

@@ -159,6 +159,11 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
         io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
     override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)
+    var timelineOn = false
+    override suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch {
+        on?.let { timelineOn = it }
+        return io.yamsergey.dta.protocol.timeline.TimelineSwitch(timelineOn, timelineOn)
+    }
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph {
         val events = timeline.currentEpochEvents()
         val current = timeline.facets.snapshot()

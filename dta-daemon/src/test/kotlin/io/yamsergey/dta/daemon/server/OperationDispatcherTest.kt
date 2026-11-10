@@ -293,6 +293,13 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `the timeline switch is read and set per app (056)`() {
+        assertEquals("false", call("timeline.enabled").result.jsonObject["on"].toString())
+        assertEquals("true", call("timeline.enabled", buildJsonObject { put("on", true) }).result.jsonObject["on"].toString())
+        assertTrue(fake.calls.contains("timelineEnabled com.example.shop true"), fake.calls.toString())
+    }
+
+    @Test
     fun `every catalog operation except the server's own has a handler`() {
         val serverOwned = setOf("daemon.status", "daemon.stop", "network.watch", "apps.watch", "timeline.watch")
         assertEquals(Catalog.all.map { it.name }.toSet() - serverOwned, dispatcher.handled)

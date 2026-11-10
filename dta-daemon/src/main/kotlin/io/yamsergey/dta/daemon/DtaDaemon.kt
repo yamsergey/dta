@@ -564,6 +564,13 @@ class DtaDaemon(
         scriptService(serial, pkg).push(connection, text, base64, waitMs)
 
     /** Feature 027: the app's stores. */
+    /** Feature 056: the app's timeline switch (an older sidekick answers that it predates it). */
+    suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch {
+        val params = kotlinx.serialization.json.buildJsonObject { on?.let { put("on", kotlinx.serialization.json.JsonPrimitive(it)) } }
+        val result = connections.connect(ConnectionKey(serial, pkg)).request("timeline_enabled", params)
+        return DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.timeline.TimelineSwitch.serializer(), result)
+    }
+
     fun data(serial: String, pkg: String) =
         io.yamsergey.dta.daemon.data.DataService(pkg, schemas) { connections.connect(ConnectionKey(serial, pkg)) }
 
