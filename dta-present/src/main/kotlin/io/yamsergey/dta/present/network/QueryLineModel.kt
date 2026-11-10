@@ -88,6 +88,10 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
         }
         val key = body.substring(0, colon).lowercase()
         val value = body.substring(colon + 1)
+        // Feature 053: an empty body value offers the pattern form.
+        if (key in QueryLine.PATTERN_KEYS) {
+            return if (value.isEmpty()) listOf(Suggestion("$n$key:/", from, "a /regex/ pattern, case ignored: /\"id\":\\s*\\d+/ (end it with /)")) else emptyList()
+        }
         val values = when (key) {
             "status" -> listOf("2xx", "3xx", "4xx", "5xx", "failed", "pending") + seen.statuses.sorted() + listOf("open", "closed", "connecting", "1000", "1006")
             "dir" -> listOf("sent", "received")
@@ -109,7 +113,7 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
     /** [s] applied: the new model and the caret after it (a space follows a finished word). */
     fun apply(s: Suggestion, caret: Int): Pair<QueryLineModel, Int> {
         val end = caret.coerceIn(s.from, text.length)
-        val done = !s.text.endsWith(":")
+        val done = !s.text.endsWith(":") && !s.text.endsWith(":/")
         val insert = s.text + if (done && (end == text.length || !text[end].isWhitespace())) " " else ""
         val t = text.substring(0, s.from) + insert + text.substring(end)
         return withText(t) to s.from + insert.length

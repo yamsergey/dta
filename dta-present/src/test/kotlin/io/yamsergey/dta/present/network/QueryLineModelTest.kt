@@ -95,6 +95,19 @@ class QueryLineModelTest {
         assertEquals(listOf("-dir:sent", "-dir:received"), line("-dir:").suggestions(5).map { it.text })
     }
 
+    @Test
+    fun `body keys offer the pattern form (053)`() {
+        val s = line("body:").suggestions(5)
+        assertEquals("body:/", s.first().text)
+        assertTrue(s.first().hint!!.contains("regex"))
+        assertEquals(listOf("-resp:/"), line("-resp:").suggestions(6).map { it.text })
+        assertEquals(listOf("req:/"), line("req:").suggestions(4).map { it.text })
+        val (applied, caret) = line("GET body:").let { m -> m.apply(m.suggestions(9).first(), 9) }
+        assertEquals("GET body:/", applied.text)
+        assertEquals(10, caret)
+        assertEquals(emptyList<String>(), line("body:/a").suggestions(7).map { it.text })
+    }
+
     private fun hit(id: String, place: SearchPlace = SearchPlace.RESPONSE_BODY, part: BodyPart? = BodyPart.RESPONSE, header: String? = null, start: Int = 0) =
         SearchHit(id, place, "t", start, start + 1, Fuzzy.Excerpt("t", 0, 1), part, header)
 
