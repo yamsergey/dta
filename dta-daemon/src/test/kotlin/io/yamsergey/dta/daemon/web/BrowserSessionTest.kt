@@ -77,12 +77,18 @@ class BrowserSessionTest {
     }
 
     @Test
-    fun `a page that existed before attach is partial`() {
+    fun `a page that existed before attach is partial until it is reloaded`() {
         val cdp = FakeCdp()
         val (s, _) = session(cdp, Web.WEBVIEW)
-        run(cdp, s) { cdp.event("Target.attachedToTarget", attach("B", "http://h/old", waiting = false)) }
-        assertTrue(s.pages().single().partial)
-        assertEquals(listOf("Network.enable"), cdp.methods("B"))
+        run(cdp, s) {
+            cdp.event("Target.attachedToTarget", attach("B", "http://h/old", waiting = false))
+            cdp.event("Network.webSocketFrameReceived", """{"requestId":"old","timestamp":1.0,"response":{"opcode":1,"payloadData":"tick"}}""", "B")
+            repeat(10) { yield() }
+            assertTrue(s.pages().single().partial)
+            assertTrue(s.reload("TB"))
+            assertFalse(s.pages().single().partial)
+        }
+        assertEquals(listOf("Network.enable", "Page.reload"), cdp.methods("B"))
     }
 
     @Test

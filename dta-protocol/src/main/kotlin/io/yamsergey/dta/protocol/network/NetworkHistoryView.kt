@@ -207,7 +207,8 @@ class NetworkHistoryView(
                 CapabilityStatus.Status.AVAILABLE -> Unit
             }
             if (ctx.coverage.dropped > 0) add(DegradationCodes.NETWORK_EVENTS_DROPPED)
-            if (entries.any { it.initiator?.missing != null }) add(DegradationCodes.NETWORK_INITIATOR_MISSING)
+            // A web page's request (feature 060) has no app stack by nature: not a capture gap.
+            if (entries.any { it.initiator?.missing != null && it.library != NetworkLibraries.WEBVIEW && it.library != NetworkLibraries.CUSTOM_TAB }) add(DegradationCodes.NETWORK_INITIATOR_MISSING)
             if (entries.any { e -> bodiesOf(e).any { it.completeness.isGap } }) add(DegradationCodes.NETWORK_BODY_INCOMPLETE)
             addAll(ctx.scriptCodes)
         }

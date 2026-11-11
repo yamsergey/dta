@@ -31,13 +31,15 @@ class BrowserSession(
     private class Page(val session: String, val targetId: String, var url: String, var partial: Boolean, val held: Boolean, val attachedAt: Long, val translator: CdpTranslator) {
         var deciding = held
         val buffer = ArrayList<WebStep>()
+        /** Requests missed before the last reload: a reloaded page is whole again. */
+        var missedAtReload = 0
     }
 
     private val pages = ConcurrentHashMap<String, Page>()
 
     /** The pages followed (never one being decided or let go). */
     fun pages(): List<WebPage> = pages.values.filter { !it.deciding }.map {
-        WebPage(it.targetId, source, it.url, it.partial || it.translator.missed > 0, it.translator.started, it.attachedAt)
+        WebPage(it.targetId, source, it.url, it.partial || it.translator.missed > it.missedAtReload, it.translator.started, it.attachedAt)
     }
 
     /** Reloads a followed page, so it is captured whole. */
@@ -45,6 +47,7 @@ class BrowserSession(
         val page = pages.values.firstOrNull { it.targetId == targetId && !it.deciding } ?: return false
         cdp.send("Page.reload", buildJsonObject { put("ignoreCache", true) }, page.session)
         page.partial = false
+        page.missedAtReload = page.translator.missed
         return true
     }
 
