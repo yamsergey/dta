@@ -653,5 +653,9 @@ object NetworkLibraries {
     /** Detected with its engines (feature 030): OkHttp and Android engines are captured through those stacks; CIO and Java are not. */
     const val KTOR = "ktor-client"
 
+    /** Feature 060: read over DevTools by the daemon when the app's browser capture is on. */
+    const val WEBVIEW = io.yamsergey.dta.protocol.web.Web.WEBVIEW
+    const val CUSTOM_TAB = io.yamsergey.dta.protocol.web.Web.CUSTOM_TAB
+
     val ALL = listOf(OKHTTP3, URLCONNECTION, OKHTTP3_WS, NV_WEBSOCKET, JAVA_WEBSOCKET, GRPC, KTOR)
 }

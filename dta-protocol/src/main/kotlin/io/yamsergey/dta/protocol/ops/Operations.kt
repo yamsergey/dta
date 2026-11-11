@@ -525,6 +525,30 @@ object Catalog {
             Scope.APP,
             listOf(ParamSpec("set", ParamType.ENUM, "on or off for this app; leave out to read.", enumValues = listOf("on", "off"), positional = true)),
         ),
+        OperationSpec(
+            "web.capture",
+            "Browser capture (feature 060, off by default): whether DTA records the app's WebView pages and the Custom Tabs it opens. Without set: the state. " +
+                "webview-on also makes the app's WebViews debuggable from its start (a background thread; it loads the WebView provider at start). Kept by the app across restarts. " +
+                "Captured traffic is in network.list as library webview or custom-tab. Other browser tabs are never recorded.",
+            Scope.APP,
+            listOf(ParamSpec("set", ParamType.ENUM, "Turn one source on or off; leave out to read.", enumValues = listOf("webview-on", "webview-off", "tabs-on", "tabs-off"), positional = true)),
+        ),
+        OperationSpec(
+            "web.status",
+            "What browser capture is doing for the app: each source off, waiting, capturing or unavailable (why), the pages followed (partial when they loaded before DTA attached) and the forwarded DevTools endpoints.",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "web.reload",
+            "Reload a followed page so it is captured whole (a page that loaded before DTA attached is partial). The page reloads in the app.",
+            Scope.APP,
+            listOf(ParamSpec("page", ParamType.STRING, "The page id from web.status.", required = true, positional = true)),
+        ),
+        OperationSpec(
+            "web.devtools",
+            "The app's DevTools endpoints forwarded to this machine (WebView, and the browser while Custom Tabs capture is on), for chrome://inspect or chrome-devtools-mcp --browserUrl. Works while the app has a WebView open.",
+            Scope.APP,
+        ),
         OperationSpec("timeline.flow.end", "End the flow that is recording, after the newest row recorded. Works with the app gone.", Scope.APP),
         OperationSpec(
             "timeline.flow.list",

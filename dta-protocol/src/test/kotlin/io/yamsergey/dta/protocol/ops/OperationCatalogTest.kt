@@ -42,6 +42,7 @@ class OperationCatalogTest {
                 "links.list", "links.entry", "links.open", "links.verification",
                 "archive.list", "archive.delete",
                 "timeline.events", "timeline.watch", "timeline.causes", "timeline.sequence",
+                "web.capture", "web.status", "web.reload", "web.devtools",
                 "timeline.flow.start", "timeline.enabled", "timeline.flow.end", "timeline.flow.list", "timeline.flow.rename", "timeline.flow.remove",
                 "state.current", "state.graph", "state.path",
                 "daemon.status", "daemon.stop",
