@@ -88,6 +88,11 @@ interface DaemonOperations {
     suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState
     /** Feature 056: read or set whether the app records its timeline. */
     suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch
+    /** Feature 060: browser capture. */
+    suspend fun webCapture(serial: String, pkg: String, webview: Boolean?, customTabs: Boolean?): io.yamsergey.dta.protocol.web.WebSwitch
+    suspend fun webStatus(serial: String, pkg: String): io.yamsergey.dta.protocol.web.WebStatus
+    suspend fun webReload(serial: String, pkg: String, page: String): Boolean
+    suspend fun webDevtools(serial: String, pkg: String): io.yamsergey.dta.protocol.web.WebDevtools
     suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph
     suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath
     /** The host's network archive (feature 011). */
@@ -113,6 +118,10 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun timelineFlowRemove(serial: String, pkg: String, flow: String) = daemon.timelineFlowRemove(serial, pkg, flow)
     override suspend fun stateCurrent(serial: String, pkg: String) = daemon.stateCurrent(serial, pkg)
     override suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?) = daemon.timelineEnabled(serial, pkg, on)
+    override suspend fun webCapture(serial: String, pkg: String, webview: Boolean?, customTabs: Boolean?) = daemon.webCapture(serial, pkg, webview, customTabs)
+    override suspend fun webStatus(serial: String, pkg: String) = daemon.webStatus(serial, pkg)
+    override suspend fun webReload(serial: String, pkg: String, page: String) = daemon.webReload(serial, pkg, page)
+    override suspend fun webDevtools(serial: String, pkg: String) = daemon.webDevtools(serial, pkg)
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean) = daemon.stateGraph(serial, pkg, facets, minHoldMs, inferred)
     override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) = daemon.statePath(serial, pkg, from, to, facets)
     override fun archiveList() = daemon.archiveList()

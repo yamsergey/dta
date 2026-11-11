@@ -173,6 +173,24 @@ class OperationDispatcher(
             knownFlow(flow) { buildJsonObject { put("removed", ops.timelineFlowRemove(c.device, c.app, flow).id) } }
         },
         "timeline.enabled" to { c -> encode(io.yamsergey.dta.protocol.timeline.TimelineSwitch.serializer(), ops.timelineEnabled(c.device, c.app, when (c.string("set")) { null -> null; "on" -> true; "off" -> false; else -> invalid("set is on or off") })) },
+        "web.capture" to { c ->
+            val (webview, tabs) = when (c.string("set")) {
+                null -> null to null
+                "webview-on" -> true to null
+                "webview-off" -> false to null
+                "tabs-on" -> null to true
+                "tabs-off" -> null to false
+                else -> invalid("set is webview-on, webview-off, tabs-on or tabs-off")
+            }
+            encode(io.yamsergey.dta.protocol.web.WebSwitch.serializer(), ops.webCapture(c.device, c.app, webview, tabs))
+        },
+        "web.status" to { c -> encode(io.yamsergey.dta.protocol.web.WebStatus.serializer(), ops.webStatus(c.device, c.app)) },
+        "web.reload" to { c ->
+            val page = c.required("page")
+            if (!ops.webReload(c.device, c.app, page)) invalid("no followed page $page: see web.status")
+            buildJsonObject { put("reloaded", page) }
+        },
+        "web.devtools" to { c -> encode(io.yamsergey.dta.protocol.web.WebDevtools.serializer(), ops.webDevtools(c.device, c.app)) },
         "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
         "state.graph" to { c ->
             encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")))

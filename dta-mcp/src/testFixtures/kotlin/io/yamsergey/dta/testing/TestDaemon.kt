@@ -174,6 +174,20 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
         on?.let { timelineOn = it }
         return io.yamsergey.dta.protocol.timeline.TimelineSwitch(timelineOn, timelineOn)
     }
+
+    // Feature 060: browser capture switches kept in memory.
+    var webSwitch = io.yamsergey.dta.protocol.web.WebSwitch(webview = false, customTabs = false)
+    override suspend fun webCapture(serial: String, pkg: String, webview: Boolean?, customTabs: Boolean?): io.yamsergey.dta.protocol.web.WebSwitch {
+        webSwitch = webSwitch.copy(webview = webview ?: webSwitch.webview, customTabs = customTabs ?: webSwitch.customTabs)
+        return webSwitch
+    }
+    override suspend fun webStatus(serial: String, pkg: String) = io.yamsergey.dta.protocol.web.WebStatus(
+        io.yamsergey.dta.protocol.web.WebSourceStatus(if (webSwitch.webview) "waiting" else "off"),
+        io.yamsergey.dta.protocol.web.WebSourceStatus(if (webSwitch.customTabs) "waiting" else "off"),
+        switch = webSwitch,
+    )
+    override suspend fun webReload(serial: String, pkg: String, page: String) = false
+    override suspend fun webDevtools(serial: String, pkg: String) = io.yamsergey.dta.protocol.web.WebDevtools(emptyList(), "no WebView")
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph {
         val events = timeline.currentEpochEvents()
         val current = timeline.facets.snapshot()

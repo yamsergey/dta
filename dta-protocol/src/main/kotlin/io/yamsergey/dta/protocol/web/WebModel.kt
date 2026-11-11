@@ -131,3 +131,7 @@ data class WebStatus(
     val devtools: List<DevtoolsEndpoint> = emptyList(),
     val switch: WebSwitch? = null,
 )
+
+/** `web.devtools`: the forwarded endpoints; [note] says why there is none. */
+@Serializable
+data class WebDevtools(val devtools: List<DevtoolsEndpoint>, val note: String? = null)

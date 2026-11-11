@@ -567,6 +567,22 @@ class DtaDaemon(
     suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?): io.yamsergey.dta.protocol.network.WsPushResult =
         scriptService(serial, pkg).push(connection, text, base64, waitMs)
 
+    /** Feature 060: browser capture per app, started when the app connects or a switch changes. */
+    private val webCaptures = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.web.WebCapture>()
+
+    suspend fun webCapture(serial: String, pkg: String, webview: Boolean?, customTabs: Boolean?) = web(serial, pkg).switch(webview, customTabs)
+    suspend fun webStatus(serial: String, pkg: String) = web(serial, pkg).status()
+    suspend fun webReload(serial: String, pkg: String, page: String) = web(serial, pkg).reload(page)
+    suspend fun webDevtools(serial: String, pkg: String) = web(serial, pkg).devtools()
+
+    internal fun web(serial: String, pkg: String): io.yamsergey.dta.daemon.web.WebCapture = webCaptures.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
+        io.yamsergey.dta.daemon.web.WebCapture(serial, pkg, runAdb, { connections.connect(key) }, background)
+    }
+
+    private val webOnConnect = background.launch {
+        connections.changes.collect { e -> if (e.state == "connected") runCatching { web(e.device, e.app).start() } }
+    }
+
     /** Feature 027: the app's stores. */
     /** Feature 056: the app's timeline switch (an older sidekick answers that it predates it). */
     suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch {
@@ -647,6 +663,8 @@ class DtaDaemon(
         io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, hostStore.delete(target, dryRun = !confirm))
 
     suspend fun shutdown() {
+        // Feature 060: held pages are released and DevTools forwards removed.
+        webCaptures.values.forEach { runCatching { it.stop() } }
         background.cancel()
         connections.shutdown()
     }
