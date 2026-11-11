@@ -6,6 +6,8 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
+import com.intellij.icons.AllIcons
+import io.yamsergey.dta.present.layout.CallGroup
 import io.yamsergey.dta.present.layout.NodeDetail
 import io.yamsergey.dta.present.layout.Source
 import io.yamsergey.dta.studio.ui.StatementMark
@@ -35,6 +37,7 @@ class NodeDetailPane(
     fun empty(text: String) = rebuild { add(JBLabel(text).apply { foreground = JBColor.GRAY }) }
 
     fun show(detail: NodeDetail?, note: String?) {
+        lastShown = detail to note
         if (detail == null) return empty(note ?: "Select a node to see its properties.")
         rebuild {
             add(row(*detail.breadcrumb.mapIndexed { i, name ->
@@ -54,11 +57,40 @@ class NodeDetailPane(
             }
             if (detail.callChain.isNotEmpty()) {
                 add(heading("Call chain"))
-                // Feature 054: a call with a source opens like the node's own source link.
-                detail.callChain.forEach { c ->
-                    add((c.source?.let { sourceLink(it, c.text, emptyList()) } ?: JBLabel(c.text).apply { setCopyable(true) }).left())
-                }
+                // Feature 059: runs of one file fold into a row; each call opens like the Source link (054).
+                val identity = detail.breadcrumb to detail.callChain
+                if (identity != shownFor) { shownFor = identity; opened.clear() }
+                detail.callGroups.forEach { g -> callGroup(g) }
             }
+        }
+    }
+
+    /** Keys of the opened call groups, kept while the same node (breadcrumb and chain) is shown. */
+    private val opened = mutableSetOf<String>()
+    private var shownFor: Any? = null
+    private var lastShown: Pair<NodeDetail?, String?>? = null
+
+    private fun JPanel.callGroup(g: CallGroup) {
+        val number = { text: String -> JBLabel(text).apply { foreground = JBColor.GRAY; preferredSize = JBUI.size(36, preferredSize.height) } }
+        val file = g.file ?: run {
+            val c = g.calls.single()
+            add(row(number(g.range), JBLabel(c.text).apply { setCopyable(true) }))
+            return
+        }
+        val open = g.key in opened
+        val toggle = ActionLink(file) {
+            if (!opened.remove(g.key)) opened += g.key
+            lastShown?.let { (d, n) -> show(d, n) }
+        }.apply {
+            icon = if (open) AllIcons.General.ArrowDown else AllIcons.General.ArrowRight
+            toolTipText = "${g.packageName?.let { "$it · " } ?: ""}${g.count}: ${g.names}"
+            accessibleContext.accessibleName = "$file, ${g.count}, ${if (open) "open" else "folded"}"
+        }
+        add(row(number(g.range), toggle, JBLabel(if (open) g.count else "${g.count} · ${g.names}").apply { foreground = JBColor.GRAY }))
+        if (open) g.calls.forEachIndexed { i, c ->
+            val text = c.source?.let { "${c.text.substringBefore(" (")}  :${it.line}" } ?: c.text
+            add(row(number("${g.first + i}"), JBLabel("").apply { preferredSize = JBUI.size(12, 1) },
+                c.source?.let { sourceLink(it, text, emptyList()) } ?: JBLabel(text)))
         }
     }
 
