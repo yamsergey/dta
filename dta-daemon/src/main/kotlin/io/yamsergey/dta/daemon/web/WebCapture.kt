@@ -139,7 +139,7 @@ class WebCapture(
             val socket = if (source == Web.WEBVIEW) webviewSocket() else browserSocket()
             if (socket == null) {
                 set(WebSourceStatus(WebSourceStatus.WAITING, if (source == Web.WEBVIEW) "no WebView in the app yet" else "the browser is not running (Chrome-based browsers only)"))
-                delay(1_000)
+                delay(POLL_MS)
                 continue
             }
             var port: Int? = null
@@ -171,7 +171,7 @@ class WebCapture(
                     port?.let { removeForward(it) }
                 }
             }
-            delay(1_000)
+            delay(POLL_MS)
         }
     }
 
@@ -211,22 +211,29 @@ class WebCapture(
 
     // ---- adb -----------------------------------------------------------------------------
 
-    /** The pids of the app's processes (`pkg` and `pkg:*`). */
-    private fun pids(): Set<String> = runAdb(listOf("-s", serial, "shell", "ps", "-A", "-o", "PID,NAME")).stdout.lineSequence()
-        .map { it.trim().split(Regex("\\s+")) }
-        .filter { it.size >= 2 && (it[1] == pkg || it[1].startsWith("$pkg:")) }
-        .map { it[0] }.toSet()
-
-    private fun sockets(): List<String> = runAdb(listOf("-s", serial, "shell", "cat", "/proc/net/unix")).stdout.lineSequence()
-        .mapNotNull { line -> line.trim().split(Regex("\\s+")).lastOrNull()?.takeIf { it.startsWith("@") }?.removePrefix("@") }
-        .toList()
-
-    private fun webviewSocket(): String? {
-        val pids = pids().takeIf { it.isNotEmpty() } ?: return null
-        return sockets().firstOrNull { s -> s.startsWith(WEBVIEW_SOCKET) && s.removePrefix(WEBVIEW_SOCKET) in pids }
+    /**
+     * The app's processes (`pkg`, `pkg:*`) and the abstract sockets on the device, in one adb
+     * shell call (the loop polls while waiting; one call keeps adb's load low).
+     */
+    private fun scan(): Pair<Set<String>, List<String>> {
+        val out = runAdb(listOf("-s", serial, "shell", "ps -A -o PID,NAME; echo $SPLIT; cat /proc/net/unix")).stdout
+        val (ps, unix) = out.split(SPLIT, limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+        val pids = ps.lineSequence().map { it.trim().split(Regex("\\s+")) }
+            .filter { it.size >= 2 && (it[1] == pkg || it[1].startsWith("$pkg:")) }
+            .map { it[0] }.toSet()
+        val sockets = unix.lineSequence()
+            .mapNotNull { line -> line.trim().split(Regex("\\s+")).lastOrNull()?.takeIf { it.startsWith("@") }?.removePrefix("@") }
+            .toList()
+        return pids to sockets
     }
 
-    private fun browserSocket(): String? = sockets().firstOrNull { it == CHROME_SOCKET }
+    private fun webviewSocket(): String? {
+        val (pids, sockets) = scan()
+        if (pids.isEmpty()) return null
+        return sockets.firstOrNull { s -> s.startsWith(WEBVIEW_SOCKET) && s.removePrefix(WEBVIEW_SOCKET) in pids }
+    }
+
+    private fun browserSocket(): String? = scan().second.firstOrNull { it == CHROME_SOCKET }
 
     private fun forward(socket: String): Int {
         val r = runAdb(listOf("-s", serial, "forward", "tcp:0", "localabstract:$socket"))
@@ -248,6 +255,9 @@ class WebCapture(
     companion object {
         const val WEBVIEW_SOCKET = "webview_devtools_remote_"
         const val CHROME_SOCKET = "chrome_devtools_remote"
+        private const val SPLIT = "--dta-unix--"
+        /** How often a missing socket is looked for again. */
+        private const val POLL_MS = 2_000L
     }
 }
 
