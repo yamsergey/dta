@@ -143,7 +143,16 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
         if (timeline.pushed(event)) timelineLive.tryEmit(event)
     }
 
-    override fun layoutSignal(serial: String, pkg: String) = kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update>()
+    /** Feature 057: the screen signal a test drives; [signalWatchers] counts who listens now. */
+    val signal = kotlinx.coroutines.flow.MutableSharedFlow<io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update>(extraBufferCapacity = 64)
+    val signalWatchers = java.util.concurrent.atomic.AtomicInteger()
+    override fun layoutSignal(serial: String, pkg: String) = kotlinx.coroutines.flow.flow {
+        signalWatchers.incrementAndGet()
+        try {
+            emit(io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update.State(io.yamsergey.dta.protocol.layout.ScreenSignal.WATCHING))
+            signal.collect { emit(it) }
+        } finally { signalWatchers.decrementAndGet() }
+    }
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
         kotlinx.coroutines.flow.flow {
             if (history) timeline.page(null, 500, null, sources, kinds).events.forEach { emit(it) }

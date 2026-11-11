@@ -61,7 +61,7 @@ class LayoutControllerTest {
         // The context may still settle (a new generation once the app's connection is reported):
         // that is a fresh capture, never one of something else or at another detail.
         val requests = daemon.ops.layoutRequests.toList()
-        assertTrue(requests.isNotEmpty() && requests.all { it == ("com.example.shop" to DetailLevel.LAYOUT) }, "$requests")
+        assertTrue(requests.isNotEmpty() && requests.all { it == ("com.example.shop" to DetailLevel.COMPOSITION) }, "$requests")
         assertEquals("1080×2400 px · MainActivity · sidekick", shown.tree!!.summary)
         assertEquals(shown.tree!!.initiallyExpanded, shown.expanded)
     }
@@ -89,16 +89,62 @@ class LayoutControllerTest {
         assertEquals("The selected node Button (#2) is no longer on screen.", gone.note)
     }
 
-    @Test
-    fun `choosing a detail level recaptures at that level`() = runBlocking<Unit> {
+    private suspend fun shown(): LayoutViewState {
         session.start()
-        // Shown before the app is known, the view captures twice and the second capture can undo what the test did.
         await { it.app == "com.example.shop" }
         layout.setActive(true)
-        await { it.tree != null }
-        layout.setDetail(DetailLevel.COMPOSITION)
-        await { it.detail == DetailLevel.COMPOSITION && !it.loading && it.tree != null }
-        withTimeout(5_000) { while (daemon.ops.layoutRequests.none { it.second == DetailLevel.COMPOSITION }) kotlinx.coroutines.delay(20) }
+        return await { it.tree != null && !it.loading }
+    }
+
+    private fun change() = daemon.ops.signal.tryEmit(
+        io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update.Changed(io.yamsergey.dta.protocol.layout.LayoutChanged(System.currentTimeMillis(), listOf("windows"))),
+    )
+
+    @Test
+    fun `auto captures after the app's screen changed, manual only says so`() = runBlocking<Unit> {
+        shown()
+        withTimeout(5_000) { while (daemon.ops.signalWatchers.get() == 0) kotlinx.coroutines.delay(20) }
+        kotlinx.coroutines.delay(1_100)
+        var before = daemon.ops.layoutRequests.size
+        change()
+        val hint = await { it.reason.first.startsWith("The screen changed") }
+        assertTrue(hint.reason.second, "a caveat")
+        kotlinx.coroutines.delay(1_500)
+        assertEquals(before, daemon.ops.layoutRequests.size, "manual never captures by itself")
+
+        layout.setRefreshMode(io.yamsergey.dta.present.layout.RefreshPolicy.Mode.AUTO)
+        before = daemon.ops.layoutRequests.size
+        change()
+        withTimeout(5_000) { while (daemon.ops.layoutRequests.size == before) kotlinx.coroutines.delay(20) }
+        val after = await { !it.loading }
+        assertTrue(after.reason.first.startsWith("Follows the app"), after.reason.first)
+        assertTrue(daemon.ops.layoutRequests.all { it.second == DetailLevel.COMPOSITION })
+    }
+
+    @Test
+    fun `a hidden view watches nothing`() = runBlocking<Unit> {
+        shown()
+        withTimeout(5_000) { while (daemon.ops.signalWatchers.get() == 0) kotlinx.coroutines.delay(20) }
+        layout.setActive(false)
+        withTimeout(5_000) { while (daemon.ops.signalWatchers.get() != 0) kotlinx.coroutines.delay(20) }
+    }
+
+    @Test
+    fun `hiding containers changes the shown tree, not the capture`() = runBlocking<Unit> {
+        daemon.ops.capture = LayoutCapture(
+            Screen(1080, 2400, 2.6f, "MainActivity"), CaptureSource.SIDEKICK,
+            listOf(Window(type = WindowType.APPLICATION, zOrder = 0, root = ViewNode(1, Rect(0, 0, 1080, 2400), "androidx.compose.ui.platform.ComposeView", children = listOf(
+                io.yamsergey.dta.protocol.layout.ComposeNode(id = 2, bounds = Rect(0, 0, 1080, 2400), name = "Column", provenance = io.yamsergey.dta.protocol.layout.Provenance.TOOLING, children = listOf(
+                    io.yamsergey.dta.protocol.layout.ComposeNode(id = 3, bounds = Rect(0, 0, 100, 50), name = "Text", text = "Pay"))),
+            )))),
+        )
+        val hidden = shown()
+        assertEquals(listOf(0, 0, 0), hidden.tree!!.windows.single().root.children.single().path, "the Column is hidden, the Text lifted")
+        val before = daemon.ops.layoutRequests.size
+        layout.setHideContainers(false)
+        val all = await { !it.hideContainers }
+        assertEquals(listOf(0, 0), all.tree!!.windows.single().root.children.single().path)
+        assertEquals(before, daemon.ops.layoutRequests.size, "no new capture")
     }
 
     @Test

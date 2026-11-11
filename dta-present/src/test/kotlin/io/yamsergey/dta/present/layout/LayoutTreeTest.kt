@@ -20,7 +20,7 @@ class LayoutTreeTest {
 
     @Test
     fun `the header states screen, activity, source and detail`() {
-        assertEquals("1080×2400 px · MainActivity · sidekick · detail composition", mixed.summary)
+        assertEquals("1080×2400 px · MainActivity · sidekick", mixed.summary)
         assertEquals(emptyList(), mixed.statements)
     }
 

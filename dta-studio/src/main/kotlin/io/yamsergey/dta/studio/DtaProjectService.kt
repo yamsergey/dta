@@ -11,7 +11,7 @@ class DtaProjectService(private val project: Project, scope: CoroutineScope) : D
     val context = ContextController(DtaApplicationService.get().session.state, scope)
     val injection = io.yamsergey.dta.studio.inject.InjectionWatcher(project, context, scope, this)
     val network = io.yamsergey.dta.studio.network.NetworkController(context, scope)
-    val layout = io.yamsergey.dta.studio.layout.LayoutController(context, scope)
+    val layout = io.yamsergey.dta.studio.layout.LayoutController(context, scope, io.yamsergey.dta.studio.layout.LayoutSettings.get(project))
     /** The app's timeline (feature 017). */
     val timeline = io.yamsergey.dta.studio.timeline.TimelineController(context, scope)
     /** The app's protobuf schemas and mappings from this project (feature 013). */

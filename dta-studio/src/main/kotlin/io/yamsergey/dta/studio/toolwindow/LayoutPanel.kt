@@ -21,7 +21,7 @@ import io.yamsergey.dta.present.layout.NodeDetail
 import io.yamsergey.dta.present.layout.SearchResult
 import io.yamsergey.dta.present.layout.TreeNode
 import io.yamsergey.dta.present.layout.WindowRow
-import io.yamsergey.dta.protocol.layout.DetailLevel
+import io.yamsergey.dta.present.layout.RefreshPolicy
 import io.yamsergey.dta.studio.layout.LayoutController
 import io.yamsergey.dta.studio.layout.LayoutViewState
 import io.yamsergey.dta.studio.layout.NodeDetailPane
@@ -72,9 +72,19 @@ class LayoutPanel(
     private val nodes = HashMap<List<Int>, DefaultMutableTreeNode>()
     private val banners = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
     private val summary = JBLabel().apply { foreground = JBColor.GRAY }
-    private val detailLevel = ComboBox(DetailLevel.entries.toTypedArray()).apply {
-        renderer = io.yamsergey.dta.studio.ui.textRenderer { it.name.lowercase() }
+    /** Feature 057: Auto follows the app's screen changes, Manual waits for Refresh. */
+    private val refreshMode = ComboBox(RefreshPolicy.Mode.entries.toTypedArray()).apply {
+        renderer = io.yamsergey.dta.studio.ui.textRenderer { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }
     }
+    private val refreshLink = ActionLink("Refresh") { controller.refresh() }
+    /** Why the choice matters, or what Auto is doing (one line, wraps). */
+    private val reason = com.intellij.ui.components.JBTextArea().apply {
+        isEditable = false; lineWrap = true; wrapStyleWord = true; isOpaque = false; border = JBUI.Borders.empty(0, 8, 2, 8)
+        font = JBUI.Fonts.smallFont()
+    }
+    private val hideContainers = JBCheckBox("Hide containers", true)
+    /** US4: something without DTA is in front of the app. */
+    private val front = JBLabel().apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8); isVisible = false }
     private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Search name, text, id, test tag" }
     private val position = JBLabel().apply { foreground = JBColor.GRAY }
     private val hide = JBCheckBox("Only matches")
@@ -87,7 +97,8 @@ class LayoutPanel(
     private val splitter = JBSplitter(false, 0.45f)
     /** Feature 014: the picture beside the tree, between the tree and the detail. */
     private val screen = io.yamsergey.dta.studio.layout.ScreenPane(controller)
-    private val screenCaption = JBLabel("").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8) }
+    // Feature 057: one line high whether empty or not, so hovering never resizes the picture.
+    private val screenCaption = JBLabel(" ").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8) }
     private val screenToggle = JBCheckBox("Screen", true)
     private val screenPanel = JPanel(BorderLayout()).apply {
         add(screen, BorderLayout.CENTER)
@@ -102,21 +113,26 @@ class LayoutPanel(
 
     init {
         val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
-            add(ActionLink("Refresh") { controller.refresh() })
-            add(JBLabel("Detail:"))
-            add(detailLevel)
+            add(JBLabel("Refresh:"))
+            add(refreshMode)
+            add(refreshLink)
             add(search)
             add(ActionLink("↑") { controller.previousMatch() })
             add(ActionLink("↓") { controller.nextMatch() })
             add(position)
+        }
+        val options = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(0))).apply {
+            add(hideContainers)
             add(hide)
             add(screenToggle)
         }
         val master = JPanel(BorderLayout()).apply {
-            add(JPanel(BorderLayout()).apply {
-                add(toolbar, BorderLayout.NORTH)
-                add(banners, BorderLayout.CENTER)
-                add(summary.apply { border = JBUI.Borders.empty(2, 8) }, BorderLayout.SOUTH)
+            add(JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                listOf(front, toolbar, reason, options, banners, summary.apply { border = JBUI.Borders.empty(2, 8) }).forEach { c ->
+                    (c as javax.swing.JComponent).alignmentX = java.awt.Component.LEFT_ALIGNMENT
+                    add(c)
+                }
             }, BorderLayout.NORTH)
             add(JBScrollPane(tree), BorderLayout.CENTER)
             add(status, BorderLayout.SOUTH)
@@ -130,7 +146,8 @@ class LayoutPanel(
             override fun componentResized(e: ComponentEvent?) { splitter.orientation = width < JBUI.scale(900) }
         })
 
-        detailLevel.addActionListener { if (!updating) (detailLevel.selectedItem as? DetailLevel)?.let { if (it != last.detail) controller.setDetail(it) } }
+        refreshMode.addActionListener { if (!updating) (refreshMode.selectedItem as? RefreshPolicy.Mode)?.let { if (it != last.refresh) controller.setRefreshMode(it) } }
+        hideContainers.addActionListener { if (!updating) controller.setHideContainers(hideContainers.isSelected) }
         search.addDocumentListener(object : com.intellij.ui.DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) { if (!updating) controller.search(search.text) }
         })
@@ -181,13 +198,20 @@ class LayoutPanel(
             val selected = s.selected?.let { nodes[it] }
             if (selected == null) tree.clearSelection()
             else TreePath(selected.path).let { if (tree.selectionPath != it) { tree.selectionPath = it; tree.scrollPathToVisible(it) } }
-            if (detailLevel.selectedItem != s.detail) detailLevel.selectedItem = s.detail
+            if (refreshMode.selectedItem != s.refresh) refreshMode.selectedItem = s.refresh
+            refreshLink.text = if (s.refresh == RefreshPolicy.Mode.AUTO) "Refresh now" else "Refresh"
+            hideContainers.isSelected = s.hideContainers
+            if (reason.text != s.reason.first) reason.text = s.reason.first
+            reason.foreground = if (s.reason.second) DtaColors.of("caveat") else JBColor.GRAY
+            front.text = s.front ?: ""
+            front.isVisible = s.front != null
+            summary.text = summaryLine(s)
             if (s.search == null && search.text.isNotEmpty() && previous.search != null) search.text = ""
             hide.isSelected = s.hideNonMatching
             screenToggle.isSelected = s.screenShown
             if (screenPanel.isVisible != s.screenShown) { screenPanel.isVisible = s.screenShown; inner.revalidate() }
             screen.show(s)
-            screenCaption.text = screen.caption(s)
+            screenCaption.text = screen.caption(s).ifEmpty { " " }
             position.text = s.search?.position(s.selected) ?: ""
             status.text = when {
                 s.device == null -> "Choose a device to see its screen."
@@ -198,7 +222,9 @@ class LayoutPanel(
             }
             status.foreground = if (s.error != null) DtaColors.of("status-server") else JBColor.GRAY
             val tree = s.tree
-            detail.show(if (tree != null && s.selected != null) NodeDetail.of(tree, s.selected) else null, s.note)
+            // The whole capture: a hidden container still names its place in the breadcrumb.
+            val whole = s.capture ?: tree
+            detail.show(if (whole != null && s.selected != null) NodeDetail.of(whole, s.selected) else null, s.note)
         } finally {
             updating = false
         }
@@ -207,10 +233,18 @@ class LayoutPanel(
     private fun showHeader(tree: LayoutTree?) {
         banners.removeAll()
         tree?.statements?.forEach { st ->
-            banners.add(BannerPanel().apply { show(Banner(st.kind, st.sentence + (st.code?.let { " ($it)" } ?: ""))) })
+            banners.add(BannerPanel().apply { show(Banner(st.kind, st.line)) })
         }
-        summary.text = tree?.summary ?: ""
         banners.revalidate()
+    }
+
+    /** "1080×2400 px · MainActivity · sidekick · 18:42:10 · 38 ms on the app's main thread". */
+    private fun summaryLine(s: LayoutViewState): String {
+        val tree = s.tree ?: return ""
+        val at = s.capturedAt?.let { java.time.LocalTime.ofInstant(java.time.Instant.ofEpochMilli(it), java.time.ZoneId.systemDefault()).withNano(0).toString() }
+        val cost = s.mainThreadMs?.let { "$it ms on the app's main thread" } ?: "main-thread time not reported"
+        val hidden = tree.hiddenContainers.takeIf { it > 0 && s.hideContainers }?.let { "$it containers hidden" }
+        return listOfNotNull(tree.summary, at, cost, hidden).joinToString(" · ")
     }
 
     /** One Swing node per tree node; with "only matches", non-matching branches are left out. */
@@ -271,7 +305,7 @@ class LayoutPanel(
             r.source?.let { append("  $it", muted) }
             if (r.disabled) append("  disabled", muted)
             r.statements.forEach { append("  ${it.kind.glyph} ${it.word}", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.text(it.kind))) }
-            toolTipText = r.statements.takeIf { it.isNotEmpty() }?.joinToString("<br>", "<html>", "</html>") { it.sentence + (it.code?.let { c -> " ($c)" } ?: "") }
+            toolTipText = r.statements.takeIf { it.isNotEmpty() }?.joinToString("<br>", "<html>", "</html>") { it.line }
         }
     }
 }

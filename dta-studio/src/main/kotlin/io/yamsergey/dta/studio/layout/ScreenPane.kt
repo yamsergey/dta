@@ -70,7 +70,10 @@ class ScreenPane(private val controller: LayoutController) : JComponent() {
         ?: ""
 
     private fun hoverText(s: LayoutViewState): String? = when (val hit = s.hover) {
-        is ScreenHit.Nodes -> s.tree?.node(hit.paths.first())?.row?.let { r -> listOfNotNull(r.name, r.text).joinToString("  ") }
+        is ScreenHit.Nodes -> s.tree?.node(hit.paths.first())?.row?.let { r ->
+            listOfNotNull(r.name, r.text).joinToString("  ") +
+                (hit.skipped?.let { p -> (s.capture ?: s.tree)?.node(p)?.row?.name?.let { "  · under an empty full-screen layer: $it" } } ?: "")
+        }
         null -> null
         else -> hit.statement
     }

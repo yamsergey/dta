@@ -31,6 +31,13 @@ class RefreshPolicy {
     var gapMs = MIN_GAP_MS
         private set
 
+    /** Another device or app: nothing of the old one counts. */
+    fun reset() {
+        inFlight = false; capturedAt = null; startedAt = Long.MIN_VALUE / 2
+        firstChange = null; lastChange = null; reasons.clear(); lastMainMs = null
+        gapMs = MIN_GAP_MS; signal = Signal.WAITING
+    }
+
     fun changed(at: Long, why: List<String>) {
         if (capturedAt != null && at < capturedAt!!) return
         if (firstChange == null) firstChange = at

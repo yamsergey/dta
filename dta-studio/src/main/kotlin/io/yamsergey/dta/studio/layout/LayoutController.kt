@@ -8,7 +8,7 @@ import io.yamsergey.dta.present.layout.ScreenPick
 import io.yamsergey.dta.present.layout.outline
 import io.yamsergey.dta.present.layout.SearchResult
 import io.yamsergey.dta.present.layout.TreeSearch
-import io.yamsergey.dta.protocol.layout.DetailLevel
+import io.yamsergey.dta.present.layout.RefreshPolicy
 import io.yamsergey.dta.studio.ContextController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,8 +27,20 @@ import kotlinx.serialization.json.jsonObject
 data class LayoutViewState(
     val device: String? = null,
     val app: String? = null,
+    /** The tree as shown (containers hidden or not); [capture] is the whole capture. */
     val tree: LayoutTree? = null,
-    val detail: DetailLevel = DetailLevel.LAYOUT,
+    val capture: LayoutTree? = null,
+    /** Feature 057: layout-only containers hidden from the shown tree. */
+    val hideContainers: Boolean = true,
+    /** Feature 057: Auto follows the app's screen changes; Manual waits for Refresh. */
+    val refresh: RefreshPolicy.Mode = RefreshPolicy.Mode.MANUAL,
+    /** The line under the Refresh choice, and whether it is a caveat. */
+    val reason: Pair<String, Boolean> = "" to false,
+    /** When the shown capture was taken (epoch ms), and its main-thread time. */
+    val capturedAt: Long? = null,
+    val mainThreadMs: Long? = null,
+    /** "<package> is in front of <app>" (US4). */
+    val front: String? = null,
     val expanded: Set<List<Int>> = emptySet(),
     val selected: List<Int>? = null,
     val search: SearchResult? = null,
@@ -50,40 +62,149 @@ data class LayoutViewState(
     data class Pick(val paths: List<List<Int>>, val index: Int)
 }
 
+/** Feature 057: what the Layout view remembers per project. */
+interface LayoutPrefs {
+    var hideContainers: Boolean
+    var autoRefresh: Boolean
+
+    class InMemory(override var hideContainers: Boolean = true, override var autoRefresh: Boolean = false) : LayoutPrefs
+}
+
 /**
- * The Layout view's source (FR-011/012): `layout.tree` for the context's device and app, captured
- * when the view is shown, on refresh, and on a detail-level change — a layout is a snapshot, so
- * nothing is captured while the view is hidden. Works for apps without DTA too (the fallback).
+ * The Layout view's source (FR-011/012): `layout.tree` for the context's device and app, always
+ * the full capture (feature 057: composition detail; the level choice is for agents), taken when
+ * the view is shown, on Refresh, and — in Auto — after the app's screen-change signal, as
+ * [RefreshPolicy] says. Nothing is captured or watched while the view is hidden. Works for apps
+ * without DTA too (the fallback).
  */
-class LayoutController(private val context: ContextController, private val scope: CoroutineScope) {
-    private val mutable = MutableStateFlow(LayoutViewState())
+class LayoutController(
+    private val context: ContextController,
+    private val scope: CoroutineScope,
+    private val prefs: LayoutPrefs = LayoutPrefs.InMemory(),
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private val mutable = MutableStateFlow(
+        LayoutViewState(hideContainers = prefs.hideContainers, refresh = if (prefs.autoRefresh) RefreshPolicy.Mode.AUTO else RefreshPolicy.Mode.MANUAL),
+    )
     val state: StateFlow<LayoutViewState> = mutable.asStateFlow()
     private var capture: Job? = null
+    private var watching: Job? = null
+    private var scheduled: Job? = null
     @Volatile private var active = false
     @Volatile private var stale = true
+    private val policy = RefreshPolicy().apply { mode = mutable.value.refresh }
 
     init {
         scope.launch {
             context.state
-                .map { Target(it.device, it.app, it.generation, context.client) }
+                .map { Target(it.device, it.app, it.generation, context.client, it.connection == io.yamsergey.dta.present.context.Connection.NO_DTA) }
                 .distinctUntilChanged()
                 .collect { t ->
                     val moved = mutable.value.device != t.device || mutable.value.app != t.app
                     mutable.update {
-                        if (moved) LayoutViewState(device = t.device, app = t.app, detail = it.detail, hideNonMatching = it.hideNonMatching) else it
+                        if (moved) LayoutViewState(device = t.device, app = t.app, hideContainers = it.hideContainers, refresh = it.refresh, hideNonMatching = it.hideNonMatching) else it
                     }
                     stale = true
+                    synchronized(policy) {
+                        if (moved) policy.reset()
+                        policy.signal = if (t.noDta) RefreshPolicy.Signal.NO_DTA else if (policy.signal == RefreshPolicy.Signal.NO_DTA) RefreshPolicy.Signal.WAITING else policy.signal
+                    }
+                    watch(t)
                     if (active) refresh()
+                    reason()
                 }
+        }
+        scope.launch {
+            context.state.map { it.inFront to it.frontLine }.distinctUntilChanged().collect { (pkg, line) ->
+                synchronized(policy) { policy.inFront = pkg }
+                mutable.update { it.copy(front = line) }
+                reason()
+                schedule()
+            }
         }
     }
 
-    private data class Target(val device: String?, val app: String?, val generation: Int, val client: DaemonClient?)
+    private data class Target(val device: String?, val app: String?, val generation: Int, val client: DaemonClient?, val noDta: Boolean)
 
     /** The view became visible ([on]) or hidden; showing it captures a stale screen. */
     fun setActive(on: Boolean) {
         active = on
+        synchronized(policy) { policy.shown = on }
+        watch(null)
         if (on && stale) refresh()
+        if (!on) scheduled?.cancel()
+    }
+
+    /** Feature 057: Auto or Manual, remembered for the project. */
+    fun setRefreshMode(mode: RefreshPolicy.Mode) {
+        prefs.autoRefresh = mode == RefreshPolicy.Mode.AUTO
+        synchronized(policy) { policy.mode = mode }
+        mutable.update { it.copy(refresh = mode) }
+        reason()
+        schedule()
+    }
+
+    /** Feature 057: hides or shows layout-only containers in the shown tree, from the same capture. */
+    fun setHideContainers(on: Boolean) {
+        prefs.hideContainers = on
+        mutable.update { s ->
+            val shown = s.capture?.visible(on)
+            val selected = s.selected?.takeIf { shown?.node(it) != null }
+            s.copy(hideContainers = on, tree = shown, selected = selected, search = s.search?.let { r -> shown?.let { TreeSearch.find(it, r.query) } }, hover = null, pick = null)
+        }
+    }
+
+    /** Subscribes to the app's screen signal while the view is shown and the app has DTA; else stops. */
+    private fun watch(target: Target?) {
+        val s = mutable.value
+        val client = context.client
+        val noDta = context.state.value.connection == io.yamsergey.dta.present.context.Connection.NO_DTA
+        if (target != null) watching?.cancel()
+        if (!active || client == null || s.device == null || s.app == null || noDta) {
+            watching?.cancel(); watching = null
+            return
+        }
+        if (watching?.isActive == true) return
+        val params = JsonObject(mapOf("device" to JsonPrimitive(s.device), "app" to JsonPrimitive(s.app)))
+        watching = scope.launch {
+            runCatching {
+                client.layoutChanges(params).collect { data ->
+                    if (data["selection"] != null) return@collect
+                    val state = (data["state"] as? JsonPrimitive)?.content
+                    synchronized(policy) {
+                        if (state != null) {
+                            policy.signal = when (state) {
+                                io.yamsergey.dta.protocol.layout.ScreenSignal.WATCHING -> RefreshPolicy.Signal.WATCHING
+                                io.yamsergey.dta.protocol.layout.ScreenSignal.UNSUPPORTED -> RefreshPolicy.Signal.UNSUPPORTED
+                                else -> RefreshPolicy.Signal.RECONNECTING
+                            }
+                        } else {
+                            val at = (data["at"] as? JsonPrimitive)?.content?.toLongOrNull() ?: clock()
+                            val why = (data["reasons"] as? kotlinx.serialization.json.JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty()
+                            policy.changed(at, why)
+                        }
+                    }
+                    reason()
+                    schedule()
+                }
+            }
+        }
+    }
+
+    /** Arms the next Auto capture when one is due. */
+    private fun schedule() {
+        val due = synchronized(policy) { policy.due(clock()) } ?: return
+        scheduled?.cancel()
+        scheduled = scope.launch {
+            kotlinx.coroutines.delay((due - clock()).coerceAtLeast(0))
+            val now = synchronized(policy) { policy.due(clock()) }
+            if (now != null && now <= clock()) refresh() else schedule()
+        }
+    }
+
+    private fun reason() {
+        val line = synchronized(policy) { policy.line(clock()) }
+        mutable.update { it.copy(reason = line) }
     }
 
     fun refresh() {
@@ -92,33 +213,45 @@ class LayoutController(private val context: ContextController, private val scope
         val device = s.device ?: return
         stale = false
         capture?.cancel()
+        scheduled?.cancel()
+        synchronized(policy) { policy.captureStarted(clock()) }
         mutable.update { it.copy(loading = true, error = null) }
         capture = scope.launch {
             val params = JsonObject(
                 listOfNotNull("device" to JsonPrimitive(device), s.app?.let { "app" to JsonPrimitive(it) }).toMap() +
-                    ("detail" to JsonPrimitive(s.detail.name.lowercase())) +
+                    ("detail" to JsonPrimitive("composition")) +
                     (if (s.screenShown) mapOf("screen" to JsonPrimitive(true)) else emptyMap()),
             )
-            runCatching { LayoutTree.of(client.call("layout.tree", params).result.jsonObject) }
-                .onSuccess { tree -> mutable.update { captured(it, tree) } }
-                .onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) mutable.update { it.copy(loading = false, error = e.message ?: e.javaClass.simpleName) } }
+            runCatching { client.call("layout.tree", params).result.jsonObject }
+                .onSuccess { result ->
+                    val mainMs = (result["mainThreadMs"] as? JsonPrimitive)?.content?.toLongOrNull()
+                    val at = clock()
+                    synchronized(policy) {
+                        policy.captureDone(at, mainMs)
+                        if (result["source"]?.let { (it as JsonPrimitive).content } == "uiautomator") policy.signal = RefreshPolicy.Signal.NO_DTA
+                    }
+                    val full = LayoutTree.of(result)
+                    mutable.update { captured(it, full).copy(capturedAt = at, mainThreadMs = mainMs) }
+                    reason()
+                    schedule()
+                }
+                .onFailure { e ->
+                    synchronized(policy) { policy.captureFailed() }
+                    if (e !is kotlinx.coroutines.CancellationException) mutable.update { it.copy(loading = false, error = e.message ?: e.javaClass.simpleName) }
+                }
         }
     }
 
     /** The new capture with the selection, expansion and search carried over. */
-    private fun captured(old: LayoutViewState, tree: LayoutTree): LayoutViewState {
+    private fun captured(old: LayoutViewState, full: LayoutTree): LayoutViewState {
+        val tree = full.visible(old.hideContainers)
         val previous = old.tree
         val reselected = if (previous != null && old.selected != null) TreeSearch.reselect(previous, old.selected, tree) else null
         val search = old.search?.let { TreeSearch.find(tree, it.query) }
         val selected = reselected?.path
         val expanded = (if (previous == null) tree.initiallyExpanded else old.expanded) +
             ancestors(selected) + search?.ancestors.orEmpty()
-        return old.copy(tree = tree, selected = selected, note = reselected?.note, search = search, expanded = expanded, loading = false, error = null, hover = null, pick = null)
-    }
-
-    fun setDetail(level: DetailLevel) {
-        mutable.update { it.copy(detail = level) }
-        refresh()
+        return old.copy(tree = tree, capture = full, selected = selected, note = reselected?.note, search = search, expanded = expanded, loading = false, error = null, hover = null, pick = null)
     }
 
     fun select(path: List<Int>?) = mutable.update { it.copy(selected = path, note = null, expanded = it.expanded + ancestors(path), pick = null) }

@@ -121,7 +121,14 @@ data class LayoutTree(
 
     /** Each window's root and the level below it are expanded: the root plus two levels show. */
     val initiallyExpanded: Set<List<Int>>
-        get() = all().filter { it.path.size <= 2 && it.children.isNotEmpty() }.map { it.path }.toSet()
+        get() = buildSet {
+            // By depth as shown: a tree with containers hidden keeps capture paths, which are longer.
+            fun walk(n: TreeNode, depth: Int) {
+                if (n.children.isNotEmpty()) add(n.path)
+                if (depth < 1) n.children.forEach { walk(it, depth + 1) }
+            }
+            windows.forEach { walk(it.root, 0) }
+        }
 
     companion object {
         /** A layout-only container: a Compose node the capture knows from tooling data only. */
@@ -133,7 +140,6 @@ data class LayoutTree(
                 screen?.let { "${it.long("widthPx")}×${it.long("heightPx")} px" },
                 screen?.str("activity")?.substringAfterLast('.'),
                 capture.str("source"),
-                capture.obj("detail")?.str("delivered")?.let { "detail $it" },
             ).joinToString(" · ")
             val windows = capture.arr("windows").mapIndexed { i, w ->
                 val window = w as JsonObject
