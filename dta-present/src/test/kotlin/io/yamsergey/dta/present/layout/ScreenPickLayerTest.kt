@@ -49,10 +49,26 @@ class ScreenPickLayerTest {
     }
 
     @Test
-    fun `where only layers are, the top one answers`() {
+    fun `where the screen has nothing of its own, its container answers, not the layer over it`() {
         val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(screen), 900.0, 1500.0))
-        assertEquals(listOf(0, 1), hit.paths.first())
-        assertNull(hit.skipped)
+        assertEquals(listOf(0, 0), hit.paths.first())
+        assertEquals(listOf(0, 1), hit.skipped)
+    }
+
+    @Test
+    fun `a layer inside the content area, not the whole window, is a layer too`() {
+        val content = Rect(0, 90, 1080, 2200)
+        val app = c(1, full, c(2, content, c(3, content, c(4, Rect(100, 200, 600, 300), text = "Cash 100")), c(5, content)))
+        val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(app), 150.0, 250.0))
+        assertEquals(listOf(0, 0, 0, 0), hit.paths.first())
+        assertEquals(listOf(0, 0, 1), hit.skipped)
+    }
+
+    @Test
+    fun `a lone full-size container is not a layer`() {
+        val lone = c(1, full, c(2, full, c(3, full)))
+        assertNull(assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(lone), 10.0, 10.0)).skipped)
+        assertEquals(listOf(0, 0, 0), assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(lone), 10.0, 10.0)).paths.first())
     }
 
     @Test

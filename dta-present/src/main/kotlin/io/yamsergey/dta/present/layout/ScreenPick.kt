@@ -62,29 +62,36 @@ object ScreenPick {
         val (tx, ty) = x / alignment.scale - alignment.dx to y / alignment.scale - alignment.dy
         val windows = screen?.windows.orEmpty().sortedBy { it.zOrder }
         if (windows.isEmpty()) {
-            for (w in tree.windows.reversed()) hit(w.root, tx, ty)?.let { return it }
+            for (w in tree.windows.reversed()) hit(tree, w.root, tx, ty)?.let { return it }
             return ScreenHit.Outside
         }
         val window = windows.firstOrNull { it.bounds.contains(x, y) } ?: return ScreenHit.Outside
         if (!window.app) return ScreenHit.Foreign(window)
         val roots = window.treeWindow?.let { listOfNotNull(tree.windows.getOrNull(it)) } ?: tree.windows.reversed()
-        for (w in roots) hit(w.root, tx, ty)?.let { return it }
+        for (w in roots) hit(tree, w.root, tx, ty)?.let { return it }
         return ScreenHit.Outside
     }
 
     /**
      * Feature 057 (research R5): every node containing the point, top first (a later sibling
      * before an earlier one, children before their parent). The answer is the first that is not an
-     * empty layer: a node with nothing of its own (no text, description, role or interaction)
-     * covering at least [LAYER_SHARE] of its window — a sheet host or scrim
-     * drawn over everything would otherwise answer everywhere. All layers: the first answers.
+     * empty layer: a node with nothing of its own (no text, description, role or interaction) that
+     * covers at least [LAYER_SHARE] of its parent and is drawn over an earlier sibling holding the
+     * point — a sheet host or scrim kept over the screen would otherwise answer everywhere. All
+     * layers: the first answers.
      */
-    private fun hit(root: TreeNode, x: Double, y: Double): ScreenHit.Nodes? {
+    private fun hit(tree: LayoutTree, root: TreeNode, x: Double, y: Double): ScreenHit.Nodes? {
         val under = ArrayList<TreeNode>()
         collect(root, x, y, under)
         if (under.isEmpty()) return null
-        val window = area(root)
-        fun layer(n: TreeNode) = !hasContent(n) && window > 0 && area(n) >= LAYER_SHARE * window
+        fun layer(n: TreeNode): Boolean {
+            if (hasContent(n) || n.path.size < 2) return false
+            val parentPath = n.path.dropLast(1)
+            val parent = tree.node(parentPath) ?: return false
+            if (area(parent) <= 0 || area(n) < LAYER_SHARE * area(parent)) return false
+            val depth = parentPath.size
+            return under.any { o -> o.path.size > depth && o.path.subList(0, depth) == parentPath && o.path[depth] < n.path.last() }
+        }
         val answer = under.firstOrNull { !layer(it) } ?: under.first()
         val skipped = under.takeWhile { it !== answer }.firstOrNull { layer(it) }?.path
         return ScreenHit.Nodes(listOf(answer.path) + under.filter { it !== answer }.map { it.path }, skipped)
