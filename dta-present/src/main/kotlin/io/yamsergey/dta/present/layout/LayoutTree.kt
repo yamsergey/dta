@@ -184,6 +184,9 @@ data class NodeDetail(
     /** Feature 054: the app calls above this node (nearest first), offered when its source is not found. */
     val callers: List<Call> = emptyList(),
 ) {
+    /** Feature 059: [callChain] folded into runs of one file. */
+    val callGroups: List<CallGroup> get() = CallGroups.of(callChain)
+
     /** A call as shown ("Name (File.kt:12)") and its source when it has one. */
     data class Call(val text: String, val source: Source?)
 
