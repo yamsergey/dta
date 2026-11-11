@@ -20,6 +20,9 @@ class InjectionSettings : SimplePersistentStateComponent<InjectionSettings.Optio
         var tooling by property(true)
         /** Feature 056: the Timeline feature; off by default. */
         var timeline by property(false)
+        /** Feature 060: browser capture, each off by default (costly). */
+        var webview by property(false)
+        var customTabs by property(false)
     }
 
     private val changes = MutableStateFlow(true)
@@ -52,10 +55,31 @@ class InjectionSettings : SimplePersistentStateComponent<InjectionSettings.Optio
             timelineChanges.value = value
         }
 
+    /** Feature 060: the browser switches as they change (WebView pages, Custom Tabs); the connected app follows them. */
+    data class Browsers(val webview: Boolean, val customTabs: Boolean)
+
+    private val browserChanges = MutableStateFlow(Browsers(false, false))
+    val browsersFlow: StateFlow<Browsers> = browserChanges.asStateFlow()
+
+    var webview: Boolean
+        get() = state.webview
+        set(value) {
+            state.webview = value
+            browserChanges.value = browserChanges.value.copy(webview = value)
+        }
+
+    var customTabs: Boolean
+        get() = state.customTabs
+        set(value) {
+            state.customTabs = value
+            browserChanges.value = browserChanges.value.copy(customTabs = value)
+        }
+
     override fun loadState(state: Options) {
         super.loadState(state)
         changes.value = state.enabled
         timelineChanges.value = state.timeline
+        browserChanges.value = Browsers(state.webview, state.customTabs)
     }
 
     companion object {

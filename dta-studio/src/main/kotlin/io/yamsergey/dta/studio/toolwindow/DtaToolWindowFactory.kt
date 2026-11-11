@@ -133,6 +133,22 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                     }.onFailure { com.intellij.openapi.diagnostic.logger<DtaToolWindowFactory>().info("timeline switch not sent to $app: ${it.message}") }
                 }
         }
+        // Feature 060: the browser switches, told to the connected app (it keeps them; DTA follows them).
+        service.scope.launch {
+            combine(controller.state, settings.browsersFlow) { st, b -> Triple(st.device, st.app.takeIf { st.connection == io.yamsergey.dta.present.context.Connection.CONNECTED }, b) }
+                .distinctUntilChanged()
+                .collect { (device, app, b) ->
+                    val client = controller.client ?: return@collect
+                    if (device == null || app == null) return@collect
+                    listOf(if (b.webview) "webview-on" else "webview-off", if (b.customTabs) "tabs-on" else "tabs-off").forEach { set ->
+                        runCatching {
+                            client.call("web.capture", kotlinx.serialization.json.buildJsonObject {
+                                put("device", kotlinx.serialization.json.JsonPrimitive(device)); put("app", kotlinx.serialization.json.JsonPrimitive(app)); put("set", kotlinx.serialization.json.JsonPrimitive(set))
+                            })
+                        }.onFailure { com.intellij.openapi.diagnostic.logger<DtaToolWindowFactory>().info("browser switch $set not sent to $app: ${it.message}") }
+                    }
+                }
+        }
         service.scope.launch {
             controller.state.collect { state ->
                 withContext(Dispatchers.Main) {

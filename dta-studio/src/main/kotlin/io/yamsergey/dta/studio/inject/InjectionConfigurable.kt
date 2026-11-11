@@ -25,5 +25,18 @@ class InjectionConfigurable : BoundConfigurable("DTA") {
                     .comment("Shows the Timeline tab and its flows. Off: the tab is hidden and the app records nothing for it. A change applies from the app's next start.")
             }
         }
+        // Feature 060: costly, so off unless needed.
+        group("Browsers") {
+            row {
+                checkBox("WebView pages: record their network traffic (requests, bodies, sockets)")
+                    .bindSelected(InjectionSettings.get()::webview)
+                    .comment("The app makes its WebViews debuggable from its start, and DTA reads them over DevTools. Shown in Network next to the app's traffic, as webview. A page opened before DTA attached is marked partial.")
+            }
+            row {
+                checkBox("Custom Tabs the app opens: record their network traffic")
+                    .bindSelected(InjectionSettings.get()::customTabs)
+                    .comment("DTA attaches to the browser (Chrome-based) and keeps only the tabs this app opened; any other tab is let go at once and never recorded. Shown in Network as custom-tab.")
+            }
+        }
     }
 }
