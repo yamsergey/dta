@@ -88,3 +88,51 @@ class ScreenPickLayerTest {
         assertEquals(tree(screen).windows, tree(screen).visible(hideContainers = false).windows)
     }
 }
+
+/**
+ * Reported 2026-11-11 on a proprietary app (structure only): the content area holds a scrim Box,
+ * the visible content, then a sheet host drawn last whose only-child chain ends in an empty
+ * full-screen scrim. With no sheet open that scrim answered every point.
+ */
+class ScreenPickScrimChainTest {
+    private fun c(id: Long, b: Rect, vararg children: Node, text: String? = null, tooling: Boolean = false) = ComposeNode(
+        id = id, bounds = b, name = if (text != null) "Text" else "Box", text = text, children = children.toList(),
+        provenance = if (tooling) Provenance.TOOLING else Provenance.SEMANTICS,
+    )
+
+    private val full = Rect(0, 0, 1080, 2400)
+    private fun tree(root: Node) = LayoutTree.of(
+        DtaJson.encodeToJsonElement(
+            LayoutCapture.serializer(),
+            LayoutCapture(screen = Screen(1080, 2400, 2.625f), source = CaptureSource.SIDEKICK, windows = listOf(Window(type = WindowType.APPLICATION, zOrder = 0, root = root))),
+        ).jsonObject,
+    )
+
+    private fun screen(sheet: Node? = null) = c(1, full,
+        c(244, full,
+            c(245, full),
+            c(258, full, c(259, Rect(100, 300, 600, 400), text = "Settings")),
+            c(279, full, c(280, full, *listOfNotNull(c(281, full), sheet).toTypedArray()), tooling = true),
+        ),
+    )
+
+    @Test
+    fun `a scrim at the end of an only-child chain does not answer over the content`() {
+        val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(screen()), 300.0, 350.0))
+        assertEquals(listOf(0, 0, 1, 0), hit.paths.first(), "the text under the sheet host")
+        assertEquals(listOf(0, 0, 2, 0, 0), hit.skipped, "the scrim is named")
+    }
+
+    @Test
+    fun `an open sheet's content still answers`() {
+        val sheet = c(290, Rect(0, 1200, 1080, 2400), c(291, Rect(100, 1300, 600, 1400), text = "Accounts"))
+        val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(screen(sheet)), 300.0, 1350.0))
+        assertEquals(listOf(0, 0, 2, 0, 1, 0), hit.paths.first())
+    }
+
+    @Test
+    fun `with containers hidden the same holds`() {
+        val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(screen()).visible(hideContainers = true), 300.0, 350.0))
+        assertEquals(listOf(0, 0, 1, 0), hit.paths.first())
+    }
+}
