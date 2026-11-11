@@ -49,6 +49,13 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - Bounds are in screen pixels: the same coordinates `adb shell input tap` uses. A rotated or scaled view's bounds are its box on the screen; `renderOutline` has its four corners.
 - `screen: true` adds the screen image taken with the tree (one image item) and `screenWindows`: every window on screen, the app's or not (`kind`: toast, keyboard, system, other-app…). A toast or a system dialog is on the picture but not in the app's tree; `screenWindows` names it. `screenOutput: <file>` writes the PNG instead. Read the statements: `screen-changed-during-capture` (the picture and the tree may differ in the area it names), `screen-blocked` (a secure window, no picture), `screen-locked`, `screen-not-aligned`, `screen-scaled` (multiply bounds by `screenImage.scale`). Ask for the screen only when you need to see it; the tree alone is cheaper.
 
+## Web pages: WebView and Custom Tabs
+
+- Browser capture is off by default in each app and costly (feature 060). `web_capture` reads it; `set: webview-on` records the app's WebView pages (it also makes the app's WebViews debuggable from its start), `set: tabs-on` records the Custom Tabs the app opens; `webview-off` / `tabs-off` stop. Turn one on only when the developer wants web traffic.
+- Captured traffic is ordinary network history: `network_list` and the rest, with `library` `webview` or `custom-tab` (no app stack: the page or the browser made the request). Other browser tabs are never recorded.
+- `web_status` says what each source is doing and lists the pages followed. A page marked `partial` loaded before DTA attached (an app started straight into a WebView often is): `web_reload` with its id reloads it in the app so it is captured whole.
+- `web_devtools` gives a forwarded DevTools URL for `chrome-devtools-mcp --browserUrl` or chrome://inspect, to poke the page now (DTA tells what happened; DevTools acts on the page).
+
 ## Timeline, causes and state
 
 - The timeline is off by default in each app (feature 056). `timeline_enabled` reads it; `set: on` turns it on (recording starts now and at every later app start), `set: off` turns it off from the next start. A timeline read of an app with it off says so instead of returning events; turn it on only when the developer wants the app's history recorded.
