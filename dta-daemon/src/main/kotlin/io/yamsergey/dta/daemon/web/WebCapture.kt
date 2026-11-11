@@ -82,7 +82,9 @@ class WebCapture(
     suspend fun status(): WebStatus {
         val sw = runCatching { switch(null, null) }.getOrNull()
         if (sw != null && (sw.webview || sw.customTabs) && job?.isActive != true) start()
-        return WebStatus(webview, tabs, sessions.values.flatMap { it.pages() }, endpoints.values.toList(), sw)
+        // A switch just turned on whose loop has not reported yet reads as starting, not off.
+        fun shown(on: Boolean?, s: WebSourceStatus) = if (on == true && s.state == WebSourceStatus.OFF) WebSourceStatus(WebSourceStatus.WAITING, "starting") else s
+        return WebStatus(shown(sw?.webview, webview), shown(sw?.customTabs, tabs), sessions.values.flatMap { it.pages() }, endpoints.values.toList(), sw)
     }
 
     suspend fun reload(page: String): Boolean = sessions.values.any { runCatching { it.reload(page) }.getOrDefault(false) }
@@ -110,27 +112,14 @@ class WebCapture(
         tabs = if (sw.customTabs) WebSourceStatus(WebSourceStatus.WAITING, "looking for the browser") else WebSourceStatus(WebSourceStatus.OFF, Web.OFF)
         if (!sw.webview && !sw.customTabs) return
         val batcher = Batcher()
-        try {
-            coroutineScope {
-                launch { batcher.run() }
-                if (sw.webview) launch { follow(Web.WEBVIEW, batcher) }
-                if (sw.customTabs) launch { follow(Web.CUSTOM_TAB, batcher) }
-                // The app going away ends capture; its next connection starts it again.
-                launch {
-                    while (isActive) {
-                        delay(3_000)
-                        val app = runCatching { connect() }.getOrNull()
-                        if (app == null || !app.isOpen) throw AppGone()
-                    }
-                }
-            }
-        } catch (_: AppGone) {
-            webview = webview.takeIf { it.state == WebSourceStatus.OFF } ?: WebSourceStatus(WebSourceStatus.WAITING, "the app is not running")
-            tabs = tabs.takeIf { it.state == WebSourceStatus.OFF } ?: WebSourceStatus(WebSourceStatus.WAITING, "the app is not running")
+        // Runs until a switch changes or the daemon stops: the sockets are found over adb, so an app
+        // restart is followed without a client reconnecting (steps wait for the app in the batcher).
+        coroutineScope {
+            launch { batcher.run() }
+            if (sw.webview) launch { follow(Web.WEBVIEW, batcher) }
+            if (sw.customTabs) launch { follow(Web.CUSTOM_TAB, batcher) }
         }
     }
-
-    private class AppGone : Exception()
 
     /** One source: find its socket, attach, follow until it goes, again. */
     private suspend fun follow(source: String, batcher: Batcher) {
@@ -138,8 +127,12 @@ class WebCapture(
         while (currentCoroutineContextActive()) {
             val socket = if (source == Web.WEBVIEW) webviewSocket() else browserSocket()
             if (socket == null) {
-                set(WebSourceStatus(WebSourceStatus.WAITING, if (source == Web.WEBVIEW) "no WebView in the app yet" else "the browser is not running (Chrome-based browsers only)"))
-                delay(POLL_MS)
+                set(WebSourceStatus(WebSourceStatus.WAITING, when {
+                    source != Web.WEBVIEW -> "the browser is not running (Chrome-based browsers only)"
+                    notRunning -> "the app is not running"
+                    else -> "no WebView in the app yet"
+                }))
+                delay(if (source == Web.WEBVIEW) pollMs() else POLL_MS)
                 continue
             }
             var port: Int? = null
@@ -171,7 +164,7 @@ class WebCapture(
                     port?.let { removeForward(it) }
                 }
             }
-            delay(POLL_MS)
+            delay(if (source == Web.WEBVIEW) pollMs() else POLL_MS)
         }
     }
 
@@ -227,9 +220,26 @@ class WebCapture(
         return pids to sockets
     }
 
+    /** A new process of the app: its first WebView page may open within a second, so look often for a while. */
+    @Volatile private var knownPids: Set<String> = emptySet()
+    @Volatile private var fastUntil = 0L
+    @Volatile private var notRunning = false
+
+    private fun pollMs(): Long = when {
+        System.currentTimeMillis() < fastUntil -> FAST_POLL_MS
+        notRunning -> START_POLL_MS
+        else -> POLL_MS
+    }
+
     private fun webviewSocket(): String? {
         val (pids, sockets) = scan()
-        if (pids.isEmpty()) return null
+        if (pids.isNotEmpty() && pids != knownPids) fastUntil = System.currentTimeMillis() + FAST_WINDOW_MS
+        knownPids = pids
+        if (pids.isEmpty()) {
+            notRunning = true
+            return null
+        }
+        notRunning = false
         return sockets.firstOrNull { s -> s.startsWith(WEBVIEW_SOCKET) && s.removePrefix(WEBVIEW_SOCKET) in pids }
     }
 
@@ -258,6 +268,11 @@ class WebCapture(
         private const val SPLIT = "--dta-unix--"
         /** How often a missing socket is looked for again. */
         private const val POLL_MS = 2_000L
+        /** Right after the app's process starts (or while it is not running), for [FAST_WINDOW_MS]. */
+        private const val FAST_POLL_MS = 300L
+        private const val FAST_WINDOW_MS = 15_000L
+        /** While the app is not running: its start is caught within half a second. */
+        private const val START_POLL_MS = 500L
     }
 }
 
