@@ -72,6 +72,23 @@ class LayoutSignalWatchTest {
     }
 
     @Test
+    fun `an older sidekick replaced by a newer one is watched once it is back`() = runTest {
+        val old = App(supported = false)
+        val new = App()
+        var dials = 0
+        val seen = mutableListOf<LayoutSignalWatch.Update>()
+        val job = launch { LayoutSignalWatch(connect = { if (dials++ == 0) old else new }).watch().collect { seen += it } }
+        runCurrent()
+        assertEquals(ScreenSignal.UNSUPPORTED, (seen.last() as LayoutSignalWatch.Update.State).state)
+        old.isOpen = false
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(ScreenSignal.WATCHING, (seen.last() as LayoutSignalWatch.Update.State).state, "$seen")
+        assertEquals(listOf(10_000L), new.leases)
+        job.cancel()
+    }
+
+    @Test
     fun `a lost app is stated and dialled again`() = runTest {
         val first = App()
         val second = App()

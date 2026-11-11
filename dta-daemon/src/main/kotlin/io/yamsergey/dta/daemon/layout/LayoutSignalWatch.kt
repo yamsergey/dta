@@ -7,7 +7,6 @@ import io.yamsergey.dta.protocol.layout.ScreenSignal
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.rpc.ErrorCodes
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -60,9 +59,9 @@ class LayoutSignalWatch(
                     if (error is SidekickRpcException && error.code == ErrorCodes.METHOD_NOT_FOUND) {
                         forward.cancel()
                         send(Update.State(ScreenSignal.UNSUPPORTED, ScreenSignal.UNSUPPORTED_REASON))
-                        awaitCancellation()
-                    }
-                    if (error == null) {
+                        // Until this process ends: a reinstall with a newer DTA is dialled again.
+                        while (app.isOpen) delay(500)
+                    } else if (error == null) {
                         send(Update.State(ScreenSignal.WATCHING))
                         val renew = launch { while (true) { delay(renewMs); runCatching { lease(app, leaseMs) } } }
                         while (app.isOpen) delay(500)

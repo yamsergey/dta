@@ -71,20 +71,28 @@ class LayoutPanel(
     }
     private val nodes = HashMap<List<Int>, DefaultMutableTreeNode>()
     private val banners = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
-    private val summary = JBLabel().apply { foreground = JBColor.GRAY }
+    private val summary = object : JBLabel() {
+        override fun getMinimumSize() = java.awt.Dimension(0, super.getMinimumSize().height)
+    }.apply { foreground = JBColor.GRAY }
     /** Feature 057: Auto follows the app's screen changes, Manual waits for Refresh. */
     private val refreshMode = ComboBox(RefreshPolicy.Mode.entries.toTypedArray()).apply {
         renderer = io.yamsergey.dta.studio.ui.textRenderer { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }
     }
     private val refreshLink = ActionLink("Refresh") { controller.refresh() }
     /** Why the choice matters, or what Auto is doing (one line, wraps). */
-    private val reason = com.intellij.ui.components.JBTextArea().apply {
+    private val reason = object : com.intellij.ui.components.JBTextArea() {
+        // Wrapped text asks for no width of its own: the splitter, not the sentence, sizes the column.
+        override fun getMinimumSize() = java.awt.Dimension(0, super.getMinimumSize().height)
+        override fun getPreferredSize() = java.awt.Dimension(JBUI.scale(120), super.getPreferredSize().height)
+    }.apply {
         isEditable = false; lineWrap = true; wrapStyleWord = true; isOpaque = false; border = JBUI.Borders.empty(0, 8, 2, 8)
         font = JBUI.Fonts.smallFont()
     }
     private val hideContainers = JBCheckBox("Hide containers", true)
     /** US4: something without DTA is in front of the app. */
-    private val front = JBLabel().apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8); isVisible = false }
+    private val front = object : JBLabel() {
+        override fun getMinimumSize() = java.awt.Dimension(0, super.getMinimumSize().height)
+    }.apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8); isVisible = false }
     private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Search name, text, id, test tag" }
     private val position = JBLabel().apply { foreground = JBColor.GRAY }
     private val hide = JBCheckBox("Only matches")
@@ -112,7 +120,7 @@ class LayoutPanel(
     private var updating = false
 
     init {
-        val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
+        val toolbar = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
             add(JBLabel("Refresh:"))
             add(refreshMode)
             add(refreshLink)
@@ -121,7 +129,7 @@ class LayoutPanel(
             add(ActionLink("↓") { controller.nextMatch() })
             add(position)
         }
-        val options = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(0))).apply {
+        val options = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(0))).apply {
             add(hideContainers)
             add(hide)
             add(screenToggle)

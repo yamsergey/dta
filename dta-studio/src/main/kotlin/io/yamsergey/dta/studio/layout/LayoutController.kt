@@ -226,9 +226,14 @@ class LayoutController(
                 .onSuccess { result ->
                     val mainMs = (result["mainThreadMs"] as? JsonPrimitive)?.content?.toLongOrNull()
                     val at = clock()
+                    // A capture that says the screen changed while it ran is followed by another (Auto only).
+                    val moving = (result["degraded"] as? kotlinx.serialization.json.JsonArray)?.any {
+                        ((it as? JsonObject)?.get("reason") as? JsonPrimitive)?.content?.startsWith(io.yamsergey.dta.protocol.layout.DegradationCodes.SCREEN_CHANGED_DURING_CAPTURE) == true
+                    } == true
                     synchronized(policy) {
                         policy.captureDone(at, mainMs)
                         if (result["source"]?.let { (it as JsonPrimitive).content } == "uiautomator") policy.signal = RefreshPolicy.Signal.NO_DTA
+                        if (moving && policy.mode == RefreshPolicy.Mode.AUTO) policy.changed(at, listOf("during the capture"))
                     }
                     val full = LayoutTree.of(result)
                     mutable.update { captured(it, full).copy(capturedAt = at, mainThreadMs = mainMs) }
