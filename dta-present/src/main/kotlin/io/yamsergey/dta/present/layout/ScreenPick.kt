@@ -75,10 +75,10 @@ object ScreenPick {
     /**
      * Feature 057 (research R5): every node containing the point, top first (a later sibling
      * before an earlier one, children before their parent). The answer is the first that is not an
-     * empty layer: a node with nothing of its own (no text, description, role or interaction) that
-     * covers at least [LAYER_SHARE] of its parent and is drawn over another node holding the point
-     * (one that is not its ancestor) — a sheet host or scrim kept over the screen would otherwise answer everywhere. All
-     * layers: the first answers.
+     * empty layer: a node with nothing of its own (no text, description, role or interaction) drawn
+     * over another node holding the point (one that is not its ancestor) of about its own area: each
+     * covers at least [LAYER_SHARE] of the other — a sheet host or scrim kept over the screen would otherwise answer
+     * everywhere. All layers: the first answers.
      */
     private fun hit(tree: LayoutTree, root: TreeNode, x: Double, y: Double): ScreenHit.Nodes? {
         val under = ArrayList<TreeNode>()
@@ -86,14 +86,20 @@ object ScreenPick {
         if (under.isEmpty()) return null
         fun layer(n: TreeNode): Boolean {
             if (hasContent(n) || n.path.size < 2) return false
-            // The nearest ancestor in this tree (a hidden container is not one).
-            val parent = (n.path.size - 1 downTo 1).firstNotNullOfOrNull { tree.node(n.path.take(it)) } ?: return false
-            if (area(parent) <= 0 || area(n) < LAYER_SHARE * area(parent)) return false
-            // Drawn over something else at the point: a node below it in drawing order that is not one of
-            // its ancestors (an earlier sibling's subtree at any level — a scrim can be the only child of
-            // wrappers whose outermost one lies over the screen).
+            val box = bounds(n) ?: return false
+            // Drawn over something of its own size: a node below it at the point, not one of its ancestors,
+            // that it covers almost entirely and that covers it almost entirely (an empty half-screen box
+            // over a text is not a layer). Measured against what lies below, not against its parent: a
+            // scrim below the status bar is 94.96% of a full-screen parent but all of the content it dims,
+            // and the verdict must not change with Hide containers (which changes the parent).
             fun ancestorOfN(o: TreeNode) = o.path.size < n.path.size && n.path.subList(0, o.path.size) == o.path
-            return under.dropWhile { it !== n }.drop(1).any { !ancestorOfN(it) }
+            return under.dropWhile { it !== n }.drop(1).any { o ->
+                if (ancestorOfN(o)) return@any false
+                val b = bounds(o) ?: return@any false
+                val area = b.width.toDouble() * b.height
+                val common = overlap(box, b)
+                area > 0 && common >= LAYER_SHARE * area && common >= LAYER_SHARE * box.width.toDouble() * box.height
+            }
         }
         val answer = under.firstOrNull { !layer(it) } ?: under.first()
         val skipped = under.takeWhile { it !== answer }.firstOrNull { layer(it) }?.path
@@ -111,7 +117,11 @@ object ScreenPick {
 
     private fun bounds(n: TreeNode) = n.json["bounds"]?.let { DtaJson.decodeFromJsonElement(Rect.serializer(), it) }
 
-    private fun area(n: TreeNode): Double = bounds(n)?.let { it.width.toDouble() * it.height } ?: 0.0
+    private fun overlap(a: Rect, b: Rect): Double {
+        val w = minOf(a.right, b.right) - maxOf(a.left, b.left)
+        val h = minOf(a.bottom, b.bottom) - maxOf(a.top, b.top)
+        return if (w <= 0 || h <= 0) 0.0 else w.toDouble() * h
+    }
 
     private fun hasContent(n: TreeNode): Boolean =
         n.json.str("text") != null || n.json.str("contentDescription") != null || n.json.str("role") != null ||

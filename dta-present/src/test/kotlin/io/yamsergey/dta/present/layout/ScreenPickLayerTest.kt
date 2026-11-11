@@ -130,6 +130,37 @@ class ScreenPickScrimChainTest {
         assertEquals(listOf(0, 0, 2, 0, 1, 0), hit.paths.first())
     }
 
+    /**
+     * The user's second report (EAP 121): below the status bar (0..121 px) the scrim and its tooling
+     * wrappers start at 121, inside a full-screen Surface. With containers hidden the scrim was
+     * measured against the Surface: 2279/2400 = 94.96% < 95%, so it answered again.
+     */
+    private val inset = Rect(0, 121, 1080, 2400)
+    private val surface = c(4, full,
+        c(15, full),
+        c(245, inset),
+        c(258, inset, c(273, Rect(0, 395, 1080, 2400), c(492, Rect(0, 686, 1080, 2230), text = "Balance"))),
+        c(279, inset, c(280, inset, c(281, inset), tooling = true), tooling = true),
+    )
+
+    @Test
+    fun `a scrim inset by the status bar is skipped with containers hidden or shown`() {
+        for (hide in listOf(false, true)) {
+            val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(surface).visible(hideContainers = hide), 540.0, 1200.0))
+            assertEquals(listOf(0, 2, 0, 0), hit.paths.first(), "the text, hide containers = $hide")
+            assertEquals(listOf(0, 3, 0, 0), hit.skipped, "the scrim is named, hide containers = $hide")
+        }
+    }
+
+    @Test
+    fun `an empty node over an unrelated full-screen node it does not cover answers`() {
+        // The report's 510 over 245/15: a card-sized empty node is not a layer because something
+        // full-screen lies far below it in another branch.
+        val card = c(4, full, c(15, full), c(258, inset, c(493, Rect(84, 686, 996, 2230), c(510, Rect(84, 686, 996, 2230)))))
+        val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(card), 540.0, 1200.0))
+        assertEquals(listOf(0, 1, 0, 0), hit.paths.first())
+    }
+
     @Test
     fun `with containers hidden the same holds`() {
         val hit = assertIs<ScreenHit.Nodes>(ScreenPick.at(tree(screen()).visible(hideContainers = true), 300.0, 350.0))
