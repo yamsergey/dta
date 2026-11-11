@@ -240,6 +240,12 @@ class Formatters(private val style: Style) {
 
     // --- Layout
 
+    /** Feature 057: one `layout.watch` line: a change (time, reasons) or the signal's state. */
+    fun layoutChangeLine(data: JsonObject): String = data.str("state")?.let { state ->
+        "signal $state" + (data.str("reason")?.let { ": $it" } ?: "")
+    } ?: ("changed " + (data.long("at")?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(it.mod(1000L).toInt() * 1_000_000).toString() } ?: "?") +
+        "  " + (data["reasons"] as? JsonArray)?.joinToString(",") { it.jsonPrimitive.content }.orEmpty())
+
     private fun layout(o: JsonObject): String = buildString {
         val screen = o.obj("screen")
         appendLine(

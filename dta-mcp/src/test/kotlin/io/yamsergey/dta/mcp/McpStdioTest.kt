@@ -34,7 +34,7 @@ class McpStdioTest {
     @Test
     fun `tools are the catalog minus stop and the watches, with the catalog's schema`() {
         val tools = McpTools(call = { _, _ -> error("unused") })
-        assertEquals(Catalog.all.map { it.toolName }.toSet() - "daemon_stop" - "network_watch" - "apps_watch" - "timeline_watch", tools.tools.map { it.toolName }.toSet())
+        assertEquals(Catalog.all.map { it.toolName }.toSet() - "daemon_stop" - "network_watch" - "apps_watch" - "timeline_watch" - "layout_watch", tools.tools.map { it.toolName }.toSet())
         assertEquals(Catalog["network.list"].inputSchema(), tools.byTool("network_list")!!.inputSchema())
     }
 

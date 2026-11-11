@@ -99,9 +99,11 @@ class Runner(
         val formatters = formatters(globals)
         val apps = spec.name == "apps.watch"
         val timeline = spec.name == "timeline.watch"
+        val layout = spec.name == "layout.watch"
         val events = when {
             apps -> client.appEvents(params)
             timeline -> client.timelineEvents(params)
+            layout -> client.layoutChanges(params)
             else -> client.networkEvents(params)
         }
         return try {
@@ -117,12 +119,19 @@ class Runner(
                             err.println("Watching app connections; Ctrl-C to stop.")
                             formatters.appsSnapshot(selected.result).takeIf { it.isNotEmpty() }?.let(out::println)
                         } else {
-                            err.println(if (timeline) "Watching the app's timeline; Ctrl-C to stop." else "Watching network traffic; Ctrl-C to stop.")
+                            err.println(
+                                when {
+                                    timeline -> "Watching the app's timeline; Ctrl-C to stop."
+                                    layout -> "Watching the app's screen changes; Ctrl-C to stop."
+                                    else -> "Watching network traffic; Ctrl-C to stop."
+                                },
+                            )
                         }
                     }
                     globals.json -> out.println(LINE.encodeToString(JsonElement.serializer(), data))
                     apps -> out.println(formatters.appEventLine(data))
                     timeline -> out.println(formatters.timelineEventLine(data))
+                    layout -> out.println(formatters.layoutChangeLine(data))
                     else -> out.println(formatters.watchLine(data))
                 }
                 out.flush()

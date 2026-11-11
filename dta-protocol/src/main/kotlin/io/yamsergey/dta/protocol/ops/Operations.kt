@@ -233,6 +233,11 @@ object Catalog {
             cliPathOverride = listOf("layout"),
         ),
         OperationSpec(
+            "layout.watch",
+            "Follow the app's screen changes as they happen (View layout passes, windows added or removed, Compose state), until interrupted. Nothing is recorded; the app watches only while this runs.",
+            Scope.APP, streaming = true, cliOnly = true,
+        ),
+        OperationSpec(
             "network.list",
             "List captured network traffic: HTTP exchanges, WebSocket connections and messages in one chronological list, with filters. Use sinceMs to fetch only what happened after a point in time.",
             Scope.APP,

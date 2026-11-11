@@ -23,3 +23,16 @@ class LayoutCostFormatTest {
         assertTrue(text.lineSequence().first().endsWith("main-thread time not reported"), text)
     }
 }
+
+/** Feature 057: `dta layout watch` lines. */
+class LayoutWatchFormatTest {
+    private val f = Formatters(Style.PLAIN)
+
+    @Test
+    fun `a change names its reasons, a state its reason`() {
+        val change = f.layoutChangeLine(Json.parseToJsonElement("""{"at":0,"reasons":["layout","compose"]}""") as kotlinx.serialization.json.JsonObject)
+        assertTrue(change.startsWith("changed ") && change.endsWith("layout,compose"), change)
+        val state = f.layoutChangeLine(Json.parseToJsonElement("""{"state":"unsupported","reason":"older DTA"}""") as kotlinx.serialization.json.JsonObject)
+        assertTrue(state == "signal unsupported: older DTA", state)
+    }
+}
