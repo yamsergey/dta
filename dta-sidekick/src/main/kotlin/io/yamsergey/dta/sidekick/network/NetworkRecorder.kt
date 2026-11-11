@@ -74,18 +74,23 @@ class NetworkRecorder(
     }
 
     /** Completes the exchange when the returned recorder finishes. */
-    fun httpResponseBody(id: String, contentType: String?, encoding: String?, declaredBytes: Long?): BodyRecorder =
+    fun httpResponseBody(id: String, contentType: String?, encoding: String?, declaredBytes: Long?, endedAtMs: Long? = null): BodyRecorder =
         bodyRecorder(id, BodyPart.RESPONSE, contentType, encoding, declaredBytes) { info ->
-            updateHttp(id) { it.copy(responseBody = info, state = terminal(it), durationMs = clock() - it.timeMs) }
+            updateHttp(id) { it.copy(responseBody = info, state = terminal(it), durationMs = (endedAtMs ?: clock()) - it.timeMs) }
         }
 
     /** For responses without a body. */
-    fun httpComplete(id: String) = guard {
-        updateHttp(id) { it.copy(state = terminal(it), durationMs = clock() - it.timeMs) }
+    fun httpComplete(id: String, endedAtMs: Long? = null) = guard {
+        updateHttp(id) { it.copy(state = terminal(it), durationMs = (endedAtMs ?: clock()) - it.timeMs) }
     }
 
-    fun httpFailed(id: String, error: Throwable) = guard {
-        updateHttp(id) { it.copy(state = HttpState.FAILED, failure = describe(error), durationMs = clock() - it.timeMs) }
+    fun httpFailed(id: String, error: Throwable, endedAtMs: Long? = null) = guard {
+        updateHttp(id) { it.copy(state = HttpState.FAILED, failure = describe(error), durationMs = (endedAtMs ?: clock()) - it.timeMs) }
+    }
+
+    /** Feature 060: a failure told as text (a web page's request: there is no exception). */
+    fun httpFailed(id: String, failure: String, endedAtMs: Long? = null) = guard {
+        updateHttp(id) { it.copy(state = HttpState.FAILED, failure = failure, durationMs = (endedAtMs ?: clock()) - it.timeMs) }
     }
 
     /** A failure recorded earlier wins over a later body end. */
@@ -93,10 +98,10 @@ class NetworkRecorder(
 
     // ---- WebSocket --------------------------------------------------------------------
 
-    fun wsStarted(library: String, url: String, handshakeHeaders: List<Header>, initiator: Initiator?): String {
+    fun wsStarted(library: String, url: String, handshakeHeaders: List<Header>, initiator: Initiator?, startedAtMs: Long? = null): String {
         val id = store.nextId()
         guard {
-            put(WsConnectionEntry(id, store.runId, clock(), library, initiator, url, WsState.CONNECTING, handshakeHeaders = handshakeHeaders))
+            put(WsConnectionEntry(id, store.runId, startedAtMs ?: clock(), library, initiator, url, WsState.CONNECTING, handshakeHeaders = handshakeHeaders))
         }
         return id
     }
@@ -106,8 +111,8 @@ class NetworkRecorder(
         updateWs(id) { it.copy(handshakeHeaders = responseHeaders) }
     }
 
-    fun wsOpened(id: String, handshakeHeaders: List<Header>? = null) = guard {
-        updateWs(id) { it.copy(state = WsState.OPEN, openedAtMs = clock(), handshakeHeaders = handshakeHeaders ?: it.handshakeHeaders) }
+    fun wsOpened(id: String, handshakeHeaders: List<Header>? = null, atMs: Long? = null) = guard {
+        updateWs(id) { it.copy(state = WsState.OPEN, openedAtMs = atMs ?: clock(), handshakeHeaders = handshakeHeaders ?: it.handshakeHeaders) }
     }
 
     /** Stores the payload (bounded) and returns the message id; null if the connection is unknown. */
@@ -118,11 +123,12 @@ class NetworkRecorder(
         payload: ByteArray,
         initiator: Initiator?,
         injected: io.yamsergey.dta.protocol.network.WsInjection? = null,
+        atMs: Long? = null,
     ): String? =
         guardOrNull {
             val connection = store.get(connectionId) as? WsConnectionEntry ?: return@guardOrNull null
             val id = store.nextId()
-            val time = clock()
+            val time = atMs ?: clock()
             var info: BodyInfo? = null
             BodyRecorder(store.openBodySink(id, BodyPart.MESSAGE), bodyBound) { capture ->
                 val head = payload.copyOf(minOf(payload.size, PREVIEW_HEAD_BYTES))
@@ -140,10 +146,10 @@ class NetworkRecorder(
             id
         }
 
-    fun wsClosed(id: String, code: Int?, reason: String?) = guard {
+    fun wsClosed(id: String, code: Int?, reason: String?, atMs: Long? = null) = guard {
         updateWs(id) {
             if (it.state == WsState.CLOSED || it.state == WsState.FAILED) it
-            else it.copy(state = WsState.CLOSED, closedAtMs = clock(), closeCode = code, closeReason = reason)
+            else it.copy(state = WsState.CLOSED, closedAtMs = atMs ?: clock(), closeCode = code, closeReason = reason)
         }
     }
 
@@ -151,6 +157,14 @@ class NetworkRecorder(
         updateWs(id) {
             if (it.state == WsState.CLOSED) it
             else it.copy(state = WsState.FAILED, closedAtMs = clock(), failure = describe(error))
+        }
+    }
+
+    /** Feature 060: a web page's socket failed, told as text. */
+    fun wsFailed(id: String, failure: String, atMs: Long? = null) = guard {
+        updateWs(id) {
+            if (it.state == WsState.CLOSED) it
+            else it.copy(state = WsState.FAILED, closedAtMs = atMs ?: clock(), failure = failure)
         }
     }
 

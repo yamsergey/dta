@@ -31,6 +31,8 @@ class SidekickInitializer : Initializer<Unit> {
         // The timeline's other sources (feature 016): input with its handling scope, network.
         // Feature 056: only when this app's timeline switch is on (off by default; one file check).
         runCatching { io.yamsergey.dta.sidekick.timeline.TimelineSources.startIfOn(context) }
+        // Feature 060: browser capture, only when one of its switches is on (two file checks; the work is off the main thread).
+        runCatching { io.yamsergey.dta.sidekick.web.WebRuntime.startIfOn(context) }
         // Links that reach an activity (feature 012), recorded into the same history.
         runCatching { io.yamsergey.dta.sidekick.links.LinkRecorder.start(context.applicationContext as android.app.Application) }
         SidekickServer.start(
