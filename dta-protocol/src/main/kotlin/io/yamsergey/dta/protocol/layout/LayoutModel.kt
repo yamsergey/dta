@@ -309,6 +309,8 @@ data class LayoutCapture(
     val screenImage: ScreenImage? = null,
     /** Feature 014: every window on the display, topmost first, when the screen was asked for. */
     val screenWindows: List<ScreenWindow>? = null,
+    /** Feature 057: how long the capture ran on the app's main thread; null when not measured (fallback, older DTA). */
+    val mainThreadMs: Long? = null,
 )
 
 @Serializable

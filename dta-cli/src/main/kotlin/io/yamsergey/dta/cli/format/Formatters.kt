@@ -245,7 +245,8 @@ class Formatters(private val style: Style) {
         appendLine(
             "Screen ${screen?.long("widthPx")}×${screen?.long("heightPx")} px" +
                 (screen?.str("activity")?.let { "  $it" } ?: "") +
-                "  source ${o.str("source")}" + (o.obj("detail")?.let { "  detail ${it.str("delivered")}" } ?: ""),
+                "  source ${o.str("source")}" + (o.obj("detail")?.let { "  detail ${it.str("delivered")}" } ?: "") +
+                (o.long("mainThreadMs")?.let { "  $it ms on the app's main thread" } ?: "  main-thread time not reported"),
         )
         o.obj("screenImage")?.let { appendLine(screenLine(it)) }
         o["screenWindows"]?.let { list ->

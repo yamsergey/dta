@@ -47,7 +47,7 @@ class LayoutCaptureMethod(
         // Never wait on the main thread: there the index is used only if it is already built.
         val wait = if (Looper.myLooper() == Looper.getMainLooper()) 0L else INDEX_WAIT_MS
         val packages = if (presence.composePresent && presence.tier2Available) packageIndex(wait) else null
-        val result = runOnMainThread { captureOnMain(params.detail, params.frameworkFrames, packages) }
+        val (result, mainMs) = runOnMainThread { MainThreadTime.timed { captureOnMain(params.detail, params.frameworkFrames, packages) } }
         val degraded = mutableListOf<DegradationMarker>()
         degraded += result.degraded
 
@@ -66,6 +66,7 @@ class LayoutCaptureMethod(
                 matches = matches,
                 degraded = degraded.ifEmpty { null },
                 detail = detail,
+                mainThreadMs = mainMs,
             )
         }
         return LayoutCapture(
@@ -74,6 +75,7 @@ class LayoutCaptureMethod(
             windows = windows,
             degraded = degraded.ifEmpty { null },
             detail = detail,
+            mainThreadMs = mainMs,
         )
     }
 
@@ -185,5 +187,14 @@ class LayoutCaptureMethod(
 }
 
 private const val INDEX_WAIT_MS = 1_000L
+
+/** Feature 057: a block timed where it runs (on the main thread, the wait to be scheduled excluded). */
+object MainThreadTime {
+    fun <T> timed(block: () -> T): Pair<T, Long> {
+        val t0 = System.nanoTime()
+        val value = block()
+        return value to (System.nanoTime() - t0) / 1_000_000
+    }
+}
 
 class LayoutCaptureTimeout(message: String) : Exception(message)
