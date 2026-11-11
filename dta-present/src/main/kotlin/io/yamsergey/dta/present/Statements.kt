@@ -50,6 +50,9 @@ data class Statement(
     private val explanation: String? = null,
 ) {
     val sentence: String get() = explanation ?: detail.replaceFirstChar { it.uppercase() } + "."
+
+    /** The sentence with its code in brackets, unless the sentence already says it (feature 057). */
+    val line: String get() = code?.takeUnless { sentence.contains(it, ignoreCase = true) }?.let { "$sentence ($it)" } ?: sentence
 }
 
 /** Marks of a row: at most three in table order, the rest counted (statements.md rules). */

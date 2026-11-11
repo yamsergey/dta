@@ -84,11 +84,31 @@ data class LayoutTree(
     val screen: ScreenInfo? = null,
 ) {
 
-    fun node(path: List<Int>): TreeNode? {
-        var node = windows.getOrNull(path.firstOrNull() ?: return null)?.root ?: return null
-        for (i in path.drop(1)) node = node.children.getOrNull(i) ?: return null
-        return node
+    /** By path in the capture (also in a [visible] tree, whose nodes keep their capture paths). */
+    private val byPath: Map<List<Int>, TreeNode> by lazy { all().associateBy { it.path } }
+
+    fun node(path: List<Int>): TreeNode? = byPath[path]
+
+    /** Layout-only containers (Compose nodes known from tooling only) hidden from this tree. */
+    val hiddenContainers: Int get() = hidden
+
+    /**
+     * Feature 057: the tree as shown with layout-only containers hidden ([hideContainers]) or not:
+     * a hidden container's children take its place; every node keeps its capture path, so
+     * selection, search, hover and the screen work the same on both trees.
+     */
+    fun visible(hideContainers: Boolean): LayoutTree {
+        if (!hideContainers) return this
+        var count = 0
+        fun lift(n: TreeNode): List<TreeNode> {
+            val kids = n.children.flatMap(::lift)
+            return if (isContainer(n)) { count++; kids } else listOf(n.copy(children = kids))
+        }
+        val shown = windows.map { w -> w.copy(root = w.root.copy(children = w.root.children.flatMap(::lift))) }
+        return copy(windows = shown).also { it.hidden = count }
     }
+
+    private var hidden = 0
 
     /** Every node, depth first in tree order. */
     fun all(): Sequence<TreeNode> = sequence {
@@ -104,6 +124,9 @@ data class LayoutTree(
         get() = all().filter { it.path.size <= 2 && it.children.isNotEmpty() }.map { it.path }.toSet()
 
     companion object {
+        /** A layout-only container: a Compose node the capture knows from tooling data only. */
+        fun isContainer(n: TreeNode): Boolean = n.json.str("kind") == "compose" && n.json.str("provenance") == "tooling"
+
         fun of(capture: JsonObject): LayoutTree {
             val screen = capture.obj("screen")
             val summary = listOfNotNull(

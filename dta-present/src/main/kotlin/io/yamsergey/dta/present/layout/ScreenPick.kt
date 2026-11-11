@@ -31,8 +31,12 @@ class ScreenInfo(val image: ScreenImage, val windows: List<ScreenWindow>) {
 sealed interface ScreenHit {
     val statement: String?
 
-    /** The app's nodes under the point, deepest first, up to the window root. */
-    data class Nodes(val paths: List<List<Int>>) : ScreenHit {
+    /**
+     * The app's nodes under the point: the one that answers first, then every other node there in
+     * drawing order (top first), for "next under pointer". [skipped]: the empty full-window layer
+     * the answer was found under, when there was one (feature 057).
+     */
+    data class Nodes(val paths: List<List<Int>>, val skipped: List<Int>? = null) : ScreenHit {
         override val statement: String? get() = null
     }
 
@@ -58,27 +62,52 @@ object ScreenPick {
         val (tx, ty) = x / alignment.scale - alignment.dx to y / alignment.scale - alignment.dy
         val windows = screen?.windows.orEmpty().sortedBy { it.zOrder }
         if (windows.isEmpty()) {
-            for (w in tree.windows.reversed()) deepest(w.root, tx, ty)?.let { return ScreenHit.Nodes(chain(it)) }
+            for (w in tree.windows.reversed()) hit(w.root, tx, ty)?.let { return it }
             return ScreenHit.Outside
         }
         val window = windows.firstOrNull { it.bounds.contains(x, y) } ?: return ScreenHit.Outside
         if (!window.app) return ScreenHit.Foreign(window)
         val roots = window.treeWindow?.let { listOfNotNull(tree.windows.getOrNull(it)) } ?: tree.windows.reversed()
-        for (w in roots) deepest(w.root, tx, ty)?.let { return ScreenHit.Nodes(chain(it)) }
+        for (w in roots) hit(w.root, tx, ty)?.let { return it }
         return ScreenHit.Outside
     }
 
-    private fun chain(path: List<Int>): List<List<Int>> = (path.size downTo 1).map { path.take(it) }
-
-    private fun deepest(node: TreeNode, x: Double, y: Double): List<Int>? {
-        if (node.json.str("visibility") == "invisible") return null
-        for (child in node.children.reversed()) deepest(child, x, y)?.let { return it }
-        val bounds = node.json["bounds"]?.let { DtaJson.decodeFromJsonElement(Rect.serializer(), it) } ?: return null
-        if (bounds.width <= 0 || bounds.height <= 0) return null
-        val quad = node.json["renderOutline"]?.let { DtaJson.decodeFromJsonElement(Quad.serializer(), it) }
-        val inside = quad?.contains(x, y) ?: bounds.contains(x, y)
-        return if (inside) node.path else null
+    /**
+     * Feature 057 (research R5): every node containing the point, top first (a later sibling
+     * before an earlier one, children before their parent). The answer is the first that is not an
+     * empty layer: a node with nothing of its own (no text, description, role or interaction)
+     * covering at least [LAYER_SHARE] of its window — a sheet host or scrim
+     * drawn over everything would otherwise answer everywhere. All layers: the first answers.
+     */
+    private fun hit(root: TreeNode, x: Double, y: Double): ScreenHit.Nodes? {
+        val under = ArrayList<TreeNode>()
+        collect(root, x, y, under)
+        if (under.isEmpty()) return null
+        val window = area(root)
+        fun layer(n: TreeNode) = !hasContent(n) && window > 0 && area(n) >= LAYER_SHARE * window
+        val answer = under.firstOrNull { !layer(it) } ?: under.first()
+        val skipped = under.takeWhile { it !== answer }.firstOrNull { layer(it) }?.path
+        return ScreenHit.Nodes(listOf(answer.path) + under.filter { it !== answer }.map { it.path }, skipped)
     }
+
+    private fun collect(node: TreeNode, x: Double, y: Double, out: MutableList<TreeNode>) {
+        if (node.json.str("visibility") == "invisible") return
+        for (child in node.children.reversed()) collect(child, x, y, out)
+        val bounds = bounds(node) ?: return
+        if (bounds.width <= 0 || bounds.height <= 0) return
+        val quad = node.json["renderOutline"]?.let { DtaJson.decodeFromJsonElement(Quad.serializer(), it) }
+        if (quad?.contains(x, y) ?: bounds.contains(x, y)) out += node
+    }
+
+    private fun bounds(n: TreeNode) = n.json["bounds"]?.let { DtaJson.decodeFromJsonElement(Rect.serializer(), it) }
+
+    private fun area(n: TreeNode): Double = bounds(n)?.let { it.width.toDouble() * it.height } ?: 0.0
+
+    private fun hasContent(n: TreeNode): Boolean =
+        n.json.str("text") != null || n.json.str("contentDescription") != null || n.json.str("role") != null ||
+            (n.json["interactions"] as? kotlinx.serialization.json.JsonArray)?.isNotEmpty() == true
+
+    private const val LAYER_SHARE = 0.95
 
     private fun Rect.contains(x: Double, y: Double) = x >= left && x < right && y >= top && y < bottom
 

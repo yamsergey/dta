@@ -65,7 +65,15 @@ data class ContextState(
     val injection: InjectionOutcome? = null,
     val injectionReason: String? = null,
     val generation: Int = 0,
+    /**
+     * Feature 057 (US4): a package in front of the chosen app — a launcher, a system dialog, another
+     * app without DTA — that the context does not follow away from an app with DTA.
+     */
+    val inFront: String? = null,
 ) {
+    /** "<package> is in front of <app>", while one is. */
+    val frontLine: String? get() = inFront?.let { f -> app?.let { "$f is in front of $it" } }
+
     fun reduce(event: ContextEvent): ContextState = when (event) {
         is ContextEvent.DaemonConnected -> copy(daemon = DaemonInfo(DaemonPhase.CONNECTED, event.version))
         is ContextEvent.DaemonReplaced -> copy(daemon = daemon.copy(phase = DaemonPhase.REPLACED, message = event.by))
@@ -107,9 +115,14 @@ data class ContextState(
     private fun appsChanged(apps: AppList): ContextState {
         if (apps.device != device) return this
         val withDta = apps.apps.map { it.packageName }.toSet()
-        val next = if (appRule == AppRule.NAMED && app != null) this else {
-            val foreground = apps.foreground
-            if (foreground == app) copy(appRule = foreground?.let { AppRule.FOREGROUND }) else switched(device, deviceRule, foreground, foreground?.let { AppRule.FOREGROUND })
+        val foreground = apps.foreground
+        val front = foreground?.takeIf { it != app }
+        val next = when {
+            appRule == AppRule.NAMED && app != null -> copy(inFront = front)
+            // Feature 057: an app with DTA stays chosen while something without DTA is in front of it.
+            front != null && front !in withDta && app != null && app in withDta -> copy(inFront = front)
+            foreground == app -> copy(appRule = foreground?.let { AppRule.FOREGROUND }, inFront = null)
+            else -> switched(device, deviceRule, foreground, foreground?.let { AppRule.FOREGROUND }).copy(inFront = null)
         }
         val hasDta = next.app != null && next.app in withDta
         return when {

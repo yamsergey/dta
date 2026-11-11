@@ -151,3 +151,38 @@ class ContextStateTest {
         assertEquals(Connection.CONNECTED, state.connection)
     }
 }
+
+/** Feature 057 (US4): a system window in front does not switch the app away. */
+class ContextFrontTest {
+    private val pixel = DeviceInfo("emulator-5554", "online", "Pixel 8")
+    private fun apps(foreground: String?, vararg withDta: String) = AppList("emulator-5554", foreground, withDta.map { AppInfo(it, it == foreground) })
+    private fun ready(vararg events: ContextEvent) =
+        (listOf(ContextEvent.DaemonConnected("0.10.0"), ContextEvent.Devices(listOf(pixel))) + events).fold(ContextState()) { s, e -> s.reduce(e) }
+
+    @Test
+    fun `the launcher in front keeps the app with DTA and says so`() {
+        val before = ready(ContextEvent.Apps(apps("com.example.shop", "com.example.shop")))
+        val launcher = before.reduce(ContextEvent.Apps(apps("com.google.android.apps.nexuslauncher", "com.example.shop")))
+        assertEquals("com.example.shop", launcher.app)
+        assertEquals(before.generation, launcher.generation, "nothing is reset")
+        assertEquals("com.google.android.apps.nexuslauncher is in front of com.example.shop", launcher.frontLine)
+        assertTrue(launcher.connection != Connection.NO_DTA)
+        val back = launcher.reduce(ContextEvent.Apps(apps("com.example.shop", "com.example.shop")))
+        assertNull(back.frontLine)
+    }
+
+    @Test
+    fun `another app with DTA in front is followed, as before`() {
+        val s = ready(ContextEvent.Apps(apps("com.example.shop", "com.example.shop", "com.example.bank")))
+            .reduce(ContextEvent.Apps(apps("com.example.bank", "com.example.shop", "com.example.bank")))
+        assertEquals("com.example.bank", s.app)
+        assertNull(s.frontLine)
+    }
+
+    @Test
+    fun `a named app keeps its choice and names what is in front`() {
+        val s = ready(ContextEvent.Apps(apps("com.example.shop", "com.example.shop")), ContextEvent.AppChosen("com.example.shop"))
+            .reduce(ContextEvent.Apps(apps("com.android.permissioncontroller", "com.example.shop")))
+        assertEquals("com.android.permissioncontroller is in front of com.example.shop", s.frontLine)
+    }
+}
