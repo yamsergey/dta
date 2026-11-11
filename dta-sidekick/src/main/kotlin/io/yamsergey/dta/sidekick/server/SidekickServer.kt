@@ -89,6 +89,8 @@ object SidekickServer {
                 val params = LayoutTreeParams.parse(ctx.params)
                 DtaJson.encodeToJsonElement(LayoutCapture.serializer(), layoutMethod.capture(params))
             }
+            // Feature 057: "the screen changed", only while a watcher holds the lease.
+            io.yamsergey.dta.sidekick.layout.ScreenSignalWatch({ name, data -> sessions.publish(name, data) }, composePresence).install(this)
             DiagnosticMethods.install(this)
             io.yamsergey.dta.sidekick.timeline.TimelineMethods.install(this)
             // Feature 056: the app's timeline switch.

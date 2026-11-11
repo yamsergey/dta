@@ -154,7 +154,8 @@ class DaemonServer(
                 DaemonMethods.NETWORK_SUBSCRIBE -> scope.launch { subscribe(request) }
                 DaemonMethods.APPS_SUBSCRIBE -> scope.launch { subscribeApps(request) }
                 DaemonMethods.TIMELINE_SUBSCRIBE -> scope.launch { subscribeTimeline(request) }
-                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE -> {
+                DaemonMethods.LAYOUT_SUBSCRIBE -> scope.launch { subscribeLayout(request) }
+                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
                     id?.let { networkTargets.remove(it) }
@@ -403,6 +404,43 @@ class DaemonServer(
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })),
                 )
                 // Started after the answer: a client knows its subscription before the first event.
+                job.start()
+            } catch (e: ClientException) {
+                error(request.id, e.code, e.message ?: "failed", e.data)
+            } catch (e: Exception) {
+                error(request.id, ErrorCodes.INTERNAL, "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+
+        /** `layout.subscribe` (feature 057): the app's screen-change signal, leased while this subscription lives. */
+        private suspend fun subscribeLayout(request: Request) {
+            val params = request.params ?: JsonObject(emptyMap())
+            try {
+                val resolution = selector.resolve(
+                    Scope.APP,
+                    (params["device"] as? JsonPrimitive)?.content,
+                    (params["app"] as? JsonPrimitive)?.content,
+                )
+                val serial = resolution.serial!!
+                val pkg = resolution.pkg!!
+                val id = "s${subscriptionIds.incrementAndGet()}"
+                val updates = ops.layoutSignal(serial, pkg)
+                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                    updates.collect { u ->
+                        val (name, data) = when (u) {
+                            is io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update.Changed -> DaemonEvents.LAYOUT_CHANGED to
+                                (DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.layout.LayoutChanged.serializer(), u.change) as JsonObject)
+                            is io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update.State -> DaemonEvents.LAYOUT_SIGNAL to
+                                (DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.layout.LayoutSignalState.serializer(), io.yamsergey.dta.protocol.layout.LayoutSignalState(u.state, u.reason)) as JsonObject)
+                        }
+                        send(Event(name = name, seq = seq.incrementAndGet(), data = JsonObject(data + mapOf("subscription" to JsonPrimitive(id), "device" to JsonPrimitive(serial), "app" to JsonPrimitive(pkg)))))
+                    }
+                }
+                subscriptions[id] = job
+                respond(
+                    request.id,
+                    DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })),
+                )
                 job.start()
             } catch (e: ClientException) {
                 error(request.id, e.code, e.message ?: "failed", e.data)

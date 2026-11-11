@@ -116,6 +116,10 @@ object DaemonEvents {
     const val APP_CONNECTION = "app.connection"
     /** One timeline event (features 015/016): data `subscription`, `device`, `app`, `event` (TimelineEvent). */
     const val TIMELINE_EVENT = "timeline.event"
+    /** Feature 057: the app's screen changed: data `subscription`, `device`, `app`, `at`, `reasons`. */
+    const val LAYOUT_CHANGED = "layout.changed"
+    /** Feature 057: the screen signal's state: data `subscription`, `device`, `app`, `state`, `reason`. */
+    const val LAYOUT_SIGNAL = "layout.signal"
     const val REPLACED = "daemon.replaced"
     const val STOPPING = "daemon.stopping"
 }
@@ -139,4 +143,6 @@ object DaemonMethods {
     const val APPS_UNSUBSCRIBE = "apps.unsubscribe"
     const val TIMELINE_SUBSCRIBE = "timeline.subscribe"
     const val TIMELINE_UNSUBSCRIBE = "timeline.unsubscribe"
+    const val LAYOUT_SUBSCRIBE = "layout.subscribe"
+    const val LAYOUT_UNSUBSCRIBE = "layout.unsubscribe"
 }

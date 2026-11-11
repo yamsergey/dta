@@ -115,6 +115,14 @@ class DaemonClient private constructor(private val timeout: Duration) {
     fun timelineEvents(params: JsonObject): Flow<JsonObject> =
         subscription(DaemonMethods.TIMELINE_SUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, setOf(DaemonEvents.TIMELINE_EVENT), params)
 
+    /**
+     * Feature 057: the app's screen-change signal while collected. The first element is
+     * `{"selection": Selected}`; then `layout.changed` data (`at`, `reasons`) and `layout.signal`
+     * data (`state`, `reason`), each with `subscription`, `device`, `app`.
+     */
+    fun layoutChanges(params: JsonObject): Flow<JsonObject> =
+        subscription(DaemonMethods.LAYOUT_SUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, setOf(DaemonEvents.LAYOUT_CHANGED, DaemonEvents.LAYOUT_SIGNAL), params)
+
     private fun subscription(subscribe: String, unsubscribe: String, eventNames: Set<String>, params: JsonObject): Flow<JsonObject> = callbackFlow {
         // Listen before asking: the subscription's first events (a history replay) may follow the
         // answer at once, before a collector started afterwards would be listening.

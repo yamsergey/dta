@@ -343,6 +343,10 @@ class DtaDaemon(
         }
     }
 
+    /** Feature 057: the app's screen-change signal, leased for as long as it is collected. */
+    fun layoutSignal(serial: String, pkg: String) =
+        io.yamsergey.dta.daemon.layout.LayoutSignalWatch(connect = { connections.connect(ConnectionKey(serial, pkg)) }).watch()
+
     /**
      * The session as one sequence (feature 048): from what the timeline and the network capture already
      * hold, nothing new is asked of the app. Saved filters do not apply: neither do they to the timeline.

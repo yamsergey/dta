@@ -154,6 +154,7 @@ class FakeOperations : DaemonOperations {
         lastTimeline = listOf(since, sinceMs, sources, kinds, limit)
         return io.yamsergey.dta.protocol.timeline.TimelinePage(emptyList(), next = "s:0")
     }
+    override fun layoutSignal(serial: String, pkg: String) = kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update>()
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
         kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.timeline.TimelineEvent>()
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
