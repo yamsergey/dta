@@ -30,7 +30,9 @@ class NodeDetailPane(
     private val content = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); border = JBUI.Borders.empty(8, 12) }
 
     init {
-        add(JBScrollPane(content), BorderLayout.CENTER)
+        // At the top of the viewport: short content keeps its rows together instead of BoxLayout
+        // spreading them over the pane's height.
+        add(JBScrollPane(JPanel(BorderLayout()).apply { add(content, BorderLayout.NORTH) }), BorderLayout.CENTER)
         empty("Select a node to see its properties.")
     }
 
