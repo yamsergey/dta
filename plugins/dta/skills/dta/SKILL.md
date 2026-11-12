@@ -52,7 +52,7 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 ## Web pages: WebView and Custom Tabs
 
 - Browser capture is off by default in each app and costly (feature 060). `web_capture` reads it; `set: webview-on` records the app's WebView pages (it also makes the app's WebViews debuggable from its start), `set: tabs-on` records the Custom Tabs the app opens; `webview-off` / `tabs-off` stop. Turn one on only when the developer wants web traffic.
-- Captured traffic is ordinary network history: `network_list` and the rest, with `library` `webview` or `custom-tab` (no app stack: the page or the browser made the request). Other browser tabs are never recorded.
+- Captured traffic is ordinary network history: `network_list` and the rest, with `library` `webview` or `custom-tab` (no app stack: the page or the browser made the request); the text list marks such rows `◍ webview` / `◍ custom tab`. `source:webview`, `source:custom-tab`, `source:app` in the query line keep only that traffic, `-source:webview` hides it. A page's iframes, workers and service workers count as the page's. Other browser tabs are never recorded.
 - `web_status` says what each source is doing and lists the pages followed. A page marked `partial` loaded before DTA attached (an app started straight into a WebView often is): `web_reload` with its id reloads it in the app so it is captured whole.
 - `web_devtools` gives a forwarded DevTools URL for `chrome-devtools-mcp --browserUrl` or chrome://inspect, to poke the page now (DTA tells what happened; DevTools acts on the page).
 
