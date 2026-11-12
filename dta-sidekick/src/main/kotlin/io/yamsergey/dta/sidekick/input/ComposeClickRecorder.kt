@@ -94,7 +94,7 @@ class ComposeClickRecorder(
         val layoutNode = coordinator.javaClass.getMethod("getLayoutNode").invoke(coordinator) ?: return false
         val id = layoutNode.javaClass.getMethod("getSemanticsId").invoke(layoutNode) as Int
         val owner = ShimReflect.field(layoutNode, "owner") as? View ?: return false
-        val semantics = owner.javaClass.methods.first { it.name == "getSemanticsOwner" }.invoke(owner) as? SemanticsOwner ?: return false
+        val semantics = io.yamsergey.dta.sidekick.util.NoArgMethods.call(owner, "getSemanticsOwner") as? SemanticsOwner ?: return false
         val window = runCatching { owner.rootView.layoutParams as? WindowManager.LayoutParams }.getOrNull()
         val secure = window != null && (window.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
         val target = ComposeClicks.target(tree(semantics.rootSemanticsNode), id, secure, windowIdOf(owner.rootView))

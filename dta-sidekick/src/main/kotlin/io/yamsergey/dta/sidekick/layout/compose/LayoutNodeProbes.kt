@@ -12,8 +12,7 @@ object LayoutNodeProbes {
 
     /** The id shared with SemanticsNode.id (the join key between tiers). */
     fun semanticsId(node: LayoutInfo): Long? = try {
-        (node.javaClass.methods.firstOrNull { it.name == "getSemanticsId" && it.parameterCount == 0 }
-            ?.invoke(node) as? Int)?.toLong()
+        (io.yamsergey.dta.sidekick.util.NoArgMethods.call(node, "getSemanticsId") as? Int)?.toLong()
     } catch (_: Throwable) {
         null
     }
@@ -25,9 +24,7 @@ object LayoutNodeProbes {
      * the holder.
      */
     fun interopViewDrawingId(node: LayoutInfo): Long? = try {
-        val interop = node.javaClass.methods
-            .firstOrNull { it.name == "getInteropView" && it.parameterCount == 0 }
-            ?.invoke(node) as? View
+        val interop = io.yamsergey.dta.sidekick.util.NoArgMethods.call(node, "getInteropView") as? View
         interop?.let { holderOf(it).drawingId() }
     } catch (_: Throwable) {
         null

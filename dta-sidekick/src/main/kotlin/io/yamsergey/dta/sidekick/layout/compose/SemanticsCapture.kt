@@ -37,8 +37,7 @@ class SemanticsCapture(private val maxDepth: Int = 50) {
         if (host::class.java.name != COMPOSE_VIEW) {
             null
         } else {
-            val method = host.javaClass.methods.first { it.name == "getSemanticsOwner" }
-            method.invoke(host) as? SemanticsOwner
+            io.yamsergey.dta.sidekick.util.NoArgMethods.call(host, "getSemanticsOwner") as? SemanticsOwner
         }
     } catch (_: Throwable) {
         null

@@ -100,8 +100,7 @@ class ToolingEnrichment(private val classifier: CallClassifier = CallClassifier(
         return host.getTag(tagId) as? Iterable<Any>
     }
 
-    private fun Any.call(method: String): Any? =
-        javaClass.methods.firstOrNull { it.name == method && it.parameterCount == 0 }?.invoke(this)
+    private fun Any.call(method: String): Any? = io.yamsergey.dta.sidekick.util.NoArgMethods.call(this, method)
 
     /** Reflective handles on ui-tooling-data, resolved once. Methods are taken
      * from the public interface/data classes: the SourceContext implementation
