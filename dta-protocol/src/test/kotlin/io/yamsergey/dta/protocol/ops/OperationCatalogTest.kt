@@ -31,7 +31,7 @@ class OperationCatalogTest {
     fun `the 008 operation set plus apps watch (009) and the archive (011) and app data (027)`() {
         assertEquals(
             setOf(
-                "devices.list", "apps.list", "apps.watch", "capability.report", "layout.tree", "layout.watch",
+                "devices.list", "apps.list", "apps.watch", "capability.report", "layout.tree", "layout.watch", "layout.selection", "layout.select",
                 "network.list", "network.search", "network.entry", "network.body", "network.clear", "network.export", "network.watch",
                 "network.script.set", "network.script.clear", "network.script.status", "network.script.logs",
                 "network.ws.push",

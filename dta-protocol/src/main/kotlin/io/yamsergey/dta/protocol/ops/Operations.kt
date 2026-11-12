@@ -238,6 +238,27 @@ object Catalog {
             Scope.APP, streaming = true, cliOnly = true,
         ),
         OperationSpec(
+            "layout.selection",
+            "The layout elements the developer selected in the plugin's Layout tab (or an agent selected), shared by every client: read it when the developer says \"this\", \"the selected\", \"that button\". " +
+                "Each element as it was when selected (kind, name, text, bounds, ids, call site, path from the window root, capture time and screen) and whether it is still on the latest captured screen (now: on-screen, gone, not-checked). " +
+                "The selection is cleared when the app process ends (note says so).",
+            Scope.APP,
+            listOf(ParamSpec("fresh", ParamType.BOOLEAN, "Take a new capture first, so on-screen / gone is checked against the screen now.")),
+        ),
+        OperationSpec(
+            "layout.select",
+            "Select layout elements so the developer sees which ones you mean: the plugin's Layout tab selects and reveals them (nothing is drawn in the app). " +
+                "By node ids from a layout capture, or by a screen point (px); mode set (default) replaces the selection, add / remove change it, clear empties it. " +
+                "Ids and points are resolved against the latest capture of the app (one is taken when there is none); nothing matching is an error naming why.",
+            Scope.APP,
+            listOf(
+                ParamSpec("mode", ParamType.ENUM, "set (default), add, remove or clear.", enumValues = listOf("set", "add", "remove", "clear")),
+                ParamSpec("ids", ParamType.STRING_LIST, "Node ids from a layout capture.", cliName = "id"),
+                ParamSpec("at", ParamType.STRING, "A screen point in px, \"x,y\": the innermost node there."),
+                ParamSpec("elements", ParamType.STRING, "The plugin's own elements as JSON (SelectedElement list).", cliHidden = true),
+            ),
+        ),
+        OperationSpec(
             "network.list",
             "List captured network traffic: HTTP exchanges, WebSocket connections and messages in one chronological list, with filters. Use sinceMs to fetch only what happened after a point in time.",
             Scope.APP,

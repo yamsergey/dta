@@ -120,6 +120,8 @@ object DaemonEvents {
     const val LAYOUT_CHANGED = "layout.changed"
     /** Feature 057: the screen signal's state: data `subscription`, `device`, `app`, `state`, `reason`. */
     const val LAYOUT_SIGNAL = "layout.signal"
+    /** Feature 055: data `subscription`, `device`, `app`, `selection` (LayoutSelection), `by`. */
+    const val LAYOUT_SELECTION = "layout.selection"
     const val REPLACED = "daemon.replaced"
     const val STOPPING = "daemon.stopping"
 }
@@ -145,4 +147,7 @@ object DaemonMethods {
     const val TIMELINE_UNSUBSCRIBE = "timeline.unsubscribe"
     const val LAYOUT_SUBSCRIBE = "layout.subscribe"
     const val LAYOUT_UNSUBSCRIBE = "layout.unsubscribe"
+    /** Feature 055: the app's shared layout selection, now and at every change. */
+    const val SELECTION_SUBSCRIBE = "selection.subscribe"
+    const val SELECTION_UNSUBSCRIBE = "selection.unsubscribe"
 }
