@@ -51,7 +51,8 @@ class WebStatusRow(
     private suspend fun read(): List<WebStatusLine.Part> {
         val b = settings.browsersFlow.value
         if (!b.webview && !b.customTabs) return emptyList()
-        if (!isShowing) return shown
+        // The row itself is hidden while it has nothing to say: whether the tab is shown is its parent's.
+        if (parent?.isShowing != true) return shown
         val st = context.state.value
         val client = context.client ?: return emptyList()
         val device = st.device ?: return emptyList()
