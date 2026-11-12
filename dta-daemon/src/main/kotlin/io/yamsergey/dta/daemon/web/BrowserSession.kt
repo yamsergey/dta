@@ -28,7 +28,8 @@ class BrowserSession(
     private val ours: (suspend (url: String) -> Boolean)? = null,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private class Page(val session: String, val targetId: String, var url: String, var partial: Boolean, val held: Boolean, val attachedAt: Long, val translator: CdpTranslator) {
+    /** [owner]: a frame or worker of that page (feature 061); its traffic is the page's, it is never listed. */
+    private class Page(val session: String, val targetId: String, var url: String, var partial: Boolean, val held: Boolean, val attachedAt: Long, val translator: CdpTranslator, val owner: Page? = null) {
         var deciding = held
         val buffer = ArrayList<WebStep>()
         /** Requests missed before the last reload: a reloaded page is whole again. */
@@ -38,13 +39,13 @@ class BrowserSession(
     private val pages = ConcurrentHashMap<String, Page>()
 
     /** The pages followed (never one being decided or let go). */
-    fun pages(): List<WebPage> = pages.values.filter { !it.deciding }.map {
+    fun pages(): List<WebPage> = pages.values.filter { !it.deciding && it.owner == null }.map {
         WebPage(it.targetId, source, it.url, it.partial || it.translator.missed > it.missedAtReload, it.translator.started, it.attachedAt)
     }
 
     /** Reloads a followed page, so it is captured whole. */
     suspend fun reload(targetId: String): Boolean {
-        val page = pages.values.firstOrNull { it.targetId == targetId && !it.deciding } ?: return false
+        val page = pages.values.firstOrNull { it.targetId == targetId && !it.deciding && it.owner == null } ?: return false
         cdp.send("Page.reload", buildJsonObject { put("ignoreCache", true) }, page.session)
         page.partial = false
         page.missedAtReload = page.translator.missed
@@ -61,8 +62,8 @@ class BrowserSession(
         })
         for (e in cdp.events) {
             when (e.method) {
-                "Target.attachedToTarget" -> launch { attached(e.params) }
-                "Target.detachedFromTarget" -> e.params.str("sessionId")?.let { pages.remove(it) }
+                "Target.attachedToTarget" -> launch { attached(e.params, e.sessionId) }
+                "Target.detachedFromTarget" -> e.params.str("sessionId")?.let { gone -> pages.remove(gone)?.let { p -> dropChildren(p) } }
                 "Target.targetInfoChanged" -> (e.params["targetInfo"] as? JsonObject)?.let { info ->
                     pages.values.firstOrNull { it.targetId == info.str("targetId") && !it.deciding }?.let { p -> info.str("url")?.let { p.url = it } }
                 }
@@ -74,23 +75,35 @@ class BrowserSession(
         }
     }
 
-    private suspend fun attached(p: JsonObject) {
+    private suspend fun attached(p: JsonObject, parent: String?) {
         val session = p.str("sessionId") ?: return
         val info = p["targetInfo"] as? JsonObject ?: return
         val waiting = (p["waitingForDebugger"] as? JsonPrimitive)?.booleanOrNull == true
         val type = info.str("type")
         val url = info.str("url").orEmpty()
-        if (type != "page" && type != "iframe") {
-            if (waiting) runCatching { resume(session) }
-            letGo(session)
-            return
-        }
         val ours = ours
+        // Feature 061: a frame or worker of a followed page is followed as part of it.
+        if (parent != null) {
+            val owner = pages[parent]?.let { it.owner ?: it }
+            if (owner == null || type !in CHILD_TYPES) return away(session, waiting)
+            return follow(Page(session, info.str("targetId") ?: session, url, partial = !waiting, held = false, attachedAt = clock(), CdpTranslator(session.take(8), source), owner), waiting)
+        }
+        if (type in WORKER_TYPES) {
+            // A service worker belongs to a site, not a tab: in a browser, only the app's tab's site.
+            if (ours != null && pages.values.none { it.owner == null && !it.deciding && sameOrigin(it.url, url) }) return away(session, waiting)
+            return follow(Page(session, info.str("targetId") ?: session, url, partial = !waiting, held = false, attachedAt = clock(), CdpTranslator(session.take(8), source), WORKERS), waiting)
+        }
+        if (type != "page" && type != "iframe") return away(session, waiting)
         if (ours != null && !waiting && !runCatching { ours(url) }.getOrDefault(false)) {
             letGo(session)
             return
         }
-        val page = Page(session, info.str("targetId") ?: session, url, partial = !waiting, held = ours != null && waiting, attachedAt = clock(), CdpTranslator(session.take(8), source))
+        follow(Page(session, info.str("targetId") ?: session, url, partial = !waiting, held = ours != null && waiting, attachedAt = clock(), CdpTranslator(session.take(8), source)), waiting)
+    }
+
+    /** Network on, its own frames and workers attached (held until resumed), then resumed. */
+    private suspend fun follow(page: Page, waiting: Boolean) {
+        val session = page.session
         pages[session] = page
         runCatching {
             cdp.send("Network.enable", buildJsonObject {
@@ -98,17 +111,38 @@ class BrowserSession(
                 put("maxResourceBufferSize", 20_000_000)
             }, session)
         }
+        runCatching {
+            cdp.send("Target.setAutoAttach", buildJsonObject {
+                put("autoAttach", true)
+                put("waitForDebuggerOnStart", true)
+                put("flatten", true)
+            }, session)
+        }
         if (waiting) runCatching { resume(session) }
+    }
+
+    private suspend fun away(session: String, waiting: Boolean) {
+        if (waiting) runCatching { resume(session) }
+        letGo(session)
     }
 
     private suspend fun resume(session: String) = cdp.send("Runtime.runIfWaitingForDebugger", sessionId = session)
 
     private suspend fun letGo(session: String) {
-        pages.remove(session)
+        pages.remove(session)?.let { dropChildren(it) }
         runCatching { cdp.send("Target.detachFromTarget", buildJsonObject { put("sessionId", session) }) }
     }
 
+    /** A page's frames and workers go with it (their sessions close with the page's). */
+    private fun dropChildren(page: Page) {
+        pages.entries.removeIf { it.value.owner === page }
+    }
+
     private suspend fun network(page: Page, e: CdpEvent) {
+        if (page.owner != null) {
+            deliver(page, page.translator.event(e.method, e.params))
+            return
+        }
         if (page.deciding && e.method == "Network.requestWillBeSent" && e.params.str("type") == "Document") {
             val url = (e.params["request"] as? JsonObject)?.str("url").orEmpty()
             if (!runCatching { ours!!.invoke(url) }.getOrDefault(false)) {
@@ -146,7 +180,9 @@ class BrowserSession(
 
     private suspend fun emit(page: Page, steps: List<WebStep>) {
         if (steps.isEmpty() || pages[page.session] !== page) return
-        if (page.deciding) page.buffer += steps else sink(steps)
+        // A frame's or worker's traffic waits with its page while the page is being decided.
+        val holder = page.owner?.takeIf { it !== WORKERS } ?: page
+        if (holder.deciding) holder.buffer += steps else sink(steps)
     }
 
     private suspend fun flush(page: Page) {
@@ -157,5 +193,18 @@ class BrowserSession(
 
     private companion object {
         fun JsonObject.str(k: String) = (this[k] as? JsonPrimitive)?.contentOrNull
+
+        /** Targets that are part of a page (feature 061). */
+        val CHILD_TYPES = setOf("iframe", "worker", "service_worker", "shared_worker")
+        /** Targets attached at the browser level that belong to a site. */
+        val WORKER_TYPES = setOf("service_worker", "shared_worker")
+
+        /** The owner of top-level workers: never listed, never decided. */
+        val WORKERS = Page("", "", "", partial = false, held = false, attachedAt = 0, translator = CdpTranslator("workers", ""))
+
+        fun sameOrigin(a: String, b: String): Boolean {
+            fun origin(u: String) = runCatching { java.net.URI(u).let { "${it.scheme?.lowercase()}://${it.host?.lowercase()}:${it.port}" } }.getOrNull()
+            return origin(a) != null && origin(a) == origin(b)
+        }
     }
 }

@@ -67,7 +67,7 @@ class BrowserSessionTest {
             cdp.event("Network.responseReceived", """{"requestId":"1","timestamp":1.1,"response":{"status":200,"headers":{"Content-Type":"text/html"}}}""", "A")
             cdp.event("Network.loadingFinished", """{"requestId":"1","timestamp":1.2}""", "A")
         }
-        assertEquals(listOf("Network.enable", "Runtime.runIfWaitingForDebugger", "Network.getResponseBody"), cdp.methods("A"))
+        assertEquals(listOf("Network.enable", "Target.setAutoAttach", "Runtime.runIfWaitingForDebugger", "Network.getResponseBody"), cdp.methods("A"))
         assertEquals(listOf(WebStep.HTTP_START, WebStep.HTTP_RESPONSE, WebStep.HTTP_RESPONSE_BODY), got.map { it.op })
         assertEquals("hello", got.last().text)
         val page = s.pages().single()
@@ -88,7 +88,7 @@ class BrowserSessionTest {
             assertTrue(s.reload("TB"))
             assertFalse(s.pages().single().partial)
         }
-        assertEquals(listOf("Network.enable", "Page.reload"), cdp.methods("B"))
+        assertEquals(listOf("Network.enable", "Target.setAutoAttach", "Page.reload"), cdp.methods("B"))
     }
 
     @Test
@@ -135,10 +135,91 @@ class BrowserSessionTest {
     }
 
     @Test
-    fun `workers are resumed and let go`() {
+    fun `a WebView page's frames and workers are followed as the page's, not listed as pages (061)`() {
+        val cdp = FakeCdp()
+        val (s, got) = session(cdp, Web.WEBVIEW)
+        run(cdp, s) {
+            cdp.event("Target.attachedToTarget", attach("A", "http://h/news", waiting = true))
+            repeat(5) { yield() }
+            cdp.event("Target.attachedToTarget", attach("F", "http://other/frame", waiting = true, type = "iframe"), "A")
+            cdp.event("Target.attachedToTarget", attach("W", "http://h/worker.js", waiting = true, type = "worker"), "A")
+            repeat(10) { yield() }
+            cdp.event("Network.requestWillBeSent", doc("9", "http://other/frame"), "F")
+            cdp.event("Network.requestWillBeSent", """{"requestId":"w1","type":"Fetch","request":{"url":"http://h/data","method":"GET","headers":{}},"timestamp":1.0,"wallTime":1700000000.0}""", "W")
+        }
+        assertEquals(listOf("Network.enable", "Target.setAutoAttach", "Runtime.runIfWaitingForDebugger"), cdp.methods("F"))
+        assertEquals(listOf("Network.enable", "Target.setAutoAttach", "Runtime.runIfWaitingForDebugger"), cdp.methods("W"))
+        assertEquals(listOf("http://other/frame", "http://h/data"), got.filter { it.op == WebStep.HTTP_START }.map { it.url })
+        assertEquals(listOf("TA"), s.pages().map { it.id })
+        assertTrue(cdp.detached().isEmpty())
+    }
+
+    @Test
+    fun `a WebView's service workers are followed (061)`() {
+        val cdp = FakeCdp()
+        val (s, got) = session(cdp, Web.WEBVIEW)
+        run(cdp, s) {
+            cdp.event("Target.attachedToTarget", attach("S", "http://h/sw.js", waiting = true, type = "service_worker"))
+            repeat(10) { yield() }
+            cdp.event("Network.requestWillBeSent", """{"requestId":"s1","type":"Fetch","request":{"url":"http://h/quote","method":"GET","headers":{}},"timestamp":1.0,"wallTime":1700000000.0}""", "S")
+        }
+        assertEquals(listOf("Network.enable", "Target.setAutoAttach", "Runtime.runIfWaitingForDebugger"), cdp.methods("S"))
+        assertEquals(listOf("http://h/quote"), got.map { it.url })
+        assertTrue(s.pages().isEmpty())
+    }
+
+    @Test
+    fun `in a browser only the app's tab's service worker is followed (061)`() {
+        val cdp = FakeCdp()
+        val (s, got) = session(cdp, Web.CUSTOM_TAB) { url -> url == "http://h/ours" }
+        run(cdp, s) {
+            cdp.event("Target.attachedToTarget", attach("O", "http://h/ours", waiting = false))
+            repeat(5) { yield() }
+            cdp.event("Target.attachedToTarget", attach("S1", "http://h/sw.js", waiting = true, type = "service_worker"))
+            cdp.event("Target.attachedToTarget", attach("S2", "https://private.example/sw.js", waiting = true, type = "service_worker"))
+            repeat(10) { yield() }
+            cdp.event("Network.requestWillBeSent", """{"requestId":"p","type":"Fetch","request":{"url":"https://private.example/inbox","method":"GET","headers":{}},"timestamp":1.0,"wallTime":1700000000.0}""", "S2")
+        }
+        assertEquals(listOf("S2"), cdp.detached())
+        assertEquals(listOf("Runtime.runIfWaitingForDebugger"), cdp.methods("S2"))
+        assertTrue(got.none { it.url?.contains("private") == true })
+        assertEquals(listOf("Network.enable", "Target.setAutoAttach", "Runtime.runIfWaitingForDebugger"), cdp.methods("S1"))
+    }
+
+    @Test
+    fun `a held tab's frames wait with it and go with it (061)`() {
+        val cdp = FakeCdp()
+        val (s, got) = session(cdp, Web.CUSTOM_TAB) { url -> url == "http://h/ours" }
+        run(cdp, s) {
+            cdp.event("Target.attachedToTarget", attach("U", "", waiting = true))
+            repeat(5) { yield() }
+            cdp.event("Target.attachedToTarget", attach("F", "https://ads.example/frame", waiting = true, type = "iframe"), "U")
+            repeat(10) { yield() }
+            cdp.event("Network.requestWillBeSent", doc("f1", "https://ads.example/frame"), "F")
+            repeat(5) { yield() }
+            cdp.event("Network.requestWillBeSent", doc("1", "https://private.example/inbox"), "U")
+            repeat(5) { yield() }
+            cdp.event("Network.requestWillBeSent", doc("f2", "https://ads.example/next"), "F")
+        }
+        assertTrue(got.isEmpty())
+        assertEquals(listOf("U"), cdp.detached())
+        assertTrue(s.pages().isEmpty())
+    }
+
+    @Test
+    fun `a child of a target not followed is let go (061)`() {
         val cdp = FakeCdp()
         val (s, _) = session(cdp, Web.WEBVIEW)
-        run(cdp, s) { cdp.event("Target.attachedToTarget", attach("W", "http://h/sw.js", waiting = true, type = "service_worker")) }
+        run(cdp, s) { cdp.event("Target.attachedToTarget", attach("C", "http://h/w.js", waiting = true, type = "worker"), "nobody") }
+        assertEquals(listOf("Runtime.runIfWaitingForDebugger"), cdp.methods("C"))
+        assertEquals(listOf("C"), cdp.detached())
+    }
+
+    @Test
+    fun `other targets are resumed and let go`() {
+        val cdp = FakeCdp()
+        val (s, _) = session(cdp, Web.WEBVIEW)
+        run(cdp, s) { cdp.event("Target.attachedToTarget", attach("W", "", waiting = true, type = "auction_worklet")) }
         assertEquals(listOf("Runtime.runIfWaitingForDebugger"), cdp.methods("W"))
         assertEquals(listOf("W"), cdp.detached())
     }
