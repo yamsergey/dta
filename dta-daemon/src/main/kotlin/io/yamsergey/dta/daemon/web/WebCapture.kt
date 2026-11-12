@@ -43,6 +43,8 @@ class WebCapture(
     private val runAdb: (List<String>) -> AdbExec.Result,
     private val connect: suspend () -> AppConnection,
     private val scope: CoroutineScope,
+    /** Feature 061: where this daemon's forwards are written down, so a crash leaves none behind. */
+    private val record: ForwardRecord? = null,
 ) {
     @Volatile private var webview = WebSourceStatus(WebSourceStatus.OFF, Web.OFF)
     @Volatile private var tabs = WebSourceStatus(WebSourceStatus.OFF, Web.OFF)
@@ -247,11 +249,14 @@ class WebCapture(
 
     private fun forward(socket: String): Int {
         val r = runAdb(listOf("-s", serial, "forward", "tcp:0", "localabstract:$socket"))
-        return r.stdout.trim().toIntOrNull() ?: error("adb forward gave no port for $socket: ${(r.stdout + r.stderr).trim()}")
+        val port = r.stdout.trim().toIntOrNull() ?: error("adb forward gave no port for $socket: ${(r.stdout + r.stderr).trim()}")
+        record?.add(serial, port, socket)
+        return port
     }
 
     private fun removeForward(port: Int) {
         runCatching { runAdb(listOf("-s", serial, "forward", "--remove", "tcp:$port")) }
+        record?.remove(serial, port)
     }
 
     private fun endpoint(source: String, socket: String, port: Int, ws: String? = null) =

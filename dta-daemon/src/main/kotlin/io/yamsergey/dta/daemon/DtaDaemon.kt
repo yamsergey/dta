@@ -576,7 +576,21 @@ class DtaDaemon(
     suspend fun webDevtools(serial: String, pkg: String) = web(serial, pkg).devtools()
 
     internal fun web(serial: String, pkg: String): io.yamsergey.dta.daemon.web.WebCapture = webCaptures.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
-        io.yamsergey.dta.daemon.web.WebCapture(serial, pkg, runAdb, { connections.connect(key) }, background)
+        io.yamsergey.dta.daemon.web.WebCapture(serial, pkg, runAdb, { connections.connect(key) }, background, forwardRecord)
+    }
+
+    /** Feature 061: DevTools forwards this daemon makes, written down in its home. */
+    private val forwardRecord by lazy { io.yamsergey.dta.daemon.web.ForwardRecord(java.io.File(dataDir, "web-forwards.json")) }
+
+    /** Feature 061: forwards a daemon that crashed left behind are removed at start (only recorded ones). */
+    private val forwardCleanup = background.launch {
+        val record = forwardRecord
+        val before = record.all()
+        if (before.isEmpty()) return@launch
+        val list = runCatching { runAdb(listOf("forward", "--list")).stdout }.getOrNull() ?: return@launch
+        record.leftovers(list).forEach { (serial, port) -> runCatching { runAdb(listOf("-s", serial, "forward", "--remove", "tcp:$port")) } }
+        // Only what was recorded before this daemon started: a capture starting meanwhile keeps its own.
+        before.forEach { (serial, ports) -> ports.keys.forEach { record.remove(serial, it) } }
     }
 
     private val webOnConnect = background.launch {
