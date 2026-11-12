@@ -164,7 +164,7 @@ private val PASSPHRASE = ParamSpec("passphrase", ParamType.STRING, "SQLCipher pa
 object Catalog {
     /** Feature 040: the query line, shared by network.list and network.search. */
     private val QUERY_LINE_HELP =
-        "Query line: key:value words filter — any entry: body: (text in any body, case ignored; body:/regex/ a pattern, also req:/…/ resp:/…/ — slashes group spaces, case ignored unless (?-i), body:\"/x/\" stays literal), url:, host:, kind:, has:intervention, run:, since:5m, until:; " +
+        "Query line: key:value words filter — any entry: body: (text in any body, case ignored; body:/regex/ a pattern, also req:/…/ resp:/…/ — slashes group spaces, case ignored unless (?-i), body:\"/x/\" stays literal), url:, host:, kind:, source:app|webview|custom-tab, has:intervention, run:, since:5m, until:; " +
         "HTTP: method:, status: (200, 4xx, failed, pending), header:name or header:name=text, req: / resp: (text in the request or response body), mime:json, duration:>1s, size:>100k; " +
         "WebSocket: dir:sent|received, frame:text|binary, type: and topic: (as the message format reads them), conn:<connection id>, status:open|closed|connecting|failed|1006, header: (handshake), size:; " +
         "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched, fuzzily " +
