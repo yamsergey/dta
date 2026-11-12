@@ -37,7 +37,7 @@ class StatementsTest {
     @Test
     fun `kinds follow the statements table with its glyphs, ASCII forms and tokens`() {
         assertEquals(
-            listOf("fallback", "degraded", "reduced detail", "incomplete", "evicted", "auto", "inferred", "scripted", "injected", "redacted", "decoded", "binary", "failed", "pending", "process ended", "not captured"),
+            listOf("fallback", "degraded", "reduced detail", "incomplete", "evicted", "auto", "inferred", "scripted", "injected", "redacted", "decoded", "binary", "failed", "pending", "process ended", "not captured", "source"),
             StatementKind.entries.map { it.word },
         )
         assertEquals("▲" to "!", FALLBACK.glyph to FALLBACK.ascii)
@@ -66,6 +66,23 @@ class StatementsTest {
         assertEquals(FAILED, failed.kind)
         assertEquals("UnknownHostException: down.example.com", failed.detail)
         assertEquals(emptyList(), Statements.forEntry(entry(5)))
+    }
+
+    @Test
+    fun `web traffic says where it came from, the app's own says nothing (061)`() {
+        fun e(library: String?) = Json.parseToJsonElement(
+            """{"id":"r1","type":"http","state":"complete"${library?.let { ",\"library\":\"$it\"" } ?: ""}}""",
+        ).jsonObject
+        val web = Statements.forEntry(e("webview")).single()
+        assertEquals(StatementKind.SOURCE, web.kind)
+        assertEquals("webview", web.word)
+        assertEquals("◍" to "w", StatementKind.SOURCE.glyph to StatementKind.SOURCE.ascii)
+        assertEquals("custom tab", Statements.forEntry(e("custom-tab")).single().word)
+        assertEquals(emptyList(), Statements.forEntry(e("okhttp")))
+        assertEquals(emptyList(), Statements.forEntry(e(null)))
+        // A mark among others comes last: what happened to the entry first.
+        val failed = Json.parseToJsonElement("""{"id":"r2","type":"http","state":"failed","failure":"x","library":"webview"}""").jsonObject
+        assertEquals(listOf(FAILED, StatementKind.SOURCE), Statements.forEntry(failed).kinds())
     }
 
     @Test

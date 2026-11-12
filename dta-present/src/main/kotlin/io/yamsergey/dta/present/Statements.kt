@@ -33,6 +33,8 @@ enum class StatementKind(val word: String, val glyph: String, val ascii: String,
     PENDING("pending", "…", "..", "ink-muted"),
     PROCESS_ENDED("process ended", "◼", "[]", "ink-muted"),
     NOT_CAPTURED("not captured", "○", "o", "ink-muted"),
+    /** Feature 061: traffic from a WebView page or a Custom Tab (word: webview / custom tab); the app's own has none. */
+    SOURCE("source", "◍", "w", "ink-muted"),
 }
 
 /**
@@ -88,6 +90,10 @@ object Statements {
             "failed" -> add(Statement(StatementKind.FAILED, detail = entry.str("failure") ?: "failed"))
             "pending" -> add(Statement(StatementKind.PENDING))
             "process-ended" -> add(Statement(StatementKind.PROCESS_ENDED, code = "process-ended", explanation = "The app process ended before this entry finished."))
+        }
+        when (entry.str("library")) {
+            "webview" -> add(Statement(StatementKind.SOURCE, word = "webview", detail = "from a WebView page of the app", explanation = "Recorded from one of the app's WebView pages (browser capture)."))
+            "custom-tab" -> add(Statement(StatementKind.SOURCE, word = "custom tab", detail = "from a Custom Tab the app opened", explanation = "Recorded from a Custom Tab the app opened (browser capture)."))
         }
     }.ordered()
 
