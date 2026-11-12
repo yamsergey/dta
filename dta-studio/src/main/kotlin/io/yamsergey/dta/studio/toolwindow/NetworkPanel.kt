@@ -140,6 +140,8 @@ class NetworkPanel(
     private var suggestionPopup: com.intellij.openapi.ui.popup.JBPopup? = null
     private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
+    /** Feature 061: browser capture, while a browser switch is on. */
+    private val webStatus = WebStatusRow(context, scope)
     // The IDE's own segmented control: a plain JToggleButton's pressed state barely shows in the new UI.
     private lateinit var kinds: SegmentedButton<KindChoice>
     /**
@@ -282,7 +284,7 @@ class NetworkPanel(
         }
         bindQuery()
         val master = JPanel(BorderLayout()).apply {
-            add(JPanel(BorderLayout()).apply { add(toolbar, BorderLayout.NORTH); add(statements, BorderLayout.SOUTH) }, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply { add(toolbar, BorderLayout.NORTH); add(statements, BorderLayout.CENTER); add(webStatus, BorderLayout.SOUTH) }, BorderLayout.NORTH)
             add(strip.component, BorderLayout.WEST)
             add(scroll, BorderLayout.CENTER)
             // Feature 043: what the list shows and what the filters hid sit under it.
