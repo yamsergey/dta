@@ -55,6 +55,7 @@ class NetworkFilterEval(
         val locations = mutableListOf<MatchLocation>()
         filter.kinds?.let { if (kindOf(entry) !in it) return null }
         filter.intervened?.let { wanted -> if ((entry.intervention != null) != wanted) return null }
+        filter.source?.let { if (sourceOf(entry) != it) return null }
         if (filter.runs == RunScope.CURRENT && entry.runId != liveRunId) return null
         filter.sinceMs?.let { if (entry.timeMs < it) return null }
         filter.untilMs?.let { if (entry.timeMs > it) return null }
@@ -311,5 +312,12 @@ class NetworkFilterEval(
             is WsMessageEntry -> EntryKind.WS_MESSAGE
             is LinkEntry -> EntryKind.LINK
         }
+    }
+
+    /** Feature 061: `webview`, `custom-tab`, else `app`. */
+    private fun sourceOf(entry: NetworkEntry): String = when (entry.library) {
+        NetworkLibraries.WEBVIEW -> "webview"
+        NetworkLibraries.CUSTOM_TAB -> "custom-tab"
+        else -> "app"
     }
 }

@@ -119,7 +119,7 @@ class NetworkPanel(
     /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP. */
     private val query = com.intellij.ui.components.JBTextField().apply {
         emptyText.text = "Filter and search: body:text body:/regex/ status:4xx dir:received host:… -host:… token \"a phrase\" (click for every filter)"
-        toolTipText = "<html>key:value words filter. Any entry: body: url: host: kind: has:intervention run: since:5m until:<br>" +
+        toolTipText = "<html>key:value words filter. Any entry: body: url: host: kind: source:webview has:intervention run: since:5m until:<br>" +
             "HTTP: method: (or GET/POST…) status: header: req: resp: mime: duration:&gt;1s size:&gt;100k<br>" +
             "WebSocket: dir:sent|received frame:text|binary type: topic: conn: status:open|closed|1006<br>" +
             "body: req: resp: take text or a /regex/ pattern: body:/\"id\":\\s*\\d+/ (case ignored; body:\"/x/\" is literal text)<br>" +

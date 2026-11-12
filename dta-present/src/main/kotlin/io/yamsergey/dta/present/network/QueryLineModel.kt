@@ -102,6 +102,7 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
             "host" -> seen.hosts.sorted()
             "method" -> (QueryLine.METHODS + seen.methods).toSortedSet().toList()
             "kind" -> listOf("http", "ws", "ws-connection", "ws-message")
+            "source" -> QueryLine.SOURCES
             "has" -> listOf("intervention")
             "run" -> listOf("current", "all")
             "since", "until" -> listOf("5m", "15m", "1h", "1d")

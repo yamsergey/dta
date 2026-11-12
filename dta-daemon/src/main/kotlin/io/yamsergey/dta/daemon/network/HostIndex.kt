@@ -426,8 +426,8 @@ class HostIndex(
         suspend fun appAnswers(app: AppConnection, query: NetworkQuery): NetworkPage {
             val (filter, terms) = query.resolved()
             // Feature 053: body patterns stay here too: an app could read them as nothing at all.
-            val unsupported = terms.isNotEmpty() || filter?.host != null || filter?.exclude != null || filter?.hasPattern == true
-            val sent = query.copy(q = null, filter = filter?.withoutPatterns()?.copy(host = null, exclude = null)?.takeIf { it != NetworkFilter() })
+            val unsupported = terms.isNotEmpty() || filter?.host != null || filter?.exclude != null || filter?.hasPattern == true || filter?.source != null
+            val sent = query.copy(q = null, filter = filter?.withoutPatterns()?.copy(host = null, exclude = null, source = null)?.takeIf { it != NetworkFilter() })
             val page = DtaJson.decodeFromJsonElement(NetworkPage.serializer(), app.request("network_list", sent.toJson()))
             if (!unsupported) return page
             return page.copy(degraded = page.degraded.orEmpty() + DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE))

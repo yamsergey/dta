@@ -90,6 +90,8 @@ data class NetworkFilter(
     val requestPattern: String? = null,
     /** Feature 053: a pattern found in the HTTP response body. */
     val responsePattern: String? = null,
+    /** Feature 061: where the traffic came from — `app`, `webview` (the app's WebView pages) or `custom-tab`. */
+    val source: String? = null,
 ) {
     /** Feature 053: has a body pattern of its own or in an exclusion. */
     val hasPattern: Boolean get() = bodyPattern != null || requestPattern != null || responsePattern != null || exclude?.any { it.hasPattern } == true
@@ -114,7 +116,7 @@ data class NetworkFilter(
         minSize = other.minSize ?: minSize, maxSize = other.maxSize ?: maxSize,
         requestContains = other.requestContains ?: requestContains, responseContains = other.responseContains ?: responseContains,
         bodyPattern = other.bodyPattern ?: bodyPattern, requestPattern = other.requestPattern ?: requestPattern,
-        responsePattern = other.responsePattern ?: responsePattern,
+        responsePattern = other.responsePattern ?: responsePattern, source = other.source ?: source,
     )
 }
 

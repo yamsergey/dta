@@ -185,4 +185,15 @@ class NetworkFilterEvalTest {
         // An exclusion's body search counts what it could not search like the filter's own.
         assertEquals(listOf(oldRun.id, notFound.id, failed.id, pending.id, upload.id, socket.id), ids(NetworkFilter(exclude = listOf(NetworkFilter(bodyContains = "account_id")))))
     }
+
+    @Test
+    fun `source tells web traffic from the app's own (061)`() {
+        val page = HttpEntry("r2-1:20", "r2-1", 700, "webview", method = "GET", url = "https://news.example.com/", state = HttpState.COMPLETE, status = 200)
+        val tab = HttpEntry("r2-1:21", "r2-1", 710, "custom-tab", method = "GET", url = "https://help.example.com/", state = HttpState.COMPLETE, status = 200)
+        fun of(f: NetworkFilter) = eval(f).let { e -> listOf(ok, page, tab).filter { e.matches(it) != null }.map { it.id } }
+        assertEquals(listOf(page.id), of(NetworkFilter(source = "webview")))
+        assertEquals(listOf(tab.id), of(NetworkFilter(source = "custom-tab")))
+        assertEquals(listOf(ok.id), of(NetworkFilter(source = "app")))
+        assertEquals(listOf(ok.id, tab.id), of(NetworkFilter(exclude = listOf(NetworkFilter(source = "webview")))))
+    }
 }

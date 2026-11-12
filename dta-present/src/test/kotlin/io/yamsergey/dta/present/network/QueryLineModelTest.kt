@@ -45,7 +45,7 @@ class QueryLineModelTest {
     @Test
     fun `suggestions for keys, values seen, and applying one`() {
         val seen = Seen(hosts = setOf("api.example.test", "cdn.example.test"), statuses = setOf("401"))
-        assertEquals(listOf("status:", "size:", "since:"), line("s").suggestions(1).map { it.text })
+        assertEquals(listOf("status:", "size:", "source:", "since:"), line("s").suggestions(1).map { it.text })
         assertEquals(listOf("POST", "PUT", "PATCH").toSet(), line("P").suggestions(1).map { it.text }.toSet())
         assertEquals(listOf("status:4xx", "status:401"), line("status:4").suggestions(8, seen).map { it.text })
         assertEquals(listOf("-host:api.example.test"), line("token -host:a").suggestions(13, seen).map { it.text })

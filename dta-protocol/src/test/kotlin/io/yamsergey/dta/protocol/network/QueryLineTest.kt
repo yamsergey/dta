@@ -89,4 +89,16 @@ class QueryLineTest {
         assertEquals(listOf(0 to 4, 6 to 11), p.tokens.map { it.start to it.end })
         assertEquals(listOf("method", null), p.tokens.map { it.key })
     }
+
+    @Test
+    fun `source keeps or hides web traffic (061)`() {
+        assertEquals("webview", parse("source:webview").filter.source)
+        assertEquals("custom-tab", parse("source:custom-tab").filter.source)
+        assertEquals("app", parse("source:app").filter.source)
+        assertEquals(listOf(NetworkFilter(source = "webview")), parse("-source:webview").exclude)
+        val bad = parse("source:chrome")
+        assertEquals("source: takes app, webview or custom-tab; was 'chrome'", bad.problems.single().message)
+        assertEquals("source:webview -source:app", QueryLine.render(parse("source:webview -source:app")))
+        assertTrue(QueryLine.savable("source:webview"))
+    }
 }

@@ -57,12 +57,15 @@ object QueryLine {
         KeyInfo("topic", "text in a socket message's topic or channel", MESSAGES),
         KeyInfo("conn", "one socket connection and its messages, by id", setOf(EntryKind.WS_CONNECTION, EntryKind.WS_MESSAGE)),
         KeyInfo("kind", "http, ws, ws-connection, ws-message", ALL),
+        KeyInfo("source", "app, webview (the app's WebView pages) or custom-tab", ALL),
         KeyInfo("has", "intervention: entries the network script changed", ALL),
         KeyInfo("run", "current or all app runs (this session only)", ALL),
         KeyInfo("since", "newer than: 5m, 2h, 1d (this session only)", ALL),
         KeyInfo("until", "older than: 5m, 2h, 1d (this session only)", ALL),
     )
     val KEYS = KEY_INFO.map { it.name }
+    /** Feature 061: values of `source:`. */
+    val SOURCES = listOf("app", "webview", "custom-tab")
     val METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
     private val NOT_NEGATABLE = setOf("run", "since", "until", "has")
     private val STATUS = Regex("""[1-5]\d\d|[1-5]xx|failed|pending|open|closed|connecting|[1-4]\d\d\d""")
@@ -138,6 +141,7 @@ object QueryLine {
                 "url" -> NetworkFilter(url = value)
                 "body" -> raw.pattern?.let { NetworkFilter(bodyPattern = it) } ?: NetworkFilter(bodyContains = value)
                 "kind" -> kinds(value)?.let { NetworkFilter(kinds = it) } ?: run { problem("kind: takes http, ws, ws-connection or ws-message; was '$value'"); continue }
+                "source" -> if (value in SOURCES) NetworkFilter(source = value) else { problem("source: takes app, webview or custom-tab; was '$value'"); continue }
                 "has" -> if (value == "intervention") NetworkFilter(intervened = !raw.negated) else { problem("has: takes intervention; was '$value'"); continue }
                 "run" -> if (value == "current") NetworkFilter(runs = RunScope.CURRENT) else if (value == "all") NetworkFilter(runs = RunScope.ALL) else { problem("run: takes current or all; was '$value'"); continue }
                 "since", "until" -> time(value, nowMs)?.let { if (key == "since") NetworkFilter(sinceMs = it) else NetworkFilter(untilMs = it) }
@@ -197,6 +201,7 @@ object QueryLine {
                 if (name != null) add(if (negated) "-kind:$name" else name) else k.forEach { add("${n}kind:${kindName(it)}") }
             }
             f.intervened?.let { add(if (it) "has:intervention" else "-has:intervention") }
+            f.source?.let { add("${n}source:$it") }
             f.bodyContains?.let { add("${n}body:${literal(it)}") }
             f.requestContains?.let { add("${n}req:${literal(it)}") }
             f.responseContains?.let { add("${n}resp:${literal(it)}") }
