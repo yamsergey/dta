@@ -42,14 +42,21 @@ class SharedSelection(private val context: ContextController, private val scope:
                 .collectLatest { (device, app, _) ->
                     current.value = null
                     lastSent = null
-                    val client = context.client
-                    if (device == null || app == null || client == null) return@collectLatest
-                    runCatching {
-                        client.selectionChanges(params(device, app)).collect { data ->
-                            val sel = (data["selection"] as? JsonObject)?.let { DtaJson.decodeFromJsonElement(LayoutSelection.serializer(), it) } ?: return@collect
-                            current.value = sel
-                            if (sel.changedBy != PLUGIN && sel.revision > 0) others.emit(sel)
+                    if (device == null || app == null) return@collectLatest
+                    // The daemon connection may come after the app does, and a replaced daemon ends the
+                    // subscription: follow again until the app changes.
+                    while (true) {
+                        val client = context.client
+                        if (client != null) {
+                            runCatching {
+                                client.selectionChanges(params(device, app)).collect { data ->
+                                    val sel = (data["selection"] as? JsonObject)?.let { DtaJson.decodeFromJsonElement(LayoutSelection.serializer(), it) } ?: return@collect
+                                    current.value = sel
+                                    if (sel.changedBy != PLUGIN && sel.revision > 0) others.emit(sel)
+                                }
+                            }
                         }
+                        kotlinx.coroutines.delay(1_000)
                     }
                 }
         }

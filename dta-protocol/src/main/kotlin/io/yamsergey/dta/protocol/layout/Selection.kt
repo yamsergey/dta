@@ -101,11 +101,11 @@ object Selections {
     fun point(at: String): Pair<Int, Int>? = at.split(',').takeIf { it.size == 2 }?.let { (a, b) -> a.trim().toIntOrNull()?.let { x -> b.trim().toIntOrNull()?.let { x to it } } }
 
     /**
-     * Is [e] on the latest screen: the same id, kind and name in a capture newer than it (on-screen),
-     * missing from one (gone), or no newer capture (not-checked). An element without an id is not-checked.
+     * Is [e] on the latest screen: the same id, kind and name in the latest capture taken at or after it (on-screen),
+     * missing from it (gone), or none since (not-checked). An element without an id is not-checked.
      */
     fun freshness(e: SelectedElement, latest: LayoutCapture?, latestAt: Long?): String {
-        if (latest == null || latestAt == null || latestAt <= e.capturedAt) return NOT_CHECKED
+        if (latest == null || latestAt == null || latestAt < e.capturedAt) return NOT_CHECKED
         val id = (e.node["id"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return NOT_CHECKED
         val kind = (e.node["kind"] as? JsonPrimitive)?.content
         val name = ((e.node["name"] ?: e.node["className"]) as? JsonPrimitive)?.content
