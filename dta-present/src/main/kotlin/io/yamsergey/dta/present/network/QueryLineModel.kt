@@ -53,9 +53,8 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
         explicit: Boolean = false,
     ): List<Suggestion> {
         val at = caret.coerceIn(0, text.length)
-        var from = at
-        while (from > 0 && !text[from - 1].isWhitespace()) from--
-        val word = text.substring(from, at)
+        val word = word(text, at)
+        val from = at - word.length
         val back = recent.filter { it.word.startsWith(word, ignoreCase = true) && it.word != word }
             .map { Suggestion(it.word, from, SavedChip.age(it.lastUsedMs, nowMs), recent = true) }
         // Feature 051: an empty line (or Down) lists every key, so none has to be remembered.
@@ -114,13 +113,26 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
     /** [s] applied: the new model and the caret after it (a space follows a finished word). */
     fun apply(s: Suggestion, caret: Int): Pair<QueryLineModel, Int> {
         val end = caret.coerceIn(s.from, text.length)
-        val done = !s.text.endsWith(":") && !s.text.endsWith(":/")
-        val insert = s.text + if (done && (end == text.length || !text[end].isWhitespace())) " " else ""
+        val insert = s.text + tail(s.text, text.substring(end))
         val t = text.substring(0, s.from) + insert + text.substring(end)
         return withText(t) to s.from + insert.length
     }
 
     companion object {
+        /** Feature 063: the word ending at [caret] — what a suggestion replaces (the completion prefix). */
+        fun word(text: String, caret: Int): String {
+            val at = caret.coerceIn(0, text.length)
+            var from = at
+            while (from > 0 && !text[from - 1].isWhitespace()) from--
+            return text.substring(from, at)
+        }
+
+        /** Feature 063: what follows an inserted [suggestion] before [after]: a space after a finished word, none after a key or a pattern start. */
+        fun tail(suggestion: String, after: String): String {
+            val done = !suggestion.endsWith(":") && !suggestion.endsWith(":/")
+            return if (done && (after.isEmpty() || !after[0].isWhitespace())) " " else ""
+        }
+
         fun seen(rows: List<EntryRow>): Seen = Seen(
             hosts = rows.mapNotNull { it.host?.takeIf { h -> h.isNotEmpty() }?.substringBefore(':') }.toSet(),
             statuses = rows.mapNotNull { it.outcome.text.substringBefore(' ').takeIf { s -> s.length == 3 && s.all(Char::isDigit) } }.toSet(),

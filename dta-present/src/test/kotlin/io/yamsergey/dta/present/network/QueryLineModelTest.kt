@@ -59,6 +59,20 @@ class QueryLineModelTest {
     }
 
     @Test
+    fun `the word at the caret and what follows an inserted suggestion (063)`() {
+        assertEquals("sta", QueryLineModel.word("POST sta", 8))
+        assertEquals("st", QueryLineModel.word("POST sta", 7))
+        assertEquals("", QueryLineModel.word("POST ", 5))
+        assertEquals("-host:a", QueryLineModel.word("x -host:a y", 9))
+        // A finished word gets a space unless one already follows; a key or a pattern start does not.
+        assertEquals(" ", QueryLineModel.tail("status:4xx", ""))
+        assertEquals(" ", QueryLineModel.tail("status:4xx", "token"))
+        assertEquals("", QueryLineModel.tail("status:4xx", " token"))
+        assertEquals("", QueryLineModel.tail("status:", ""))
+        assertEquals("", QueryLineModel.tail("body:/", ""))
+    }
+
+    @Test
     fun `an empty line lists every key with its hint, recent filters first (051)`() {
         val recent = listOf(RecentFilter("-host:t.example.test", 1000))
         val all = line("").suggestions(0, recent = recent, nowMs = 2000)
