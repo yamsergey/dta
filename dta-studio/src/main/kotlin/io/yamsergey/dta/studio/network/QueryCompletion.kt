@@ -32,16 +32,20 @@ class QueryCompletion(
 
     data class Input(val seen: Seen = Seen(), val recent: List<RecentFilter> = emptyList(), val kind: KindChoice = KindChoice.ALL)
 
-    override fun getAdvertisement(): String? = null
+    /** In place of the IDE's random completion tip, which is about code (063). */
+    override fun getAdvertisement(): String = "Enter with no list open saves the filters as chips"
 
     override fun getPrefix(text: String, offset: Int): String = QueryLineModel.word(text, offset)
 
     override fun applyPrefixMatcher(result: CompletionResultSet, prefix: String): CompletionResultSet =
         result.withPrefixMatcher(PlainPrefixMatcher(prefix, true))
 
-    /** Every character but whitespace belongs to the word (`status:4xx`, `-host:a.b`, `body:/x/`). */
+    /**
+     * Every character but whitespace belongs to the word (`status:4xx`, `-host:a.b`, `body:/x/`). A colon closes
+     * the open list so [QueryTypedHandler] can open the key's values (an open list would only narrow to the key).
+     */
     override fun acceptChar(c: Char): CharFilter.Result =
-        if (c.isWhitespace()) CharFilter.Result.HIDE_LOOKUP else CharFilter.Result.ADD_TO_PREFIX
+        if (c.isWhitespace() || c == ':') CharFilter.Result.HIDE_LOOKUP else CharFilter.Result.ADD_TO_PREFIX
 
     override fun fillCompletionVariants(parameters: CompletionParameters, prefix: String, result: CompletionResultSet) {
         // Auto-popup has invocation count 0; Ctrl+Space or Down ask for every key (051).

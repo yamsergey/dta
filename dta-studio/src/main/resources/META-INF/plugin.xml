@@ -14,6 +14,8 @@ network scripts, and give coding agents the same tools over a local MCP server.<
     <depends>com.intellij.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Feature 063: the query line opens a key's values when its colon is typed. -->
+        <typedHandler implementation="io.yamsergey.dta.studio.network.QueryTypedHandler"/>
         <toolWindow id="DTA"
                     anchor="bottom"
                     factoryClass="io.yamsergey.dta.studio.toolwindow.DtaToolWindowFactory"

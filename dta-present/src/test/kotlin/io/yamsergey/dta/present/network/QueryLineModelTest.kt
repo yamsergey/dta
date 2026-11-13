@@ -59,6 +59,14 @@ class QueryLineModelTest {
     }
 
     @Test
+    fun `a value that is also a recent filter is offered once, as the recent one (063)`() {
+        val recent = listOf(RecentFilter("status:4xx", 1000))
+        val texts = line("status:").suggestions(7, recent = recent, nowMs = 2000).map { it.text }
+        assertEquals(1, texts.count { it == "status:4xx" })
+        assertEquals("status:4xx", texts.first())
+    }
+
+    @Test
     fun `the word at the caret and what follows an inserted suggestion (063)`() {
         assertEquals("sta", QueryLineModel.word("POST sta", 8))
         assertEquals("st", QueryLineModel.word("POST sta", 7))

@@ -10,7 +10,7 @@ import io.yamsergey.dta.protocol.network.RecentFilter
 class QueryAutoPopupTest : BasePlatformTestCase() {
 
     private lateinit var tester: CompletionAutoPopupTester
-    private var input = QueryCompletion.Input(recent = listOf(RecentFilter("status:5xx", 0)))
+    private var input = QueryCompletion.Input(io.yamsergey.dta.present.network.Seen(hosts = setOf("api.example.test")), recent = listOf(RecentFilter("status:5xx", 0)))
 
     override fun runInDispatchThread() = false
 
@@ -28,6 +28,11 @@ class QueryAutoPopupTest : BasePlatformTestCase() {
     fun `test typing opens the list`() = tester.runWithAutoPopupEnabled {
         tester.typeWithPauses("POST sta")
         assertEquals(listOf("status:5xx", "status:"), lookupStrings())
+    }
+
+    fun `test typing the colon of a key opens its values`() = tester.runWithAutoPopupEnabled {
+        tester.typeWithPauses("host:")
+        assertEquals(listOf("host:api.example.test"), lookupStrings())
     }
 
     fun `test text set by code opens nothing`() = tester.runWithAutoPopupEnabled {

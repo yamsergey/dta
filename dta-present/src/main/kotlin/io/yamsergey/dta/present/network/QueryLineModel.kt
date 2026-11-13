@@ -59,7 +59,9 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
             .map { Suggestion(it.word, from, SavedChip.age(it.lastUsedMs, nowMs), recent = true) }
         // Feature 051: an empty line (or Down) lists every key, so none has to be remembered.
         if (word.isEmpty()) return back + if (text.isBlank() || explicit) keys(kind).map { Suggestion("${it.name}:", from, it.hint) } else emptyList()
-        return back + typed(from, word, seen, kind)
+        // Feature 063: a value that is also a recent filter is offered once, as the recent one.
+        val offered = back.map { it.text }.toSet()
+        return back + typed(from, word, seen, kind).filterNot { it.text in offered }
     }
 
     /** Every key; the kind switch's own keys first, in the language's order otherwise. */
