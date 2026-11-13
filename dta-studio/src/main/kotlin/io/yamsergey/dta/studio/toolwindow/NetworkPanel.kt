@@ -686,7 +686,11 @@ class NetworkPanel(
                 1 -> { append(r.kind.label, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token))); toolTipText = r.kind.description.takeIf { it.isNotBlank() } }
                 2 -> append(r.verb, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token)))
                 // The URL, nothing else: a message's payload is under its connection, in Messages.
-                3 -> { r.host?.let { append(it, muted) }; append(r.path) }
+                3 -> {
+                    r.host?.let { append(it, muted) }; append(r.path)
+                    // Feature 061: where web traffic came from, also when the Notes column is out of sight.
+                    toolTipText = r.marks.shown.firstOrNull { it.kind == io.yamsergey.dta.present.StatementKind.SOURCE }?.let { "${it.kind.glyph} ${it.word}: ${it.detail}" }
+                }
                 4 -> {
                     val st = r.outcome.statement
                     when {

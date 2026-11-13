@@ -31,7 +31,7 @@ class WebStatusRow(
     private val context: ContextController,
     private val scope: CoroutineScope,
     private val settings: InjectionSettings = InjectionSettings.get(),
-) : JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), 0)) {
+) : JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)) {
     private var shown: List<WebStatusLine.Part> = emptyList()
 
     init {
