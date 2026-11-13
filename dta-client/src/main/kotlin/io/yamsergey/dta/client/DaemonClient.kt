@@ -123,6 +123,10 @@ class DaemonClient private constructor(private val timeout: Duration) {
     fun layoutChanges(params: JsonObject): Flow<JsonObject> =
         subscription(DaemonMethods.LAYOUT_SUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, setOf(DaemonEvents.LAYOUT_CHANGED, DaemonEvents.LAYOUT_SIGNAL), params)
 
+    /** Feature 055: the app's shared layout selection (event data: `selection`, `by`), now and at every change. */
+    fun selectionChanges(params: JsonObject): Flow<JsonObject> =
+        subscription(DaemonMethods.SELECTION_SUBSCRIBE, DaemonMethods.SELECTION_UNSUBSCRIBE, setOf(DaemonEvents.LAYOUT_SELECTION), params)
+
     private fun subscription(subscribe: String, unsubscribe: String, eventNames: Set<String>, params: JsonObject): Flow<JsonObject> = callbackFlow {
         // Listen before asking: the subscription's first events (a history replay) may follow the
         // answer at once, before a collector started afterwards would be listening.
