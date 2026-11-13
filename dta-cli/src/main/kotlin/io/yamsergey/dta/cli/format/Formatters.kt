@@ -76,6 +76,7 @@ class Formatters(private val style: Style) {
             "Timeline ${if (t.on) "on" else "off"} for this app" + (if (t.recording) "; recording now" else "; not recording") + (t.note?.let { " ($it)" } ?: "")
         }
         "web.capture" -> WebText.switch(decode(io.yamsergey.dta.protocol.web.WebSwitch.serializer(), result))
+        "layout.selection", "layout.select" -> io.yamsergey.dta.present.layout.SelectionText.text(decode(io.yamsergey.dta.protocol.layout.LayoutSelection.serializer(), result))
         "web.status" -> WebText.status(decode(io.yamsergey.dta.protocol.web.WebStatus.serializer(), result))
         "web.devtools" -> WebText.devtools(decode(io.yamsergey.dta.protocol.web.WebDevtools.serializer(), result))
         "timeline.flow.list" -> flowList(decode(io.yamsergey.dta.protocol.timeline.FlowList.serializer(), result))

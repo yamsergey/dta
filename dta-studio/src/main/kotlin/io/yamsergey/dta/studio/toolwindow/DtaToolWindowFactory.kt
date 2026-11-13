@@ -31,7 +31,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             service.network.setArchive(scope)
             tabs.selectedIndex = 0
         }
-        val layoutPanel = LayoutPanel(project, service.layout, service.scope)
+        val layoutPanel = LayoutPanel(project, service.layout, service.scope, service.selection)
         val scriptPanel = ScriptPanel(project, controller, service.scope)
         val linksPanel = LinksPanel(project, controller, service.scope)
         // Feature 048: set once the Runtime tab exists.

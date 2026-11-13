@@ -61,12 +61,15 @@ class LayoutPanel(
     private val project: Project,
     private val controller: LayoutController,
     private val scope: CoroutineScope,
+    /** Feature 055: the tree's selection is the app's shared one. */
+    private val shared: io.yamsergey.dta.studio.layout.SharedSelection? = null,
 ) : JPanel(BorderLayout()) {
     private val model = DefaultTreeModel(DefaultMutableTreeNode())
     private val tree = Tree(model).apply {
         isRootVisible = false
         showsRootHandles = true
-        selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
+        // Feature 055: several elements (Cmd/Ctrl- and Shift-click), shared with agents.
+        selectionModel.selectionMode = TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION
         cellRenderer = NodeRenderer()
     }
     private val nodes = HashMap<List<Int>, DefaultMutableTreeNode>()
@@ -118,6 +121,16 @@ class LayoutPanel(
     private val inner = JBSplitter(false, 0.5f)
     private var last = LayoutViewState()
     private var updating = false
+    /** Feature 055: one line under the tree — how many are selected, by whom — and a way to clear them. */
+    private val selectionLine = object : JBLabel() {
+        override fun getMinimumSize() = java.awt.Dimension(0, super.getMinimumSize().height)
+    }.apply { foreground = JBColor.GRAY }
+    private val clearSelection = ActionLink("Clear selection") { tree.clearSelection() }
+    private val selectionRow = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(1))).apply {
+        add(selectionLine); add(clearSelection); isVisible = false
+    }
+    /** The tree's selection is published once it settles (a Shift-click range is one change). */
+    private val publish = javax.swing.Timer(150) { publishSelection() }.apply { isRepeats = false }
 
     init {
         val toolbar = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
@@ -143,7 +156,7 @@ class LayoutPanel(
                 }
             }, BorderLayout.NORTH)
             add(JBScrollPane(tree), BorderLayout.CENTER)
-            add(status, BorderLayout.SOUTH)
+            add(JPanel(BorderLayout()).apply { add(selectionRow, BorderLayout.NORTH); add(status, BorderLayout.SOUTH) }, BorderLayout.SOUTH)
         }
         splitter.firstComponent = master
         inner.firstComponent = screenPanel
@@ -176,6 +189,17 @@ class LayoutPanel(
         tree.addTreeSelectionListener {
             if (updating) return@addTreeSelectionListener
             controller.select(((tree.lastSelectedPathComponent as? DefaultMutableTreeNode)?.userObject as? TreeNode)?.path)
+            if (shared != null) publish.restart()
+        }
+        // Feature 055: Esc clears the whole selection, as "Clear selection" does.
+        tree.addKeyListener(object : KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                if (e.keyCode == KeyEvent.VK_ESCAPE && !tree.isSelectionEmpty) { tree.clearSelection(); e.consume() }
+            }
+        })
+        shared?.let { sh ->
+            scope.launch { sh.state.collect { sel -> withContext(Dispatchers.Main) { showSelection(sel) } } }
+            scope.launch { sh.fromOthers.collect { sel -> withContext(Dispatchers.Main) { applyShared(sel) } } }
         }
         tree.addTreeExpansionListener(object : TreeExpansionListener {
             override fun treeExpanded(event: TreeExpansionEvent) = expansion(event, true)
@@ -203,9 +227,15 @@ class LayoutPanel(
             if (s.tree !== previous.tree || s.search != previous.search || s.hideNonMatching != previous.hideNonMatching || nodes.isEmpty()) rebuild(s)
             if (s.tree !== previous.tree) showHeader(s.tree)
             if (s.expanded != previous.expanded || s.tree !== previous.tree) applyExpansion(s.expanded)
+            val rebuilt = s.tree !== previous.tree
             val selected = s.selected?.let { nodes[it] }
             if (selected == null) tree.clearSelection()
-            else TreePath(selected.path).let { if (tree.selectionPath != it) { tree.selectionPath = it; tree.scrollPathToVisible(it) } }
+            else TreePath(selected.path).let { p ->
+                // Feature 055: the lead among several selected stays one of several.
+                if (tree.selectionPaths?.contains(p) != true) { tree.selectionPath = p; tree.scrollPathToVisible(p) }
+            }
+            // A new capture keeps the others selected (found again by id) without publishing anything.
+            if (rebuilt && shared != null) shared.state.value?.let { sel -> if (sel.elements.size > 1) reselect(sel, s) }
             if (refreshMode.selectedItem != s.refresh) refreshMode.selectedItem = s.refresh
             refreshLink.text = if (s.refresh == RefreshPolicy.Mode.AUTO) "Refresh now" else "Refresh"
             hideContainers.isSelected = s.hideContainers
@@ -236,6 +266,48 @@ class LayoutPanel(
         } finally {
             updating = false
         }
+    }
+
+    /** Feature 055: the tree's rows as shared elements, sent to the daemon. */
+    private fun publishSelection() {
+        val sh = shared ?: return
+        val whole = last.capture ?: last.tree ?: return
+        val paths = tree.selectionPaths.orEmpty().mapNotNull { ((it.lastPathComponent as? DefaultMutableTreeNode)?.userObject as? TreeNode)?.path }
+        val source = if (whole.summary.contains("uiautomator")) "uiautomator" else "sidekick"
+        sh.publish(io.yamsergey.dta.present.layout.SelectionMap.elements(whole, paths, last.capturedAt ?: System.currentTimeMillis(), source))
+    }
+
+    private fun showSelection(sel: io.yamsergey.dta.protocol.layout.LayoutSelection?) {
+        val line = sel?.let { io.yamsergey.dta.present.layout.SelectionText.line(it) }
+        selectionLine.text = line ?: ""
+        clearSelection.isVisible = sel?.elements?.isNotEmpty() == true
+        selectionRow.isVisible = line != null
+        selectionRow.revalidate()
+    }
+
+    /** An agent (or the app ending) changed the selection: select and reveal it here. */
+    private fun applyShared(sel: io.yamsergey.dta.protocol.layout.LayoutSelection) {
+        shared?.applied(sel.elements)
+        val paths = reselect(sel, last)
+        controller.select(paths.lastOrNull())
+    }
+
+    /** Selects [sel]'s rows in the tree shown (nothing published); returns their paths. */
+    private fun reselect(sel: io.yamsergey.dta.protocol.layout.LayoutSelection, s: LayoutViewState): List<List<Int>> {
+        val whole = s.capture ?: s.tree ?: return emptyList()
+        val paths = io.yamsergey.dta.present.layout.SelectionMap.paths(whole, sel).first.filter { nodes[it] != null }
+        val was = updating
+        updating = true
+        try {
+            if (paths.isEmpty()) tree.clearSelection()
+            else {
+                tree.selectionPaths = paths.map { TreePath(nodes.getValue(it).path) }.toTypedArray()
+                tree.scrollPathToVisible(TreePath(nodes.getValue(paths.last()).path))
+            }
+        } finally {
+            updating = was
+        }
+        return paths
     }
 
     private fun showHeader(tree: LayoutTree?) {

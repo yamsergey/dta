@@ -134,6 +134,7 @@ class McpTools(
 
         val INSTRUCTIONS = """
             DTA inspects a running Android app built with DTA inside: its screen as a tree of Views and Compose nodes (layout_tree), and its network traffic — HTTP and WebSocket in one list (network_list, network_entry, network_body), with scripts that change traffic and protobuf decoding.
+            When the developer points at the screen ("this", "the selected"), read layout_selection: what they selected in the IDE's Layout tab; layout_select shows them what you mean.
             Device and app may be omitted: one connected device and the foreground app are chosen, and the result's selection says so.
             Results state how values were obtained: fallback captures, degraded markers, incomplete bodies, script interventions. Read them before drawing conclusions.
             To follow traffic over time, call network_list with sinceMs set to the time of your previous call.
