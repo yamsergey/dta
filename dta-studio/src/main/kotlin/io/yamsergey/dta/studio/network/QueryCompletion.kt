@@ -76,6 +76,14 @@ class QueryCompletion(
     }
 
     companion object {
+        /**
+         * The empty line's offer on focus (043): shown like the auto-popup (nothing inserted by itself), invoked
+         * directly — the scheduled auto-popup skips an empty prefix.
+         */
+        fun offer(project: com.intellij.openapi.project.Project, editor: com.intellij.openapi.editor.Editor) =
+            com.intellij.codeInsight.completion.CodeCompletionHandlerBase(com.intellij.codeInsight.completion.CompletionType.BASIC, false, true, false)
+                .invokeCompletion(project, editor, 0)
+
         fun suggestions(input: Input, text: String, caret: Int, explicit: Boolean): List<Suggestion> =
             QueryLineModel(text).suggestions(caret, input.seen, input.recent, kind = input.kind, explicit = explicit)
     }

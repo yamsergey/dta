@@ -10,7 +10,6 @@ import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.ColoredTableCellRenderer
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.SimpleTextAttributes
@@ -28,7 +27,8 @@ import io.yamsergey.dta.present.network.KindChoice
 import io.yamsergey.dta.present.network.ListOrder
 import io.yamsergey.dta.present.network.LiveEvent
 import io.yamsergey.dta.present.network.QueryLineModel
-import io.yamsergey.dta.present.network.Suggestion
+import io.yamsergey.dta.studio.network.QueryCompletion
+import com.intellij.util.textCompletion.TextFieldWithCompletion
 import io.yamsergey.dta.present.network.Row
 import io.yamsergey.dta.present.network.Scrolling
 import io.yamsergey.dta.studio.ContextController
@@ -116,28 +116,26 @@ class NetworkPanel(
     // Feature 043: the app's saved filters; wrapping rows, a narrow pane moves chips to the next line.
     private val chips = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))).apply { isOpaque = false }
     private var chipsShown: List<String>? = null
-    /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP. */
-    private val query = com.intellij.ui.components.JBTextField().apply {
-        emptyText.text = "Filter and search: body:text body:/regex/ status:4xx dir:received host:… -host:… token \"a phrase\" (click for every filter)"
+    /** What the line's completion offers: set on the EDT, read by completion off it (063). */
+    @Volatile private var completionInput = QueryCompletion.Input()
+    /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP; 063: the IDE's completion field. */
+    private val query: TextFieldWithCompletion = TextFieldWithCompletion(
+        project,
+        QueryCompletion({ completionInput }, { word -> javax.swing.SwingUtilities.invokeLater { network.addSaved(word) } }),
+        "", /* oneLineMode = */ true, /* autoPopup = */ true, /* forceAutoPopup = */ false, /* showHint = */ false,
+    ).apply {
+        setPlaceholder("Filter and search: body:text body:/regex/ status:4xx dir:received host:… -host:… token \"a phrase\" (${completionShortcut()} for every filter)")
+        setShowPlaceholderWhenFocused(true)
         toolTipText = "<html>key:value words filter. Any entry: body: url: host: kind: source:webview has:intervention run: since:5m until:<br>" +
             "HTTP: method: (or GET/POST…) status: header: req: resp: mime: duration:&gt;1s size:&gt;100k<br>" +
             "WebSocket: dir:sent|received frame:text|binary type: topic: conn: status:open|closed|1006<br>" +
             "body: req: resp: take text or a /regex/ pattern: body:/\"id\":\\s*\\d+/ (case ignored; body:\"/x/\" is literal text)<br>" +
             "-key:value leaves matches out; other words are searched in URLs, headers, bodies and messages: only the matches are listed.<br>" +
-            "Enter saves the filters for this app as chips; with only search words Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.</html>"
+            "Enter saves the filters for this app as chips; with only search words Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.<br>" +
+            "${completionShortcut()} or Down lists every filter at the caret.</html>"
     }
     private val hitLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
-    private val suggestionList = com.intellij.ui.components.JBList<Suggestion>().apply {
-        // Feature 051: the hint in gray after the word, so every key explains itself.
-        cellRenderer = object : com.intellij.ui.ColoredListCellRenderer<Suggestion>() {
-            override fun customizeCellRenderer(list: javax.swing.JList<out Suggestion>, value: Suggestion, index: Int, selected: Boolean, hasFocus: Boolean) {
-                append(value.text)
-                value.hint?.let { append("   $it", com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES) }
-            }
-        }
-    }
-    private var suggestionPopup: com.intellij.openapi.ui.popup.JBPopup? = null
     private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     /** Feature 061: browser capture, while a browser switch is on. */
@@ -326,8 +324,8 @@ class NetworkPanel(
         Keyboard.bind(this, ViewKey.START) { if (model.rowCount > 0) table.changeSelection(0, 0, false, false) }
         Keyboard.bind(this, ViewKey.END) { network.list(LiveEvent.JumpToEnd); table.clearSelection(); scrollToEdge() }
         Keyboard.bind(this, ViewKey.PAUSE) { network.list(if (last.list.paused) LiveEvent.Resume else LiveEvent.Pause) }
-        Keyboard.bind(this, ViewKey.FILTERS) { query.requestFocusInWindow() }
-        Keyboard.bind(this, ViewKey.SEARCH) { query.requestFocusInWindow() }
+        Keyboard.bind(this, ViewKey.FILTERS) { focusQuery() }
+        Keyboard.bind(this, ViewKey.SEARCH) { focusQuery() }
         fun key(stroke: String, action: () -> Unit) = registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
         key("F3") { stepHit(forward = true) }
         key("shift F3") { stepHit(forward = false) }
@@ -376,7 +374,7 @@ class NetworkPanel(
             chipsShown = s.saved.saved
             chips.removeAll()
             s.saved.saved.forEach { word ->
-                chips.add(io.yamsergey.dta.studio.network.FilterChip(word, edit = { typing.stop(); network.editSaved(word); query.requestFocusInWindow() }, remove = { network.removeSaved(word) }))
+                chips.add(io.yamsergey.dta.studio.network.FilterChip(word, edit = { typing.stop(); network.editSaved(word); focusQuery() }, remove = { network.removeSaved(word) }))
             }
             chips.isVisible = s.saved.saved.isNotEmpty()
         }
@@ -494,87 +492,62 @@ class NetworkPanel(
         CopyPasteManager.getInstance().setContents(StringSelection(url))
     }
 
-    /** Feature 040: typing runs the line (debounced), suggestions follow the caret, Enter steps through hits. */
+    /**
+     * Feature 040/063: typing runs the line (debounced); the IDE's completion offers the words (it opens on typing
+     * or when asked, never on text set here). With no completion list open, Enter saves the filters or steps
+     * to the next hit, Shift+Enter to the previous, Down lists every key, Esc goes back to the list.
+     */
     private fun bindQuery() {
-        query.document.addDocumentListener(object : javax.swing.event.DocumentListener {
-            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = changed()
-            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = changed()
-            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = changed()
-            private fun changed() {
-                if (query.text == last.line.text) return
-                typing.restart()
-                javax.swing.SwingUtilities.invokeLater { if (query.hasFocus()) suggest() }
+        query.addDocumentListener(object : com.intellij.openapi.editor.event.DocumentListener {
+            override fun documentChanged(event: com.intellij.openapi.editor.event.DocumentEvent) {
+                refreshCompletionInput()
+                if (query.text != last.line.text) typing.restart()
             }
         })
-        query.addFocusListener(object : java.awt.event.FocusAdapter() {
-            override fun focusLost(e: java.awt.event.FocusEvent) { suggestionPopup?.cancel() }
-        })
-        fun on(stroke: String, action: () -> Unit) {
-            query.registerKeyboardAction({ action() }, javax.swing.KeyStroke.getKeyStroke(stroke), WHEN_FOCUSED)
+        query.addSettingsProvider { editor ->
+            // Feature 043: focusing the empty line offers the app's recent filters (and every key).
+            editor.contentComponent.addFocusListener(object : java.awt.event.FocusAdapter() {
+                override fun focusGained(e: java.awt.event.FocusEvent) {
+                    if (query.text.isNotEmpty()) return
+                    refreshCompletionInput()
+                    QueryCompletion.offer(project, editor)
+                }
+            })
         }
-        on("DOWN") { if (popupShown()) moveSuggestion(1) else suggest(explicit = true) }
-        on("UP") { if (popupShown()) moveSuggestion(-1) }
-        on("TAB") { if (popupShown()) applySuggestion() }
-        // Enter is the field's own accept action: a suggestion when the list is open; the line's filters saved as chips; else the next hit.
-        query.addActionListener {
-            if (popupShown()) { applySuggestion(); return@addActionListener }
+        fun on(stroke: String, action: () -> Unit) {
+            object : com.intellij.openapi.project.DumbAwareAction() {
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                // An open completion list keeps the IDE's own meaning of the key.
+                override fun update(e: AnActionEvent) { e.presentation.isEnabled = !completionShown() }
+                override fun actionPerformed(e: AnActionEvent) = action()
+            }.registerCustomShortcutSet(com.intellij.openapi.actionSystem.CustomShortcutSet.fromString(stroke), query)
+        }
+        on("ENTER") {
             typing.stop()
             if (network.commitLine(query.text)) {
                 query.text = network.state.value.line.text
-                return@addActionListener
+                return@on
             }
             network.setQuery(query.text)
             stepHit(forward = true)
         }
-        // Feature 043: focusing the empty line offers the app's recent filters.
-        query.addFocusListener(object : java.awt.event.FocusAdapter() {
-            override fun focusGained(e: java.awt.event.FocusEvent) { if (query.text.isEmpty()) javax.swing.SwingUtilities.invokeLater { if (query.hasFocus()) suggest() } }
-        })
         on("shift ENTER") { stepHit(forward = false) }
-        on("ESCAPE") { if (popupShown()) suggestionPopup?.cancel() else table.requestFocusInWindow() }
-        suggestionList.addMouseListener(object : java.awt.event.MouseAdapter() {
-            override fun mouseClicked(e: java.awt.event.MouseEvent) { applySuggestion(); query.requestFocusInWindow() }
-        })
-    }
-
-    private fun popupShown() = suggestionPopup?.isVisible == true
-
-    private fun suggest(explicit: Boolean = false) {
-        val items = last.line.withText(query.text).suggestions(
-            query.caretPosition, QueryLineModel.seen(model.views()), last.saved.recent, kind = kinds.selectedItem ?: KindChoice.ALL, explicit = explicit,
-        )
-        suggestionPopup?.cancel()
-        if (items.isEmpty()) return
-        suggestionList.setListData(items.toTypedArray())
-        suggestionList.selectedIndex = 0
-        suggestionList.visibleRowCount = minOf(items.size, 12)
-        suggestionPopup = JBPopupFactory.getInstance().createComponentPopupBuilder(JBScrollPane(suggestionList), null)
-            .setRequestFocus(false).setFocusable(false).setCancelOnClickOutside(true).setMinSize(java.awt.Dimension(JBUI.scale(220), 0))
-            .createPopup().also { it.showUnderneathOf(query) }
-    }
-
-    private fun moveSuggestion(by: Int) {
-        val n = suggestionList.model.size
-        if (n == 0) return
-        suggestionList.selectedIndex = (suggestionList.selectedIndex + by).mod(n)
-        suggestionList.ensureIndexIsVisible(suggestionList.selectedIndex)
-    }
-
-    private fun applySuggestion() {
-        val chosen = suggestionList.selectedValue ?: return
-        suggestionPopup?.cancel()
-        // Feature 043: a recent filter comes back as a chip in one choice.
-        if (chosen.recent) {
-            query.text = query.text.removeRange(chosen.from, query.caretPosition.coerceAtLeast(chosen.from))
-            network.addSaved(chosen.text)
-            return
+        on("DOWN") {
+            val editor = query.editor ?: return@on
+            refreshCompletionInput()
+            com.intellij.codeInsight.completion.CodeCompletionHandlerBase(com.intellij.codeInsight.completion.CompletionType.BASIC).invokeCompletion(project, editor)
         }
-        val (applied, caret) = last.line.withText(query.text).apply(chosen, query.caretPosition)
-        query.text = applied.text
-        query.caretPosition = caret.coerceAtMost(query.text.length)
-        // A key just completed ("status:") offers its values next.
-        if (chosen.text.endsWith(":")) suggest()
+        on("ESCAPE") { table.requestFocusInWindow() }
     }
+
+    private fun completionShown() = query.editor?.let { com.intellij.codeInsight.lookup.LookupManager.getActiveLookup(it) } != null
+
+    /** What completion reads: hosts, statuses and methods seen in the list, the app's recent filters, the kind switch. */
+    private fun refreshCompletionInput() {
+        completionInput = QueryCompletion.Input(QueryLineModel.seen(model.views()), last.saved.recent, kinds.selectedItem ?: KindChoice.ALL)
+    }
+
+    private fun focusQuery() = com.intellij.openapi.wm.IdeFocusManager.getInstance(project).requestFocus(query, true)
 
     /** Down the list = the next hit, whichever order the list shows. */
     private fun stepHit(forward: Boolean) {
@@ -741,3 +714,7 @@ class NetworkPanel(
         }
     }
 }
+
+/** The user's Basic Completion shortcut, as the placeholder names it. */
+private fun completionShortcut(): String =
+    com.intellij.openapi.keymap.KeymapUtil.getFirstKeyboardShortcutText(com.intellij.openapi.actionSystem.IdeActions.ACTION_CODE_COMPLETION).ifEmpty { "Ctrl+Space" }
