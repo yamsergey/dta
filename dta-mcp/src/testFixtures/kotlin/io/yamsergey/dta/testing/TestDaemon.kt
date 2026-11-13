@@ -188,6 +188,11 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     )
     override suspend fun webReload(serial: String, pkg: String, page: String) = false
     override suspend fun webDevtools(serial: String, pkg: String) = io.yamsergey.dta.protocol.web.WebDevtools(emptyList(), "no WebView")
+    private val selections = io.yamsergey.dta.daemon.layout.SelectionStore()
+    override suspend fun layoutSelection(serial: String, pkg: String, fresh: Boolean) = selections.read(serial, pkg)
+    override suspend fun layoutSelect(serial: String, pkg: String, mode: String, ids: List<Long>, at: String?, elements: List<io.yamsergey.dta.protocol.layout.SelectedElement>, by: String) =
+        selections.change(serial, pkg, mode, elements, by)
+    override fun layoutSelections(serial: String, pkg: String) = selections.flow(serial, pkg)
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph {
         val events = timeline.currentEpochEvents()
         val current = timeline.facets.snapshot()

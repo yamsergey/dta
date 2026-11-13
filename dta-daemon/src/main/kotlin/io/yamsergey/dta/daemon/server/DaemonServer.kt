@@ -155,7 +155,8 @@ class DaemonServer(
                 DaemonMethods.APPS_SUBSCRIBE -> scope.launch { subscribeApps(request) }
                 DaemonMethods.TIMELINE_SUBSCRIBE -> scope.launch { subscribeTimeline(request) }
                 DaemonMethods.LAYOUT_SUBSCRIBE -> scope.launch { subscribeLayout(request) }
-                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE -> {
+                DaemonMethods.SELECTION_SUBSCRIBE -> scope.launch { subscribeSelection(request) }
+                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, DaemonMethods.SELECTION_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
                     id?.let { networkTargets.remove(it) }
@@ -171,7 +172,7 @@ class DaemonServer(
                 }
                 else -> scope.launch {
                     try {
-                        val selected = dispatcher.dispatch(request.method, request.params)
+                        val selected = dispatcher.dispatch(request.method, request.params, hello?.client?.let { who(it) })
                         respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), selected))
                         if (request.method == "network.clear") {
                             val device = selected.selection?.device
@@ -449,6 +450,35 @@ class DaemonServer(
             }
         }
 
+        /** Feature 055: the app's shared layout selection, now and at every change. */
+        private suspend fun subscribeSelection(request: Request) {
+            val params = request.params ?: JsonObject(emptyMap())
+            try {
+                val resolution = selector.resolve(Scope.APP, (params["device"] as? JsonPrimitive)?.content, (params["app"] as? JsonPrimitive)?.content)
+                val serial = resolution.serial!!
+                val pkg = resolution.pkg!!
+                val id = "s${subscriptionIds.incrementAndGet()}"
+                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                    ops.layoutSelections(serial, pkg).collect { selection ->
+                        send(Event(name = DaemonEvents.LAYOUT_SELECTION, seq = seq.incrementAndGet(), data = buildJsonObject {
+                            put("subscription", id)
+                            put("device", serial)
+                            put("app", pkg)
+                            put("selection", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.layout.LayoutSelection.serializer(), selection))
+                            selection.changedBy?.let { put("by", it) }
+                        }))
+                    }
+                }
+                subscriptions[id] = job
+                respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })))
+                job.start()
+            } catch (e: ClientException) {
+                error(request.id, e.code, e.message ?: "failed", e.data)
+            } catch (e: Exception) {
+                error(request.id, ErrorCodes.INTERNAL, "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+
         /** Tells this client's watches of [app] on [device] that its history is gone, so their lists empty too. */
         fun cleared(device: String, app: String, result: JsonElement, by: String) {
             networkTargets.filterValues { it == device to app }.keys.forEach { id ->
@@ -489,4 +519,11 @@ class DaemonServer(
             onStop(reason)
         }
     }
+}
+
+/** Feature 055: who changed the shared selection, in the words the plugin shows. */
+internal fun who(kind: io.yamsergey.dta.protocol.ops.ClientKind): String = when (kind) {
+    io.yamsergey.dta.protocol.ops.ClientKind.IDE -> "plugin"
+    io.yamsergey.dta.protocol.ops.ClientKind.CLI -> "cli"
+    io.yamsergey.dta.protocol.ops.ClientKind.MCP, io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP -> "mcp"
 }

@@ -74,7 +74,7 @@ class OperationDispatcher(
     private val version: String = "dev",
 ) {
     /** What one handler sees: resolved target and validated params. */
-    private class Call(val serial: String?, val pkg: String?, val params: JsonObject) {
+    private class Call(val serial: String?, val pkg: String?, val params: JsonObject, val client: String? = null) {
         val device: String get() = serial!!
         val app: String get() = pkg!!
 
@@ -190,6 +190,14 @@ class OperationDispatcher(
             if (!ops.webReload(c.device, c.app, page)) invalid("no followed page $page: see web.status")
             buildJsonObject { put("reloaded", page) }
         },
+        "layout.selection" to { c -> encode(io.yamsergey.dta.protocol.layout.LayoutSelection.serializer(), ops.layoutSelection(c.device, c.app, c.bool("fresh"))) },
+        "layout.select" to { c ->
+            val ids = c.strings("ids").orEmpty().map { it.removePrefix("#").toLongOrNull() ?: invalid("ids are node numbers; was '$it'") }
+            val elements = c.string("elements")?.let {
+                DtaJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.layout.SelectedElement.serializer()), it)
+            }.orEmpty()
+            encode(io.yamsergey.dta.protocol.layout.LayoutSelection.serializer(), ops.layoutSelect(c.device, c.app, c.string("mode") ?: "set", ids, c.string("at"), elements, c.client ?: "client"))
+        },
         "web.devtools" to { c -> encode(io.yamsergey.dta.protocol.web.WebDevtools.serializer(), ops.webDevtools(c.device, c.app)) },
         "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
         "state.graph" to { c ->
@@ -269,7 +277,8 @@ class OperationDispatcher(
     /** Operation names this dispatcher serves (the server owns the rest: status, stop, watch). */
     val handled: Set<String> get() = handlers.keys
 
-    suspend fun dispatch(method: String, params: JsonObject?): Selected {
+    /** [client]: who asks (cli, mcp, plugin), for what records who changed something (feature 055). */
+    suspend fun dispatch(method: String, params: JsonObject?, client: String? = null): Selected {
         val spec = Catalog.find(method)
         val handler = handlers[method]
         if (spec == null || handler == null) {
@@ -286,7 +295,7 @@ class OperationDispatcher(
         }
         val resolution = selector.resolve(spec.scope, device, app)
         val result = try {
-            handler(Call(resolution.serial, resolution.pkg, own))
+            handler(Call(resolution.serial, resolution.pkg, own, client))
         } catch (e: Exception) {
             throw translate(e, resolution.pkg)
         }

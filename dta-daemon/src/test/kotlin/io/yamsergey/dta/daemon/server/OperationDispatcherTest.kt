@@ -104,6 +104,19 @@ class OperationDispatcherTest {
     }
 
     @Test
+    fun `the plugin's selection is read back with who made it, and cleared (055)`() {
+        val element = """[{"node":{"kind":"compose","id":160,"name":"Button","bounds":{"left":0,"top":0,"right":10,"bottom":10}},"path":["Root","Button"],"capturedAt":1}]"""
+        runBlocking { dispatcher.dispatch("layout.select", buildJsonObject { put("elements", element) }, client = "plugin") }
+        val read = call("layout.selection").result.jsonObject
+        assertEquals("plugin", read["changedBy"]!!.jsonPrimitive.content)
+        assertEquals("not-checked", read["elements"]!!.jsonArray.single().jsonObject["now"]!!.jsonPrimitive.content)
+        call("layout.select", buildJsonObject { put("mode", "clear") })
+        assertEquals(null, call("layout.selection").result.jsonObject["elements"]?.jsonArray?.takeIf { it.isNotEmpty() })
+        val bad = assertFailsWith<ClientException> { call("layout.select", buildJsonObject { putJsonArray("ids") { add("x1") } }) }
+        assertEquals(ErrorCodes.INVALID_PARAMS, bad.code)
+    }
+
+    @Test
     fun `unknown method`() {
         assertEquals(ErrorCodes.METHOD_NOT_FOUND, assertFailsWith<ClientException> { call("network.teleport") }.code)
     }

@@ -204,8 +204,65 @@ class DtaDaemon(
             screenOf = { screenOf(it) },
         )
         val params = LayoutTreeParams(filters, detail, frameworkFrames)
-        if (screen == null) return service.capture(serial, pkg, params)
-        return screenCapture.capture(serial, pkg, screen.output) { service.capture(serial, pkg, params) }
+        val capture = if (screen == null) service.capture(serial, pkg, params) else screenCapture.capture(serial, pkg, screen.output) { service.capture(serial, pkg, params) }
+        // Feature 055: the latest whole capture of the app, for the shared selection.
+        pkg?.let { selections.remember(serial, it, capture) }
+        return capture
+    }
+
+    /** Feature 055: one layout selection per app, shared by every client (memory only). */
+    private val selections = io.yamsergey.dta.daemon.layout.SelectionStore()
+
+    suspend fun layoutSelection(serial: String, pkg: String, fresh: Boolean = false): io.yamsergey.dta.protocol.layout.LayoutSelection {
+        if (fresh) layout(serial, pkg, detail = DetailLevel.LAYOUT)
+        return selections.read(serial, pkg)
+    }
+
+    fun layoutSelections(serial: String, pkg: String): kotlinx.coroutines.flow.Flow<io.yamsergey.dta.protocol.layout.LayoutSelection> =
+        selections.flow(serial, pkg).map { selections.read(serial, pkg) }
+
+    /**
+     * Feature 055: [elements] are the plugin's own (what the developer saw); [ids] and [at] are
+     * resolved against the latest capture of the app, one is taken when there is none.
+     */
+    suspend fun layoutSelect(
+        serial: String,
+        pkg: String,
+        mode: String,
+        ids: List<Long> = emptyList(),
+        at: String? = null,
+        elements: List<io.yamsergey.dta.protocol.layout.SelectedElement> = emptyList(),
+        by: String = "client",
+    ): io.yamsergey.dta.protocol.layout.LayoutSelection {
+        val S = io.yamsergey.dta.protocol.layout.Selections
+        if (mode != "clear" && elements.isEmpty() && ids.isEmpty() && at == null) {
+            throw io.yamsergey.dta.protocol.rpc.InvalidParamsException("give ids, a point (at: \"x,y\") or clear")
+        }
+        val resolved = if (ids.isEmpty() && at == null) emptyList() else {
+            val (capture, capturedAt) = selections.latest(serial, pkg) ?: run {
+                layout(serial, pkg, detail = DetailLevel.LAYOUT)
+                selections.latest(serial, pkg) ?: throw io.yamsergey.dta.daemon.server.ClientException(io.yamsergey.dta.protocol.ops.ClientErrorCodes.NOT_FOUND, "no layout capture of $pkg to select from")
+            }
+            val time = java.time.LocalTime.ofInstant(java.time.Instant.ofEpochMilli(capturedAt), java.time.ZoneId.systemDefault()).withNano(0)
+            val byId = if (ids.isEmpty()) emptyList() else S.byIds(capture, ids).let { (found, missing) ->
+                if (missing.isNotEmpty()) throw io.yamsergey.dta.daemon.server.ClientException(io.yamsergey.dta.protocol.ops.ClientErrorCodes.NOT_FOUND, "no node ${missing.joinToString { "#$it" }} in the latest capture ($time)")
+                found
+            }
+            val byPoint = at?.let { a ->
+                val (x, y) = S.point(a) ?: throw io.yamsergey.dta.protocol.rpc.InvalidParamsException("at takes \"x,y\" in px; was '$a'")
+                listOf(S.at(capture, x, y) ?: throw io.yamsergey.dta.daemon.server.ClientException(io.yamsergey.dta.protocol.ops.ClientErrorCodes.NOT_FOUND, "nothing at $x,$y on the latest capture ($time)"))
+            } ?: emptyList()
+            (byId + byPoint).map { (node, path) -> S.element(node, path, capturedAt, capture.screen, capture.source) }
+        }
+        return try {
+            selections.change(serial, pkg, mode, elements + resolved, by)
+        } catch (e: IllegalArgumentException) {
+            throw io.yamsergey.dta.protocol.rpc.InvalidParamsException(e.message ?: "bad mode")
+        }
+    }
+
+    private val selectionsOnEnd = background.launch {
+        connections.changes.collect { e -> if (e.state == "ended") selections.ended(e.device, e.app) }
     }
 
     private val screenCapture = io.yamsergey.dta.daemon.layout.ScreenCapture(

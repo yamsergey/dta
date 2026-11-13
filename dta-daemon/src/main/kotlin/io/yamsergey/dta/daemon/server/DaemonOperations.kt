@@ -93,6 +93,12 @@ interface DaemonOperations {
     suspend fun webStatus(serial: String, pkg: String): io.yamsergey.dta.protocol.web.WebStatus
     suspend fun webReload(serial: String, pkg: String, page: String): Boolean
     suspend fun webDevtools(serial: String, pkg: String): io.yamsergey.dta.protocol.web.WebDevtools
+    /** Feature 055: the app's shared layout selection; [fresh] takes a capture first. */
+    suspend fun layoutSelection(serial: String, pkg: String, fresh: Boolean): io.yamsergey.dta.protocol.layout.LayoutSelection
+    /** Feature 055: changes the selection by [mode] with [elements] (the plugin's), [ids] or the point [at]. */
+    suspend fun layoutSelect(serial: String, pkg: String, mode: String, ids: List<Long>, at: String?, elements: List<io.yamsergey.dta.protocol.layout.SelectedElement>, by: String): io.yamsergey.dta.protocol.layout.LayoutSelection
+    /** Feature 055: the selection now and at every change. */
+    fun layoutSelections(serial: String, pkg: String): Flow<io.yamsergey.dta.protocol.layout.LayoutSelection>
     suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean): io.yamsergey.dta.protocol.timeline.StateGraph
     suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?): io.yamsergey.dta.protocol.timeline.StatePath
     /** The host's network archive (feature 011). */
@@ -122,6 +128,10 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override suspend fun webStatus(serial: String, pkg: String) = daemon.webStatus(serial, pkg)
     override suspend fun webReload(serial: String, pkg: String, page: String) = daemon.webReload(serial, pkg, page)
     override suspend fun webDevtools(serial: String, pkg: String) = daemon.webDevtools(serial, pkg)
+    override suspend fun layoutSelection(serial: String, pkg: String, fresh: Boolean) = daemon.layoutSelection(serial, pkg, fresh)
+    override suspend fun layoutSelect(serial: String, pkg: String, mode: String, ids: List<Long>, at: String?, elements: List<io.yamsergey.dta.protocol.layout.SelectedElement>, by: String) =
+        daemon.layoutSelect(serial, pkg, mode, ids, at, elements, by)
+    override fun layoutSelections(serial: String, pkg: String) = daemon.layoutSelections(serial, pkg)
     override suspend fun stateGraph(serial: String, pkg: String, facets: List<String>?, minHoldMs: Long, inferred: Boolean) = daemon.stateGraph(serial, pkg, facets, minHoldMs, inferred)
     override suspend fun statePath(serial: String, pkg: String, from: String, to: String?, facets: List<String>?) = daemon.statePath(serial, pkg, from, to, facets)
     override fun archiveList() = daemon.archiveList()

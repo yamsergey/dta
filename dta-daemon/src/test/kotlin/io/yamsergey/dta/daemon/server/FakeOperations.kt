@@ -218,6 +218,12 @@ class FakeOperations : DaemonOperations {
     )
     override suspend fun webReload(serial: String, pkg: String, page: String) = false
     override suspend fun webDevtools(serial: String, pkg: String) = io.yamsergey.dta.protocol.web.WebDevtools(emptyList(), "no WebView")
+    /** Feature 055: the selection as the daemon keeps it; elements only (ids and points need a capture). */
+    val selections = io.yamsergey.dta.daemon.layout.SelectionStore()
+    override suspend fun layoutSelection(serial: String, pkg: String, fresh: Boolean) = selections.read(serial, pkg)
+    override suspend fun layoutSelect(serial: String, pkg: String, mode: String, ids: List<Long>, at: String?, elements: List<io.yamsergey.dta.protocol.layout.SelectedElement>, by: String) =
+        selections.change(serial, pkg, mode, elements, by)
+    override fun layoutSelections(serial: String, pkg: String) = selections.flow(serial, pkg)
     override fun archiveDelete(target: io.yamsergey.dta.daemon.store.DeleteTarget, confirm: Boolean) =
         io.yamsergey.dta.protocol.network.ArchiveDeletion(confirm, io.yamsergey.dta.protocol.network.ArchiveDeleted(0, 0, 0, 0))
 }
