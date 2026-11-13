@@ -50,7 +50,10 @@ class SharedSelection(private val context: ContextController, private val scope:
                         if (client != null) {
                             runCatching {
                                 client.selectionChanges(params(device, app)).collect { data ->
-                                    val sel = (data["selection"] as? JsonObject)?.let { DtaJson.decodeFromJsonElement(LayoutSelection.serializer(), it) } ?: return@collect
+                                    // The first item is the subscription's answer (its own `selection`: device and app chosen).
+                                    if (data["subscription"] == null) return@collect
+                                    val sel = (data["selection"] as? JsonObject)
+                                        ?.let { runCatching { DtaJson.decodeFromJsonElement(LayoutSelection.serializer(), it) }.getOrNull() } ?: return@collect
                                     current.value = sel
                                     if (sel.changedBy != PLUGIN && sel.revision > 0) others.emit(sel)
                                 }

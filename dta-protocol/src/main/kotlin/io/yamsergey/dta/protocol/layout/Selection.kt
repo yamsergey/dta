@@ -46,6 +46,7 @@ object Selections {
     const val GONE = "gone"
     const val NOT_CHECKED = "not-checked"
     const val ENDED = "cleared: the app process ended"
+    const val SAME_CAPTURE_MS = 2_000L
 
     /** A node as an element: children left out; [path] the names from the window root. */
     fun element(node: Node, path: List<String>, capturedAt: Long, screen: Screen?, source: CaptureSource?): SelectedElement {
@@ -105,7 +106,8 @@ object Selections {
      * missing from it (gone), or none since (not-checked). An element without an id is not-checked.
      */
     fun freshness(e: SelectedElement, latest: LayoutCapture?, latestAt: Long?): String {
-        if (latest == null || latestAt == null || latestAt < e.capturedAt) return NOT_CHECKED
+        // The plugin stamps its capture when it arrives, the daemon when it passed: the same capture within [SAME_CAPTURE_MS].
+        if (latest == null || latestAt == null || latestAt < e.capturedAt - SAME_CAPTURE_MS) return NOT_CHECKED
         val id = (e.node["id"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return NOT_CHECKED
         val kind = (e.node["kind"] as? JsonPrimitive)?.content
         val name = ((e.node["name"] ?: e.node["className"]) as? JsonPrimitive)?.content

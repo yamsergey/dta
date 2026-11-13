@@ -45,8 +45,10 @@ class SelectionsTest {
     @Test
     fun `fresh when the latest capture (taken at or after it) has the same node, gone when it lacks it, not checked otherwise`() {
         val e = Selections.element(buy, listOf("Button"), capturedAt = 10, screen, CaptureSource.SIDEKICK)
-        assertEquals(Selections.NOT_CHECKED, Selections.freshness(e, main, 5))
+        assertEquals(Selections.NOT_CHECKED, Selections.freshness(e.copy(capturedAt = 10_000), main, 5_000))
         assertEquals(Selections.ON_SCREEN, Selections.freshness(e, main, 10))
+        // The same capture as the plugin stamped it a moment later.
+        assertEquals(Selections.ON_SCREEN, Selections.freshness(e.copy(capturedAt = 1_500), main, 10))
         assertEquals(Selections.NOT_CHECKED, Selections.freshness(e, null, null))
         assertEquals(Selections.ON_SCREEN, Selections.freshness(e, main, 20))
         val elsewhere = capture(Window("app", WindowType.APPLICATION, 0, ViewNode(id = 1, bounds = Rect(0, 0, 1, 1), className = "DecorView")))
