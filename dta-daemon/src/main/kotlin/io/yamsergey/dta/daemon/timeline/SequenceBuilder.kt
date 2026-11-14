@@ -194,6 +194,7 @@ class SequenceBuilder {
                     e.wallMs, SequenceLanes.USER, SequenceLanes.APP,
                     if (e.input!!.action == InputAction.BACK) "back" else "tap ${tapLabel(e)}",
                     eventId = e.id, detail = e.input!!.text?.trim()?.takeIf { it.isNotEmpty() },
+                    chain = e.input!!.chain?.takeIf { it.isNotEmpty() },
                 ),
             )
             e.nav != null -> note("→ " + simpleName(e.nav!!.destination), e.nav!!.destination)

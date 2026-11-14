@@ -48,4 +48,17 @@ class CallGroupsTest {
 
     @Test
     fun `an empty chain has no groups`() = assertEquals(emptyList(), CallGroups.of(emptyList()))
+
+    @Test
+    fun `a timeline chain of frames folds the same way (064)`() {
+        val frames = listOf(
+            io.yamsergey.dta.protocol.layout.Frame("MaterialTheme", "MainActivity.kt", 35, false, "app"),
+            io.yamsergey.dta.protocol.layout.Frame("Scaffold", "BrokerNav.kt", 78, false, "app.ui"),
+            io.yamsergey.dta.protocol.layout.Frame("ListItem", "BrokerNav.kt", 103, false, "app.ui"),
+        )
+        val groups = CallGroups.ofFrames(frames)
+        assertEquals(listOf("1:MainActivity.ktx1", "2:BrokerNav.ktx2"), groups.map { "${it.first}:${it.file}x${it.calls.size}" })
+        assertEquals(Source("BrokerNav.kt", 103, "app.ui"), groups[1].calls.last().source)
+        assertEquals("Scaffold › ListItem", groups[1].names)
+    }
 }

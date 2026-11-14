@@ -246,4 +246,21 @@ class SequenceViewTest {
             rooms.zipWithNext().forEach { (a, b) -> assertTrue(a.to <= b.from, "$width: $a $b") }
         }
     }
+
+    @Test
+    fun `a tap's hover lists its call chain by file and how to open the last call (064)`() {
+        val step = io.yamsergey.dta.protocol.timeline.SequenceStep(
+            1, "user", "app", "tap row:GLOBX",
+            chain = listOf(
+                io.yamsergey.dta.protocol.layout.Frame("MaterialTheme", "MainActivity.kt", 35, false),
+                io.yamsergey.dta.protocol.layout.Frame("BrokerNav", "MainActivity.kt", 36, false),
+                io.yamsergey.dta.protocol.layout.Frame("ListItem", "BrokerNav.kt", 103, false),
+            ),
+        )
+        assertEquals(
+            "tap row:GLOBX\nMainActivity.kt  MaterialTheme › BrokerNav\nBrokerNav.kt  ListItem :103\n(click to open BrokerNav.kt:103)",
+            SequenceText.hover(step),
+        )
+        assertEquals("tap", SequenceText.hover(inFlow(1)), "no chain, nothing added")
+    }
 }

@@ -53,7 +53,9 @@ class EventDetailTest {
     fun `a compose click lists its chain root to node, with the read's time (064)`() {
         val d = EventDetail.of(tap)
         assertEquals(chain, d.chain)
-        assertEquals("MarketsScreen (BrokerNav.kt:85) › ListItem (BrokerNav.kt:103)", rows(d)["chain"])
+        assertEquals(null, rows(d)["chain"], "the chain is its own section, as Layout's Call chain")
+        assertEquals(listOf("BrokerNav.kt"), d.callGroups.map { it.file })
+        assertEquals("MarketsScreen › ListItem", d.callGroups.single().names)
         assertEquals("6 ms on the main thread", rows(d)["chain read"])
         assertEquals(emptyList(), EventDetail.of(click).chain)
     }

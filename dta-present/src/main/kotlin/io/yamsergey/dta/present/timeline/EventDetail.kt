@@ -13,6 +13,9 @@ data class EventDetail(
     /** Feature 064: a tap's composable chain, root → node, each frame openable like Layout's. */
     val chain: List<io.yamsergey.dta.protocol.layout.Frame> = emptyList(),
 ) {
+    /** [chain] folded into runs of one file, as Layout's Call chain (059). */
+    val callGroups: List<io.yamsergey.dta.present.layout.CallGroup> get() = io.yamsergey.dta.present.layout.CallGroups.ofFrames(chain)
+
     data class Row(val label: String, val value: String)
 
     companion object {
@@ -51,7 +54,6 @@ data class EventDetail(
                 row("text", i.text)
                 row("window", i.windowId)
                 row("via", i.via)
-                row("chain", i.chain?.joinToString(" › ", transform = TimelineEventText::frame))
                 row("chain read", i.chainMainThreadMs?.let { "$it ms on the main thread" })
             }
             e.gapCount?.let { row("lost", "$it events") }

@@ -23,6 +23,14 @@ data class CallGroup(
 }
 
 object CallGroups {
+    /** Feature 064: a timeline tap's chain, folded the same way. */
+    fun ofFrames(frames: List<io.yamsergey.dta.protocol.layout.Frame>): List<CallGroup> = of(frames.map { f ->
+        NodeDetail.Call(
+            f.name + (f.sourceFile?.let { " ($it:${f.lineNumber ?: "?"})" } ?: ""),
+            f.sourceFile?.let { file -> f.lineNumber?.let { Source(file, it, f.packageName, f.library == true, f.unknownOrigin == true) } },
+        )
+    })
+
     fun of(chain: List<NodeDetail.Call>): List<CallGroup> {
         val out = mutableListOf<CallGroup>()
         var i = 0

@@ -42,6 +42,8 @@ data class SequenceStep(
     val boundary: Boolean = false,
     /** Feature 049: the flows whose interval holds it, by time only. */
     val flows: List<String> = emptyList(),
+    /** Feature 064: a tap's composable chain, root → node, app frames only (shown on hover). */
+    val chain: List<io.yamsergey.dta.protocol.layout.Frame>? = null,
 )
 
 @Serializable

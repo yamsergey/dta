@@ -26,9 +26,17 @@ object SequenceText {
 
     /** What a hover says: the label and the longer text, without repeating; a flow holds a row by its time only. */
     fun hover(s: SequenceStep, flowNames: Map<String, String> = emptyMap()): String = (
-        listOfNotNull(label(s), s.detail?.takeIf { it != s.label }) +
+        listOfNotNull(label(s), s.detail?.takeIf { it != s.label }) + chainLines(s) +
             s.flows.mapNotNull { flowNames[it] }.map { "In $it by time, not by a proved cause." }
         ).joinToString("\n")
+
+    /** Feature 064: a tap's chain, one line per file, and the last call it opens. */
+    private fun chainLines(s: SequenceStep): List<String> {
+        val groups = io.yamsergey.dta.present.layout.CallGroups.ofFrames(s.chain ?: return emptyList())
+        val last = groups.lastOrNull()?.calls?.lastOrNull()?.source
+        return groups.map { g -> listOfNotNull(g.file, g.names + if (g === groups.last() && last != null) " :${last.line}" else "").joinToString("  ") } +
+            listOfNotNull(last?.let { "(click to open ${it.file}:${it.line})" })
+    }
 
     fun rows(n: Int) = if (n == 1) "1 row" else "$n rows"
 

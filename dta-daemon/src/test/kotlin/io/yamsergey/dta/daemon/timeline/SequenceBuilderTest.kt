@@ -329,4 +329,13 @@ class SequenceBuilderTest {
         assertEquals(listOf("You", "App", "a", "b", "other hosts"), page.lanes.map { it.title })
         assertEquals(SequenceLanes.OTHER, page.steps.last().to)
     }
+
+    @Test
+    fun `a tap's step carries its chain, its label stays as it was (064)`() {
+        val chain = listOf(io.yamsergey.dta.protocol.layout.Frame("ListItem", "BrokerNav.kt", 103, false))
+        val t = tap(1_000, "row:GLOBX|Composable", "GLOBX · Globex").let { it.copy(input = it.input!!.copy(chain = chain)) }
+        val step = SequenceBuilder().build(listOf(t), emptyList()).steps.single()
+        assertEquals("tap row:GLOBX", step.label)
+        assertEquals(chain, step.chain)
+    }
 }
