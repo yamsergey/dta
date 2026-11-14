@@ -13,7 +13,8 @@ class FrameClassifierTest {
     fun `known library and framework packages are library frames, the rest app`() {
         for (cls in listOf("java.lang.Thread", "kotlin.coroutines.X", "android.os.Handler", "androidx.work.Y", "okhttp3.internal.connection.RealCall",
                 "okio.Buffer", "retrofit2.OkHttpCall", "com.squareup.moshi.Z", "io.reactivex.Single", "com.neovisionaries.ws.client.WebSocket",
-                "org.java_websocket.WebSocketImpl", "dalvik.system.VMStack", "com.android.internal.os.ZygoteInit")) {
+                "org.java_websocket.WebSocketImpl", "dalvik.system.VMStack", "com.android.internal.os.ZygoteInit",
+                "io.ktor.client.engine.okhttp.OkHttpEngine", "io.ktor.client.plugins.HttpSend")) {
             assertEquals(false, FrameClassifier.isApp(cls), cls)
         }
         for (cls in listOf("com.example.auth.SessionRepository", "io.yamsergey.dta.fixture.channel.NetworkScreen", "okhttp3x.Fake")) {

@@ -14,6 +14,8 @@ object FrameClassifier {
         "com.neovisionaries.", "org.java_websocket.", "io.yamsergey.dta.sidekick.", "io.yamsergey.dta.shim.",
         // Feature 054: UI libraries of Compose apps (Material components, accompanist, Play services; image loading).
         "com.google.", "coil.", "coil3.",
+        // Feature 064: Ktor client engine frames sit on top of every Ktor request stack.
+        "io.ktor.",
     )
 
     /** The capture machinery itself: never part of what the app did. */
