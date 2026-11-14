@@ -40,10 +40,18 @@ data class SavedFilters(
 /**
  * Feature 043, on list and search results: the saved filters behind this answer. [hidden] is how
  * many entries they left out (null on later pages); [ignored] means the call asked not to apply them.
+ * Feature 065, on timeline answers (they judge network rows only): [notJudged] rows were shown
+ * because their request is no longer kept; [problem] the store could not be read and [unavailable]
+ * there is no copy of the history to judge with, so nothing was hidden; [hiddenIds] on a cause
+ * chain, its events the filters hide elsewhere.
  */
 @Serializable
 data class SavedFiltersApplied(
     val words: List<String>,
     val hidden: Int? = null,
     val ignored: Boolean = false,
+    val notJudged: Int? = null,
+    val problem: String? = null,
+    val unavailable: String? = null,
+    val hiddenIds: List<String>? = null,
 )

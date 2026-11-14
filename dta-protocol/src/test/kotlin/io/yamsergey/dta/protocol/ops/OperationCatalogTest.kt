@@ -117,4 +117,14 @@ class OperationCatalogTest {
         val json = Json.encodeToString(Selected.serializer(), Selected(SelectionStatement("emulator-5554", DeviceRule.ONLY_DEVICE, "com.example", AppRule.FOREGROUND), JsonObject(emptyMap())))
         assertTrue("\"deviceRule\":\"only-device\"" in json && "\"appRule\":\"foreground\"" in json, json)
     }
+
+    @Test
+    fun `timeline answers take Network's opt-out from its saved filters (065)`() {
+        val network = Catalog["network.list"].param("ignoreSavedFilters")!!
+        for (op in listOf("timeline.events", "timeline.sequence", "timeline.causes")) {
+            val p = Catalog[op].param("ignoreSavedFilters") ?: error("$op has no ignoreSavedFilters")
+            assertEquals(ParamType.BOOLEAN, p.type, op)
+            assertEquals(network.cliName, p.cliName, op)
+        }
+    }
 }

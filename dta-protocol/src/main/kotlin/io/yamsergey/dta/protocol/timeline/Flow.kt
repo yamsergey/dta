@@ -42,6 +42,8 @@ data class SequenceFlow(
     val shown: Int = rows,
     /** Rows of its interval are older than what is kept. */
     val rowsGone: Boolean = false,
+    /** Feature 065: network rows of its interval hidden by Network's saved filters. */
+    val hidden: Int = 0,
 )
 
 @Serializable

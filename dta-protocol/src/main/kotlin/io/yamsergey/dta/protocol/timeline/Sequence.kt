@@ -71,4 +71,6 @@ data class SequencePage(
     val onlyFlow: String? = null,
     /** Why stored flows could not be read. */
     val flowsNote: String? = null,
+    /** Feature 065: what Network's saved filters hid (network rows only); null when none apply. */
+    val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
 )

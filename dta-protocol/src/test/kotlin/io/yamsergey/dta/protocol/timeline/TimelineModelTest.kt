@@ -148,4 +148,18 @@ class TimelineModelTest {
         assertEquals("item 8, 393 px into it", ScrollText.position(ScrollPosition(8, 393)))
         assertEquals("393 px", ScrollText.position(ScrollPosition(null, 393)))
     }
+
+    @Test
+    fun `timeline answers say what Network's saved filters hid (065)`() {
+        val saved = io.yamsergey.dta.protocol.network.SavedFiltersApplied(listOf("-host:a.test"), hidden = 2)
+        val page = TimelinePage(emptyList(), "c:1", saved = saved)
+        assertEquals(page, DtaJson.decodeFromString(TimelinePage.serializer(), DtaJson.encodeToString(TimelinePage.serializer(), page)))
+        assertEquals(null, DtaJson.decodeFromString(TimelinePage.serializer(), """{"events":[],"next":"c:1"}""").saved)
+        val seq = SequencePage(emptyList(), 0, emptyList(), saved = saved, flows = listOf(SequenceFlow(Flow("f1", "Login", startMs = 1, endMs = 2), rows = 3, shown = 2, hidden = 1)))
+        val back = DtaJson.decodeFromString(SequencePage.serializer(), DtaJson.encodeToString(SequencePage.serializer(), seq))
+        assertEquals(saved, back.saved)
+        assertEquals(1, back.flows.single().hidden)
+        val hidden = TimelineHidden(saved, hidden = listOf("n:1"), notJudged = listOf("n:2"))
+        assertEquals(hidden, DtaJson.decodeFromString(TimelineHidden.serializer(), DtaJson.encodeToString(TimelineHidden.serializer(), hidden)))
+    }
 }

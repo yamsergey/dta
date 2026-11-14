@@ -46,4 +46,15 @@ class SavedFiltersTest {
         assertEquals("method", SavedFilters.positiveKey("POST"))
         assertNull(SavedFilters.positiveKey("-status:2xx"))
     }
+
+    @Test
+    fun `what the saved filters did to a timeline answer round-trips, and older answers still read (065)`() {
+        val json = io.yamsergey.dta.protocol.rpc.DtaJson
+        val full = SavedFiltersApplied(listOf("-host:a.test"), hidden = 3, notJudged = 1, hiddenIds = listOf("e:1"))
+        assertEquals(full, json.decodeFromString(SavedFiltersApplied.serializer(), json.encodeToString(SavedFiltersApplied.serializer(), full)))
+        val old = json.decodeFromString(SavedFiltersApplied.serializer(), """{"words":["status:5xx"],"hidden":2}""")
+        assertNull(old.notJudged); assertNull(old.problem); assertNull(old.unavailable); assertNull(old.hiddenIds)
+        val off = SavedFiltersApplied(emptyList(), unavailable = "no host copy")
+        assertEquals("no host copy", json.decodeFromString(SavedFiltersApplied.serializer(), json.encodeToString(SavedFiltersApplied.serializer(), off)).unavailable)
+    }
 }

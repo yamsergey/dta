@@ -273,6 +273,20 @@ data class TimelinePage(
     val more: Boolean = false,
     val sources: List<SourceStatus> = emptyList(),
     val bounds: TimelineBoundsInfo = TimelineBoundsInfo(),
+    /** Feature 065: network events of this page that Network's saved filters left out; null when none apply. */
+    val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
+)
+
+/**
+ * Feature 065: the network entries Network's saved filters hide from the app's timeline now, by
+ * entry id (a request and its response share one), for a view that follows the timeline live.
+ * [notJudged] are timeline entries the history no longer holds.
+ */
+@Serializable
+data class TimelineHidden(
+    val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
+    val hidden: List<String> = emptyList(),
+    val notJudged: List<String> = emptyList(),
 )
 
 /** The sidekick's answer to `timeline_read` (replaces 015's `UiJournalRead`). */
@@ -356,6 +370,8 @@ data class CauseChain(
     val inferredCandidates: Map<String, Int> = emptyMap(),
     val cuts: List<Cut> = emptyList(),
     val inferredIncluded: Boolean = false,
+    /** Feature 065: of [nodes], those Network's saved filters hide in the timeline ([SavedFiltersApplied.hiddenIds]). */
+    val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
 )
 
 @Serializable

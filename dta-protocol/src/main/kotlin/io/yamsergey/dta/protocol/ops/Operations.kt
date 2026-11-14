@@ -178,6 +178,13 @@ object Catalog {
         ParamSpec("intervened", ParamType.BOOLEAN, "true: only entries the network script touched; false: only untouched ones."),
     )
 
+    /** Feature 065: the timeline takes Network's opt-out; its saved filters hide network rows only. */
+    private val TIMELINE_IGNORE_SAVED = ParamSpec(
+        "ignoreSavedFilters", ParamType.BOOLEAN,
+        "Do not apply the app's saved network filters (they stay saved). By default they hide the network rows Network hides (requests, responses, sockets; never taps, screens or app events), and the result says how many.",
+        cliName = "no-saved-filters",
+    )
+
     private val TIMELINE_SOURCES = ParamSpec(
         "sources", ParamType.STRING_LIST,
         "Sources to include: input, ui, screen, network, nav, app (gaps and process ends always come).",
@@ -501,6 +508,7 @@ object Catalog {
                 TIMELINE_SOURCES,
                 TIMELINE_KINDS,
                 ParamSpec("limit", ParamType.INT, "Page size, 1..500 (default 100)."),
+                TIMELINE_IGNORE_SAVED,
             ),
         ),
         OperationSpec(
@@ -521,6 +529,7 @@ object Catalog {
                 ParamSpec("direction", ParamType.ENUM, "causes (default): back to the roots; effects: forward to what followed from it.", enumValues = listOf("causes", "effects")),
                 ParamSpec("depth", ParamType.INT, "How many links to follow, 1..32 (default 8)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Also follow inferred links (timing and matching data); they are marked inferred."),
+                TIMELINE_IGNORE_SAVED,
             ),
         ),
         OperationSpec(
@@ -532,6 +541,7 @@ object Catalog {
                 ParamSpec("limit", ParamType.INT, "The newest rows, 1..2000 (default 200)."),
                 ParamSpec("sinceMs", ParamType.LONG, "Only rows at or after this epoch millisecond (device clock)."),
                 ParamSpec("flow", ParamType.STRING, "Only this flow's rows: an id, or a name only one flow has."),
+                TIMELINE_IGNORE_SAVED,
             ),
         ),
         OperationSpec(
