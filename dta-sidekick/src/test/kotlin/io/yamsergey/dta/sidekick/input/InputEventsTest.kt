@@ -74,4 +74,20 @@ class InputEventsTest {
         assertEquals(frames, partial.input!!.chain)
         assertTrue(partial.completeness.single().reason.startsWith("tap-chain-partial"))
     }
+
+    @Test
+    fun `a scroll names its container, where it went and its chain (064 C3)`() {
+        val g = ScrollTracker.Gesture(Any(), 100, 750, io.yamsergey.dta.protocol.timeline.ScrollPosition(0, 361), io.yamsergey.dta.protocol.timeline.ScrollPosition(8, 393),
+            io.yamsergey.dta.protocol.timeline.ScrollDirection.DOWN, fling = true, stoppedByTouch = false)
+        val list = InputEvents.Target("markets", "LazyColumn", null, null, secure = false, windowId = "w1")
+        val e = InputEvents.scroll("7:3", 3, wallStart = 5_000, g, list, InputEvents.TapChain(frames, false, null, 7))
+        assertEquals(Kinds.SCROLL, e.kind)
+        assertEquals(100L, e.monoMs, "the drag's start")
+        assertEquals(InputAction.SCROLL, e.input!!.action)
+        assertEquals("markets|LazyColumn", e.input!!.element!!.key)
+        assertEquals(750L, e.input!!.scroll!!.endMonoMs)
+        assertEquals(true, e.input!!.scroll!!.fling)
+        assertEquals(frames, e.input!!.chain)
+        assertEquals("scroll down markets", e.title)
+    }
 }

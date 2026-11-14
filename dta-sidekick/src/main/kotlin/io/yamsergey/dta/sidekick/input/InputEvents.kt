@@ -44,6 +44,27 @@ object InputEvents {
         )
     }
 
+    /**
+     * Feature 064: one scroll gesture ([g], from [ScrollTracker]) on [target], with the container's
+     * chain read after it settled. Its time is the drag's start; [wallStart] is that start's wall time.
+     */
+    fun scroll(id: String, seq: Long, wallStart: Long, g: ScrollTracker.Gesture, target: Target, chain: TapChain?): TimelineEvent {
+        val key = listOfNotNull(target.name, target.className).joinToString("|")
+        val name = target.name ?: target.className
+        return TimelineEvent(
+            id, seq, g.startMono, wallStart, Sources.INPUT, io.yamsergey.dta.protocol.timeline.Kinds.SCROLL,
+            title = listOfNotNull("scroll", g.direction?.name?.lowercase(), name).joinToString(" "),
+            input = InputPayload(
+                InputAction.SCROLL, ElementRef(key = key, role = target.role), null, target.windowId, "compose", chain?.frames, chain?.mainThreadMs,
+                io.yamsergey.dta.protocol.timeline.ScrollInfo(g.endMono, g.direction, g.from, g.to, g.fling, g.stoppedByTouch),
+            ),
+            completeness = listOfNotNull(
+                chain?.cut?.let { DegradationMarker("input", "${DegradationCodes.TAP_CHAIN_UNAVAILABLE}: $it") },
+                DegradationMarker("input", "${DegradationCodes.TAP_CHAIN_PARTIAL}: the chain starts at the subcomposition").takeIf { chain?.partial == true },
+            ),
+        )
+    }
+
     fun back(id: String, seq: Long, mono: Long, wall: Long, via: String) =
         TimelineEvent(id, seq, mono, wall, Sources.INPUT, Kinds.BACK, title = "back", input = InputPayload(InputAction.BACK, via = via))
 

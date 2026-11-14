@@ -95,7 +95,10 @@ object TimelineSources {
                 // Feature 064: the first tap's chain read pays for class loading unless warmed up here.
                 Thread({ io.yamsergey.dta.sidekick.input.TapChainReader.warmUp(context) }, "dta-tap-warmup").apply { isDaemon = true }.start()
                 input.composeFailure = compose.failure
-                input.composeLimit = compose.limit
+                // Feature 064: scroll gestures, one event each; a missing hook is stated with the click's limits.
+                val scroll = io.yamsergey.dta.sidekick.input.ScrollRecorder(buffer) { root -> UiRuntime.windowIdOf(root) }
+                scroll.install(context.classLoader)
+                input.composeLimit = listOfNotNull(compose.limit, scroll.failure).joinToString("; ").ifEmpty { null }
             }
             TimelineRuntime.register(Sources.INPUT, input::status)
         } catch (t: Throwable) {
