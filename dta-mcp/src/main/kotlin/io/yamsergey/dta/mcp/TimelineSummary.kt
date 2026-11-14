@@ -33,7 +33,11 @@ internal class TimelineSummary(private val call: suspend (operation: String, par
         val app = result.selection?.app ?: selection?.second
         cursors[key(session, selection?.first to app)] = page.next
         if (cursor != null) cursors[key] = page.next
-        if (cursor == null) null else TimelineEventText.summary(page.events)?.let { "$it timeline_events since=${page.next.takeIf { !page.more } ?: cursor} for details." }
+        if (cursor == null) null else TimelineEventText.summary(page.events)?.let {
+            // Feature 065: what Network's saved filters left out of this summary is said.
+            val saved = io.yamsergey.dta.present.timeline.TimelineSavedText.notice(page.saved, optOut = "ignoreSavedFilters=true")?.let { n -> " ($n.)" } ?: ""
+            "$it$saved timeline_events since=${page.next.takeIf { !page.more } ?: cursor} for details."
+        }
     } catch (_: Exception) {
         null
     }

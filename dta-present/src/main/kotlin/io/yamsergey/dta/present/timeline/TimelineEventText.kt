@@ -67,7 +67,8 @@ object TimelineEventText {
             } else {
                 ""
             }
-            out.append("  ".repeat(depth)).append(via?.let { "$it  " } ?: "").append("${e.id}  ${e.source}  ${describe(e)}").append(unknown).append('\n')
+            val hidden = if (c.saved?.hiddenIds?.contains(id) == true) "  ${TimelineSavedText.HIDDEN_MARK}" else ""
+            out.append("  ".repeat(depth)).append(via?.let { "$it  " } ?: "").append("${e.id}  ${e.source}  ${describe(e)}").append(unknown).append(hidden).append('\n')
             if (!seen.add(id)) return
             for (l in children[id].orEmpty()) {
                 val next = if (c.direction == ChainDirection.CAUSES) l.from else l.to
@@ -78,6 +79,7 @@ object TimelineEventText {
         }
         walk(c.root.id, 0, null)
         for (cut in c.cuts) out.append("cut at ${cut.at}: ${cut.reason.name.lowercase().replace('_', ' ')}${cut.detail?.let { " ($it)" } ?: ""}\n")
+        TimelineSavedText.notice(c.saved)?.let { out.append(it).append('\n') }
         return out.toString().trimEnd()
     }
 

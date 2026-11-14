@@ -147,7 +147,8 @@ class Formatters(private val style: Style) {
         val lines = page.events.map { timelineLine(it, byId::get) }
         val body = lines.ifEmpty { listOf("No events.") }
         val more = if (page.more) listOf(style.paint("more: --since ${page.next}", Token.INK_MUTED)) else emptyList()
-        return (off + body + more + style.paint("next: ${page.next}", Token.INK_MUTED)).joinToString("\n")
+        val saved = listOfNotNull(io.yamsergey.dta.present.timeline.TimelineSavedText.notice(page.saved)?.let { style.mark(StatementKind.DEGRADED, it) })
+        return (off + body + more + saved + style.paint("next: ${page.next}", Token.INK_MUTED)).joinToString("\n")
     }
 
     /** One live event line for `timeline watch`. */

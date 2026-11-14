@@ -73,14 +73,15 @@ object SequenceText {
     fun lines(page: SequencePage): List<String> {
         val flows = page.flows.map { "flow ${it.flow.id} ${it.flow.name}" + flowMeta(it, page.startWallMs) }
         val names = page.flows.associate { it.flow.id to it.flow.name }
-        if (page.total == 0 && page.beforeStart == 0) return listOf("Nothing recorded yet.") + flows
+        val notice = listOfNotNull(TimelineSavedText.notice(page.saved))
+        if (page.total == 0 && page.beforeStart == 0) return listOf("Nothing recorded yet.") + flows + notice
         val lanes = page.lanes.associate { it.id to it.title }
         return listOf(counts(page)) + flows + page.steps.map { s ->
             val where = lanes[s.from].orEmpty().ifEmpty { s.from } + (s.to?.let { " → " + (lanes[it] ?: it) } ?: "")
             val inFlows = if (page.onlyFlow != null) emptyList() else s.flows.mapNotNull { names[it] }.map { "in $it" }
             val marks = (listOfNotNull("failed".takeIf { s.failed }, "hit".takeIf { s.hit }) + inFlows).joinToString(", ").ifEmpty { null }
             "${seconds(s.wallMs, page.startWallMs)}  $where  ${label(s)}" + (marks?.let { "  ($it)" } ?: "")
-        }
+        } + notice
     }
 }
 
