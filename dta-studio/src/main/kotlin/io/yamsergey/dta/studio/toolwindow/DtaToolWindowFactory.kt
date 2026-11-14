@@ -44,6 +44,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             },
             openLayout = { tabs.selectedComponent = layoutPanel },
             openViewModels = { openViewModels() },
+            // Feature 064: a tap's call opens as Layout's calls do.
+            openSource = { source, anchor, onMissing -> io.yamsergey.dta.studio.layout.SourceNavigator(project).open(source, controller.state.value.app, anchor, onMissing) },
         )
         // Feature 027: the app's stores, for the device and app the context line shows.
         val appCall: suspend (String, kotlinx.serialization.json.JsonObject) -> kotlinx.serialization.json.JsonObject = { op, params ->

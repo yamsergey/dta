@@ -27,7 +27,11 @@ class TimelineDetailPane(
     private val onOpenNetwork: (String) -> Unit,
     private val onOpenLayout: () -> Unit,
     private val onCopy: (String) -> Unit,
+    openSource: (io.yamsergey.dta.present.layout.Source, JComponent, () -> Unit) -> Unit,
 ) : JPanel(BorderLayout()) {
+    private var lastState: TimelineTabState? = null
+    /** Feature 064: a tap's call chain, the view Layout uses (059). */
+    private val chainView = io.yamsergey.dta.studio.ui.CallChainView(openSource) { lastState?.let { shownFor = null; show(it) } }
     private val content = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); border = JBUI.Borders.empty(8, 12) }
 
     init {
@@ -40,6 +44,7 @@ class TimelineDetailPane(
     private var shownFor: Any? = null
 
     fun show(s: TimelineTabState) {
+        lastState = s
         // Live events arrive all the time; the pane changes only with what it shows.
         val key = listOf(s.view.selectedId, s.view.selectedGone, s.chain, s.chainError, s.view.current, s.view.selected)
         if (key == shownFor) return
@@ -60,6 +65,10 @@ class TimelineDetailPane(
                 if (selected.source == Sources.UI) ActionLink("Open in Layout (now)") { onOpenLayout() } else null,
                 ActionLink("Copy id") { onCopy(selected.id) },
             ).toTypedArray()))
+            if (detail.callGroups.isNotEmpty()) {
+                add(heading("CALL CHAIN"))
+                chainView.addTo(this, detail.callGroups, selected.id)
+            }
 
             add(heading("CAUSED BY"))
             s.chain.noKnownCause?.let { add(JBLabel(it).apply { foreground = DtaColors.of("caveat") }.left()) }

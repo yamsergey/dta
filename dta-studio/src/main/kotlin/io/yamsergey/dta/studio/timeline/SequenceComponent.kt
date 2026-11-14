@@ -36,6 +36,8 @@ import javax.swing.SwingConstants
  */
 class SequenceComponent(
     private val onOpen: (String) -> Unit,
+    /** Feature 064: opens a tap's last call, as Layout opens a call. */
+    private val onOpenSource: (io.yamsergey.dta.present.layout.Source, javax.swing.JComponent, () -> Unit) -> Unit = { _, _, _ -> },
     private val onFlowMenu: (SequenceFlow, MouseEvent) -> Unit = { _, _ -> },
 ) : JComponent(), Scrollable {
     private var view = SequenceView()
@@ -52,7 +54,16 @@ class SequenceComponent(
         toolTipText = ""
         val mouse = object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                if (e.button == MouseEvent.BUTTON1) stepAt(e.y)?.entryId?.let(onOpen)
+                if (e.button != MouseEvent.BUTTON1) return
+                val step = stepAt(e.y) ?: return
+                step.entryId?.let { return onOpen(it) }
+                lastCall(step)?.let { source ->
+                    onOpenSource(source, this@SequenceComponent) {
+                        com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                            .createHtmlTextBalloonBuilder("${source.file}:${source.line} is not in this project", com.intellij.openapi.ui.MessageType.INFO, null)
+                            .createBalloon().show(com.intellij.ui.awt.RelativePoint(e), com.intellij.openapi.ui.popup.Balloon.Position.above)
+                    }
+                }
             }
 
             override fun mousePressed(e: MouseEvent) = popup(e)
@@ -91,10 +102,14 @@ class SequenceComponent(
         (items.getOrNull(rowAt(e.y)) as? SequenceItem.Line)?.let { onFlowMenu(it.flow, e) }
     }
 
+    /** A tap's last call with a source: what a click on its row opens (feature 064). */
+    private fun lastCall(s: io.yamsergey.dta.protocol.timeline.SequenceStep): io.yamsergey.dta.present.layout.Source? =
+        s.chain?.let { io.yamsergey.dta.present.layout.CallGroups.ofFrames(it) }?.lastOrNull()?.calls?.lastOrNull()?.source
+
     private fun hover(i: Int) {
         if (i == hovered) return
         hovered = i
-        cursor = if ((items.getOrNull(i) as? SequenceItem.Row)?.step?.entryId != null) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
+        cursor = if ((items.getOrNull(i) as? SequenceItem.Row)?.step?.let { it.entryId != null || lastCall(it) != null } == true) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
         repaint()
     }
 
@@ -168,7 +183,7 @@ class SequenceComponent(
         when {
             item.index == view.currentRow -> { g.color = UIUtil.getListSelectionBackground(false); g.fillRect(0, y, width, h) }
             s.hit -> { g.color = HIT; g.fillRect(0, y, width, h) }
-            i == hovered && s.entryId != null -> { g.color = HOVER; g.fillRect(0, y, width, h) }
+            i == hovered && (s.entryId != null || lastCall(s) != null) -> { g.color = HOVER; g.fillRect(0, y, width, h) }
             item.flow != null -> { g.color = FLOW; g.fillRect(0, y, width, h) }
         }
         g.color = GRID

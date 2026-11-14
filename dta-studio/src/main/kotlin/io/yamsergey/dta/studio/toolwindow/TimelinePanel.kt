@@ -70,6 +70,7 @@ class TimelinePanel(
     openNetwork: (String) -> Unit,
     openLayout: () -> Unit,
     openViewModels: () -> Unit,
+    openSource: (io.yamsergey.dta.present.layout.Source, javax.swing.JComponent, () -> Unit) -> Unit,
 ) : JPanel(BorderLayout()) {
     private var state = TimelineTabState()
     private val lanes = LanesComponent(controller)
@@ -93,7 +94,7 @@ class TimelinePanel(
     private val status = JBLabel().apply { foreground = JBColor.GRAY }
     private lateinit var viewSwitch: SegmentedButton<ViewChoice>
     private val cards = JPanel(CardLayout())
-    private val sequence = SequenceComponent(onOpen = openNetwork, onFlowMenu = { f, e -> flowLineMenu(f).show(e.component, e.x, e.y) })
+    private val sequence = SequenceComponent(onOpen = openNetwork, onOpenSource = openSource, onFlowMenu = { f, e -> flowLineMenu(f).show(e.component, e.x, e.y) })
     private val sequenceTitles = sequence.Titles()
     private val sequenceScroll = JBScrollPane(sequence).apply { horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER; border = JBUI.Borders.empty() }
     private val sequenceNote = JBLabel().apply {
@@ -176,6 +177,7 @@ class TimelinePanel(
         onOpenNetwork = openNetwork,
         onOpenLayout = openLayout,
         onCopy = { CopyPasteManager.getInstance().setContents(StringSelection(it)) },
+        openSource = openSource,
     )
 
     init {
