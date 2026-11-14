@@ -58,6 +58,10 @@ class NetworkService(
         return page.copy(entries = entries, redaction = info, degraded = withheldMarker(page.degraded, info))
     }
 
+    /** Feature 065: what [query] lets through, for the Timeline; throws, saying why, without a host copy. */
+    suspend fun passing(query: NetworkQuery): io.yamsergey.dta.protocol.network.NetworkHistoryView.Passing =
+        host?.passing(query) ?: error("this app's network history is not kept on this computer, so Network's filters cannot be applied to its timeline")
+
     /** Feature 040: entries with search hits; the host copy searches (the app alone cannot). */
     suspend fun search(query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage =
         host?.search(query) ?: io.yamsergey.dta.protocol.network.SearchPage(

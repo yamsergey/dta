@@ -123,4 +123,64 @@ class SavedFilterStoreTest {
         assertNull(page.saved)
         assertEquals("ACME", page.q)
     }
+
+    // Feature 065: the Timeline judges its network rows with the same saved filters.
+    private val history = io.yamsergey.dta.protocol.network.NetworkHistoryView.Passing(ids = setOf("n:1"), seen = setOf("n:1", "n:2"))
+    private val asked = ArrayList<String?>()
+    private fun judge(s: SavedFilterStore, typed: String? = null, ignore: Boolean = false, passing: suspend (NetworkQuery) -> io.yamsergey.dta.protocol.network.NetworkHistoryView.Passing = { asked += it.q; history }) =
+        runBlocking { s.judge("app", typed, ignore, passing) }
+
+    @Test
+    fun `with nothing saved the timeline is not judged and says nothing`() {
+        val j = judge(store())
+        assertEquals(Judgement.Verdict.SHOWN, j.verdict("n:2"))
+        assertNull(j.summary(hidden = 0, notJudged = 0))
+        assertTrue(asked.isEmpty(), "no history walk without saved filters")
+    }
+
+    @Test
+    fun `a row is shown when it passes, hidden when it does not, not judged when the history no longer has it`() {
+        val s = store().apply { add("app", "status:5xx") }
+        val j = judge(s)
+        assertEquals(listOf<String?>("status:5xx"), asked)
+        assertEquals(Judgement.Verdict.SHOWN, j.verdict("n:1"))
+        assertEquals(Judgement.Verdict.HIDDEN, j.verdict("n:2"))
+        assertEquals(Judgement.Verdict.NOT_JUDGED, j.verdict("n:9"))
+        assertEquals(SavedFiltersApplied(listOf("status:5xx"), hidden = 1, notJudged = 2), j.summary(hidden = 1, notJudged = 2))
+        assertEquals(SavedFiltersApplied(listOf("status:5xx"), hidden = 0), j.summary(hidden = 0, notJudged = 0))
+    }
+
+    @Test
+    fun `a key typed in the timeline's line yields the saved one, as in Network`() {
+        val s = store().apply { add("app", "status:5xx -host:t.example.test") }
+        val j = judge(s, typed = "status:2xx")
+        assertEquals(listOf<String?>("-host:t.example.test"), asked)
+        assertEquals(listOf("-host:t.example.test"), j.words)
+    }
+
+    @Test
+    fun `the opt-out judges nothing and says so`() {
+        val s = store().apply { add("app", "status:5xx") }
+        val j = judge(s, ignore = true)
+        assertEquals(Judgement.Verdict.SHOWN, j.verdict("n:2"))
+        assertEquals(SavedFiltersApplied(listOf("status:5xx"), ignored = true), j.summary(0, 0))
+        assertTrue(asked.isEmpty())
+    }
+
+    @Test
+    fun `without a copy of the history nothing is hidden and the reason is given`() {
+        val s = store().apply { add("app", "status:5xx") }
+        val j = judge(s, passing = { error("the history is not kept here") })
+        assertEquals(Judgement.Verdict.SHOWN, j.verdict("n:2"))
+        assertEquals("the history is not kept here", j.summary(0, 0)?.unavailable)
+    }
+
+    @Test
+    fun `a store that could not be read hides nothing and says so`() {
+        File(dir, "filters").mkdirs()
+        File(dir, "filters/app.json").writeText("{not json")
+        val j = judge(store())
+        assertEquals(Judgement.Verdict.SHOWN, j.verdict("n:2"))
+        assertNotNull(j.summary(0, 0)?.problem)
+    }
 }

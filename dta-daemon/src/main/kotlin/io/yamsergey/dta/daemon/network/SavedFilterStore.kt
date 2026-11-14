@@ -77,6 +77,34 @@ class SavedFilterStore(
         return mark(page, SavedFiltersApplied(merged.applied, hidden))
     }
 
+    /**
+     * Feature 065: the saved words the Timeline judges its network rows with, merged with the
+     * Timeline's typed line as Network merges them ([SavedFilters.merge]: a key typed there wins),
+     * and the entries they let through ([passing], Network's own evaluator). A failure of
+     * [passing] is the reason nothing is hidden.
+     */
+    suspend fun judge(
+        pkg: String,
+        typed: String?,
+        ignore: Boolean,
+        passing: suspend (NetworkQuery) -> io.yamsergey.dta.protocol.network.NetworkHistoryView.Passing,
+    ): Judgement {
+        val state = state(pkg)
+        if (state.problem != null && state.saved.isEmpty()) return Judgement(emptyList(), problem = state.problem)
+        if (state.saved.isEmpty()) return Judgement.NONE
+        if (ignore) return Judgement(state.saved, ignored = true)
+        val words = runCatching { SavedFilters.merge(state.saved, typed).applied }.getOrDefault(state.saved)
+        if (words.isEmpty()) return Judgement.NONE
+        val p = try {
+            passing(NetworkQuery(q = words.joinToString(" ")))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            return Judgement(words, unavailable = e.message ?: e.javaClass.simpleName)
+        }
+        return Judgement(words, passing = p)
+    }
+
     private fun recent(recent: List<RecentFilter>, gone: List<String>): List<RecentFilter> {
         val now = clock()
         return (gone.map { RecentFilter(it, now) } + recent.filter { r -> r.word !in gone }).take(SavedFilters.MAX_RECENT)

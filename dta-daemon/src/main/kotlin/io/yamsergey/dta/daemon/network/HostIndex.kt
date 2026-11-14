@@ -99,6 +99,17 @@ class HostIndex(
         view.search(query)
     }
 
+    /**
+     * Feature 065: the entries of the live history [query] lets through (Network's evaluator), for
+     * the Timeline. Throws, saying why, when the app keeps no journal to copy.
+     */
+    suspend fun passing(query: NetworkQuery): io.yamsergey.dta.protocol.network.NetworkHistoryView.Passing = mutex.withLock {
+        val app = connection()
+        check(sync(app)) { "this app's network history is not copied to this computer, so Network's filters cannot be applied to its timeline" }
+        if (needsBodies(query)) fetchBodies()
+        view.passing(query)
+    }
+
     private fun needsBodies(query: NetworkQuery): Boolean {
         val (filter, terms) = query.resolved()
         fun bodies(f: NetworkFilter) = f.bodyContains != null || f.requestContains != null || f.responseContains != null || f.hasPattern
