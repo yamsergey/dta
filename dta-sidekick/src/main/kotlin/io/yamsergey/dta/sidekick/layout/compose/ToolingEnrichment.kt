@@ -1,6 +1,7 @@
 package io.yamsergey.dta.sidekick.layout.compose
 
 import android.view.View
+import androidx.compose.runtime.tooling.CompositionData
 import androidx.compose.runtime.tooling.CompositionGroup
 import androidx.compose.ui.layout.LayoutInfo
 import io.yamsergey.dta.protocol.layout.Parameter
@@ -37,6 +38,30 @@ class ToolingEnrichment(private val classifier: CallClassifier = CallClassifier(
         return Read(groups, layoutNodes)
     }
 
+    /**
+     * Feature 064: one CompositionData (a tap's pruned view of a table) through the same
+     * factory, without parameters (the tap chain does not show them). One ContextCache serves
+     * every tap: it caches parsed source information, which does not change while the app runs.
+     */
+    fun map(data: CompositionData): ToolingGroup? {
+        val api = Api.get()
+        val factory: (Any?, Any?, List<Any?>) -> Any? = { group, context, children ->
+            buildGroup(api, group as CompositionGroup, context!!, children, HashMap(), withParameters = false)
+        }
+        val cache = tapCache ?: api.newCache().also { tapCache = it }
+        return api.mapTree.invoke(null, data, factory, cache) as ToolingGroup?
+    }
+
+    /** Feature 064: resolves the reflective handles ahead of the first tap (off the main thread). */
+    fun warmUp() {
+        val api = Api.get()
+        if (tapCache == null) tapCache = api.newCache()
+    }
+
+    private companion object {
+        @Volatile var tapCache: Any? = null
+    }
+
     /** mapTree factory body. Never returns null (null drops the subtree). */
     private fun buildGroup(
         api: Api,
@@ -44,6 +69,7 @@ class ToolingEnrichment(private val classifier: CallClassifier = CallClassifier(
         context: Any,
         children: List<Any?>,
         layoutNodes: MutableMap<Long, LayoutInfo>,
+        withParameters: Boolean = true,
     ): ToolingGroup {
         val name = api.name.invoke(context) as String?
         val location = api.location.invoke(context)
@@ -57,7 +83,7 @@ class ToolingEnrichment(private val classifier: CallClassifier = CallClassifier(
         // Feature 054: each meaningful call classified once (and counted when unknown).
         val origin = if (ComposableClassifier.isMeaningful(name)) classifier.of(sourceFile, packageHash) else null
         val userFrame = origin != null && !origin.library
-        val parameters = if (userFrame) parametersOf(api, context) else emptyList()
+        val parameters = if (userFrame && withParameters) parametersOf(api, context) else emptyList()
 
         val layoutId = (group.node as? LayoutInfo)?.let { node ->
             LayoutNodeProbes.semanticsId(node)?.also { layoutNodes.putIfAbsent(it, node) }
