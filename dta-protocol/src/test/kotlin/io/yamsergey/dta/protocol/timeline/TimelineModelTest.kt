@@ -130,4 +130,15 @@ class TimelineModelTest {
         assertEquals(scroll, json.decodeFromString(TimelineEvent.serializer(), text))
         assertEquals(ScrollPosition(null, 120), json.decodeFromString(ScrollPosition.serializer(), """{"offset":120}"""))
     }
+
+    @Test
+    fun `a scroll reads as its direction, positions and how it ended (064 C4)`() {
+        val fling = ScrollInfo(1, ScrollDirection.DOWN, ScrollPosition(0, 361), ScrollPosition(8, 393), fling = true)
+        assertEquals("scroll ↓ 0+361 → 8+393 fling", ScrollText.line(fling))
+        val touched = ScrollInfo(1, ScrollDirection.DOWN, ScrollPosition(8, 393), ScrollPosition(9, 12), stoppedByTouch = true)
+        assertEquals("scroll ↓ 8+393 → 9+12 · stopped by a touch", ScrollText.line(touched))
+        assertEquals("scroll ← 300 → 100", ScrollText.line(ScrollInfo(1, ScrollDirection.LEFT, ScrollPosition(null, 300), ScrollPosition(null, 100))))
+        assertEquals("item 8, 393 px into it", ScrollText.position(ScrollPosition(8, 393)))
+        assertEquals("393 px", ScrollText.position(ScrollPosition(null, 393)))
+    }
 }

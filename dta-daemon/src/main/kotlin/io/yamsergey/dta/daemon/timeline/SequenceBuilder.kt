@@ -192,7 +192,11 @@ class SequenceBuilder {
             e.input != null -> Row(
                 SequenceStep(
                     e.wallMs, SequenceLanes.USER, SequenceLanes.APP,
-                    if (e.input!!.action == InputAction.BACK) "back" else "tap ${tapLabel(e)}",
+                    when {
+                        e.input!!.action == InputAction.BACK -> "back"
+                        e.input!!.scroll != null -> io.yamsergey.dta.protocol.timeline.ScrollText.line(e.input!!.scroll!!)
+                        else -> "tap ${tapLabel(e)}"
+                    },
                     eventId = e.id, detail = e.input!!.text?.trim()?.takeIf { it.isNotEmpty() },
                     chain = e.input!!.chain?.takeIf { it.isNotEmpty() },
                 ),

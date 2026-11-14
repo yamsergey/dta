@@ -406,3 +406,26 @@ data class TimelineSwitch(val on: Boolean, val recording: Boolean, val note: Str
         const val OFF_REASON = "Timeline is off for this app: turn it on in Settings › Tools › DTA, or with dta timeline enabled on"
     }
 }
+
+/** Feature 064: how a scroll reads, the same for the sequence, the list, the CLI and MCP summaries. */
+object ScrollText {
+    /** `scroll ↓ 0+361 → 8+393 fling`, or `… · stopped by a touch`. */
+    fun line(s: ScrollInfo): String = listOfNotNull(
+        "scroll",
+        s.direction?.let(::arrow),
+        if (s.from != null && s.to != null) "${short(s.from)} → ${short(s.to)}" else null,
+        "fling".takeIf { s.fling && !s.stoppedByTouch },
+    ).joinToString(" ") + if (s.stoppedByTouch) " · stopped by a touch" else ""
+
+    /** `item 8, 393 px into it`, or `393 px` for a plain scroll. */
+    fun position(p: ScrollPosition): String = p.item?.let { "item $it, ${p.offset} px into it" } ?: "${p.offset} px"
+
+    fun arrow(d: ScrollDirection) = when (d) {
+        ScrollDirection.UP -> "↑"
+        ScrollDirection.DOWN -> "↓"
+        ScrollDirection.LEFT -> "←"
+        ScrollDirection.RIGHT -> "→"
+    }
+
+    private fun short(p: ScrollPosition) = p.item?.let { "$it+${p.offset}" } ?: "${p.offset}"
+}

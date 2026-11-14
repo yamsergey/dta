@@ -59,4 +59,17 @@ class EventDetailTest {
         assertEquals("6 ms on the main thread", rows(d)["chain read"])
         assertEquals(emptyList(), EventDetail.of(click).chain)
     }
+
+    @Test
+    fun `a scroll's detail says where it went, how long it took and how it ended (064 C4)`() {
+        val s = io.yamsergey.dta.protocol.timeline.TimelineEvent("7:9", 9, 1_000, 2_000, io.yamsergey.dta.protocol.timeline.Sources.INPUT, io.yamsergey.dta.protocol.timeline.Kinds.SCROLL, "scroll down markets",
+            input = io.yamsergey.dta.protocol.timeline.InputPayload(io.yamsergey.dta.protocol.timeline.InputAction.SCROLL, io.yamsergey.dta.protocol.ui.ElementRef("markets|LazyColumn"), via = "compose", chain = chain, chainMainThreadMs = 7,
+                scroll = io.yamsergey.dta.protocol.timeline.ScrollInfo(1_650, io.yamsergey.dta.protocol.timeline.ScrollDirection.DOWN, io.yamsergey.dta.protocol.timeline.ScrollPosition(0, 361), io.yamsergey.dta.protocol.timeline.ScrollPosition(8, 393), fling = true)))
+        val r = rows(EventDetail.of(s))
+        assertEquals("down", r["direction"])
+        assertEquals("item 0, 361 px into it", r["from"])
+        assertEquals("item 8, 393 px into it", r["to"])
+        assertEquals("0.65 s, a fling", r["took"])
+        assertEquals("input    scroll ↓ 0+361 → 8+393 fling  · ListItem (BrokerNav.kt:103)", TimelineEventText.line(s))
+    }
 }

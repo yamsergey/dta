@@ -338,4 +338,17 @@ class SequenceBuilderTest {
         assertEquals("tap row:GLOBX", step.label)
         assertEquals(chain, step.chain)
     }
+
+    @Test
+    fun `a scroll is one arrow from you to the app, its chain on hover (064 C4)`() {
+        val chain = listOf(io.yamsergey.dta.protocol.layout.Frame("LazyColumn", "BrokerNav.kt", 101, false))
+        val s = ev(1_000, Sources.INPUT, Kinds.SCROLL) {
+            copy(input = InputPayload(InputAction.SCROLL, ElementRef("markets|LazyColumn"), via = "compose", chain = chain,
+                scroll = io.yamsergey.dta.protocol.timeline.ScrollInfo(1_650, io.yamsergey.dta.protocol.timeline.ScrollDirection.DOWN, io.yamsergey.dta.protocol.timeline.ScrollPosition(0, 361), io.yamsergey.dta.protocol.timeline.ScrollPosition(8, 393), fling = true)))
+        }
+        val step = SequenceBuilder().build(listOf(s), emptyList()).steps.single()
+        assertEquals("scroll ↓ 0+361 → 8+393 fling", step.label)
+        assertEquals(SequenceLanes.USER to SequenceLanes.APP, step.from to step.to)
+        assertEquals(chain, step.chain)
+    }
 }

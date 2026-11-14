@@ -54,6 +54,13 @@ data class EventDetail(
                 row("text", i.text)
                 row("window", i.windowId)
                 row("via", i.via)
+                i.scroll?.let { s ->
+                    row("direction", s.direction?.name?.lowercase())
+                    row("from", s.from?.let(io.yamsergey.dta.protocol.timeline.ScrollText::position))
+                    row("to", s.to?.let(io.yamsergey.dta.protocol.timeline.ScrollText::position))
+                    val took = String.format(java.util.Locale.ROOT, "%.2f s", (s.endMonoMs - e.monoMs) / 1000.0)
+                    row("took", took + when { s.stoppedByTouch -> ", stopped by a touch"; s.fling -> ", a fling"; else -> "" })
+                }
                 row("chain read", i.chainMainThreadMs?.let { "$it ms on the main thread" })
             }
             e.gapCount?.let { row("lost", "$it events") }

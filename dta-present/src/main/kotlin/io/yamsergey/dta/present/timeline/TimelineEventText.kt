@@ -166,6 +166,7 @@ object TimelineEventText {
     private fun input(e: TimelineEvent): String {
         val i = e.input!!
         if (i.action == InputAction.BACK) return "back"
+        i.scroll?.let { return io.yamsergey.dta.protocol.timeline.ScrollText.line(it) }
         val name = i.element?.key?.substringAfterLast('/')?.substringBefore('|')?.takeIf { it.isNotBlank() }
         val text = i.text?.let { "\"$it\"" }
         val verb = if (i.action == InputAction.TAP) "tap" else "click"
