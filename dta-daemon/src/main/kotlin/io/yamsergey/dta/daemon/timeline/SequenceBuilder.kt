@@ -64,13 +64,25 @@ class SequenceBuilder {
         flows: List<Flow> = emptyList(),
         only: Flow? = null,
         flowsNote: String? = null,
+        /** Feature 065: Network's saved filters, judging network rows by entry id; nothing else is touched. */
+        judgement: io.yamsergey.dta.daemon.network.Judgement = io.yamsergey.dta.daemon.network.Judgement.NONE,
     ): SequencePage {
         val query = parse(q)
-        val hosts = hostLanes(events)
-        val messages = sockets.filterIsInstance<WsMessageEntry>().sortedBy { it.timeMs }
-        val connections = sockets.filterIsInstance<WsConnectionEntry>()
         val oldest = (events.map { it.wallMs } + sockets.map { it.timeMs }).minOrNull()
-        val ordered = (eventRows(events, hosts) + socketRows(messages, connections)).sortedBy { it.step.wallMs }
+        // Hidden rows go first: before lanes, socket folding, the typed line and the limit (065).
+        val hiddenAt = ArrayList<Long>()
+        var notJudged = 0
+        fun keep(entryId: String, ms: Long): Boolean = when (judgement.verdict(entryId)) {
+            io.yamsergey.dta.daemon.network.Judgement.Verdict.HIDDEN -> { hiddenAt += ms; false }
+            io.yamsergey.dta.daemon.network.Judgement.Verdict.NOT_JUDGED -> { notJudged++; true }
+            io.yamsergey.dta.daemon.network.Judgement.Verdict.SHOWN -> true
+        }
+        val visible = if (!judgement.active) events else events.filter { e -> e.network?.let { keep(it.entryId, e.wallMs) } ?: true }
+        val shownSockets = if (!judgement.active) sockets else sockets.filter { keep(it.id, it.timeMs) }
+        val hosts = hostLanes(visible)
+        val messages = shownSockets.filterIsInstance<WsMessageEntry>().sortedBy { it.timeMs }
+        val connections = shownSockets.filterIsInstance<WsConnectionEntry>()
+        val ordered = (eventRows(visible, hosts) + socketRows(messages, connections)).sortedBy { it.step.wallMs }
         val rows = joinReceived(ordered, flows.flatMap { listOfNotNull(it.startMs, it.endMs) }.toSortedSet()).map { r ->
             val holding = flows.filter { it.holds(r.step.wallMs) }.map { it.id }
             if (holding.isEmpty()) r else r.withStep(r.step.copy(flows = holding))
@@ -84,6 +96,7 @@ class SequenceBuilder {
                 rows = rows.count { f.holds(it.step.wallMs) },
                 shown = matched.count { f.holds(it.step.wallMs) },
                 rowsGone = f.startMs > 0 && oldest != null && f.startMs < oldest,
+                hidden = hiddenAt.count { f.holds(it) },
             )
         }
         val lanes = buildList {
@@ -91,7 +104,7 @@ class SequenceBuilder {
             add(SequenceLane(SequenceLanes.APP, "App"))
             hosts.named.forEach { add(SequenceLane(SequenceLanes.host(it), it)) }
             if (hosts.others) add(SequenceLane(SequenceLanes.OTHER, "other hosts"))
-            if (sockets.isNotEmpty()) add(SequenceLane(SequenceLanes.SOCKET, "socket"))
+            if (shownSockets.isNotEmpty()) add(SequenceLane(SequenceLanes.SOCKET, "socket"))
         }
         return SequencePage(
             steps = steps,
@@ -107,6 +120,10 @@ class SequenceBuilder {
             flows = listed,
             onlyFlow = only?.id,
             flowsNote = flowsNote,
+            saved = judgement.summary(
+                hidden = hiddenAt.count { (sinceMs == null || it >= sinceMs) && (only == null || only.holds(it)) },
+                notJudged = notJudged,
+            ),
         )
     }
 

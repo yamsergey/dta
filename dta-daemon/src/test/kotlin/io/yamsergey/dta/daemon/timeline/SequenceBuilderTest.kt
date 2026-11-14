@@ -351,4 +351,60 @@ class SequenceBuilderTest {
         assertEquals(SequenceLanes.USER to SequenceLanes.APP, step.from to step.to)
         assertEquals(chain, step.chain)
     }
+
+    // Feature 065: Network's saved filters hide network rows only, judged by entry id.
+    private fun judged(words: String, passing: Set<String>, seen: Set<String>) = io.yamsergey.dta.daemon.network.Judgement(
+        listOf(words), passing = io.yamsergey.dta.protocol.network.NetworkHistoryView.Passing(passing, seen),
+    )
+
+    @Test
+    fun `status 5xx keeps the taps, screens and the failing exchange, hides the others and counts them`() {
+        val star = tap(1_000, "star")
+        val events = listOf(
+            star, req(1_010, "/quote", id = "e1"), res(1_050, 200, 40, "e1"),
+            tap(2_000, "portfolio"), screen(2_100), req(2_200, "/orders", id = "e2"), res(2_400, 503, 200, "e2"),
+            req(2_500, "/portfolio", id = "e3"), res(2_600, 200, 100, "e3"),
+        )
+        val page = SequenceBuilder().build(events, emptyList(), judgement = judged("status:5xx", setOf("e2"), setOf("e1", "e2", "e3")))
+        val all = SequenceBuilder().build(events, emptyList()).steps
+        assertEquals(all.filter { it.entryId == null || it.entryId == "e2" }.map { it.label }, page.steps.map { it.label }, "every row that is not a request stays")
+        assertTrue(page.steps.none { it.entryId == "e1" || it.entryId == "e3" }, "${page.steps.map { it.label }}")
+        assertEquals(2, page.steps.count { it.entryId == "e2" }, "a request is shown with its response")
+        assertEquals(4, page.saved?.hidden, "two exchanges, a request and a response each")
+        assertEquals(listOf("status:5xx"), page.saved?.words)
+        assertEquals(page.steps.size, page.total, "what is hidden is not in the counts")
+    }
+
+    @Test
+    fun `an entry the history no longer holds is shown and counted as not judged`() {
+        val events = listOf(tap(1_000, "a"), req(1_010, "/old", id = "gone"), req(1_100, "/new", id = "e9"))
+        val page = SequenceBuilder().build(events, emptyList(), judgement = judged("-host:x.test", setOf(), setOf("e9")))
+        assertEquals(listOf("tap a", "GET /old"), page.steps.map { it.label })
+        assertEquals(1, page.saved?.hidden)
+        assertEquals(1, page.saved?.notJudged)
+    }
+
+    @Test
+    fun `received socket messages fold only the ones that are shown`() {
+        val messages = listOf(ws(1_000, Direction.IN, """{"type":"tick"}"""), ws(1_100, Direction.IN, """{"type":"heartbeat"}"""), ws(1_200, Direction.IN, """{"type":"tick"}"""))
+        val page = SequenceBuilder().build(listOf(tap(900, "a")), messages, judgement = judged("-body:heartbeat", setOf("r:1000", "r:1200"), setOf("r:1000", "r:1100", "r:1200")))
+        assertEquals(listOf("tap a", "tick ×2"), page.steps.map { it.label })
+        assertEquals(1, page.saved?.hidden)
+    }
+
+    @Test
+    fun `a flow says how many of its rows the filters hid`() {
+        val events = listOf(tap(2_100, "a"), req(2_200, "/beat", id = "b1"), req(2_300, "/beat", id = "b2"), req(4_000, "/beat", id = "b3"))
+        val page = SequenceBuilder().build(events, emptyList(), flows = listOf(flow("f1", 2_000, 3_000)), judgement = judged("-url:/beat", setOf(), setOf("b1", "b2", "b3")))
+        assertEquals(2, page.flows.single().hidden)
+        assertEquals(1, page.flows.single().shown)
+        assertEquals(3, page.saved?.hidden)
+    }
+
+    @Test
+    fun `with nothing saved nothing is said`() {
+        val page = SequenceBuilder().build(listOf(tap(1_000, "a"), req(1_010, "/x")), emptyList())
+        assertEquals(null, page.saved)
+        assertEquals(2, page.steps.size)
+    }
 }

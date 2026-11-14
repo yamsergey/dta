@@ -405,10 +405,17 @@ class DtaDaemon(
         io.yamsergey.dta.daemon.layout.LayoutSignalWatch(connect = { connections.connect(ConnectionKey(serial, pkg)) }).watch()
 
     /**
-     * The session as one sequence (feature 048): from what the timeline and the network capture already
-     * hold, nothing new is asked of the app. Saved filters do not apply: neither do they to the timeline.
+     * Feature 065: how Network's saved filters judge this app's timeline now; [typed] is the
+     * Timeline's own line (a key typed there wins over a saved one, as in Network).
      */
-    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String? = null): io.yamsergey.dta.protocol.timeline.SequencePage {
+    private suspend fun judgeTimeline(serial: String, pkg: String, typed: String?, ignore: Boolean): io.yamsergey.dta.daemon.network.Judgement =
+        savedFilters.judge(pkg, typed, ignore) { networkService(serial, pkg).passing(it) }
+
+    /**
+     * The session as one sequence (feature 048): from what the timeline and the network capture already
+     * hold, nothing new is asked of the app. Network's saved filters hide its network rows (065).
+     */
+    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String? = null, ignoreSavedFilters: Boolean = false): io.yamsergey.dta.protocol.timeline.SequencePage {
         // A bad line or an unknown flow is refused before anything is read.
         io.yamsergey.dta.daemon.timeline.SequenceBuilder.parse(q)
         val only = flow?.let { flows.resolve(serial, pkg, it) }
@@ -416,6 +423,7 @@ class DtaDaemon(
         return io.yamsergey.dta.daemon.timeline.SequenceBuilder().build(
             recorded.events, recorded.sockets, recorded.sources, limit, q, sinceMs, recorded.note,
             flows = flows.list(serial, pkg), only = only, flowsNote = flows.problem(serial, pkg),
+            judgement = judgeTimeline(serial, pkg, q, ignoreSavedFilters),
         )
     }
 
