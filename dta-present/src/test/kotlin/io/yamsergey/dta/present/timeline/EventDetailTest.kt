@@ -42,4 +42,19 @@ class EventDetailTest {
         assertEquals("42", rows(app)["id"])
         assertTrue(app.rows.any { it.label == "app.cart" && it.value == "items → empty" })
     }
+
+    private val chain = listOf(
+        io.yamsergey.dta.protocol.layout.Frame("MarketsScreen", "BrokerNav.kt", 85, library = false),
+        io.yamsergey.dta.protocol.layout.Frame("ListItem", "BrokerNav.kt", 103, library = false),
+    )
+    private val tap = click.copy(input = click.input!!.copy(via = "compose", chain = chain, chainMainThreadMs = 6))
+
+    @Test
+    fun `a compose click lists its chain root to node, with the read's time (064)`() {
+        val d = EventDetail.of(tap)
+        assertEquals(chain, d.chain)
+        assertEquals("MarketsScreen (BrokerNav.kt:85) › ListItem (BrokerNav.kt:103)", rows(d)["chain"])
+        assertEquals("6 ms on the main thread", rows(d)["chain read"])
+        assertEquals(emptyList(), EventDetail.of(click).chain)
+    }
 }

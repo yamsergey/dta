@@ -71,4 +71,16 @@ class TimelineEventTextTest {
         val unknown = CauseChain(toast, ChainDirection.CAUSES, listOf(toast), emptyList(), noKnownCause = listOf("7:4"), inferredCandidates = mapOf("7:4" to 1))
         assertTrue("no known cause (1 inferred, ask with --inferred)" in TimelineEventText.chain(unknown))
     }
+
+    @Test
+    fun `a click with a chain ends with its pressed composable, causes and summaries stay short (064)`() {
+        val chain = listOf(
+            io.yamsergey.dta.protocol.layout.Frame("MarketsScreen", "BrokerNav.kt", 85, library = false),
+            io.yamsergey.dta.protocol.layout.Frame("ListItem", "BrokerNav.kt", 103, library = false),
+        )
+        val tap = click.copy(input = click.input!!.copy(via = "compose", chain = chain))
+        assertEquals("input    click delete_button \"Delete\"  · ListItem (BrokerNav.kt:103)", TimelineEventText.line(tap))
+        val byId = listOf(tap, request).associateBy { it.id }
+        assertEquals("network  DELETE /items/42  ← click delete_button \"Delete\" (exact)", TimelineEventText.line(request, byId::get))
+    }
 }

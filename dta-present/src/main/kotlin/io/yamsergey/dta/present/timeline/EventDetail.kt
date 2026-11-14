@@ -10,6 +10,8 @@ data class EventDetail(
     val notes: List<String> = emptyList(),
     /** The Network entry a network event can open. */
     val networkEntry: String? = null,
+    /** Feature 064: a tap's composable chain, root → node, each frame openable like Layout's. */
+    val chain: List<io.yamsergey.dta.protocol.layout.Frame> = emptyList(),
 ) {
     data class Row(val label: String, val value: String)
 
@@ -49,6 +51,8 @@ data class EventDetail(
                 row("text", i.text)
                 row("window", i.windowId)
                 row("via", i.via)
+                row("chain", i.chain?.joinToString(" › ", transform = TimelineEventText::frame))
+                row("chain read", i.chainMainThreadMs?.let { "$it ms on the main thread" })
             }
             e.gapCount?.let { row("lost", "$it events") }
             e.facets.forEach { c -> row(c.name, "${c.previous ?: "—"} → ${c.value ?: "—"}") }
@@ -56,7 +60,7 @@ data class EventDetail(
             val notes = e.completeness.map { m ->
                 m.reason.substringAfter(": ", "").ifEmpty { Degradations.explain(m.reason.substringBefore(":")) ?: m.reason }
             }
-            return EventDetail(title, rows, notes, e.network?.entryId)
+            return EventDetail(title, rows, notes, e.network?.entryId, e.input?.chain.orEmpty())
         }
     }
 }

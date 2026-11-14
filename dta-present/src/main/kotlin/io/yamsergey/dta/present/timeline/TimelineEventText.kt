@@ -26,7 +26,7 @@ object TimelineEventText {
     fun describe(e: TimelineEvent): String {
         val base = when {
             e.ui != null && e.source != Sources.TIMELINE -> UiEventText.line(e.ui!!)
-            e.input != null -> input(e)
+            e.input != null -> input(e) + (e.input!!.chain?.lastOrNull()?.let { "  · ${frame(it)}" } ?: "")
             e.network != null -> network(e)
             e.nav != null -> "${e.nav!!.action} → ${e.nav!!.destination}" + args(e.nav!!.args)
             e.app != null -> e.app!!.name + args(e.app!!.attrs)
@@ -158,6 +158,10 @@ object TimelineEventText {
             listOfNotNull(item, facets.ifEmpty { null }).joinToString(", ").ifEmpty { null }
         }
     }
+
+    /** A chain frame as Layout writes it: `ListItem (BrokerNav.kt:103)` (feature 064). */
+    fun frame(f: io.yamsergey.dta.protocol.layout.Frame): String =
+        f.name + (f.sourceFile?.let { " ($it:${f.lineNumber ?: "?"})" } ?: "")
 
     private fun input(e: TimelineEvent): String {
         val i = e.input!!
