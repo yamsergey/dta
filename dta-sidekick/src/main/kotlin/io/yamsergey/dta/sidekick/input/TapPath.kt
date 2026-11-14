@@ -21,16 +21,24 @@ object TapPath {
     /** [steps] are child indices from the table's roots; [path] the groups along them. */
     class Found(val table: Int, val path: List<CompositionGroup>, val steps: List<Int>)
 
-    /** The first table (except [skip]) holding a group whose node is [node]; null when none. */
-    fun find(tables: List<CompositionData>, node: Any, skip: Int = -1): Found? {
+    /**
+     * Where each of [nodes] sits, in one walk of all [tables] (a layout node belongs to exactly
+     * one table). Stops as soon as all are found; a node in no table is absent from the result.
+     */
+    fun findAll(tables: List<CompositionData>, nodes: List<Any>): Map<Any, Found> {
+        val wanted = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>()).apply { addAll(nodes) }
+        val found = java.util.IdentityHashMap<Any, Found>()
         tables.forEachIndexed { i, table ->
-            if (i == skip) return@forEachIndexed
             val path = ArrayList<CompositionGroup>()
             val steps = ArrayList<Int>()
             fun walk(g: CompositionGroup, at: Int): Boolean {
                 path += g
                 steps += at
-                if (g.node === node) return true
+                val n = g.node
+                if (n != null && n in wanted && n !in found) {
+                    found[n] = Found(i, ArrayList(path), ArrayList(steps))
+                    if (found.size == wanted.size) return true
+                }
                 var k = 0
                 for (c in g.compositionGroups) if (walk(c, k++)) return true
                 path.removeAt(path.size - 1)
@@ -38,10 +46,13 @@ object TapPath {
                 return false
             }
             var r = 0
-            for (root in table.compositionGroups) if (walk(root, r++)) return Found(i, path, steps)
+            for (root in table.compositionGroups) if (walk(root, r++)) return found
         }
-        return null
+        return found
     }
+
+    /** Where [node] sits; null when in no table. */
+    fun find(tables: List<CompositionData>, node: Any): Found? = findAll(tables, listOf(node))[node]
 
     /** The pruned view of [table] along [steps]. */
     fun pruned(table: CompositionData, steps: List<Int>): CompositionData {

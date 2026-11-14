@@ -2,6 +2,7 @@ package io.yamsergey.dta.sidekick.input
 
 import android.view.View
 import androidx.compose.runtime.tooling.CompositionData
+import androidx.compose.runtime.tooling.CompositionGroup
 import androidx.compose.ui.layout.LayoutInfo
 import io.yamsergey.dta.protocol.layout.Frame
 import io.yamsergey.dta.sidekick.layout.compose.CallClassifier
@@ -31,22 +32,23 @@ object TapChainReader {
             val tables = (enrichment.compositionDataSet(owner)?.toList() as List<CompositionData>?)?.takeIf { it.isNotEmpty() }
                 ?: return InputEvents.TapChain(null, false, "no-tooling-data", ms())
             val id = LayoutNodeProbes.semanticsId(node) ?: return InputEvents.TapChain(null, false, "node-not-found", ms())
-            val found = TapPath.find(tables, node) ?: return InputEvents.TapChain(null, false, "node-not-found", ms())
-            val root = io.yamsergey.dta.sidekick.util.NoArgMethods.call(owner, "getRoot")
+            // One walk finds the node and every layout ancestor (the owner's root, without a
+            // parent, is in no table): a subcomposition's host is the nearest ancestor in another table.
+            val ancestors = TapPath.ancestors(node).filter { it.parentInfo != null }.toList()
+            val where = TapPath.findAll(tables, listOf<Any>(node) + ancestors)
+            val found = where[node] ?: return InputEvents.TapChain(null, false, "node-not-found", ms())
             var partial = false
             fun chainOf(at: TapPath.Found, nodeId: Long): List<Frame>? {
                 val mapped = enrichment.map(TapPath.pruned(tables[at.table], at.steps)) ?: return null
                 val own = ToolingTree.chains(listOf(mapped), emptyList(), false).chains[nodeId] ?: return null
                 val top = at.path.firstNotNullOfOrNull { it.node as? LayoutInfo } ?: return own
-                // The owner's root layout node is in no slot table: reaching it is reaching the top.
-                val ancestors = TapPath.ancestors(top).filter { it !== root }.toList()
-                for (a in ancestors) {
-                    val host = TapPath.find(tables, a, skip = at.table) ?: continue
+                val above = TapPath.ancestors(top).filter { it.parentInfo != null }.toList()
+                for (a in above) {
+                    val host = where[a]?.takeIf { it.table != at.table } ?: continue
                     val hostId = LayoutNodeProbes.semanticsId(a) ?: break
-                    val above = chainOf(host, hostId) ?: break
-                    return above + own
+                    return (chainOf(host, hostId) ?: break) + own
                 }
-                if (ancestors.isNotEmpty()) partial = true
+                if (above.isNotEmpty()) partial = true
                 return own
             }
             val frames = chainOf(found, id) ?: return InputEvents.TapChain(null, false, "node-not-found", ms())
@@ -61,10 +63,70 @@ object TapChainReader {
         try {
             PackageIndexHolder.of(context)
             ToolingEnrichment().warmUp()
+            // The whole read path once over a one-group table: proxies, mapTree, source-info
+            // parsing, the classifier and the chain builder are loaded before the first tap.
+            val group = fake(CompositionGroup::class.java, "C(DtaWarmUp):DtaWarmUp.kt#0")
+            val table = fake(CompositionData::class.java, null, listOf(group))
+            val mapped = ToolingEnrichment(CallClassifier(null, context.packageName)).map(TapPath.pruned(table, listOf(0)))
+            TapPath.find(listOf(table), Any())
+            ToolingTree.chains(listOfNotNull(mapped), emptyList(), false)
+            walkRealTables()
         } catch (_: Throwable) {
             // The first tap then pays for it; its read time says so.
         }
     }
+
+    /**
+     * The slot-table walk is most of a cold tap (25 of 36 ms, measured): walking the real tables
+     * once here, off the main thread, compiles it. The walk only reads (group iteration opens no
+     * reader or writer, and a concurrent edit throws on this thread, never on the app's); the
+     * tables are taken on the main thread. Waits up to 30 s for the first Compose screen.
+     */
+    private fun walkRealTables() {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        repeat(30) {
+            Thread.sleep(1_000)
+            val tables = ArrayList<CompositionData>()
+            val taken = java.util.concurrent.CountDownLatch(1)
+            main.post {
+                try {
+                    val enrichment = ToolingEnrichment()
+                    fun hosts(v: View): List<View> = if (v.javaClass.name == COMPOSE_VIEW) listOf(v)
+                        else (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).flatMap { hosts(g.getChildAt(it)) } }.orEmpty()
+                    io.yamsergey.dta.sidekick.layout.ViewCapture().discoverRoots().flatMap(::hosts)
+                        .forEach { h -> enrichment.compositionDataSet(h)?.forEach { (it as? CompositionData)?.let(tables::add) } }
+                } catch (_: Throwable) {
+                } finally {
+                    taken.countDown()
+                }
+            }
+            if (!taken.await(2, java.util.concurrent.TimeUnit.SECONDS) || tables.isEmpty()) return@repeat
+            repeat(3) { runCatching { TapPath.find(tables, Any()) } }
+            return
+        }
+    }
+
+    private const val COMPOSE_VIEW = "androidx.compose.ui.platform.AndroidComposeView"
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> fake(type: Class<T>, sourceInfo: String?, children: List<CompositionGroup> = emptyList()): T =
+        java.lang.reflect.Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { self, m, _ ->
+            when (m.name) {
+                "getCompositionGroups" -> children
+                "getSourceInfo" -> sourceInfo
+                "getKey" -> 0
+                "getData" -> emptyList<Any?>()
+                "isEmpty" -> children.isEmpty()
+                "hashCode" -> System.identityHashCode(self)
+                "equals" -> false
+                "toString" -> "DtaWarmUp"
+                else -> when (m.returnType) {
+                    Boolean::class.javaPrimitiveType -> false
+                    Int::class.javaPrimitiveType -> 0
+                    else -> null
+                }
+            }
+        } as T
 
     private fun classifier(owner: View): CallClassifier {
         val index = (PackageIndexHolder.of(owner.context).await(0) as? PackageIndexHolder.State.Ready)?.index

@@ -52,7 +52,7 @@ class ViewCapture(private val maxDepth: Int = 100) {
     }
 
     @android.annotation.SuppressLint("NewApi") // WINDOW_INSPECTOR is selected only on API 29+ (RootProviderSelector)
-    private fun discoverRoots(): List<View> {
+    internal fun discoverRoots(): List<View> {
         val selection = RootProviderSelector.select(Build.VERSION.SDK_INT)
         val views = when (selection.kind) {
             RootProviderKind.WINDOW_INSPECTOR -> WindowInspector.getGlobalWindowViews()

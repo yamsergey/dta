@@ -92,6 +92,8 @@ object TimelineSources {
             if (io.yamsergey.dta.sidekick.layout.compose.ComposePresence().composePresent) {
                 val compose = io.yamsergey.dta.sidekick.input.ComposeClickRecorder(buffer, scope) { root -> UiRuntime.windowIdOf(root) }
                 compose.install(context.classLoader)
+                // Feature 064: the first tap's chain read pays for class loading unless warmed up here.
+                Thread({ io.yamsergey.dta.sidekick.input.TapChainReader.warmUp(context) }, "dta-tap-warmup").apply { isDaemon = true }.start()
                 input.composeFailure = compose.failure
                 input.composeLimit = compose.limit
             }

@@ -75,7 +75,6 @@ class TapPathTest {
         assertEquals(1, found.table)
         assertEquals(listOf(0, 1, 0, 0, 0), found.steps)
         assertNull(TapPath.find(listOf(table()), layoutNode(99)))
-        assertNull(TapPath.find(listOf(table()), target, skip = 0))
     }
 
     @Test
@@ -91,5 +90,16 @@ class TapPathTest {
         val found = TapPath.find(listOf(table()), target)!!
         val mapped = ToolingEnrichment().map(TapPath.pruned(table(), found.steps))!!
         assertNull(ToolingTree.chains(listOf(mapped), emptyList(), false).chains[3])
+    }
+
+    @Test
+    fun `one walk finds the pressed node and its layout ancestors in any table`() {
+        val host = layoutNode(1)
+        val hostTable = Data { listOf(G("C(Screen):Screen.kt#1f2g3") { listOf(G(null, host)) }) }
+        val found = TapPath.findAll(listOf(table(), hostTable), listOf(target, layoutNode(98), host))
+        assertEquals(listOf(0, 1, 0, 0, 0), found[target]!!.steps)
+        assertEquals(1, found[host]!!.table)
+        assertEquals(listOf(0, 0), found[host]!!.steps)
+        assertNull(found[layoutNode(98)])
     }
 }
