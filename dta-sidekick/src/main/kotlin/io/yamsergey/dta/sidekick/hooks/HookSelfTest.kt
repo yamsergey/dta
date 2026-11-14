@@ -17,6 +17,9 @@ class SelfTestProbe {
 
     /** Control-hook probe: also has a primitive param, to exercise unboxing writeback. */
     fun echo(text: String, times: Int): String = "echo-" + text.repeat(times)
+
+    /** Feature 064 remove probe. */
+    fun removable(x: Int): Int = x + 1
 }
 
 /**
@@ -35,6 +38,13 @@ object HookSelfTest {
     @Volatile private var urlEntry = false
     @Volatile private var urlExit = false
     @Volatile private var probeExit = false
+    private const val REMOVABLE_DESCRIPTOR = "(I)I"
+    @Volatile private var removableFired = false
+    private val removableHandler = object : EntryHandler {
+        override fun onEntry(self: Any?, params: Array<Any?>) {
+            removableFired = true
+        }
+    }
     private val selftestUrlOnThread = ThreadLocal<URL?>()
 
     private class MarkerConnection(url: URL) : URLConnection(url) {
@@ -55,6 +65,7 @@ object HookSelfTest {
         val rewritten = SelfTestProbe().echo("a", 1)
         val early = SelfTestProbe().echo("stop", 1)
         val connection = URL("http://$SELFTEST_HOST/probe").openConnection()
+        val removal = removal()
 
         return buildJsonObject {
             put("attach", "ok")
@@ -78,6 +89,9 @@ object HookSelfTest {
                     put("install", installed.getValue("absent"))
                     put("othersStillFire", probeEntry && probeExit && rewritten == "echo-bb")
                 }
+                putJsonObject("remove-probe") {
+                    for ((k, v) in removal) if (v is Boolean) put(k, v) else put(k, v.toString())
+                }
                 putJsonObject("java.net.URL#openConnection") {
                     put("install", installed.getValue("url"))
                     put("entry", urlEntry)
@@ -86,6 +100,29 @@ object HookSelfTest {
                 }
             }
         }
+    }
+
+    /** Feature 064: hook, remove, hook again; the class's other hooks must keep firing. */
+    private fun removal(): Map<String, Any> {
+        val cls = SelfTestProbe::class.java
+        fun fired(): Boolean { removableFired = false; SelfTestProbe().removable(1); return removableFired }
+        val install = Hooks.entry(cls, "removable", REMOVABLE_DESCRIPTOR, removableHandler).code
+        val before = fired()
+        val t0 = System.nanoTime()
+        val remove = Hooks.remove(cls, "removable", REMOVABLE_DESCRIPTOR, removableHandler) ?: "removed"
+        val removeUs = (System.nanoTime() - t0) / 1000
+        val after = fired()
+        probeEntry = false; probeExit = false
+        val others = SelfTestProbe().value(7) == "replaced-7" && probeEntry && probeExit
+        val t1 = System.nanoTime()
+        Hooks.entry(cls, "removable", REMOVABLE_DESCRIPTOR, removableHandler)
+        val installUs = (System.nanoTime() - t1) / 1000
+        val again = fired()
+        Hooks.remove(cls, "removable", REMOVABLE_DESCRIPTOR, removableHandler)
+        return mapOf(
+            "install" to install, "firedBefore" to before, "remove" to remove, "firedAfter" to after,
+            "othersStillFire" to others, "firedAgain" to again, "removeUs" to removeUs, "installUs" to installUs,
+        )
     }
 
     private fun install(): Map<String, String> {

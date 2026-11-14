@@ -47,6 +47,23 @@ public final class HookRegistry {
         if (exits != null) exits.remove(handler);
     }
 
+    /** How many handlers watch {@code label} (feature 064: a hook with none left is taken out). */
+    public static int entryCount(String label) {
+        return size(ENTRY.get(label));
+    }
+
+    public static int exitCount(String label) {
+        return size(EXIT.get(label));
+    }
+
+    public static int controlCount(String label) {
+        return size(CONTROL.get(label));
+    }
+
+    private static int size(List<?> list) {
+        return list == null ? 0 : list.size();
+    }
+
     private static <T> List<T> chain(ConcurrentHashMap<String, List<T>> map, String label) {
         List<T> list = map.get(label);
         if (list == null) {

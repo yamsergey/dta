@@ -315,4 +315,34 @@ class HookDispatcherTest {
         assertEquals(1, calls[0]);
         assertEquals(1, sends[0], "only the unguarded call was dispatched");
     }
+
+    @Test
+    void aRemovedHandlerIsNotCalledAndItsChainCountsDown() {
+        final int[] calls = {0, 0};
+        EntryHandler first = new EntryHandler() {
+            @Override
+            public void onEntry(Object self, Object[] params) {
+                calls[0]++;
+            }
+        };
+        EntryHandler second = new EntryHandler() {
+            @Override
+            public void onEntry(Object self, Object[] params) {
+                calls[1]++;
+            }
+        };
+        HookRegistry.entry(LABEL, first);
+        HookRegistry.entry(LABEL, second);
+        assertEquals(2, HookRegistry.entryCount(LABEL));
+        HookRegistry.remove(LABEL, first);
+        assertEquals(1, HookRegistry.entryCount(LABEL));
+        HookDispatcher.onEntry(new Object[] {LABEL, null, 1});
+        assertArrayEquals(new int[] {0, 1}, calls);
+        HookRegistry.remove(LABEL, second);
+        assertEquals(0, HookRegistry.entryCount(LABEL));
+        assertEquals(0, HookRegistry.exitCount(LABEL));
+        assertEquals(0, HookRegistry.controlCount(LABEL));
+        HookDispatcher.onEntry(new Object[] {LABEL, null, 1});
+        assertArrayEquals(new int[] {0, 1}, calls);
+    }
 }

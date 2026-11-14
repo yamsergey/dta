@@ -33,6 +33,13 @@ internal object NativeAgent {
     @JvmStatic external fun nativeHook(target: Class<*>, method: String, descriptor: String, kind: Int): String?
 
     /**
+     * Feature 064: takes one hook ([ENTRY], [EXIT] or [CONTROL]) out of [target]'s code by
+     * retransforming it with the class's remaining hooks; the original code when none remain.
+     * @return null on success, otherwise the reason (the hook is then still in the code).
+     */
+    @JvmStatic external fun nativeUnhook(target: Class<*>, method: String, descriptor: String, kind: Int): String?
+
+    /**
      * Feature 027: the live instances of [target] and its subclasses (interfaces included);
      * null when the runtime refused (the agent logs why).
      */

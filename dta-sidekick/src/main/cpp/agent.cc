@@ -261,6 +261,55 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
   return env->NewStringUTF(reason.c_str());
 }
 
+// Feature 064: takes one hook out of [target] by retransforming it with the class's other
+// hooks (ART hands the original image, so with none left the class gets its original code).
+// Returns null on success, otherwise the reason; on failure the hook is registered again, as
+// the class still carries it.
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeUnhook(JNIEnv* env, jclass,
+                                                              jclass target, jstring method,
+                                                              jstring signature, jint kind) {
+  if (g_jvmti == nullptr) return env->NewStringUTF("agent not attached");
+  char* class_sig = nullptr;
+  jvmtiError error = g_jvmti->GetClassSignature(target, &class_sig, nullptr);
+  if (error != JVMTI_ERROR_NONE || class_sig == nullptr) {
+    return env->NewStringUTF(("GetClassSignature: " + JvmtiErrorName(error)).c_str());
+  }
+  std::string descriptor(class_sig);
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(class_sig));
+  dta::HookTarget hook{ToString(env, method), ToString(env, signature), static_cast<dta::HookKind>(kind)};
+  bool found = false;
+  {
+    std::lock_guard<std::mutex> lock(g_targets_mutex);
+    auto it = g_targets.find(descriptor);
+    if (it != g_targets.end()) {
+      auto& list = it->second;
+      for (auto t = list.begin(); t != list.end(); ++t) {
+        if (t->method == hook.method && t->signature == hook.signature && t->kind == hook.kind) {
+          list.erase(t);
+          found = true;
+          break;
+        }
+      }
+      if (list.empty()) g_targets.erase(it);
+    }
+  }
+  if (!found) return nullptr;
+
+  std::string transform_error;
+  t_transform_error = &transform_error;
+  error = g_jvmti->RetransformClasses(1, &target);
+  t_transform_error = nullptr;
+  if (error == JVMTI_ERROR_NONE && transform_error.empty()) return nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_targets_mutex);
+    g_targets[descriptor].push_back(hook);
+  }
+  std::string reason = !transform_error.empty() ? transform_error : "";
+  if (error != JVMTI_ERROR_NONE) reason += "\x1f" "RetransformClasses: " + JvmtiErrorName(error);
+  return env->NewStringUTF(reason.c_str());
+}
+
 // Feature 027 (research R1): the live instances of [target] and its subclasses (interfaces
 // included), as Android Studio's App Inspection findInstances does: a fresh tag per call on
 // every instance, read back with GetObjectsWithTags, then cleared so tags do not pile up.

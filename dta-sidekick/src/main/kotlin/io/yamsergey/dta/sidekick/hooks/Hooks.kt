@@ -85,6 +85,32 @@ object Hooks {
     fun exit(className: String, loader: ClassLoader?, method: String, descriptor: String, handler: ExitHandler): Install =
         load(className, loader)?.let { exit(it, method, descriptor, handler) } ?: Install.ClassAbsent(className)
 
+    /**
+     * Feature 064: [handler] stops being called at once. When it was the method's last handler
+     * of its kind, the hook is also taken out of the method's code, so the method costs what it
+     * did before. @return null when done, otherwise why the code keeps the (now idle) hook.
+     */
+    @Synchronized
+    fun remove(cls: Class<*>, method: String, descriptor: String, handler: Any): String? {
+        val label = HookRegistry.label(cls.name, method, descriptor)
+        HookRegistry.remove(label, handler)
+        val (kind, left) = when (handler) {
+            is ControlHandler -> NativeAgent.CONTROL to HookRegistry.controlCount(label)
+            is EntryHandler -> NativeAgent.ENTRY to HookRegistry.entryCount(label)
+            is ExitHandler -> NativeAgent.EXIT to HookRegistry.exitCount(label)
+            else -> return "not a hook handler"
+        }
+        val key = "$kind $label"
+        if (left > 0 || key !in nativelyInstalled) return null
+        return try {
+            NativeAgent.nativeUnhook(cls, method, descriptor, kind)?.let { return it }
+            nativelyInstalled -= key
+            null
+        } catch (t: Throwable) {
+            "${t.javaClass.name}: ${t.message}"
+        }
+    }
+
     /** Handler failures counted by the shim for one hooked method (diagnostics). */
     fun errorCount(cls: Class<*>, method: String, descriptor: String): Long =
         HookRegistry.errorCount(HookRegistry.label(cls.name, method, descriptor))
