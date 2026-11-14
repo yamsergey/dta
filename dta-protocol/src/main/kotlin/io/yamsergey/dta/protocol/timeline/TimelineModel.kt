@@ -33,6 +33,8 @@ object Sources {
 object Kinds {
     const val CLICK = "input/click"
     const val BACK = "input/back"
+    /** Feature 064: one scroll gesture, from the drag's start until it settles. */
+    const val SCROLL = "input/scroll"
     const val NETWORK_REQUEST = "network/request"
     const val NETWORK_RESPONSE = "network/response"
     const val NETWORK_FAILED = "network/failed"
@@ -134,6 +136,7 @@ enum class InputAction {
     @SerialName("click") CLICK,
     @SerialName("tap") TAP,
     @SerialName("back") BACK,
+    @SerialName("scroll") SCROLL,
 }
 
 @Serializable
@@ -151,7 +154,36 @@ data class InputPayload(
     val chain: List<io.yamsergey.dta.protocol.layout.Frame>? = null,
     /** Feature 064: main-thread time of the chain read, whenever one was attempted. */
     val chainMainThreadMs: Long? = null,
+    /** Feature 064: where a scroll went; only for [InputAction.SCROLL]. */
+    val scroll: ScrollInfo? = null,
 )
+
+/** Feature 064: one scroll gesture. The event's monoMs is the drag's start. */
+@Serializable
+data class ScrollInfo(
+    /** When it settled: the fling ended, or the finger let go of a slow drag. */
+    val endMonoMs: Long,
+    /** From the position's change; null when it did not move. */
+    val direction: ScrollDirection? = null,
+    val from: ScrollPosition? = null,
+    val to: ScrollPosition? = null,
+    /** Still moving after the finger let go. */
+    val fling: Boolean = false,
+    /** Ended by a new touch (a touch that stops a fling is not a click). */
+    val stoppedByTouch: Boolean = false,
+)
+
+@Serializable
+enum class ScrollDirection {
+    @SerialName("up") UP,
+    @SerialName("down") DOWN,
+    @SerialName("left") LEFT,
+    @SerialName("right") RIGHT,
+}
+
+/** A lazy list's first visible item and the pixels scrolled into it; a plain scroll's offset alone. */
+@Serializable
+data class ScrollPosition(val item: Int? = null, val offset: Int)
 
 @Serializable
 enum class NetworkPhase {

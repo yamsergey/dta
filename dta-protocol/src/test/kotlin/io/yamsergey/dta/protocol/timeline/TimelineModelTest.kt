@@ -114,4 +114,20 @@ class TimelineModelTest {
         assertEquals("tap-chain-unavailable", io.yamsergey.dta.protocol.layout.DegradationCodes.TAP_CHAIN_UNAVAILABLE)
         assertEquals("tap-chain-partial", io.yamsergey.dta.protocol.layout.DegradationCodes.TAP_CHAIN_PARTIAL)
     }
+
+    @Test
+    fun `a scroll is one input event with where it went (064 C1)`() {
+        val scroll = TimelineEvent(
+            id = "17:9", seq = 9, monoMs = 1_000, wallMs = 2_000, source = Sources.INPUT, kind = Kinds.SCROLL, title = "scroll down markets",
+            input = InputPayload(
+                InputAction.SCROLL, ElementRef(key = "markets|LazyColumn"), via = "compose",
+                scroll = ScrollInfo(endMonoMs = 1_650, direction = ScrollDirection.DOWN, from = ScrollPosition(0, 361), to = ScrollPosition(8, 393), fling = true, stoppedByTouch = false),
+            ),
+        )
+        assertEquals("input/scroll", Kinds.SCROLL)
+        val text = json.encodeToString(TimelineEvent.serializer(), scroll)
+        assertTrue("\"action\":\"scroll\"" in text && "\"direction\":\"down\"" in text, text)
+        assertEquals(scroll, json.decodeFromString(TimelineEvent.serializer(), text))
+        assertEquals(ScrollPosition(null, 120), json.decodeFromString(ScrollPosition.serializer(), """{"offset":120}"""))
+    }
 }
