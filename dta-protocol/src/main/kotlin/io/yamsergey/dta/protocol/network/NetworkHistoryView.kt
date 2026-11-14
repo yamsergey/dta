@@ -117,6 +117,32 @@ class NetworkHistoryView(
         )
     }
 
+    /** Feature 065: the ids a query lets through and the ids it looked at. */
+    data class Passing(val ids: Set<String>, val seen: Set<String>)
+
+    /**
+     * Feature 065: every entry [list] would keep for [query], over all its pages, with the same
+     * evaluator and search words (only the matches, as without `allRows`): the Timeline hides the
+     * network rows Network hides. [Passing.seen] are the entries the history holds now.
+     */
+    fun passing(query: NetworkQuery): Passing {
+        val ctx = context()
+        val (filter, terms) = query.resolved()
+        val search = search(terms, query.redact)
+        val eval = filter?.let { NetworkFilterEval(it, ctx.runId, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, ::envelopeOf, patternBudget(), bodyBytes) }
+        val all = entries()
+        val seen = HashSet<String>(all.size * 2)
+        val ids = HashSet<String>()
+        for (entry in all) {
+            seen += entry.id
+            if (entry is LinkEntry && filter?.kinds == null) continue
+            if (eval != null && eval.matches(entry) == null) continue
+            if (search != null && search.hits(entry) == null) continue
+            ids += entry.id
+        }
+        return Passing(ids, seen)
+    }
+
     /**
      * Feature 040: the entries the query's filters keep that hold every search word, in list
      * order, [NetworkQuery.limit] per page after [NetworkQuery.before] (an entry id).
