@@ -100,6 +100,11 @@ object TimelineSources {
                 scroll.install(context.classLoader)
                 input.composeLimit = listOfNotNull(compose.limit, scroll.failure).joinToString("; ").ifEmpty { null }
             }
+            // Feature 064: a request from a coroutine launched during a click (Compose or View) is linked to it.
+            val lineage = CoroutineLineage(scope)
+            lineage.install(context.classLoader)
+            TimelineRuntime.lineageCause = lineage::cause
+            input.composeLimit = listOfNotNull(input.composeLimit, lineage.failure).joinToString("; ").ifEmpty { null }
             TimelineRuntime.register(Sources.INPUT, input::status)
         } catch (t: Throwable) {
             Log.w(TAG, "input not recorded: $t")

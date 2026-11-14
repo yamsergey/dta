@@ -22,6 +22,12 @@ class LineageTags(
     /** Whether a coroutine has completed; false when it cannot be told. */
     private val isDone: (Any) -> Boolean,
     private val onLive: (Boolean) -> Unit,
+    /**
+     * Whether this thread is inside a coroutine's resume now (asked only when a creation would
+     * inherit): a coroutine that ran to its end without a last suspension leaves its tag on the
+     * thread, and what the thread creates afterwards outside any resume is not its child.
+     */
+    private val inResume: () -> Boolean = { true },
     private val ttlMs: Long = TTL_MS,
 ) {
     private class Tag(val cause: CauseLink, val at: Long) {
@@ -41,7 +47,7 @@ class LineageTags(
     fun created(completion: Any?, scope: CauseLink?, kind: String?) {
         val cause = scope?.takeIf { it.basis == Basis.EXACT && kind != null }
             ?.let { CauseLink(it.from, Basis.EXACT, CauseRules.launchedDuring(kind!!)) }
-            ?: running.get()?.takeIf { !it.ended }?.cause
+            ?: running.get()?.takeIf { !it.ended && inResume() }?.cause
             ?: return
         val root = rootOf(completion) ?: return
         synchronized(tags) {

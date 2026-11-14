@@ -61,4 +61,17 @@ class InitiatorsTest {
     fun `a null call captures the current stack`() {
         assertNotNull(initiators.forCall(null, InitiatorSite.CONNECT).frames)
     }
+
+    @Test
+    fun `outside a handling scope a request takes the click its coroutine was launched during (064)`() {
+        val click = io.yamsergey.dta.protocol.timeline.CauseLink("7:1", io.yamsergey.dta.protocol.timeline.Basis.EXACT, "launched-during:click")
+        val stack = arrayOf(StackTraceElement("a.B", "resumeWith", "B.kt", 1))
+        var seen: List<StackTraceElement>? = null
+        val lineage = Initiators(stackOf = { stack }, scope = { null }, lineage = { seen = it; click })
+        assertEquals(click, lineage.capture(InitiatorSite.ENQUEUE).cause)
+        assertEquals(stack.asList(), seen, "the lineage is judged on the request's own stack")
+        val scoped = io.yamsergey.dta.protocol.timeline.CauseLink("7:2", io.yamsergey.dta.protocol.timeline.Basis.EXACT, "issued-during:click")
+        val both = Initiators(stackOf = { stack }, scope = { scoped }, lineage = { click })
+        assertEquals(scoped, both.capture(InitiatorSite.ENQUEUE).cause, "issued while the click is handled: that is exact")
+    }
 }

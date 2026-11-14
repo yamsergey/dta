@@ -17,21 +17,34 @@ class Initiators(
     private val stackOf: () -> Array<StackTraceElement> = { Thread.currentThread().stackTrace },
     /** What the app is handling on this thread right now (016): the request's cause. */
     private val scope: () -> io.yamsergey.dta.protocol.timeline.CauseLink? = { io.yamsergey.dta.sidekick.timeline.TimelineRuntime.scopeCause() },
+    /** Outside a scope (064): the click whose coroutine issues the request, judged on its stack. */
+    private val lineage: (List<StackTraceElement>) -> io.yamsergey.dta.protocol.timeline.CauseLink? = { io.yamsergey.dta.sidekick.timeline.TimelineRuntime.lineageCause(it) },
 ) {
     private val scheduled: MutableMap<Any, Initiator> = Collections.synchronizedMap(WeakHashMap())
 
     fun capture(site: InitiatorSite): Initiator {
         val thread = Thread.currentThread().name
-        val cause = try {
-            scope()
+        val stack = try {
+            stackOf().asList()
+        } catch (t: Throwable) {
+            return Initiator(thread = thread, site = site, missing = "stack capture failed: ${t.message ?: t.javaClass.simpleName}", cause = scopeOrNull())
+        }
+        val cause = scopeOrNull() ?: try {
+            lineage(stack)
         } catch (_: Throwable) {
             null
         }
         return try {
-            FrameClassifier.initiator(thread, site, stackOf().asList()).copy(cause = cause)
+            FrameClassifier.initiator(thread, site, stack).copy(cause = cause)
         } catch (t: Throwable) {
             Initiator(thread = thread, site = site, missing = "stack capture failed: ${t.message ?: t.javaClass.simpleName}", cause = cause)
         }
+    }
+
+    private fun scopeOrNull() = try {
+        scope()
+    } catch (_: Throwable) {
+        null
     }
 
     fun remember(call: Any, site: InitiatorSite) {

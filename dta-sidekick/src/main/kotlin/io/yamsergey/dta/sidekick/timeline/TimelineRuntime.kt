@@ -22,6 +22,10 @@ object TimelineRuntime {
     @Volatile
     var scopeCause: () -> io.yamsergey.dta.protocol.timeline.CauseLink? = { null }
 
+    /** Feature 064: the click whose coroutine runs on this thread, judged on the request's stack; none until lineage is installed. */
+    @Volatile
+    var lineageCause: (List<StackTraceElement>) -> io.yamsergey.dta.protocol.timeline.CauseLink? = { null }
+
     private val statuses = LinkedHashMap<String, () -> SourceStatus>()
 
     @Synchronized

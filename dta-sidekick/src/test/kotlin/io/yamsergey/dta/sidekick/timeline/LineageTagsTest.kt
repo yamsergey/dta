@@ -16,9 +16,11 @@ class LineageTagsTest {
     private class Frame(val completion: Any)
 
     private var now = 0L
+    private var inResume = true
     private val liveChanges = ArrayList<Boolean>()
     private val tags = LineageTags(
         clock = { now },
+        inResume = { inResume },
         rootOf = { f -> var x = f; while (x is Frame) x = x.completion; x },
         isDone = { (it as? Root)?.done == true },
         onLive = { liveChanges += it },
@@ -130,5 +132,20 @@ class LineageTagsTest {
         val declared = CauseLink("9:1", Basis.DECLARED, CauseRules.APP_SCOPE)
         tags.created(Root(), declared, "app")
         assertEquals(0, tags.live())
+    }
+
+    @Test
+    fun `a coroutine created outside any resume on a thread whose tagged coroutine ended there is not tagged`() {
+        val root = Root()
+        tags.created(root, click, Kinds.CLICK)
+        tags.resumed(Frame(root))
+        // The tagged coroutine ran to its end on this thread without a last suspension; then a frame
+        // callback (composition, not a coroutine resume) launches an effect.
+        inResume = false
+        tags.created(Root(), null, null)
+        assertEquals(1, tags.live(), "the effect is not the click's")
+        inResume = true
+        tags.created(Root(), null, null)
+        assertEquals(2, tags.live(), "created from inside the tagged coroutine's resume: inherited")
     }
 }
