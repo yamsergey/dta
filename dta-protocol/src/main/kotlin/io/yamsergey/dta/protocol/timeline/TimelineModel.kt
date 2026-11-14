@@ -144,6 +144,13 @@ data class InputPayload(
     val windowId: String? = null,
     /** `view`, `compose`, `dispatcher`, `activity`. */
     val via: String,
+    /**
+     * Feature 064: the pressed composable's chain, root → node, app frames only (Layout's rule,
+     * 054/059), read at the tap. Null when not read or cut (see the event's completeness).
+     */
+    val chain: List<io.yamsergey.dta.protocol.layout.Frame>? = null,
+    /** Feature 064: main-thread time of the chain read, whenever one was attempted. */
+    val chainMainThreadMs: Long? = null,
 )
 
 @Serializable

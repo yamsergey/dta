@@ -98,4 +98,20 @@ class TimelineModelTest {
         assertEquals(Sources.SCREEN, Facets.sourceOf(Facets.SCREEN_FINGERPRINT))
         assertEquals("issued-during:click", CauseRules.issuedDuring(Kinds.CLICK))
     }
+
+    @Test
+    fun `a compose click carries its chain and the read's main-thread time (064)`() {
+        val chain = listOf(
+            io.yamsergey.dta.protocol.layout.Frame("MarketsScreen", "BrokerNav.kt", 85, library = false, packageName = "com.example"),
+            io.yamsergey.dta.protocol.layout.Frame("ListItem", "BrokerNav.kt", 103, library = false, packageName = "com.example"),
+        )
+        val tap = click.copy(input = click.input!!.copy(via = "compose", chain = chain, chainMainThreadMs = 6))
+        assertEquals(tap, json.decodeFromString(TimelineEvent.serializer(), json.encodeToString(TimelineEvent.serializer(), tap)))
+        val text = json.encodeToString(TimelineEvent.serializer(), click)
+        assertTrue("chain" !in text && "chainMainThreadMs" !in text, text)
+        val old = """{"action":"click","via":"compose"}"""
+        assertEquals(InputPayload(InputAction.CLICK, via = "compose"), json.decodeFromString(InputPayload.serializer(), old))
+        assertEquals("tap-chain-unavailable", io.yamsergey.dta.protocol.layout.DegradationCodes.TAP_CHAIN_UNAVAILABLE)
+        assertEquals("tap-chain-partial", io.yamsergey.dta.protocol.layout.DegradationCodes.TAP_CHAIN_PARTIAL)
+    }
 }

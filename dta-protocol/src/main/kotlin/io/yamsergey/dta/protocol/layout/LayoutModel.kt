@@ -75,6 +75,10 @@ object DegradationCodes {
     const val STATE_FACET_UNAVAILABLE = "state-facet-unavailable"
     const val STATE_WINDOW_PARTIAL = "state-window-partial"
     const val STATE_SHORT_MERGED = "state-short-merged"
+
+    // Feature 064 (a tap's composable chain).
+    const val TAP_CHAIN_UNAVAILABLE = "tap-chain-unavailable"
+    const val TAP_CHAIN_PARTIAL = "tap-chain-partial"
 }
 
 /** How much of the composition a Compose host contributes, ordered by

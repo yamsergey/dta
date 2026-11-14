@@ -123,6 +123,10 @@ object Degradations {
             "Older events were dropped from the timeline, so the states and transitions before them are missing.",
         Codes.STATE_SHORT_MERGED to
             "States held for less than the chosen minimum were merged into the next state.",
+        Codes.TAP_CHAIN_UNAVAILABLE to
+            "The pressed composable's chain could not be read at the tap (see the reason); nothing was taken from an older capture. A debug build with Compose ui-tooling gives it.",
+        Codes.TAP_CHAIN_PARTIAL to
+            "The tap's chain starts at the list item or other subcomposition: the screen above it could not be matched at the tap.",
     )
 
     /** The sentence for [code]; null for a code this client does not know. */
