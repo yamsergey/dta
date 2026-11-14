@@ -99,7 +99,11 @@ class ComposeClickRecorder(
         val secure = window != null && (window.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
         val target = ComposeClicks.target(tree(semantics.rootSemanticsNode), id, secure, windowIdOf(owner.rootView))
             ?: InputEvents.Target(null, "Composable", null, "button", secure, windowIdOf(owner.rootView))
-        val event = buffer.append { eid, seq -> InputEvents.click(eid, seq, SystemClock.uptimeMillis(), System.currentTimeMillis(), target, via = "compose") }
+        // Feature 064: read at the tap, before onClick runs: the slot tables are the frame the user saw.
+        val mono = SystemClock.uptimeMillis()
+        val wall = System.currentTimeMillis()
+        val chain = TapChainReader.read(owner, layoutNode)
+        val event = buffer.append { eid, seq -> InputEvents.click(eid, seq, mono, wall, target, via = "compose", chain = chain) }
         scope.enter(event.id, Kinds.CLICK)
         return true
     }

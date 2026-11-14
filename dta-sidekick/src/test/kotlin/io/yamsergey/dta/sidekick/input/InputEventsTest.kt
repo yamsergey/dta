@@ -53,4 +53,25 @@ class InputEventsTest {
         val e = InputEvents.click("7:1", 1, 100, 1_100, button.copy(text = "x".repeat(300)), via = "view")
         assertEquals(120, e.input!!.text!!.length)
     }
+
+    private val frames = listOf(io.yamsergey.dta.protocol.layout.Frame("ListItem", "BrokerNav.kt", 103, library = false))
+
+    @Test
+    fun `a compose click carries the chain read at the tap and its time (064)`() {
+        val e = InputEvents.click("7:1", 1, 100, 1_100, button, via = "compose", chain = InputEvents.TapChain(frames, partial = false, cut = null, mainThreadMs = 6))
+        assertEquals(frames, e.input!!.chain)
+        assertEquals(6, e.input!!.chainMainThreadMs)
+        assertTrue(e.completeness.isEmpty())
+    }
+
+    @Test
+    fun `a chain that could not be read says why, and a partial one says so (064)`() {
+        val cut = InputEvents.click("7:1", 1, 100, 1_100, button, via = "compose", chain = InputEvents.TapChain(null, partial = false, cut = "node-not-found", mainThreadMs = 1))
+        assertNull(cut.input!!.chain)
+        assertEquals(1, cut.input!!.chainMainThreadMs)
+        assertEquals("tap-chain-unavailable: node-not-found", cut.completeness.single().reason)
+        val partial = InputEvents.click("7:1", 1, 100, 1_100, button, via = "compose", chain = InputEvents.TapChain(frames, partial = true, cut = null, mainThreadMs = 4))
+        assertEquals(frames, partial.input!!.chain)
+        assertTrue(partial.completeness.single().reason.startsWith("tap-chain-partial"))
+    }
 }

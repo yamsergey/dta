@@ -112,7 +112,7 @@ class ToolingEnrichment(private val classifier: CallClassifier = CallClassifier(
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun compositionDataSet(host: View): Iterable<Any>? {
+    internal fun compositionDataSet(host: View): Iterable<Any>? {
         // Compose merges its resources into the app's package, so resolve the
         // tag id under the app package (not "androidx.compose.ui"). Fall back to
         // scanning both known packages for robustness across AGP namespacing.

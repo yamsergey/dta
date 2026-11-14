@@ -22,15 +22,25 @@ object InputEvents {
         val windowId: String?,
     )
 
-    fun click(id: String, seq: Long, mono: Long, wall: Long, target: Target, via: String, action: InputAction = InputAction.CLICK): TimelineEvent {
+    /**
+     * Feature 064: the pressed composable's chain as read at the tap. [frames] null when the read
+     * was cut ([cut] says why); [partial] when the screen above a subcomposition was not matched.
+     */
+    data class TapChain(val frames: List<io.yamsergey.dta.protocol.layout.Frame>?, val partial: Boolean, val cut: String?, val mainThreadMs: Long)
+
+    fun click(id: String, seq: Long, mono: Long, wall: Long, target: Target, via: String, action: InputAction = InputAction.CLICK, chain: TapChain? = null): TimelineEvent {
         val text = if (target.secure) null else target.text?.takeIf { it.isNotBlank() }?.take(Bounds.FACET_VALUE)
         val key = listOfNotNull(target.name, target.className).joinToString("|")
         val verb = if (action == InputAction.TAP) "tap" else "click"
         return TimelineEvent(
             id, seq, mono, wall, Sources.INPUT, Kinds.CLICK,
             title = listOfNotNull(verb, target.name ?: target.className, text?.let { "\"$it\"" }).joinToString(" "),
-            input = InputPayload(action, ElementRef(key = key, role = target.role), text, target.windowId, via),
-            completeness = if (target.secure) listOf(DegradationMarker("input", "${DegradationCodes.UI_SECURE_WINDOW}: the element's text is not recorded")) else emptyList(),
+            input = InputPayload(action, ElementRef(key = key, role = target.role), text, target.windowId, via, chain?.frames, chain?.mainThreadMs),
+            completeness = listOfNotNull(
+                DegradationMarker("input", "${DegradationCodes.UI_SECURE_WINDOW}: the element's text is not recorded").takeIf { target.secure },
+                chain?.cut?.let { DegradationMarker("input", "${DegradationCodes.TAP_CHAIN_UNAVAILABLE}: $it") },
+                DegradationMarker("input", "${DegradationCodes.TAP_CHAIN_PARTIAL}: the chain starts at the subcomposition").takeIf { chain?.partial == true },
+            ),
         )
     }
 
