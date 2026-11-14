@@ -94,8 +94,12 @@ object CauseRules {
     const val AFTER_RESPONSE = "after-response"
     const val WHILE_IN_FLIGHT = "while-in-flight"
     const val TEXT_MATCH = "text-match"
+    /** Feature 064: issued by a coroutine launched while the click was handled, or by one it launched. */
+    const val LAUNCHED_DURING_CLICK = "launched-during:click"
 
     fun issuedDuring(kind: String) = "issued-during:${kind.substringAfter('/')}"
+
+    fun launchedDuring(kind: String) = "launched-during:${kind.substringAfter('/')}"
 }
 
 object Bounds {

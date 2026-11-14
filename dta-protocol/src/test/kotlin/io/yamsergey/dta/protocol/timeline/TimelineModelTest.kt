@@ -100,6 +100,13 @@ class TimelineModelTest {
     }
 
     @Test
+    fun `a request from a coroutine launched during a click has its own rule (064)`() {
+        assertEquals("launched-during:click", CauseRules.launchedDuring(Kinds.CLICK))
+        assertEquals(CauseRules.LAUNCHED_DURING_CLICK, CauseRules.launchedDuring(Kinds.CLICK))
+        assertEquals("launched-during:back", CauseRules.launchedDuring(Kinds.BACK))
+    }
+
+    @Test
     fun `a compose click carries its chain and the read's main-thread time (064)`() {
         val chain = listOf(
             io.yamsergey.dta.protocol.layout.Frame("MarketsScreen", "BrokerNav.kt", 85, library = false, packageName = "com.example"),
