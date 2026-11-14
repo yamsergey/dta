@@ -6,8 +6,6 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import com.intellij.icons.AllIcons
-import io.yamsergey.dta.present.layout.CallGroup
 import io.yamsergey.dta.present.layout.NodeDetail
 import io.yamsergey.dta.present.layout.Source
 import io.yamsergey.dta.studio.ui.StatementMark
@@ -49,7 +47,7 @@ class NodeDetailPane(
             if (detail.statements.isNotEmpty()) add(row(*detail.statements.map { StatementMark(it) }.toTypedArray()))
             val form = FormBuilder.createFormBuilder()
             detail.fields.forEach { (label, value) -> form.addLabeledComponent("$label:", JBLabel(value).apply { setCopyable(true) }) }
-            detail.source?.let { form.addLabeledComponent("Source:", sourceLink(it, callers = detail.callers)) }
+            detail.source?.let { form.addLabeledComponent("Source:", chainView.sourceLink(it, callers = detail.callers)) }
             add(form.panel.left())
             if (detail.parameters.isNotEmpty()) {
                 add(heading("Parameters"))
@@ -60,63 +58,13 @@ class NodeDetailPane(
             if (detail.callChain.isNotEmpty()) {
                 add(heading("Call chain"))
                 // Feature 059: runs of one file fold into a row; each call opens like the Source link (054).
-                val identity = detail.breadcrumb to detail.callChain
-                if (identity != shownFor) { shownFor = identity; opened.clear() }
-                detail.callGroups.forEach { g -> callGroup(g) }
+                chainView.addTo(this, detail.callGroups, detail.breadcrumb to detail.callChain)
             }
         }
     }
 
-    /** Keys of the opened call groups, kept while the same node (breadcrumb and chain) is shown. */
-    private val opened = mutableSetOf<String>()
-    private var shownFor: Any? = null
     private var lastShown: Pair<NodeDetail?, String?>? = null
-
-    private fun JPanel.callGroup(g: CallGroup) {
-        val number = { text: String -> JBLabel(text).apply { foreground = JBColor.GRAY; preferredSize = JBUI.size(36, preferredSize.height) } }
-        val file = g.file ?: run {
-            val c = g.calls.single()
-            add(row(number(g.range), JBLabel(c.text).apply { setCopyable(true) }))
-            return
-        }
-        val open = g.key in opened
-        val toggle = ActionLink(file) {
-            if (!opened.remove(g.key)) opened += g.key
-            lastShown?.let { (d, n) -> show(d, n) }
-        }.apply {
-            icon = if (open) AllIcons.General.ArrowDown else AllIcons.General.ArrowRight
-            toolTipText = "${g.packageName?.let { "$it · " } ?: ""}${g.count}: ${g.names}"
-            accessibleContext.accessibleName = "$file, ${g.count}, ${if (open) "open" else "folded"}"
-        }
-        add(row(number(g.range), toggle, JBLabel(if (open) g.count else "${g.count} · ${g.names}").apply { foreground = JBColor.GRAY }))
-        if (open) g.calls.forEachIndexed { i, c ->
-            val text = c.source?.let { "${c.text.substringBefore(" (")}  :${it.line}" } ?: c.text
-            add(row(number("${g.first + i}"), JBLabel("").apply { preferredSize = JBUI.size(12, 1) },
-                c.source?.let { sourceLink(it, text, emptyList()) } ?: JBLabel(text)))
-        }
-    }
-
-    /**
-     * A link opening [source]; when it is not found it says so and offers the nearest app call
-     * above the node ([callers], feature 054) instead of opening an unrelated file.
-     */
-    private fun sourceLink(source: Source, text: String = "${source.file}:${source.line}", callers: List<NodeDetail.Call>): JComponent {
-        val holder = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
-        val link = ActionLink(text)
-        link.addActionListener {
-            openSource(source, link) {
-                holder.removeAll()
-                holder.add(JBLabel("$text — not in this project").apply { foreground = JBColor.GRAY })
-                callers.firstOrNull { it.source != null }?.let { c ->
-                    holder.add(JBLabel(" · ").apply { foreground = JBColor.GRAY })
-                    holder.add(sourceLink(c.source!!, "open ${c.text}", emptyList()))
-                }
-                holder.revalidate()
-            }
-        }
-        holder.add(link)
-        return holder
-    }
+    private val chainView = io.yamsergey.dta.studio.ui.CallChainView(openSource) { lastShown?.let { (d, n) -> show(d, n) } }
 
     private fun heading(text: String) = JBLabel(text).apply { font = font.deriveFont(Font.BOLD); border = JBUI.Borders.emptyTop(10) }.left()
 
