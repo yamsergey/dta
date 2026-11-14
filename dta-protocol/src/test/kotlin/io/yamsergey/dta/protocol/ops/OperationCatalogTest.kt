@@ -41,7 +41,7 @@ class OperationCatalogTest {
                 "network.filters.list", "network.filters.add", "network.filters.remove",
                 "links.list", "links.entry", "links.open", "links.verification",
                 "archive.list", "archive.delete",
-                "timeline.events", "timeline.watch", "timeline.causes", "timeline.sequence",
+                "timeline.events", "timeline.watch", "timeline.causes", "timeline.sequence", "timeline.hidden",
                 "web.capture", "web.status", "web.reload", "web.devtools",
                 "timeline.flow.start", "timeline.enabled", "timeline.flow.end", "timeline.flow.list", "timeline.flow.rename", "timeline.flow.remove",
                 "state.current", "state.graph", "state.path",
@@ -121,7 +121,7 @@ class OperationCatalogTest {
     @Test
     fun `timeline answers take Network's opt-out from its saved filters (065)`() {
         val network = Catalog["network.list"].param("ignoreSavedFilters")!!
-        for (op in listOf("timeline.events", "timeline.sequence", "timeline.causes")) {
+        for (op in listOf("timeline.events", "timeline.sequence", "timeline.causes", "timeline.hidden")) {
             val p = Catalog[op].param("ignoreSavedFilters") ?: error("$op has no ignoreSavedFilters")
             assertEquals(ParamType.BOOLEAN, p.type, op)
             assertEquals(network.cliName, p.cliName, op)

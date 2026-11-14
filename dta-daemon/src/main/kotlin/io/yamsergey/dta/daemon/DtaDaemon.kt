@@ -374,8 +374,20 @@ class DtaDaemon(
         sources: Set<String> = emptySet(),
         kinds: Set<String> = emptySet(),
         limit: Int = 100,
-    ): io.yamsergey.dta.protocol.timeline.TimelinePage =
-        timelineService(serial, pkg).page(since, limit.coerceIn(1, 500), sinceMs, sources, kinds)
+        ignoreSavedFilters: Boolean = false,
+    ): io.yamsergey.dta.protocol.timeline.TimelinePage {
+        val page = timelineService(serial, pkg).page(since, limit.coerceIn(1, 500), sinceMs, sources, kinds)
+        // Feature 065: only a page with network rows is judged (one walk of the network history).
+        if (page.events.none { it.network != null }) return page
+        return io.yamsergey.dta.daemon.timeline.TimelineJudging.page(page, judgeTimeline(serial, pkg, null, ignoreSavedFilters))
+    }
+
+    /** Feature 065: the network entries Network's saved filters hide from the timeline now (for a live view). */
+    suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean = false): io.yamsergey.dta.protocol.timeline.TimelineHidden {
+        val service = timelineService(serial, pkg)
+        service.refresh()
+        return io.yamsergey.dta.daemon.timeline.TimelineJudging.hidden(service.journal.kept(), judgeTimeline(serial, pkg, null, ignoreSavedFilters))
+    }
 
     /** Timeline events as the host takes them in; with [history] the kept ones first. */
     fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.timeline.TimelineEvent> = kotlinx.coroutines.flow.flow {
@@ -504,11 +516,14 @@ class DtaDaemon(
         direction: io.yamsergey.dta.protocol.timeline.ChainDirection = io.yamsergey.dta.protocol.timeline.ChainDirection.CAUSES,
         depth: Int = io.yamsergey.dta.daemon.timeline.CauseGraph.DEFAULT_DEPTH,
         inferred: Boolean = false,
+        ignoreSavedFilters: Boolean = false,
     ): io.yamsergey.dta.protocol.timeline.CauseChain {
         val service = timelineService(serial, pkg)
         service.refresh()
         val events = service.journal.kept()
-        return causeGraph(serial, pkg, events, inferred).walk(event, direction, depth, inferred)
+        val chain = causeGraph(serial, pkg, events, inferred).walk(event, direction, depth, inferred)
+        if ((chain.nodes + chain.root).none { it.network != null }) return chain
+        return io.yamsergey.dta.daemon.timeline.TimelineJudging.chain(chain, judgeTimeline(serial, pkg, null, ignoreSavedFilters))
     }
 
     /** The cause graph over [events]; with [inferred], recent response bodies are read for the text rule. */

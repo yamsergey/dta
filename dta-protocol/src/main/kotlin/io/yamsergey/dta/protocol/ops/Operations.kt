@@ -545,6 +545,12 @@ object Catalog {
             ),
         ),
         OperationSpec(
+            "timeline.hidden",
+            "The network entries the app's saved network filters hide from its timeline now, by entry id (a request and its response share one), and the entries the history no longer holds, which are shown unjudged. For a view that follows the timeline live; the other timeline answers apply the filters themselves.",
+            Scope.APP,
+            listOf(TIMELINE_IGNORE_SAVED),
+        ),
+        OperationSpec(
             "timeline.flow.start",
             "Start a named flow: what is recorded from now until it ends is in it, background traffic included. A row is in a flow by its time only, not by a proved cause. One flow records at a time: starting another ends the first, and the answer says so. Flows survive process and daemon restarts. Needs the app running; nothing is added to the app.",
             Scope.APP,

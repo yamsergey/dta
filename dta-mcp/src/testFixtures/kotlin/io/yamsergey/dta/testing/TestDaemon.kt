@@ -130,7 +130,7 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     val timelineReads = java.util.concurrent.CopyOnWriteArrayList<String?>()
     /** When set, `timeline.events` fails with it (the summary must never fail a tool). */
     @Volatile var timelineFailure: Exception? = null
-    override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.timeline.TimelinePage {
+    override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelinePage {
         timelineReads += since
         timelineFailure?.let { throw it }
         return timeline.page(if (since == "end") timeline.end() else since, limit, sinceMs, sources, kinds)
@@ -159,14 +159,15 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
             timelineLive.collect { e -> if ((sources.isEmpty() || e.source in sources) && (kinds.isEmpty() || e.kind in kinds)) emit(e) }
         }
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?) = sequence
+    override suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean) = io.yamsergey.dta.protocol.timeline.TimelineHidden()
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean) = sequence
     private val flowStore by lazy { io.yamsergey.dta.daemon.timeline.FlowStore(java.nio.file.Files.createTempDirectory("test-flows").toFile()) }
     override suspend fun timelineFlowStart(serial: String, pkg: String, name: String?) = flowStore.start(serial, pkg, name, sequence.steps.lastOrNull()?.wallMs)
     override suspend fun timelineFlowEnd(serial: String, pkg: String) = flowStore.end(serial, pkg, sequence.steps.lastOrNull()?.wallMs)
     override suspend fun timelineFlowList(serial: String, pkg: String) = io.yamsergey.dta.protocol.timeline.FlowList(flowStore.list(serial, pkg).map { io.yamsergey.dta.protocol.timeline.SequenceFlow(it) })
     override fun timelineFlowRename(serial: String, pkg: String, flow: String, name: String) = flowStore.rename(serial, pkg, flow, name)
     override fun timelineFlowRemove(serial: String, pkg: String, flow: String) = flowStore.remove(serial, pkg, flow)
-    override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean) =
+    override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean, ignoreSavedFilters: Boolean) =
         io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
     override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)
     var timelineOn = false

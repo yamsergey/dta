@@ -149,18 +149,23 @@ class FakeOperations : DaemonOperations {
         io.yamsergey.dta.protocol.network.LinkOpenResult(io.yamsergey.dta.protocol.network.LinkOpenOutcome.NOT_HANDLED, reason = "fake")
     override fun linksVerification(serial: String, pkg: String) = io.yamsergey.dta.protocol.network.AppLinksState(available = true)
     var lastTimeline: List<Any?>? = null
-    override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int): io.yamsergey.dta.protocol.timeline.TimelinePage {
+    override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelinePage {
         calls += "timelineEvents"
-        lastTimeline = listOf(since, sinceMs, sources, kinds, limit)
+        lastTimeline = listOf(since, sinceMs, sources, kinds, limit, ignoreSavedFilters)
         return io.yamsergey.dta.protocol.timeline.TimelinePage(emptyList(), next = "s:0")
     }
     override fun layoutSignal(serial: String, pkg: String) = kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update>()
     override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
         kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.timeline.TimelineEvent>()
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?): io.yamsergey.dta.protocol.timeline.SequencePage {
+    override suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelineHidden {
+        calls += "timelineHidden"
+        lastTimeline = listOf(ignoreSavedFilters)
+        return io.yamsergey.dta.protocol.timeline.TimelineHidden()
+    }
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage {
         calls += "timelineSequence"
-        lastTimeline = listOf(limit, q, sinceMs, flow)
+        lastTimeline = listOf(limit, q, sinceMs, flow) + listOfNotNull(ignoreSavedFilters.takeIf { it })
         if (flow == "gone") throw io.yamsergey.dta.daemon.timeline.FlowStore.UnknownFlow(flow)
         return sequence
     }
@@ -176,9 +181,9 @@ class FakeOperations : DaemonOperations {
         if (flow == "gone") throw io.yamsergey.dta.daemon.timeline.FlowStore.UnknownFlow(flow)
         return aFlow
     }
-    override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain {
+    override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain {
         calls += "timelineCauses"
-        lastTimeline = listOf(event, direction, depth, inferred)
+        lastTimeline = listOf(event, direction, depth, inferred, ignoreSavedFilters)
         if (event == "gone") throw io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent(event, evicted = true)
         val root = io.yamsergey.dta.protocol.timeline.TimelineEvent(event, 1, 1, 1, "ui", "ui/toast")
         return io.yamsergey.dta.protocol.timeline.CauseChain(root, direction, listOf(root), emptyList())

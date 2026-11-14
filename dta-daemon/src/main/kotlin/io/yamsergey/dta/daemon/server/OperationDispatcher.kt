@@ -137,8 +137,12 @@ class OperationDispatcher(
                 ops.timelineEvents(
                     c.device, c.app, c.string("since"), c.long("sinceMs"),
                     c.strings("sources").orEmpty().toSet(), c.strings("kinds").orEmpty().toSet(), c.long("limit")?.toInt() ?: 100,
+                    c.bool("ignoreSavedFilters"),
                 ),
             )
+        },
+        "timeline.hidden" to { c ->
+            encode(io.yamsergey.dta.protocol.timeline.TimelineHidden.serializer(), ops.timelineHidden(c.device, c.app, c.bool("ignoreSavedFilters")))
         },
         "timeline.causes" to { c ->
             val direction = when (c.string("direction")) {
@@ -149,7 +153,7 @@ class OperationDispatcher(
             try {
                 encode(
                     io.yamsergey.dta.protocol.timeline.CauseChain.serializer(),
-                    ops.timelineCauses(c.device, c.app, c.required("event"), direction, c.long("depth")?.toInt() ?: 8, c.bool("inferred")),
+                    ops.timelineCauses(c.device, c.app, c.required("event"), direction, c.long("depth")?.toInt() ?: 8, c.bool("inferred"), c.bool("ignoreSavedFilters")),
                 )
             } catch (e: io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent) {
                 notFound("event", e.id)
@@ -159,7 +163,7 @@ class OperationDispatcher(
             val limit = c.long("limit")?.toInt() ?: io.yamsergey.dta.daemon.timeline.SequenceBuilder.DEFAULT_LIMIT
             if (limit !in 1..io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT) invalid("limit must be within 1..${io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT}, was $limit")
             val flow = c.string("flow")
-            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs"), flow)) }
+            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs"), flow, c.bool("ignoreSavedFilters"))) }
         },
         "timeline.flow.start" to { c -> encode(io.yamsergey.dta.protocol.timeline.FlowStarted.serializer(), ops.timelineFlowStart(c.device, c.app, c.string("name"))) },
         "timeline.flow.end" to { c -> encode(io.yamsergey.dta.protocol.timeline.Flow.serializer(), ops.timelineFlowEnd(c.device, c.app)) },

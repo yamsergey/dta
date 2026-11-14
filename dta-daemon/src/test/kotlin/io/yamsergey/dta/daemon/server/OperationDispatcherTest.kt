@@ -136,9 +136,24 @@ class OperationDispatcherTest {
             put("sources", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("ui")) })
             put("kinds", kotlinx.serialization.json.buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("ui/toast")) })
         })
-        assertEquals(listOf("s:3", 5L, setOf("ui"), setOf("ui/toast"), 20), fake.lastTimeline)
+        assertEquals(listOf("s:3", 5L, setOf("ui"), setOf("ui/toast"), 20, false), fake.lastTimeline)
         call("timeline.events")
-        assertEquals(listOf(null, null, emptySet<String>(), emptySet<String>(), 100), fake.lastTimeline)
+        assertEquals(listOf(null, null, emptySet<String>(), emptySet<String>(), 100, false), fake.lastTimeline)
+    }
+
+    @Test
+    fun `every timeline answer takes Network's opt-out from its saved filters (065)`() {
+        val off = buildJsonObject { put("ignoreSavedFilters", true) }
+        call("timeline.events", off)
+        assertEquals(true, fake.lastTimeline!!.last())
+        call("timeline.sequence", off)
+        assertEquals(true, fake.lastTimeline!!.last())
+        call("timeline.causes", buildJsonObject { put("event", "7:6"); put("ignoreSavedFilters", true) })
+        assertEquals(true, fake.lastTimeline!!.last())
+        call("timeline.hidden", off)
+        assertEquals(listOf<Any?>(true), fake.lastTimeline)
+        call("timeline.hidden")
+        assertEquals(listOf<Any?>(false), fake.lastTimeline)
     }
 
     @Test
@@ -170,9 +185,9 @@ class OperationDispatcherTest {
     @Test
     fun `causes take a direction, depth and inferred, and an unknown event is not found`() {
         call("timeline.causes", buildJsonObject { put("event", "7:6"); put("direction", "effects"); put("depth", 3); put("inferred", true) })
-        assertEquals(listOf("7:6", io.yamsergey.dta.protocol.timeline.ChainDirection.EFFECTS, 3, true), fake.lastTimeline)
+        assertEquals(listOf("7:6", io.yamsergey.dta.protocol.timeline.ChainDirection.EFFECTS, 3, true, false), fake.lastTimeline)
         call("timeline.causes", buildJsonObject { put("event", "7:6") })
-        assertEquals(listOf("7:6", io.yamsergey.dta.protocol.timeline.ChainDirection.CAUSES, 8, false), fake.lastTimeline)
+        assertEquals(listOf("7:6", io.yamsergey.dta.protocol.timeline.ChainDirection.CAUSES, 8, false, false), fake.lastTimeline)
         val failure = runCatching { call("timeline.causes", buildJsonObject { put("event", "gone") }) }.exceptionOrNull()
         assertTrue(failure != null, "not found")
     }
