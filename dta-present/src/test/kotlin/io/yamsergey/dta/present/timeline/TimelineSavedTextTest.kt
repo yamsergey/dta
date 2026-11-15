@@ -67,4 +67,15 @@ class TimelineSavedTextTest {
         assertTrue(text.lines().single { it.contains("7:2") }.endsWith("· hidden by Network's filters"), text)
         assertTrue(text.lines().last().startsWith("1 network row hidden by Network's filters"), text)
     }
+
+    @Test
+    fun `a watch says once which filters hide rows, and when they change`() {
+        assertEquals(
+            "Network's filters hide matching network rows (-host:telemetry.example.test) · --no-saved-filters shows them",
+            TimelineSavedText.watching(SavedFiltersApplied(words)),
+        )
+        assertEquals("Network's filters hide nothing now", TimelineSavedText.watching(SavedFiltersApplied(emptyList())))
+        assertEquals("Network's saved filters could not be read (bad file); nothing is hidden", TimelineSavedText.watching(SavedFiltersApplied(emptyList(), problem = "bad file")))
+        assertNull(TimelineSavedText.watching(SavedFiltersApplied(words, ignored = true)))
+    }
 }

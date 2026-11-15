@@ -395,7 +395,7 @@ class DtaDaemon(
         serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>, ignoreSavedFilters: Boolean = false,
     ): Flow<io.yamsergey.dta.daemon.timeline.TimelineWatchItem> = kotlinx.coroutines.flow.flow {
         val service = timelineService(serial, pkg)
-        // Feature 065: Network's saved filters hide the same network rows here, and each batch says what it hid.
+        // Feature 065: Network's saved filters hide the same network rows here; which ones apply is said at the start and on a change.
         val judging = if (ignoreSavedFilters) null else io.yamsergey.dta.daemon.timeline.WatchJudging(
             words = { savedFilters.state(pkg).saved },
             judge = { judgeTimeline(serial, pkg, null, false) },
@@ -403,8 +403,9 @@ class DtaDaemon(
         suspend fun send(events: List<io.yamsergey.dta.protocol.timeline.TimelineEvent>) {
             val batch = judging?.judge(events)
             (batch?.events ?: events).forEach { emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event(it)) }
-            batch?.saved?.let { emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Hidden(it)) }
+            batch?.saved?.let { emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Filters(it)) }
         }
+        judging?.start()?.let { emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Filters(it)) }
         val first = service.page(null, 500, null, sources, kinds)
         if (history) send(first.events)
         var cursor = first.next

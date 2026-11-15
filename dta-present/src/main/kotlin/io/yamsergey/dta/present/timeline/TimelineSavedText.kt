@@ -10,6 +10,18 @@ import io.yamsergey.dta.protocol.network.SavedFiltersApplied
 object TimelineSavedText {
     const val HIDDEN_MARK = "· hidden by Network's filters"
 
+    /**
+     * The line a live watch says once at its start and again when the saved filters change: the
+     * person who saved them knows; whoever forgot them, or an agent, learns why rows are missing.
+     */
+    fun watching(saved: SavedFiltersApplied, optOut: String = "--no-saved-filters"): String? {
+        if (saved.ignored) return null
+        saved.problem?.let { return "Network's saved filters could not be read ($it); nothing is hidden" }
+        saved.unavailable?.let { return "Network's saved filters are not applied: $it" }
+        if (saved.words.isEmpty()) return "Network's filters hide nothing now"
+        return "Network's filters hide matching network rows (${saved.words.joinToString(", ")}) · $optOut shows them"
+    }
+
     fun notice(saved: SavedFiltersApplied?, optOut: String = "--no-saved-filters"): String? {
         if (saved == null || saved.ignored) return null
         saved.problem?.let { return "Network's saved filters could not be read ($it); nothing is hidden" }

@@ -19,12 +19,12 @@ class TimelineSavedFormatTest {
     }
 
     @Test
-    fun `a watch line says what the filters hid from the last events`() {
+    fun `a watch says which filters hide rows`() {
         val data = kotlinx.serialization.json.buildJsonObject {
-            put("saved", DtaJson.encodeToJsonElement(SavedFiltersApplied.serializer(), SavedFiltersApplied(listOf("-host:localhost"), hidden = 2)))
+            put("saved", DtaJson.encodeToJsonElement(SavedFiltersApplied.serializer(), SavedFiltersApplied(listOf("-host:localhost"))))
         }
-        val line = f.timelineEventLine(data)
-        assertTrue("2 network rows hidden by Network's filters (-host:localhost)" in line, line)
-        assertTrue("--no-saved-filters shows them" in line, line)
+        val line = f.timelineSavedLine(data)
+        assertTrue("Network's filters hide matching network rows (-host:localhost) · --no-saved-filters shows them" in line, line)
+        assertTrue(f.timelineEventLine(data).isEmpty(), "not an event line")
     }
 }

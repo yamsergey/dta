@@ -397,8 +397,8 @@ class DaemonServer(
                                     when (item) {
                                         is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event ->
                                             put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), item.event))
-                                        // Feature 065: what Network's saved filters hid from the last batch.
-                                        is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Hidden ->
+                                        // Feature 065: which of Network's saved filters apply (at the start, on a change).
+                                        is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Filters ->
                                             put("saved", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.SavedFiltersApplied.serializer(), item.saved))
                                     }
                                 },

@@ -130,6 +130,8 @@ class Runner(
                     }
                     globals.json -> out.println(LINE.encodeToString(JsonElement.serializer(), data))
                     apps -> out.println(formatters.appEventLine(data))
+                    // Feature 065: which saved filters apply goes with the other notes about the watch.
+                    timeline && data["saved"] != null -> formatters.timelineSavedLine(data).takeIf { it.isNotEmpty() }?.let(err::println)
                     timeline -> formatters.timelineEventLine(data).takeIf { it.isNotEmpty() }?.let(out::println)
                     layout -> out.println(formatters.layoutChangeLine(data))
                     else -> out.println(formatters.watchLine(data))

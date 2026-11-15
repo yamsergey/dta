@@ -151,13 +151,15 @@ class Formatters(private val style: Style) {
         return (off + body + more + saved + style.paint("next: ${page.next}", Token.INK_MUTED)).joinToString("\n")
     }
 
+    /** Feature 065: which of Network's saved filters a `timeline watch` applies (said at its start and on a change). */
+    fun timelineSavedLine(event: JsonObject): String {
+        val saved = event["saved"] ?: return ""
+        val text = io.yamsergey.dta.present.timeline.TimelineSavedText.watching(decode(io.yamsergey.dta.protocol.network.SavedFiltersApplied.serializer(), saved))
+        return text?.let { style.mark(StatementKind.DEGRADED, it) }.orEmpty()
+    }
+
     /** One live event line for `timeline watch`. */
     fun timelineEventLine(event: JsonObject): String {
-        // Feature 065: what Network's saved filters hid from the events just sent.
-        event["saved"]?.let { saved ->
-            val notice = io.yamsergey.dta.present.timeline.TimelineSavedText.notice(decode(io.yamsergey.dta.protocol.network.SavedFiltersApplied.serializer(), saved))
-            return notice?.let { style.mark(StatementKind.DEGRADED, it) }.orEmpty()
-        }
         val e = event["event"] ?: return ""
         return timelineLine(decode(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), e)) { null }
     }

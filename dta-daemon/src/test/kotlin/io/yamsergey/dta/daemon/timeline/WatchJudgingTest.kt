@@ -29,16 +29,23 @@ class WatchJudgingTest {
     }
 
     @Test
-    fun `network rows the filters hide are left out and counted, others stay`() = runBlocking {
-        val t = tap()
-        val batch = watch.judge(listOf(t, req("beacon1"), req("order"), req("beacon1")))
-        assertEquals(listOf(t.id, "7:3"), batch.events.map { it.id })
-        assertEquals(2, batch.saved?.hidden)
-        assertEquals(words, batch.saved?.words)
+    fun `a watch says at its start which filters apply`() = runBlocking {
+        assertEquals(words, watch.start()?.words)
+        assertEquals(0, judged, "naming them reads no history")
     }
 
     @Test
-    fun `a batch without network rows asks nothing and says nothing`() = runBlocking {
+    fun `network rows the filters hide are left out, others stay, and nothing more is said`() = runBlocking {
+        watch.start()
+        val t = tap()
+        val batch = watch.judge(listOf(t, req("beacon1"), req("order"), req("beacon1")))
+        assertEquals(listOf(t.id, "7:3"), batch.events.map { it.id })
+        assertNull(batch.saved)
+    }
+
+    @Test
+    fun `a batch without network rows asks nothing`() = runBlocking {
+        watch.start()
         val batch = watch.judge(listOf(tap(), tap()))
         assertEquals(0, judged)
         assertNull(batch.saved)
@@ -46,36 +53,49 @@ class WatchJudgingTest {
 
     @Test
     fun `an entry judged once is not judged again`() = runBlocking {
+        watch.start()
         watch.judge(listOf(req("beacon1"), req("order")))
         val batch = watch.judge(listOf(req("beacon1"), req("order"), tap()))
         assertEquals(1, judged)
-        assertEquals(1, batch.saved?.hidden)
+        assertEquals(2, batch.events.size, "the order and the tap")
     }
 
     @Test
-    fun `a new entry asks again, and changed filters judge afresh`() = runBlocking {
+    fun `changed filters judge afresh and are said once`() = runBlocking {
+        watch.start()
         watch.judge(listOf(req("beacon1")))
-        watch.judge(listOf(req("beacon2")))
-        assertEquals(2, judged)
         words = listOf("method:POST")
         passing = NetworkHistoryView.Passing(emptySet(), setOf("order", "beacon1", "beacon2"))
-        watch.judge(listOf(req("order")))
-        val again = watch.judge(listOf(req("beacon1")))
-        assertEquals(1, again.saved?.hidden, "judged with the words in force now")
+        val changed = watch.judge(listOf(req("order")))
+        assertEquals(listOf("method:POST"), changed.saved?.words)
+        assertEquals(0, changed.events.size, "judged with the words in force now")
+        assertNull(watch.judge(listOf(req("beacon2"))).saved)
     }
 
     @Test
-    fun `an entry the history does not hold is shown and counted as not judged`() = runBlocking {
-        val batch = watch.judge(listOf(req("unknown")))
-        assertEquals(1, batch.events.size)
-        assertEquals(1, batch.saved?.notJudged)
-    }
-
-    @Test
-    fun `with nothing saved everything passes and nothing is said`() = runBlocking {
+    fun `filters removed during a watch are said, and everything passes`() = runBlocking {
+        watch.start()
         words = emptyList()
         val batch = watch.judge(listOf(req("beacon1")))
         assertEquals(1, batch.events.size)
+        assertEquals(emptyList(), batch.saved?.words)
+    }
+
+    @Test
+    fun `an entry the history does not hold yet is shown and asked again`() = runBlocking {
+        watch.start()
+        assertEquals(1, watch.judge(listOf(req("unknown"))).events.size)
+        watch.judge(listOf(req("unknown")))
+        assertEquals(2, judged)
+    }
+
+    @Test
+    fun `with nothing saved nothing is said or asked`() = runBlocking {
+        words = emptyList()
+        assertNull(watch.start())
+        val batch = watch.judge(listOf(req("beacon1")))
+        assertEquals(1, batch.events.size)
         assertNull(batch.saved)
+        assertEquals(0, judged)
     }
 }
