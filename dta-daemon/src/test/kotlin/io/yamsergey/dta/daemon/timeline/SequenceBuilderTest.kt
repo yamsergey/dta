@@ -382,6 +382,7 @@ class SequenceBuilderTest {
         assertEquals(listOf("tap a", "GET /old"), page.steps.map { it.label })
         assertEquals(1, page.saved?.hidden)
         assertEquals(1, page.saved?.notJudged)
+        assertEquals(listOf(false, true), page.steps.map { it.notJudged }, "the row itself says it was not judged")
     }
 
     @Test

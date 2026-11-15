@@ -89,7 +89,11 @@ class SequenceBuilder {
         }
         val fromStart = rows.filter { (sinceMs == null || it.step.wallMs >= sinceMs) && (only == null || only.holds(it.step.wallMs)) }
         val matched = fromStart.filter { matches(it, query) }
-        val steps = matched.takeLast(limit).map { r -> if (hit(r, query)) r.step.copy(hit = true) else r.step }
+        val steps = matched.takeLast(limit).map { r ->
+            val s = if (hit(r, query)) r.step.copy(hit = true) else r.step
+            val id = s.entryId
+            if (judgement.active && id != null && judgement.verdict(id) == io.yamsergey.dta.daemon.network.Judgement.Verdict.NOT_JUDGED) s.copy(notJudged = true) else s
+        }
         val listed = flows.filter { only == null || it.id == only.id }.map { f ->
             SequenceFlow(
                 flow = f,

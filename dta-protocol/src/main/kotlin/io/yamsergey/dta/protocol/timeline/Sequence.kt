@@ -44,6 +44,8 @@ data class SequenceStep(
     val flows: List<String> = emptyList(),
     /** Feature 064: a tap's composable chain, root → node, app frames only (shown on hover). */
     val chain: List<io.yamsergey.dta.protocol.layout.Frame>? = null,
+    /** Feature 065: Network's saved filters could not judge it: its entry is no longer kept (shown). */
+    val notJudged: Boolean = false,
 )
 
 @Serializable
