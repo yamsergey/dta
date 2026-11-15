@@ -20,6 +20,9 @@ class SelfTestProbe {
 
     /** Feature 064 remove probe. */
     fun removable(x: Int): Int = x + 1
+
+    /** Several hooks in one class reload. */
+    fun pair(x: Int): Int = x * 2
 }
 
 /**
@@ -66,6 +69,7 @@ object HookSelfTest {
         val early = SelfTestProbe().echo("stop", 1)
         val connection = URL("http://$SELFTEST_HOST/probe").openConnection()
         val removal = removal()
+        val together = together()
 
         return buildJsonObject {
             put("attach", "ok")
@@ -91,6 +95,9 @@ object HookSelfTest {
                 }
                 putJsonObject("remove-probe") {
                     for ((k, v) in removal) if (v is Boolean) put(k, v) else put(k, v.toString())
+                }
+                putJsonObject("together-probe") {
+                    for ((k, v) in together) if (v is Boolean) put(k, v) else put(k, v.toString())
                 }
                 putJsonObject("java.net.URL#openConnection") {
                     put("install", installed.getValue("url"))
@@ -123,6 +130,37 @@ object HookSelfTest {
             "install" to install, "firedBefore" to before, "remove" to remove, "firedAfter" to after,
             "othersStillFire" to others, "firedAgain" to again, "removeUs" to removeUs, "installUs" to installUs,
         )
+    }
+
+    @Volatile private var pairEntry = false
+    private var togetherResult: Map<String, Any>? = null
+
+    /** An entry and an exit hook and an absent method, given together: one class reload. */
+    private fun together(): Map<String, Any> {
+        togetherResult?.let { return it }
+        val cls = SelfTestProbe::class.java
+        val t0 = System.nanoTime()
+        val r = Hooks.together(
+            cls,
+            Hooks.Spec.entry("pair", "(I)I", object : EntryHandler {
+                override fun onEntry(self: Any?, params: Array<Any?>) { if (params.firstOrNull() == 21) pairEntry = true }
+            }),
+            Hooks.Spec.exit("pair", "(I)I", object : ExitHandler {
+                override fun onExit(result: Any?): Any? = if (result == 42) 43 else result
+            }),
+            Hooks.Spec.entry("noSuchMethod", "()V", object : EntryHandler {
+                override fun onEntry(self: Any?, params: Array<Any?>) {}
+            }),
+        )
+        val us = (System.nanoTime() - t0) / 1000
+        pairEntry = false
+        val replaced = SelfTestProbe().pair(21) == 43
+        probeEntry = false; probeExit = false
+        val others = SelfTestProbe().value(7) == "replaced-7" && probeEntry && probeExit
+        return mapOf(
+            "entry" to r[0].code, "exit" to r[1].code, "absent" to r[2].code, "entryFired" to pairEntry,
+            "exitReplaced" to replaced, "othersStillFire" to others, "installUs" to us,
+        ).also { togetherResult = it }
     }
 
     private fun install(): Map<String, String> {

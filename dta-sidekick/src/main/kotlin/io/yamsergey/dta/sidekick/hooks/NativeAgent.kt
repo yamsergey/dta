@@ -37,6 +37,9 @@ internal object NativeAgent {
      * retransforming it with the class's remaining hooks; the original code when none remain.
      * @return null on success, otherwise the reason (the hook is then still in the code).
      */
+    /** Several hooks on one class in one class reload; same contract as [nativeHook] for all of them. */
+    @JvmStatic external fun nativeHookMany(target: Class<*>, methods: Array<String>, descriptors: Array<String>, kinds: IntArray): String?
+
     @JvmStatic external fun nativeUnhook(target: Class<*>, method: String, descriptor: String, kind: Int): String?
 
     /**

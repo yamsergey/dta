@@ -28,22 +28,28 @@ class InputRecorder(
 ) {
     private val failures = LinkedHashMap<String, String>()
 
+    /**
+     * Each class's entry and exit hooks go in one class reload: View's second reload alone held
+     * the app's start for 290 ms on the main thread (the first, 65 ms).
+     */
     fun install(loader: ClassLoader?) {
-        hook("View#performClick", Hooks.entry(View::class.java, "performClick", "()Z", EntryHandler { self, _ -> guard { clicked(self as View) } }))
-        hook("View#performClick exit", Hooks.exit(View::class.java, "performClick", "()Z", ExitHandler { r -> guard { scope.exit() }; r }))
+        pair("View#performClick", View::class.java, "performClick", "()Z", EntryHandler { self, _ -> guard { clicked(self as View) } }, ExitHandler { r -> guard { scope.exit() }; r })
         val dispatcher = runCatching { Class.forName(DISPATCHER, false, loader) }.getOrNull()
         if (dispatcher != null) {
-            hook("OnBackPressedDispatcher#onBackPressed", Hooks.entry(dispatcher, "onBackPressed", "()V", EntryHandler { _, _ -> guard { back("dispatcher") } }))
-            hook("OnBackPressedDispatcher#onBackPressed exit", Hooks.exit(dispatcher, "onBackPressed", "()V", ExitHandler { r -> guard { closeBack() }; r }))
+            pair("OnBackPressedDispatcher#onBackPressed", dispatcher, "onBackPressed", "()V", EntryHandler { _, _ -> guard { back("dispatcher") } }, ExitHandler { r -> guard { closeBack() }; r })
         }
         // AndroidX activity 1.12+ hands back to the navigationevent library, not always to onBackPressed.
         val input = runCatching { Class.forName(NAVIGATION_EVENT_INPUT, false, loader) }.getOrNull()
         if (input != null) {
-            hook("NavigationEventInput#dispatchOnBackCompleted", Hooks.entry(input, "dispatchOnBackCompleted", "()V", EntryHandler { _, _ -> guard { back("navigation-event") } }))
-            hook("NavigationEventInput#dispatchOnBackCompleted exit", Hooks.exit(input, "dispatchOnBackCompleted", "()V", ExitHandler { r -> guard { closeBack() }; r }))
+            pair("NavigationEventInput#dispatchOnBackCompleted", input, "dispatchOnBackCompleted", "()V", EntryHandler { _, _ -> guard { back("navigation-event") } }, ExitHandler { r -> guard { closeBack() }; r })
         }
-        hook("Activity#onBackPressed", Hooks.entry(Activity::class.java, "onBackPressed", "()V", EntryHandler { _, _ -> guard { back("activity") } }))
-        hook("Activity#onBackPressed exit", Hooks.exit(Activity::class.java, "onBackPressed", "()V", ExitHandler { r -> guard { closeBack() }; r }))
+        pair("Activity#onBackPressed", Activity::class.java, "onBackPressed", "()V", EntryHandler { _, _ -> guard { back("activity") } }, ExitHandler { r -> guard { closeBack() }; r })
+    }
+
+    private fun pair(name: String, cls: Class<*>, method: String, descriptor: String, entry: EntryHandler, exit: ExitHandler) {
+        val (e, x) = Hooks.together(cls, Hooks.Spec.entry(method, descriptor, entry), Hooks.Spec.exit(method, descriptor, exit))
+        hook(name, e)
+        hook("$name exit", x)
     }
 
     /** Why Compose clicks are not recorded, when they are not (set by the Compose recorder). */

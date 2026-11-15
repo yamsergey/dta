@@ -19,6 +19,8 @@ import io.yamsergey.dta.sidekick.ui.UiRuntime
  */
 object TimelineSources {
     private const val TAG = "DtaTimeline"
+    /** Feature 064: the tap-chain warm-up waits this long after the app starts. */
+    private const val WARM_UP_DELAY_MS = 3_000L
 
     val scope = HandlingScope()
 
@@ -93,7 +95,11 @@ object TimelineSources {
                 val compose = io.yamsergey.dta.sidekick.input.ComposeClickRecorder(buffer, scope) { root -> UiRuntime.windowIdOf(root) }
                 compose.install(context.classLoader)
                 // Feature 064: the first tap's chain read pays for class loading unless warmed up here.
-                Thread({ io.yamsergey.dta.sidekick.input.TapChainReader.warmUp(context) }, "dta-tap-warmup").apply { isDaemon = true }.start()
+                // Started after the app's first frames: it loads Compose tooling classes, which held
+                // the start back by about 100 ms while it ran alongside it.
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    Thread({ io.yamsergey.dta.sidekick.input.TapChainReader.warmUp(context) }, "dta-tap-warmup").apply { isDaemon = true }.start()
+                }, WARM_UP_DELAY_MS)
                 input.composeFailure = compose.failure
                 // Feature 064: scroll gestures, one event each; a missing hook is stated with the click's limits.
                 val scroll = io.yamsergey.dta.sidekick.input.ScrollRecorder(buffer) { root -> UiRuntime.windowIdOf(root) }

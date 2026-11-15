@@ -96,8 +96,8 @@ class CoroutineLineage(private val scope: HandlingScope) {
         }
         offSince = 0L
         if (hooked) return
-        val r = Hooks.entry(probes!!, "probeCoroutineResumed", PROBE, resumed)
-        val s = Hooks.entry(probes!!, "probeCoroutineSuspended", PROBE, suspended)
+        // Both in one class reload (each reload holds this thread).
+        val (r, s) = Hooks.together(probes!!, Hooks.Spec.entry("probeCoroutineResumed", PROBE, resumed), Hooks.Spec.entry("probeCoroutineSuspended", PROBE, suspended))
         if (r is Hooks.Install.Installed && s is Hooks.Install.Installed) {
             hooked = true
         } else {

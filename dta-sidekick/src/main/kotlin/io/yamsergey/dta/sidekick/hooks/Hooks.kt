@@ -69,6 +69,67 @@ object Hooks {
 
     private val nativelyInstalled = HashSet<String>()
 
+    /** One hook of [together]: what to hook and the handler it calls. */
+    class Spec private constructor(val method: String, val descriptor: String, internal val kind: Int, internal val register: (String) -> Unit) {
+        companion object {
+            fun entry(method: String, descriptor: String, handler: EntryHandler) = Spec(method, descriptor, NativeAgent.ENTRY) { HookRegistry.entry(it, handler) }
+            fun exit(method: String, descriptor: String, handler: ExitHandler) = Spec(method, descriptor, NativeAgent.EXIT) { HookRegistry.exit(it, handler) }
+        }
+    }
+
+    /**
+     * Several hooks on [cls] in one class reload: each reload of a large framework class holds the
+     * calling thread for tens of milliseconds, and a second reload of the same class costs more
+     * than the first (View: 65 ms, then 290). One result per spec, in order; an absent or
+     * unhookable method is refused before the reload and does not stop the others.
+     */
+    @Synchronized
+    fun together(cls: Class<*>, vararg specs: Spec): List<Install> {
+        if (!HookAttach.attached) return specs.map { Install.Failed("DTA's hooks are off in this app", HookAttach.reason) }
+        val results = arrayOfNulls<Install>(specs.size)
+        val pending = ArrayList<Int>()
+        try {
+            specs.forEachIndexed { i, s ->
+                val label = HookRegistry.label(cls.name, s.method, s.descriptor)
+                if ("${s.kind} $label" in nativelyInstalled) {
+                    s.register(label)
+                    results[i] = Install.Installed
+                    return@forEachIndexed
+                }
+                results[i] = when (NativeAgent.nativeMethodState(cls, s.method, s.descriptor)) {
+                    NativeAgent.ABSENT -> Install.MethodAbsent(cls.name, s.method, s.descriptor)
+                    NativeAgent.ABSTRACT -> Install.NotHookable(cls.name, s.method, s.descriptor, "abstract")
+                    NativeAgent.NATIVE -> Install.NotHookable(cls.name, s.method, s.descriptor, "native")
+                    else -> null.also { pending += i }
+                }
+            }
+            // The same method and kind twice in one call is one native hook.
+            val distinct = pending.distinctBy { specs[it].kind to (specs[it].method + specs[it].descriptor) }
+            if (distinct.isNotEmpty()) {
+                val refused = NativeAgent.nativeHookMany(
+                    cls,
+                    distinct.map { specs[it].method }.toTypedArray(),
+                    distinct.map { specs[it].descriptor }.toTypedArray(),
+                    distinct.map { specs[it].kind }.toIntArray(),
+                )
+                if (refused != null) {
+                    val failed = Install.refused(refused)
+                    for (i in pending) results[i] = failed
+                    return results.map { it!! }
+                }
+                for (i in distinct) nativelyInstalled += "${specs[i].kind} ${HookRegistry.label(cls.name, specs[i].method, specs[i].descriptor)}"
+            }
+            for (i in pending) {
+                specs[i].register(HookRegistry.label(cls.name, specs[i].method, specs[i].descriptor))
+                results[i] = Install.Installed
+            }
+        } catch (t: Throwable) {
+            val failed = Install.Failed("DTA could not add the hook", "${t.javaClass.name}: ${t.message}")
+            for (i in specs.indices) if (results[i] == null || i in pending) results[i] = failed
+        }
+        return results.map { it!! }
+    }
+
     fun entry(cls: Class<*>, method: String, descriptor: String, handler: EntryHandler): Install =
         install(cls, method, descriptor, NativeAgent.ENTRY) { HookRegistry.entry(it, handler) }
 

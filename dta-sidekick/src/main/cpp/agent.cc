@@ -261,6 +261,74 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHook(JNIEnv* env, jclass,
   return env->NewStringUTF(reason.c_str());
 }
 
+// Several hooks on one class in one RetransformClasses (each retransform of a large class costs
+// tens to hundreds of ms on the calling thread; a second one on the same class costs more than
+// the first). Same contract as nativeHook: null on success, otherwise the reason, and on failure
+// none of these hooks stays registered.
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHookMany(JNIEnv* env, jclass, jclass target,
+                                                                jobjectArray methods,
+                                                                jobjectArray signatures,
+                                                                jintArray kinds) {
+  if (g_jvmti == nullptr) return env->NewStringUTF("agent not attached");
+  char* class_sig = nullptr;
+  jvmtiError error = g_jvmti->GetClassSignature(target, &class_sig, nullptr);
+  if (error != JVMTI_ERROR_NONE || class_sig == nullptr) {
+    return env->NewStringUTF(("GetClassSignature: " + JvmtiErrorName(error)).c_str());
+  }
+  std::string descriptor(class_sig);
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(class_sig));
+
+  jsize count = env->GetArrayLength(methods);
+  if (count != env->GetArrayLength(signatures) || count != env->GetArrayLength(kinds)) {
+    return env->NewStringUTF("mismatched hook lists");
+  }
+  std::vector<dta::HookTarget> hooks;
+  jint* kind_values = env->GetIntArrayElements(kinds, nullptr);
+  for (jsize i = 0; i < count; i++) {
+    jint kind = kind_values[i];
+    if (kind < 0 || kind > 2) {
+      env->ReleaseIntArrayElements(kinds, kind_values, JNI_ABORT);
+      return env->NewStringUTF("unknown hook kind");
+    }
+    auto m = static_cast<jstring>(env->GetObjectArrayElement(methods, i));
+    auto s = static_cast<jstring>(env->GetObjectArrayElement(signatures, i));
+    hooks.push_back(dta::HookTarget{ToString(env, m), ToString(env, s), static_cast<dta::HookKind>(kind)});
+    env->DeleteLocalRef(m);
+    env->DeleteLocalRef(s);
+  }
+  env->ReleaseIntArrayElements(kinds, kind_values, JNI_ABORT);
+  if (hooks.empty()) return nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_targets_mutex);
+    auto& list = g_targets[descriptor];
+    list.insert(list.end(), hooks.begin(), hooks.end());
+  }
+
+  std::string transform_error;
+  t_transform_error = &transform_error;
+  error = g_jvmti->RetransformClasses(1, &target);
+  t_transform_error = nullptr;
+
+  std::string reason;
+  if (!transform_error.empty()) {
+    reason = transform_error;
+    if (error != JVMTI_ERROR_NONE) reason += "\x1f" "RetransformClasses: " + JvmtiErrorName(error);
+  } else if (error != JVMTI_ERROR_NONE) {
+    reason = "\x1f" "RetransformClasses: " + JvmtiErrorName(error);
+  }
+  if (reason.empty()) return nullptr;
+
+  {
+    std::lock_guard<std::mutex> lock(g_targets_mutex);
+    auto& list = g_targets[descriptor];
+    for (size_t i = 0; i < hooks.size() && !list.empty(); i++) list.pop_back();
+    if (list.empty()) g_targets.erase(descriptor);
+  }
+  if (!transform_error.empty()) g_jvmti->RetransformClasses(1, &target);
+  return env->NewStringUTF(reason.c_str());
+}
+
 // Feature 064: takes one hook out of [target] by retransforming it with the class's other
 // hooks (ART hands the original image, so with none left the class gets its original code).
 // Returns null on success, otherwise the reason; on failure the hook is registered again, as
