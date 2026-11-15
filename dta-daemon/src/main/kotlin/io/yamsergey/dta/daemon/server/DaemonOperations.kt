@@ -73,7 +73,7 @@ interface DaemonOperations {
     fun networkSchemaSync(pkg: String, origin: io.yamsergey.dta.daemon.network.proto.SchemaOrigin, files: Map<String, String>, mappings: List<io.yamsergey.dta.daemon.network.proto.DerivedMapping>, notes: List<String>): io.yamsergey.dta.daemon.network.proto.SyncResult
     /** The app's timeline (features 015/016). */
     suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelinePage
-    fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.timeline.TimelineEvent>
+    fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>, ignoreSavedFilters: Boolean): Flow<io.yamsergey.dta.daemon.timeline.TimelineWatchItem>
 
     /** Feature 057: the app's screen-change signal, leased while collected. */
     fun layoutSignal(serial: String, pkg: String): Flow<io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update>
@@ -113,7 +113,8 @@ interface DaemonOperations {
 class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int, ignoreSavedFilters: Boolean) =
         daemon.timelineEvents(serial, pkg, since, sinceMs, sources, kinds, limit, ignoreSavedFilters)
-    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) = daemon.timelineWatch(serial, pkg, history, sources, kinds)
+    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>, ignoreSavedFilters: Boolean) =
+        daemon.timelineWatch(serial, pkg, history, sources, kinds, ignoreSavedFilters)
     override fun layoutSignal(serial: String, pkg: String) = daemon.layoutSignal(serial, pkg)
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean, ignoreSavedFilters: Boolean) =
         daemon.timelineCauses(serial, pkg, event, direction, depth, inferred, ignoreSavedFilters)

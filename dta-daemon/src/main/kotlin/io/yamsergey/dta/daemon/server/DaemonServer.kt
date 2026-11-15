@@ -382,9 +382,10 @@ class DaemonServer(
                 val sources = (params["sources"] as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().toSet()
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
                 val id = "s${subscriptionIds.incrementAndGet()}"
-                val events = ops.timelineWatch(serial, pkg, history, sources, kinds)
+                val ignore = (params["ignoreSavedFilters"] as? JsonPrimitive)?.content == "true"
+                val events = ops.timelineWatch(serial, pkg, history, sources, kinds, ignore)
                 val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
-                    events.collect { e ->
+                    events.collect { item ->
                         send(
                             Event(
                                 name = DaemonEvents.TIMELINE_EVENT,
@@ -393,7 +394,13 @@ class DaemonServer(
                                     put("subscription", id)
                                     put("device", serial)
                                     put("app", pkg)
-                                    put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), e))
+                                    when (item) {
+                                        is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event ->
+                                            put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), item.event))
+                                        // Feature 065: what Network's saved filters hid from the last batch.
+                                        is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Hidden ->
+                                            put("saved", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.SavedFiltersApplied.serializer(), item.saved))
+                                    }
                                 },
                             ),
                         )

@@ -155,6 +155,7 @@ class TimelineSavedFiltersTest {
         val s = await { it.view.events.size == 3 && it.view.hiddenEntries.isNotEmpty() }
         assertEquals(listOf("1:1", "1:3"), s.view.shown.map { it.id })
         assertTrue(daemon.ops.timelineIgnored.isNotEmpty() && daemon.ops.timelineIgnored.all { it }, "pages are read whole: the list hides by itself")
+        assertEquals(listOf(true), daemon.ops.watchIgnored.toList(), "and so are live events")
         val bar = s.listBar
         assertEquals(words, bar.chips)
         assertEquals("1 network row hidden by Network's filters · 1 not judged: its request is no longer kept", bar.caption)

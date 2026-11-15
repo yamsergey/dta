@@ -130,7 +130,7 @@ class Runner(
                     }
                     globals.json -> out.println(LINE.encodeToString(JsonElement.serializer(), data))
                     apps -> out.println(formatters.appEventLine(data))
-                    timeline -> out.println(formatters.timelineEventLine(data))
+                    timeline -> formatters.timelineEventLine(data).takeIf { it.isNotEmpty() }?.let(out::println)
                     layout -> out.println(formatters.layoutChangeLine(data))
                     else -> out.println(formatters.watchLine(data))
                 }

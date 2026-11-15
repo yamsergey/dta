@@ -155,8 +155,8 @@ class FakeOperations : DaemonOperations {
         return io.yamsergey.dta.protocol.timeline.TimelinePage(emptyList(), next = "s:0")
     }
     override fun layoutSignal(serial: String, pkg: String) = kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update>()
-    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
-        kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.protocol.timeline.TimelineEvent>()
+    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>, ignoreSavedFilters: Boolean) =
+        kotlinx.coroutines.flow.emptyFlow<io.yamsergey.dta.daemon.timeline.TimelineWatchItem>()
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
     override suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelineHidden {
         calls += "timelineHidden"

@@ -45,6 +45,7 @@ import io.yamsergey.dta.protocol.network.NetworkEntryEvent
 import io.yamsergey.dta.protocol.network.NetworkPage
 import io.yamsergey.dta.protocol.network.NetworkQuery
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.map
 import java.net.URI
 import kotlin.time.Duration
@@ -390,10 +391,22 @@ class DtaDaemon(
     }
 
     /** Timeline events as the host takes them in; with [history] the kept ones first. */
-    fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>): Flow<io.yamsergey.dta.protocol.timeline.TimelineEvent> = kotlinx.coroutines.flow.flow {
+    fun timelineWatch(
+        serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>, ignoreSavedFilters: Boolean = false,
+    ): Flow<io.yamsergey.dta.daemon.timeline.TimelineWatchItem> = kotlinx.coroutines.flow.flow {
         val service = timelineService(serial, pkg)
+        // Feature 065: Network's saved filters hide the same network rows here, and each batch says what it hid.
+        val judging = if (ignoreSavedFilters) null else io.yamsergey.dta.daemon.timeline.WatchJudging(
+            words = { savedFilters.state(pkg).saved },
+            judge = { judgeTimeline(serial, pkg, null, false) },
+        )
+        suspend fun send(events: List<io.yamsergey.dta.protocol.timeline.TimelineEvent>) {
+            val batch = judging?.judge(events)
+            (batch?.events ?: events).forEach { emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event(it)) }
+            batch?.saved?.let { emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Hidden(it)) }
+        }
         val first = service.page(null, 500, null, sources, kinds)
-        if (history) first.events.forEach { emit(it) }
+        if (history) send(first.events)
         var cursor = first.next
         // Live events are taken from the timeline by cursor, so watching never skips or repeats;
         // windows that are not the app's are sampled for as long as someone watches.
@@ -402,9 +415,9 @@ class DtaDaemon(
             kotlinx.coroutines.flow.merge(
                 kotlinx.coroutines.flow.flow { service.events.collect { emit(Unit) } },
                 kotlinx.coroutines.flow.flow { while (true) { kotlinx.coroutines.delay(1_000); emit(Unit) } },
-            ).collect {
+            ).conflate().collect {
                 val page = service.journal.page(cursor, 500, null, sources, kinds)
-                page.events.forEach { e -> emit(e) }
+                send(page.events)
                 cursor = page.next
             }
         } finally {

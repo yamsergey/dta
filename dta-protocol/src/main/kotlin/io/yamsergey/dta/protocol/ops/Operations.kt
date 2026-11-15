@@ -517,6 +517,7 @@ object Catalog {
                 TIMELINE_SOURCES,
                 TIMELINE_KINDS,
                 ParamSpec("history", ParamType.ENUM, "current: first the kept events, then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
+                TIMELINE_IGNORE_SAVED,
             ),
             streaming = true, cliOnly = true,
         ),

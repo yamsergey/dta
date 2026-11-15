@@ -272,7 +272,7 @@ class TimelineController(private val context: ContextController, private val sco
                 }
             }
             try {
-                client.timelineEvents(JsonObject(target(mutable.value) + ("history" to JsonPrimitive("none")))).collect { data ->
+                client.timelineEvents(JsonObject(target(mutable.value) + ("history" to JsonPrimitive("none")) + ("ignoreSavedFilters" to JsonPrimitive(true)))).collect { data ->
                     if (data["selection"] != null) {
                         // Subscribed first, then paged: nothing between the two is missed; overlap merges by id.
                         pageAll(client)

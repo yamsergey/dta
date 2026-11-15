@@ -158,11 +158,14 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
             signal.collect { emit(it) }
         } finally { signalWatchers.decrementAndGet() }
     }
-    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>) =
-        kotlinx.coroutines.flow.flow {
-            if (history) timeline.page(null, 500, null, sources, kinds).events.forEach { emit(it) }
-            timelineLive.collect { e -> if ((sources.isEmpty() || e.source in sources) && (kinds.isEmpty() || e.kind in kinds)) emit(e) }
+    override fun timelineWatch(serial: String, pkg: String, history: Boolean, sources: Set<String>, kinds: Set<String>, ignoreSavedFilters: Boolean) =
+        kotlinx.coroutines.flow.flow<io.yamsergey.dta.daemon.timeline.TimelineWatchItem> {
+            watchIgnored += ignoreSavedFilters
+            if (history) timeline.page(null, 500, null, sources, kinds).events.forEach { emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event(it)) }
+            timelineLive.collect { e -> if ((sources.isEmpty() || e.source in sources) && (kinds.isEmpty() || e.kind in kinds)) emit(io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event(e)) }
         }
+    /** Feature 065: the opt-out each `timeline.watch` was asked with. */
+    val watchIgnored = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
     /** Feature 065: what `timeline.hidden` answers; an opt-out answers nothing hidden. */
     @Volatile var hidden = io.yamsergey.dta.protocol.timeline.TimelineHidden()
