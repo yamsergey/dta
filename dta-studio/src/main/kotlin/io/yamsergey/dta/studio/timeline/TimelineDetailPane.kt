@@ -98,8 +98,9 @@ class TimelineDetailPane(
             val indent = JBUI.Borders.emptyLeft(JBUI.scale(12) * (r.depth - 1))
             if (r.hidden) {
                 // Feature 065: the link stays in the story; the row is not in the views until shown.
-                val text = JBLabel(r.text).apply { foreground = JBColor.GRAY; toolTipText = r.via; border = indent }
-                add(row(text, JBLabel("hidden by Network's filters").apply { foreground = JBColor.GRAY }, ActionLink("Show") { onShowHidden(); onSelect(r.eventId) }))
+                add(row(JBLabel(r.text).apply { foreground = JBColor.GRAY; toolTipText = r.via; border = indent }))
+                val note = JBLabel("hidden by Network's filters").apply { foreground = JBColor.GRAY; border = indent }
+                add(row(note, ActionLink("Show") { onShowHidden(); onSelect(r.eventId) }))
                 return@forEach
             }
             val link = ActionLink(r.text) { onSelect(r.eventId) }.apply {

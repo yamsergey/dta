@@ -78,7 +78,8 @@ class TimelinePanel(
     private val table = JBTable(rows).apply {
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         setShowGrid(false)
-        autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
+        // Room goes to "What happened": the other columns are capped (the last one is the narrow Cause).
+        autoResizeMode = JTable.AUTO_RESIZE_ALL_COLUMNS
         setDefaultRenderer(Any::class.java, RowRenderer { state.view.notJudged(it) })
     }
     private var binding = false
@@ -562,6 +563,8 @@ class TimelinePanel(
 
         fun sizeColumns(table: JTable) {
             listOf(96, 64, 0, 28).forEachIndexed { i, w -> if (w > 0) table.columnModel.getColumn(i).apply { preferredWidth = JBUI.scale(w); maxWidth = JBUI.scale(w * 2) } }
+            // Its title and arrow stay readable when room is shared out.
+            table.columnModel.getColumn(3).apply { minWidth = JBUI.scale(48); preferredWidth = JBUI.scale(48); maxWidth = JBUI.scale(56) }
         }
 
         companion object {
