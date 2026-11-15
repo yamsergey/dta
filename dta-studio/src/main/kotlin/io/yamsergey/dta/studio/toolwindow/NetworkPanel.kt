@@ -511,6 +511,24 @@ class NetworkPanel(
             }
         })
         query.addSettingsProvider { editor ->
+            // A press in the line is the developer putting the caret there; the editor asks for focus
+            // itself on a press, so the focus event does not carry the mouse as its cause.
+            // The offer waits for the release: the press places the caret, which would close it.
+            editor.contentComponent.addMouseListener(object : java.awt.event.MouseAdapter() {
+                private var pressedOutside = false
+                override fun mousePressed(e: java.awt.event.MouseEvent) {
+                    pressedOutside = !editor.contentComponent.hasFocus()
+                }
+                override fun mouseReleased(e: java.awt.event.MouseEvent) {
+                    if (!pressedOutside) return
+                    pressedOutside = false
+                    if (query.text.isNotEmpty() || completionShown()) return
+                    javax.swing.SwingUtilities.invokeLater {
+                        refreshCompletionInput()
+                        QueryCompletion.offer(project, editor)
+                    }
+                }
+            })
             // Feature 043: focusing the empty line offers the app's recent filters (and every key).
             editor.contentComponent.addFocusListener(object : java.awt.event.FocusAdapter() {
                 override fun focusGained(e: java.awt.event.FocusEvent) {
