@@ -428,7 +428,10 @@ class TimelinePanel(
             s.loading -> "Loading…"
             else -> "${s.view.shown.size} of ${s.view.events.size} events" + if (s.view.dropped > 0) " · ${s.view.dropped} older dropped here" else ""
         }
-        if (previous.view.events !== s.view.events || previous.view.filter != s.view.filter) {
+        // Feature 065: what Network's saved filters hide changes the rows as much as new events do.
+        val hidingChanged = previous.view.hiddenEntries != s.view.hiddenEntries || previous.view.showHidden != s.view.showHidden ||
+            previous.view.notJudgedEntries != s.view.notJudgedEntries
+        if (previous.view.events !== s.view.events || previous.view.filter != s.view.filter || hidingChanged) {
             binding = true
             try {
                 rows.update(s.view.shown)
@@ -564,7 +567,7 @@ class TimelinePanel(
         fun sizeColumns(table: JTable) {
             listOf(96, 64, 0, 28).forEachIndexed { i, w -> if (w > 0) table.columnModel.getColumn(i).apply { preferredWidth = JBUI.scale(w); maxWidth = JBUI.scale(w * 2) } }
             // Its title and arrow stay readable when room is shared out.
-            table.columnModel.getColumn(3).apply { minWidth = JBUI.scale(48); preferredWidth = JBUI.scale(48); maxWidth = JBUI.scale(56) }
+            table.columnModel.getColumn(3).apply { minWidth = JBUI.scale(60); preferredWidth = JBUI.scale(60); maxWidth = JBUI.scale(72) }
         }
 
         companion object {
