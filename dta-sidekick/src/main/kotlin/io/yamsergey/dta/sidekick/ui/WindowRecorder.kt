@@ -128,7 +128,7 @@ class WindowRecorder(
         val type = lp?.type ?: 0
         val ownerObject = owner ?: activityOf(view.context)
         val hierarchy = generateSequence(ownerObject?.javaClass as Class<*>?) { it.superclass }.map { it.name }.toList()
-        val windowKind = WindowKinds.kind(type, hierarchy)
+        val windowKind = WindowKinds.kind(type, hierarchy, if (type in DIALOG_TYPES) topViews(view) else emptyList())
         val secure = lp != null && (lp.flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
         val now = SystemClock.uptimeMillis()
         val summarized = if (offMain) null else timed { ContentSummaries.summarize(walker.walk(view), secure, settled = false, takenMonoMs = now) }
@@ -290,6 +290,26 @@ class WindowRecorder(
         if ((summary?.omitted ?: 0) > 0) add(DegradationMarker("ui", "${DegradationCodes.UI_CONTENT_TRUNCATED}: ${summary!!.omitted} elements left out"))
     }
 
+    /**
+     * The window's top views (breadth first, a few levels, bounded) as class names and
+     * `id/<entry>` names: what tells a sheet from a plain dialog when the owner is the activity.
+     */
+    private fun topViews(root: View): List<String> {
+        val names = ArrayList<String>()
+        var level = listOf(root)
+        repeat(TOP_LEVELS) {
+            val next = ArrayList<View>()
+            for (v in level) {
+                if (names.size >= TOP_VIEWS) return names
+                names += v.javaClass.name
+                if (v.id != View.NO_ID) runCatching { v.resources.getResourceEntryName(v.id) }.getOrNull()?.let { names += "id/$it" }
+                if (v is android.view.ViewGroup) for (i in 0 until v.childCount) next += v.getChildAt(i)
+            }
+            level = next
+        }
+        return names
+    }
+
     private fun activityOf(context: Context?): Activity? {
         var c = context
         while (c != null) {
@@ -330,5 +350,9 @@ class WindowRecorder(
         const val REMOVE_VIEW_BY_VIEW = "(Landroid/view/View;Z)V"
         private const val RECREATE_MS = 2_000L
         private const val COSTS_KEPT = 500
+        /** Dialogs (TYPE_APPLICATION) and sub-windows: the types a sheet comes as. */
+        private val DIALOG_TYPES = setOf(2) + (1000..1999)
+        private const val TOP_LEVELS = 6
+        private const val TOP_VIEWS = 40
     }
 }

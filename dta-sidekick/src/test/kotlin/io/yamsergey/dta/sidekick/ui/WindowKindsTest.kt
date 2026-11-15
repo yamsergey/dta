@@ -24,6 +24,18 @@ class WindowKindsTest {
         assertEquals(WindowKind.ACTIVITY, WindowKinds.kind(1, emptyList()))
     }
 
+    /** A dialog's addView hands over the activity's window, so a sheet is known by its own content. */
+    @Test
+    fun `a sheet shown from an activity is known by its content`() {
+        val compose = listOf("com.android.internal.policy.DecorView", "android.widget.FrameLayout", "androidx.compose.material3.ModalBottomSheetDialogLayout")
+        assertEquals(WindowKind.BOTTOM_SHEET, WindowKinds.kind(2, activity, compose))
+        val material = listOf("com.android.internal.policy.DecorView", "android.widget.FrameLayout", "id/container", "androidx.coordinatorlayout.widget.CoordinatorLayout", "id/design_bottom_sheet")
+        assertEquals(WindowKind.BOTTOM_SHEET, WindowKinds.kind(2, activity, material))
+        val plain = listOf("com.android.internal.policy.DecorView", "androidx.compose.ui.window.DialogLayout")
+        assertEquals(WindowKind.DIALOG, WindowKinds.kind(2, activity, plain))
+        assertEquals(WindowKind.POPUP, WindowKinds.kind(1002, activity, listOf("androidx.compose.ui.window.PopupLayout")))
+    }
+
     @Test
     fun titles() {
         assertEquals("MainActivity", WindowKinds.title(WindowKind.ACTIVITY, owner = "com.example.MainActivity", heading = "Hello", firstText = "Hello"))

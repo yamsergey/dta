@@ -10,16 +10,24 @@ object WindowKinds {
     private const val TYPE_APPLICATION = 2
     private const val TYPE_TOAST = 2005
 
-    /** [owner] is the window callback's class and its superclasses, most specific first. */
-    fun kind(type: Int, owner: List<String>): WindowKind = when {
+    /**
+     * [owner] is the window callback's class and its superclasses, most specific first. [content]
+     * is the window's own top views, as class names and `id/<entry>` names: a dialog's addView hands
+     * over the activity's window, so a sheet shown from an activity is known only by its content
+     * (Compose's ModalBottomSheetDialogLayout, Material's design_bottom_sheet).
+     */
+    fun kind(type: Int, owner: List<String>, content: List<String> = emptyList()): WindowKind = when {
         type == TYPE_TOAST -> WindowKind.TOAST
-        owner.any { it.substringAfterLast('.').contains("BottomSheet") } -> WindowKind.BOTTOM_SHEET
+        owner.any { sheet(it) } || content.any { sheet(it) } -> WindowKind.BOTTOM_SHEET
         "android.app.Dialog" in owner -> WindowKind.DIALOG
         type in FIRST_SUB_WINDOW..LAST_SUB_WINDOW -> WindowKind.POPUP
         type == TYPE_APPLICATION -> WindowKind.DIALOG
         type in 1..LAST_APPLICATION_WINDOW -> WindowKind.ACTIVITY
         else -> WindowKind.OTHER
     }
+
+    private fun sheet(name: String) = name.substringAfterLast('.').substringAfterLast('/')
+        .replace("_", "").contains("bottomsheet", ignoreCase = true)
 
     /** Activity windows by their activity; dialogs, sheets and popups by their heading or first text. */
     fun title(kind: WindowKind, owner: String?, heading: String?, firstText: String?): String? = when (kind) {
