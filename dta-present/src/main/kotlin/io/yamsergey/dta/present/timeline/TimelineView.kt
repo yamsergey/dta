@@ -16,6 +16,10 @@ sealed interface TimelineChange {
     data class Zoom(val factor: Double, val anchorMs: Long) : TimelineChange
     data class Pan(val deltaMs: Long) : TimelineChange
     data class Follow(val on: Boolean) : TimelineChange
+    /** Feature 065: the network entries Network's saved filters hide now, and those not judged. */
+    data class Hidden(val entries: Set<String>, val notJudged: Set<String>) : TimelineChange
+    /** Feature 065: this view shows what the filters hide (they stay saved). */
+    data class ShowHidden(val on: Boolean) : TimelineChange
     data object Reset : TimelineChange
 }
 
@@ -47,9 +51,27 @@ data class TimelineView(
     val bound: Int = BOUND,
     /** Older events were dropped here to stay within [bound]. */
     val dropped: Int = 0,
+    /** Feature 065: entries Network's saved filters hide; their events are left out unless [showHidden]. */
+    val hiddenEntries: Set<String> = emptySet(),
+    val notJudgedEntries: Set<String> = emptySet(),
+    val showHidden: Boolean = false,
 ) {
-    /** The events the filter lets through, in time order. */
-    val shown: List<TimelineEvent> get() = if (filter.active) events.filter(filter::matches) else events
+    /** The events the filter lets through and Network's saved filters do not hide, in time order. */
+    val shown: List<TimelineEvent> get() {
+        val filtered = if (filter.active) events.filter(filter::matches) else events
+        return if (hiding) filtered.filter { !isHidden(it) } else filtered
+    }
+
+    private val hiding: Boolean get() = !showHidden && hiddenEntries.isNotEmpty()
+
+    private fun isHidden(e: TimelineEvent) = e.network?.entryId?.let { it in hiddenEntries } == true
+
+    /** Feature 065: the rows the filter lets through that Network's saved filters hide here. */
+    val hiddenRows: Int get() = if (!hiding) 0 else events.count { isHidden(it) && (!filter.active || filter.matches(it)) }
+
+    fun notJudged(e: TimelineEvent): Boolean = e.network?.entryId?.let { it in notJudgedEntries } == true
+
+    val notJudgedRows: Int get() = if (notJudgedEntries.isEmpty()) 0 else events.count(::notJudged)
 
     val selected: TimelineEvent? get() = selectedId?.let { id -> events.firstOrNull { it.id == id } }
 
@@ -66,6 +88,8 @@ data class TimelineView(
             copy(window = window.copy(msPerPx = scale, endMs = change.anchorMs + ((window.endMs - change.anchorMs) * actual).toLong()))
         }
         is TimelineChange.Pan -> copy(window = window.copy(endMs = window.endMs + change.deltaMs, follow = false))
+        is TimelineChange.Hidden -> copy(hiddenEntries = change.entries, notJudgedEntries = change.notJudged)
+        is TimelineChange.ShowHidden -> copy(showHidden = change.on)
         is TimelineChange.Follow -> if (change.on) copy(window = window.copy(follow = true)).followed() else copy(window = window.copy(follow = false))
         TimelineChange.Reset -> TimelineView(bound = bound)
     }

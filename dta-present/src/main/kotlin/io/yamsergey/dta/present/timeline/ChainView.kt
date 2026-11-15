@@ -22,7 +22,8 @@ data class ChainView(
 
     data class Line(val from: String, val to: String, val style: Style, val label: String)
 
-    data class Row(val depth: Int, val eventId: String, val text: String, val via: String, val unknown: Boolean)
+    /** [hidden]: Network's saved filters hide it from the views (feature 065); the chain keeps it. */
+    data class Row(val depth: Int, val eventId: String, val text: String, val via: String, val unknown: Boolean, val hidden: Boolean = false)
 
     companion object {
         val EMPTY = ChainView(emptyList(), emptyList(), emptyList(), emptyList(), null)
@@ -56,6 +57,7 @@ data class ChainView(
         private fun rows(chain: CauseChain?): List<Row> {
             chain ?: return emptyList()
             val byId = chain.nodes.associateBy { it.id }
+            val hidden = chain.saved?.hiddenIds.orEmpty().toSet()
             val next = chain.links.groupBy { if (chain.direction == ChainDirection.CAUSES) it.to else it.from }
             val out = ArrayList<Row>()
             val seen = hashSetOf(chain.root.id)
@@ -63,7 +65,7 @@ data class ChainView(
                 for (l in next[id].orEmpty()) {
                     val other = if (chain.direction == ChainDirection.CAUSES) l.from else l.to
                     val e = byId[other] ?: continue
-                    out += Row(depth, other, "${e.source}  ${TimelineEventText.describe(e)}", label(l), other in chain.noKnownCause)
+                    out += Row(depth, other, "${e.source}  ${TimelineEventText.describe(e)}", label(l), other in chain.noKnownCause, other in hidden)
                     if (seen.add(other)) walk(other, depth + 1)
                 }
             }
