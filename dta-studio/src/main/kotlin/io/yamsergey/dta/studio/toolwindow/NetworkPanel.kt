@@ -255,6 +255,12 @@ class NetworkPanel(
     private var last = NetworkViewState()
 
     init {
+        // Switching to the tab or activating the window focuses the list, never the query line:
+        // the line is focused only when the developer puts the caret there (063).
+        isFocusTraversalPolicyProvider = true
+        focusTraversalPolicy = object : javax.swing.LayoutFocusTraversalPolicy() {
+            override fun getDefaultComponent(root: java.awt.Container?): java.awt.Component = table
+        }
         val kindSwitch = panel {
             row {
                 kinds = segmentedButton(KindChoice.entries) { text = it.label }
@@ -508,7 +514,9 @@ class NetworkPanel(
             // Feature 043: focusing the empty line offers the app's recent filters (and every key).
             editor.contentComponent.addFocusListener(object : java.awt.event.FocusAdapter() {
                 override fun focusGained(e: java.awt.event.FocusEvent) {
-                    if (query.text.isNotEmpty()) return
+                    val asked = focusAsked
+                    focusAsked = false
+                    if (!io.yamsergey.dta.studio.network.QueryFocus.offers(e.cause, asked, query.text.isEmpty())) return
                     refreshCompletionInput()
                     QueryCompletion.offer(project, editor)
                 }
@@ -547,7 +555,14 @@ class NetworkPanel(
         completionInput = QueryCompletion.Input(QueryLineModel.seen(model.views()), last.saved.recent, kinds.selectedItem ?: KindChoice.ALL)
     }
 
-    private fun focusQuery() = com.intellij.openapi.wm.IdeFocusManager.getInstance(project).requestFocus(query, true)
+    /** The developer moved the caret to the line (a shortcut, a chip): the empty line may offer filters. */
+    @Volatile private var focusAsked = false
+
+    private fun focusQuery() {
+        // Already there: no focus event comes, and none must be offered later by itself.
+        focusAsked = !com.intellij.util.ui.UIUtil.isFocusAncestor(query)
+        com.intellij.openapi.wm.IdeFocusManager.getInstance(project).requestFocus(query, true)
+    }
 
     /** Down the list = the next hit, whichever order the list shows. */
     private fun stepHit(forward: Boolean) {
