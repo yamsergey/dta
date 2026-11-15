@@ -28,6 +28,8 @@ class TimelineDetailPane(
     private val onOpenLayout: () -> Unit,
     private val onCopy: (String) -> Unit,
     openSource: (io.yamsergey.dta.present.layout.Source, JComponent, () -> Unit) -> Unit,
+    /** Feature 065: Show on a chain row Network's saved filters hide. */
+    private val onShowHidden: () -> Unit = {},
 ) : JPanel(BorderLayout()) {
     private var lastState: TimelineTabState? = null
     /** Feature 064: a tap's call chain, the view Layout uses (059). */
@@ -93,9 +95,16 @@ class TimelineDetailPane(
 
     private fun JPanel.chainRows(rows: List<ChainView.Row>) {
         rows.forEach { r ->
+            val indent = JBUI.Borders.emptyLeft(JBUI.scale(12) * (r.depth - 1))
+            if (r.hidden) {
+                // Feature 065: the link stays in the story; the row is not in the views until shown.
+                val text = JBLabel(r.text).apply { foreground = JBColor.GRAY; toolTipText = r.via; border = indent }
+                add(row(text, JBLabel("hidden by Network's filters").apply { foreground = JBColor.GRAY }, ActionLink("Show") { onShowHidden(); onSelect(r.eventId) }))
+                return@forEach
+            }
             val link = ActionLink(r.text) { onSelect(r.eventId) }.apply {
                 toolTipText = r.via
-                border = JBUI.Borders.emptyLeft(JBUI.scale(12) * (r.depth - 1))
+                border = indent
             }
             add(row(link, JBLabel(r.via).apply { foreground = JBColor.GRAY }))
         }

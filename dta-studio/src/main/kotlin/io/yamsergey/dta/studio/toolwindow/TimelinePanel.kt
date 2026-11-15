@@ -79,7 +79,7 @@ class TimelinePanel(
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         setShowGrid(false)
         autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
-        setDefaultRenderer(Any::class.java, RowRenderer())
+        setDefaultRenderer(Any::class.java, RowRenderer { state.view.notJudged(it) })
     }
     private var binding = false
     private var sequenceShown = false
@@ -116,6 +116,31 @@ class TimelinePanel(
         add(hitLabel, BorderLayout.EAST)
     }
     private val caption = JBLabel().apply { foreground = JBColor.GRAY }
+    /** Feature 065: Network's saved filters, the same row over both views. */
+    private val savedChips = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(0, 2, 2, 8)
+        isVisible = false
+    }
+    private val listChips = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(0, 2, 2, 8)
+        isVisible = false
+    }
+    private var chipsShown: Pair<List<String>, Boolean>? = null
+    private val savedBanner = JBLabel().apply {
+        foreground = DtaColors.of("caveat")
+        border = JBUI.Borders.empty(2, 8)
+        isVisible = false
+    }
+    private val savedAction = com.intellij.ui.components.ActionLink("") { _ -> controller.setShowHidden(!state.showHidden) }.apply { isVisible = false }
+    private val listCaption = JBLabel().apply { foreground = JBColor.GRAY }
+    private val listAction = com.intellij.ui.components.ActionLink("") { _ -> controller.setShowHidden(!state.showHidden) }
+    private val listFoot = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(12), JBUI.scale(2))).apply {
+        add(listCaption)
+        add(listAction)
+        isVisible = false
+    }
     private val captionAction = com.intellij.ui.components.ActionLink("") { _ ->
         when (state.sequence.action) {
             SequenceAction.RESUME -> controller.sequence { it.pause(false) }
@@ -178,6 +203,7 @@ class TimelinePanel(
         onOpenLayout = openLayout,
         onCopy = { CopyPasteManager.getInstance().setContents(StringSelection(it)) },
         openSource = openSource,
+        onShowHidden = { controller.setShowHidden(true) },
     )
 
     init {
@@ -206,14 +232,20 @@ class TimelinePanel(
 
         val left = JBSplitter(true, 0.45f).apply {
             firstComponent = JBScrollPane(lanes).apply { horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER }
-            secondComponent = JBScrollPane(table)
+            secondComponent = JPanel(BorderLayout()).apply {
+                add(JBScrollPane(table), BorderLayout.CENTER)
+                add(listFoot, BorderLayout.SOUTH)
+            }
         }
         val split = JBSplitter(false, 0.68f).apply {
             firstComponent = left
             secondComponent = detail
         }
         val list = JPanel(BorderLayout()).apply {
-            add(toolbar, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply {
+                add(toolbar, BorderLayout.CENTER)
+                add(listChips, BorderLayout.SOUTH)
+            }, BorderLayout.NORTH)
             add(split, BorderLayout.CENTER)
         }
         val diagram = JPanel(BorderLayout()).apply {
@@ -224,10 +256,11 @@ class TimelinePanel(
                     add(sequenceTitles, BorderLayout.SOUTH)
                 }, BorderLayout.NORTH)
                 add(sequenceScroll, BorderLayout.CENTER)
-                add(JPanel(BorderLayout(JBUI.scale(12), 0)).apply {
-                    border = JBUI.Borders.empty(2, 6, 0, 4)
-                    add(caption, BorderLayout.CENTER)
-                    add(captionAction, BorderLayout.EAST)
+                add(JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(12), 0)).apply {
+                    border = JBUI.Borders.empty(2, 0, 0, 4)
+                    add(caption)
+                    add(captionAction)
+                    add(savedAction)
                 }, BorderLayout.SOUTH)
             }, BorderLayout.CENTER)
         }
@@ -240,10 +273,14 @@ class TimelinePanel(
             }
         }.apply { isOpaque = false }
         viewSwitch.selectedItem = ViewChoice.SEQUENCE
-        add(JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
-            border = JBUI.Borders.emptyRight(8)
-            add(switch, BorderLayout.WEST)
-            add(queryRow, BorderLayout.CENTER)
+        add(JPanel(BorderLayout()).apply {
+            add(savedBanner, BorderLayout.NORTH)
+            add(JPanel(BorderLayout(JBUI.scale(8), 0)).apply {
+                border = JBUI.Borders.emptyRight(8)
+                add(switch, BorderLayout.WEST)
+                add(queryRow, BorderLayout.CENTER)
+            }, BorderLayout.CENTER)
+            add(savedChips, BorderLayout.SOUTH)
         }, BorderLayout.NORTH)
         add(cards, BorderLayout.CENTER)
 
@@ -404,6 +441,41 @@ class TimelinePanel(
             try { select(s.view.selectedId) } finally { binding = false }
         }
         detail.show(s)
+        showSaved(s)
+    }
+
+    /** Feature 065: the chips, the banner and the lines under each view that say what was hidden. */
+    private fun showSaved(s: TimelineTabState) {
+        val bar = if (s.showSequence) s.sequenceBar else s.listBar
+        val into = if (s.showSequence) savedChips else listChips
+        val chips = bar.chips to bar.off
+        if (chips != chipsShown || into.componentCount == 0 && bar.chips.isNotEmpty()) {
+            chipsShown = chips
+            savedChips.removeAll()
+            listChips.removeAll()
+            if (bar.chips.isNotEmpty()) into.add(JBLabel(bar.label).apply { foreground = JBColor.GRAY; font = com.intellij.util.ui.UIUtil.getLabelFont(com.intellij.util.ui.UIUtil.FontSize.SMALL) })
+            bar.chips.forEach { word ->
+                into.add(io.yamsergey.dta.studio.network.FilterChip(
+                    word, edit = null, remove = { controller.removeSaved(word) },
+                    tip = if (bar.off) "Saved in Network for this app, not applied in this view. × removes it from Network too." else "Saved in Network for this app. × removes it there too.",
+                    off = bar.off,
+                ))
+            }
+            into.revalidate()
+            into.repaint()
+        }
+        savedChips.isVisible = s.showSequence && bar.chips.isNotEmpty()
+        listChips.isVisible = !s.showSequence && bar.chips.isNotEmpty()
+        val banner = listOfNotNull(bar.banner, s.savedError).joinToString(" · ")
+        savedBanner.text = banner
+        savedBanner.isVisible = banner.isNotEmpty()
+        savedAction.text = bar.action?.label.orEmpty()
+        savedAction.isVisible = s.showSequence && bar.action != null
+        val list = s.listBar
+        listCaption.text = listOfNotNull("${s.view.shown.size} events", list.caption).joinToString(" · ")
+        listAction.text = list.action?.label.orEmpty()
+        listAction.isVisible = list.action != null
+        listFoot.isVisible = list.caption != null
     }
 
     private fun showSequence(previous: TimelineTabState, s: TimelineTabState) {
@@ -425,7 +497,7 @@ class TimelinePanel(
         ).joinToString(" · ")
         sequenceNote.text = note
         sequenceNote.isVisible = note.isNotEmpty()
-        caption.text = v.caption
+        caption.text = listOfNotNull(v.caption.takeIf { it.isNotEmpty() }, s.sequenceBar.caption).joinToString(" · ")
         captionAction.text = v.action?.label.orEmpty()
         captionAction.isVisible = v.action != null
         hitLabel.text = v.hitLabel(QueryLine.parse(v.query).terms.isNotEmpty()).orEmpty()
@@ -497,7 +569,7 @@ class TimelinePanel(
         }
     }
 
-    private class RowRenderer : ColoredTableCellRenderer() {
+    private class RowRenderer(private val notJudged: (TimelineEvent) -> Boolean) : ColoredTableCellRenderer() {
         override fun customizeCellRenderer(table: JTable, value: Any?, selected: Boolean, hasFocus: Boolean, row: Int, column: Int) {
             val e = value as? TimelineEvent ?: return
             when (column) {
@@ -506,6 +578,7 @@ class TimelinePanel(
                 2 -> {
                     val text = TimelineEventText.describe(e)
                     if (e.source == Sources.TIMELINE) append(text, SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.of("caveat"))) else append(text)
+                    if (notJudged(e)) append(io.yamsergey.dta.present.timeline.SequenceText.NOT_JUDGED, SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     toolTipText = "${e.id}  ${TimelineEventText.line(e)}"
                 }
                 3 -> when {

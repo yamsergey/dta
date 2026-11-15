@@ -6,6 +6,7 @@ import io.yamsergey.dta.present.timeline.ChainView
 import io.yamsergey.dta.present.timeline.SequenceView
 import io.yamsergey.dta.present.timeline.TimelineChange
 import io.yamsergey.dta.present.timeline.TimelineFilter
+import io.yamsergey.dta.present.timeline.TimelineSavedBar
 import io.yamsergey.dta.present.timeline.TimelineView
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.timeline.CauseChain
@@ -13,6 +14,7 @@ import io.yamsergey.dta.protocol.timeline.CurrentState
 import io.yamsergey.dta.protocol.timeline.SequencePage
 import io.yamsergey.dta.protocol.timeline.Kinds
 import io.yamsergey.dta.protocol.timeline.TimelineEvent
+import io.yamsergey.dta.protocol.timeline.TimelineHidden
 import io.yamsergey.dta.protocol.timeline.TimelinePage
 import io.yamsergey.dta.studio.ContextController
 import kotlinx.coroutines.CoroutineScope
@@ -51,7 +53,20 @@ data class TimelineTabState(
     val sequenceError: String? = null,
     /** Feature 049: why the last thing asked of a flow was refused. */
     val flowError: String? = null,
-)
+    /** Feature 065: this tab shows what Network's saved filters hide (they stay saved). */
+    val showHidden: Boolean = false,
+    /** Feature 065: the List's last `timeline.hidden` answer. */
+    val listSaved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
+    /** Feature 065: why removing a saved filter failed. */
+    val savedError: String? = null,
+) {
+    /** Feature 065: Network's saved filters over the List, counted in its own rows. */
+    val listBar: TimelineSavedBar
+        get() = TimelineSavedBar.of(listSaved, showHidden, hiddenRows = view.hiddenRows, notJudgedRows = view.notJudgedRows)
+
+    /** Feature 065: Network's saved filters over the Sequence, as its page says. */
+    val sequenceBar: TimelineSavedBar get() = TimelineSavedBar.of(sequence.page?.saved, showHidden)
+}
 
 /**
  * The Timeline tab's source (feature 017, research R1, R4): `timeline.watch` first, then every
@@ -84,7 +99,7 @@ class TimelineController(private val context: ContextController, private val sco
 
     fun setShowSequence(on: Boolean) {
         mutable.update { it.copy(showSequence = on) }
-        if (on) refreshSequence()
+        if (on) refreshSequence() else context.client?.let { c -> scope.launch { runCatching { readHidden(c) } } }
     }
 
     /** Feature 048: anything done to the Sequence view; a change of what is read is read at once. */
@@ -124,11 +139,50 @@ class TimelineController(private val context: ContextController, private val sco
         scope.launch { runCatching { readSequence(client) } }
     }
 
+    /** Feature 065, Show them / Hide them again: both views, the chain too; the filters stay saved. */
+    fun setShowHidden(on: Boolean) {
+        mutable.update { it.copy(showHidden = on, view = it.view.reduce(TimelineChange.ShowHidden(on))) }
+        val client = context.client ?: return
+        scope.launch {
+            runCatching { readSequence(client) }
+            runCatching { readHidden(client) }
+        }
+        loadChain()
+    }
+
+    /** Feature 065: × on a chip removes the filter from Network's saved set (one set). */
+    fun removeSaved(word: String) {
+        val client = context.client ?: return
+        scope.launch {
+            try {
+                client.call("network.filters.remove", JsonObject(target(mutable.value) + ("word" to JsonPrimitive(word))))
+                mutable.update { it.copy(savedError = null) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutable.update { it.copy(savedError = "$word could not be removed: ${e.message ?: e.javaClass.simpleName}") }
+            }
+            runCatching { readSequence(client) }
+            runCatching { readHidden(client) }
+            loadChain()
+        }
+    }
+
+    /** Feature 065: which network entries the List leaves out now (it keeps every event itself). */
+    private suspend fun readHidden(client: DaemonClient) {
+        val params = target(mutable.value) + ("ignoreSavedFilters" to JsonPrimitive(mutable.value.showHidden))
+        val h = DtaJson.decodeFromJsonElement(TimelineHidden.serializer(), client.call("timeline.hidden", JsonObject(params)).result)
+        mutable.update {
+            it.copy(listSaved = h.saved, view = it.view.reduce(TimelineChange.Hidden(h.hidden.toSet(), h.notJudged.toSet())))
+        }
+    }
+
     private suspend fun readSequence(client: DaemonClient) {
         val view = mutable.value.sequence
         val query = view.query.trim()
         val params = target(mutable.value) + buildMap {
             put("limit", JsonPrimitive(SEQUENCE))
+            put("ignoreSavedFilters", JsonPrimitive(mutable.value.showHidden))
             if (query.isNotEmpty()) put("q", JsonPrimitive(query))
             view.startMs?.let { put("sinceMs", JsonPrimitive(it)) }
         }
@@ -168,7 +222,10 @@ class TimelineController(private val context: ContextController, private val sco
         chainJob = scope.launch {
             try {
                 fun params(direction: String) = JsonObject(
-                    target(s) + mapOf("event" to JsonPrimitive(id), "direction" to JsonPrimitive(direction), "inferred" to JsonPrimitive(s.inferred)),
+                    target(s) + mapOf(
+                        "event" to JsonPrimitive(id), "direction" to JsonPrimitive(direction), "inferred" to JsonPrimitive(s.inferred),
+                        "ignoreSavedFilters" to JsonPrimitive(s.showHidden),
+                    ),
                 )
                 val causes = DtaJson.decodeFromJsonElement(CauseChain.serializer(), client.call("timeline.causes", params("causes")).result)
                 val effects = DtaJson.decodeFromJsonElement(CauseChain.serializer(), client.call("timeline.causes", params("effects")).result)
@@ -207,6 +264,13 @@ class TimelineController(private val context: ContextController, private val sco
                     delay(SEQUENCE_EVERY_MS)
                 }
             }
+            // Feature 065: the List follows live events itself; the daemon says which it hides.
+            val hidden = launch {
+                while (isActive) {
+                    if (active && !mutable.value.showSequence) runCatching { readHidden(client) }
+                    delay(HIDDEN_EVERY_MS)
+                }
+            }
             try {
                 client.timelineEvents(JsonObject(target(mutable.value) + ("history" to JsonPrimitive("none")))).collect { data ->
                     if (data["selection"] != null) {
@@ -228,6 +292,7 @@ class TimelineController(private val context: ContextController, private val sco
             } finally {
                 refresher.cancel()
                 sequence.cancel()
+                hidden.cancel()
                 mutable.update { it.copy(loading = false, watching = false) }
             }
         }
@@ -236,7 +301,7 @@ class TimelineController(private val context: ContextController, private val sco
     private suspend fun pageAll(client: DaemonClient) {
         var since: String? = null
         while (true) {
-            val params = target(mutable.value) + listOfNotNull(since?.let { "since" to JsonPrimitive(it) }, "limit" to JsonPrimitive(PAGE)).toMap()
+            val params = target(mutable.value) + listOfNotNull(since?.let { "since" to JsonPrimitive(it) }, "limit" to JsonPrimitive(PAGE), "ignoreSavedFilters" to JsonPrimitive(true)).toMap()
             val page = DtaJson.decodeFromJsonElement(TimelinePage.serializer(), client.call("timeline.events", JsonObject(params)).result)
             change(TimelineChange.Loaded(page.events))
             if (page.sources.isNotEmpty()) change(TimelineChange.Sources(page.sources))
@@ -259,5 +324,6 @@ class TimelineController(private val context: ContextController, private val sco
         const val STATE_EVERY_MS = 5_000L
         const val SEQUENCE = 2_000
         const val SEQUENCE_EVERY_MS = 1_500L
+        const val HIDDEN_EVERY_MS = 2_000L
     }
 }

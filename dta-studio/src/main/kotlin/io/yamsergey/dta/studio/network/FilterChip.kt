@@ -18,24 +18,32 @@ import javax.swing.JPanel
 
 /**
  * Feature 043: a saved filter drawn as the IDE draws its tags (the theme's Tag background,
- * rounded), key muted, value in text colour, with the IDE's close icon. A click edits it.
+ * rounded), key muted, value in text colour, with the IDE's close icon. A click edits it (when
+ * [edit] is given). Feature 065: the Timeline shows the same chips; [off] draws one the view
+ * does not apply now (its value muted too).
  */
-class FilterChip(word: String, edit: () -> Unit, remove: () -> Unit) : JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)) {
+class FilterChip(
+    word: String,
+    edit: (() -> Unit)?,
+    remove: () -> Unit,
+    tip: String = "Saved for this app. Click to edit, × to remove.",
+    off: Boolean = false,
+) : JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)) {
     private var hovered = false
 
     init {
         isOpaque = false
         border = JBUI.Borders.empty(2, 8, 2, 2)
-        toolTipText = "Saved for this app. Click to edit, × to remove."
+        toolTipText = tip
         val chip = SavedChip.of(word)
         val small = UIUtil.getLabelFont(UIUtil.FontSize.SMALL)
         if (chip.key.isNotEmpty()) add(JBLabel(chip.key).apply { font = small; foreground = JBColor.GRAY })
-        add(JBLabel(chip.value).apply { font = small; border = JBUI.Borders.emptyRight(4) })
+        add(JBLabel(chip.value).apply { font = small; border = JBUI.Borders.emptyRight(4); if (off) foreground = JBColor.GRAY })
         add(InplaceButton(IconButton("Remove this saved filter", AllIcons.Actions.Close, AllIcons.Actions.CloseHovered)) { remove() })
         val mouse = object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) { hovered = true; repaint() }
             override fun mouseExited(e: MouseEvent) { hovered = false; repaint() }
-            override fun mouseClicked(e: MouseEvent) = edit()
+            override fun mouseClicked(e: MouseEvent) { edit?.invoke() }
         }
         addMouseListener(mouse)
         components.filterIsInstance<JBLabel>().forEach { it.addMouseListener(mouse) }

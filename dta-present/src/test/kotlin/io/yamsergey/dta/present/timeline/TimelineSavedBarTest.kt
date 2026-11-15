@@ -93,6 +93,12 @@ class TimelineSavedBarTest {
     }
 
     @Test
+    fun `a Sequence row not judged says so in its label`() {
+        val step = io.yamsergey.dta.protocol.timeline.SequenceStep(1_000, "app", "host:a", "→ GET /old", entryId = "gone", notJudged = true)
+        assertEquals("→ GET /old · not judged", SequenceText.label(step))
+    }
+
+    @Test
     fun `a chain keeps its hidden rows, marked`() {
         val causes = CauseChain(
             response, ChainDirection.CAUSES, listOf(response, request, click),

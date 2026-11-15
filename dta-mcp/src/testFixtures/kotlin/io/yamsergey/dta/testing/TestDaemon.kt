@@ -128,10 +128,15 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     /** The app's timeline (features 015/016): tests feed it with [timeline] `ingest`. */
     val timeline = io.yamsergey.dta.daemon.timeline.Timeline(session = "t1")
     val timelineReads = java.util.concurrent.CopyOnWriteArrayList<String?>()
+    /** Feature 065: the opt-out each timeline call was made with. */
+    val timelineIgnored = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+    val sequenceIgnored = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+    val hiddenAsks = java.util.concurrent.atomic.AtomicInteger()
     /** When set, `timeline.events` fails with it (the summary must never fail a tool). */
     @Volatile var timelineFailure: Exception? = null
     override suspend fun timelineEvents(serial: String, pkg: String, since: String?, sinceMs: Long?, sources: Set<String>, kinds: Set<String>, limit: Int, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelinePage {
         timelineReads += since
+        timelineIgnored += ignoreSavedFilters
         timelineFailure?.let { throw it }
         return timeline.page(if (since == "end") timeline.end() else since, limit, sinceMs, sources, kinds)
     }
@@ -159,8 +164,16 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
             timelineLive.collect { e -> if ((sources.isEmpty() || e.source in sources) && (kinds.isEmpty() || e.kind in kinds)) emit(e) }
         }
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
-    override suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean) = io.yamsergey.dta.protocol.timeline.TimelineHidden()
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean) = sequence
+    /** Feature 065: what `timeline.hidden` answers; an opt-out answers nothing hidden. */
+    @Volatile var hidden = io.yamsergey.dta.protocol.timeline.TimelineHidden()
+    override suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelineHidden {
+        hiddenAsks.incrementAndGet()
+        return if (ignoreSavedFilters) io.yamsergey.dta.protocol.timeline.TimelineHidden(hidden.saved?.copy(ignored = true, hidden = null)) else hidden
+    }
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage {
+        sequenceIgnored += ignoreSavedFilters
+        return sequence
+    }
     private val flowStore by lazy { io.yamsergey.dta.daemon.timeline.FlowStore(java.nio.file.Files.createTempDirectory("test-flows").toFile()) }
     override suspend fun timelineFlowStart(serial: String, pkg: String, name: String?) = flowStore.start(serial, pkg, name, sequence.steps.lastOrNull()?.wallMs)
     override suspend fun timelineFlowEnd(serial: String, pkg: String) = flowStore.end(serial, pkg, sequence.steps.lastOrNull()?.wallMs)

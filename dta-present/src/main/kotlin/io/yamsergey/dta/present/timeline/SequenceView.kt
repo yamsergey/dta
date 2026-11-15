@@ -22,7 +22,10 @@ object SequenceText {
     }
 
     /** `⤷` says it has a recorded cause. */
-    fun label(s: SequenceStep): String = if (s.linked) "⤷ " + s.label.removePrefix("→ ") else s.label
+    fun label(s: SequenceStep): String = (if (s.linked) "⤷ " + s.label.removePrefix("→ ") else s.label) + if (s.notJudged) NOT_JUDGED else ""
+
+    /** Feature 065: Network's saved filters could not judge the row (its entry is no longer kept). */
+    const val NOT_JUDGED = " · not judged"
 
     /** What a hover says: the label and the longer text, without repeating; a flow holds a row by its time only. */
     fun hover(s: SequenceStep, flowNames: Map<String, String> = emptyMap()): String = (
