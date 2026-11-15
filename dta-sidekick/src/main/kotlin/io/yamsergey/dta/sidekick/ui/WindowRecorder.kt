@@ -350,9 +350,11 @@ class WindowRecorder(
         const val REMOVE_VIEW_BY_VIEW = "(Landroid/view/View;Z)V"
         private const val RECREATE_MS = 2_000L
         private const val COSTS_KEPT = 500
-        /** Dialogs (TYPE_APPLICATION) and sub-windows: the types a sheet comes as. */
+        /** Dialogs (TYPE_APPLICATION) and sub-windows: the types a sheet comes as. AppCompat dialogs
+         * put a sub-decor between the DecorView and the content: Material's design_bottom_sheet is 7–8 deep. */
         private val DIALOG_TYPES = setOf(2) + (1000..1999)
-        private const val TOP_LEVELS = 6
-        private const val TOP_VIEWS = 40
+        /** AppCompat dialogs put a sub-decor above the content: Material's design_bottom_sheet is 7–8 deep. */
+        private const val TOP_LEVELS = 10
+        private const val TOP_VIEWS = 60
     }
 }
