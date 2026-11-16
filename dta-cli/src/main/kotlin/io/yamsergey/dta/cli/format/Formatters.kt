@@ -40,7 +40,13 @@ class Formatters(private val style: Style) {
         "network.search" -> networkSearch(result.obj)
         "network.entry" -> networkEntry(result.obj)
         "network.body" -> body(result.obj)
-        "network.clear" -> "Cleared ${result.obj.long("clearedEntries")} entries."
+        "network.clear" -> "Cleared ${result.obj.long("clearedEntries")} entries." + (result.obj.obj("notKept")?.let { n ->
+            " ${n.long("entries")} entries and ${n.long("bodies")} bodies were not on this computer yet and are gone: ${n.str("reason")}."
+        } ?: "")
+        "network.history" -> history(result.obj)
+        "network.history.set" -> result.obj.let { o ->
+            "The device keeps ${bytes(o.long("keepBytes") ?: 0)} and warns above ${bytes(o.long("warnBytes") ?: 0)}; it removes what this computer archived, oldest first, until the history fits."
+        }
         "network.export" -> result.obj.let { o ->
             "Exported ${o.long("entries")} entries, ${o.long("webSocketMessages")} WebSocket messages and ${o.long("bodies")} bodies to ${o.str("file")}" +
                 (o.long("bodiesOmitted")?.takeIf { it > 0 }?.let { "; $it bodies left out (the file says why)" } ?: "") +
@@ -515,6 +521,45 @@ class Formatters(private val style: Style) {
                 }
             }
             append(style.paint("${bytes(o.long("bytes") ?: 0)} on disk; query with --archive, delete with dta archive delete", Token.INK_MUTED))
+        }
+    }
+
+    /** Feature 066: the app's history on the device and on this computer, and what deletes each archived part. */
+    private fun history(o: JsonObject): String = buildString {
+        val label = "%-15s"
+        fun span(from: Long?, to: Long?) = if (from == null) null else "${time(from)} – ${to?.let { time(it) } ?: "now"}"
+        val d = o.obj("device")
+        if (d == null) {
+            appendLine(label.format("Device") + "unknown: " + (o.str("deviceUnknown") ?: "not reported"))
+        } else {
+            val entries = d.long("entries") ?: 0
+            val share = d.long("archivedEntries")?.takeIf { entries > 0 }?.let { "${it * 100 / entries}% archived" }
+            appendLine(label.format("Device") + listOfNotNull("$entries entries", bytes(d.long("bytes") ?: 0), span(d.long("earliestMs"), d.long("latestMs")), share).joinToString(" · "))
+            appendLine(label.format("") + "keeps ${bytes(d.long("keepBytes") ?: 0)}, warns above ${bytes(d.long("warnBytes") ?: 0)}")
+            val reason = when (d.str("trimHeld")) {
+                "no-archive" -> "nothing archived yet"
+                "stale-archive" -> "nothing archived since ${time(d.long("lastArchivedMs"))}"
+                "unarchived" -> "what is over the budget is not archived yet"
+                else -> null
+            }
+            if (d.bool("overWarning")) appendLine(label.format("") + style.mark(StatementKind.EVICTED, "over its warning size" + (reason?.let { ": $it" } ?: "")))
+            else reason?.let { appendLine(label.format("") + style.paint("over its budget: $it", Token.INK_MUTED)) }
+        }
+        val a = o.obj("archive") ?: JsonObject(emptyMap())
+        val since = a.long("earliestMs")?.let { "since ${time(it)}" }
+        val hostOnly = o.long("hostOnly")?.takeIf { it > 0 }?.let { "$it kept here only" }
+        append(label.format("This computer") + listOfNotNull("${a.long("entries") ?: 0} entries", bytes(a.long("bytes") ?: 0), since, hostOnly).joinToString(" · "))
+        a.arr("installations").forEach { i ->
+            val inst = i.obj
+            val version = listOfNotNull(inst.str("versionName"), inst.long("versionCode")?.let { "($it)" }).joinToString(" ").ifEmpty { "unknown version" }
+            append("\n  $version  install ${inst.long("id")}")
+            inst.arr("epochs").forEach { e ->
+                val ep = e.obj
+                val closed = ep.long("closedMs")
+                val state = if (closed == null) style.paint("live", Token.ACCENT) else ep.str("reason")?.replace('-', ' ') ?: "archived"
+                val delete = if (closed == null) "" else "  " + style.paint("delete: dta archive delete --epoch ${ep.str("id")}", Token.INK_MUTED)
+                append("\n    ${time(ep.long("openedMs"))} → ${closed?.let { time(it) } ?: "now"}  $state  ${ep.long("entries")} entries  ${bytes(ep.long("bytes") ?: 0)}$delete")
+            }
         }
     }
 
