@@ -65,6 +65,12 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     /** Journal lines that cannot be read right now: being written, or cut by a crash. They count as lines (feature 046). */
     val cutLines = HashSet<Int>()
 
+    /** Feature 066: acknowledgements received, whether the app is too old to take them, what it says it removed. */
+    val acks = mutableListOf<io.yamsergey.dta.protocol.network.ArchiveAck>()
+    var acksUnsupported = false
+    var entriesOverride: Int? = null
+    var archivedOnly: Map<String, Int>? = null
+
     fun record(entry: NetworkEntry) = records.add(entry)
 
     /** The journal returned to its first [lines] lines, with the same id: an emulator snapshot (feature 046). */
@@ -80,7 +86,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
 
     private fun latest(): List<NetworkEntry> = LinkedHashMap<String, NetworkEntry>().apply { records.filter { it.id !in evicted }.forEach { put(it.id, it) } }.values.toList()
 
-    fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted, earliestMs = latest().minOfOrNull { it.timeMs }.takeIf { evicted.isNotEmpty() }, evicted = evicted.size), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
+    fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted, earliestMs = latest().minOfOrNull { it.timeMs }.takeIf { evicted.isNotEmpty() }, evicted = evicted.size, archivedOnly = archivedOnly), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
 
     /** The sidekick's own answer over the same history: the reference the host must equal. */
     fun deviceAnswer(query: NetworkQuery): NetworkPage = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context, bodyBytes = { e, part ->
@@ -98,7 +104,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
         requests += method
         fun str(k: String) = (params?.get(k) as? JsonPrimitive)?.content
         return when (method) {
-            "network_identity" -> RpcResult(DtaJson.encodeToJsonElement(JournalIdentityResult.serializer(), JournalIdentityResult(journalId, reason, latest().size, persisted, context())))
+            "network_identity" -> RpcResult(DtaJson.encodeToJsonElement(JournalIdentityResult.serializer(), JournalIdentityResult(journalId, reason, entriesOverride ?: latest().size, persisted, context())))
             "network_journal" -> {
                 // As the sidekick does: positions are segment:line, unreadable and evicted lines are counted and skipped.
                 val after = str("after")
@@ -122,6 +128,11 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
             "network_list" -> {
                 listCalls++
                 RpcResult(DtaJson.encodeToJsonElement(NetworkPage.serializer(), deviceAnswer(NetworkQuery.parse(params))))
+            }
+            "network_archived" -> {
+                if (acksUnsupported) throw io.yamsergey.dta.daemon.connection.SidekickRpcException(io.yamsergey.dta.protocol.rpc.ErrorCodes.METHOD_NOT_FOUND, "Unknown method: network_archived")
+                acks += DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.ArchiveAck.serializer(), params!!)
+                RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ArchiveAckResult.serializer(), io.yamsergey.dta.protocol.network.ArchiveAckResult(true)))
             }
             "identity" -> RpcResult(DtaJson.encodeToJsonElement(IdentityReport.serializer(), IdentityReport(PROTOCOL_VERSION, "0.11.0", "io.example", emptyList(), installation)))
             else -> error("unexpected $method")

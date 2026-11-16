@@ -70,6 +70,13 @@ class ArchivingStoppedException(message: String) : Exception(message)
 class HostStore(private val root: File, private val bodies: BodyStore = FileBodyStore(File(root, "bodies"))) : AutoCloseable {
     private val db: Connection
 
+    /** Feature 066: this DTA home's stable id, told to devices with what it archived. */
+    val hostId: String by lazy {
+        val file = File(root, "host-id")
+        runCatching { file.readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
+            ?: java.util.UUID.randomUUID().toString().also { id -> runCatching { file.writeText(id); ownerOnly(file, directory = false) } }
+    }
+
     /** Set once archiving failed for lack of space or a write error; stated in every result. */
     @Volatile
     var archivingStopped: String? = null

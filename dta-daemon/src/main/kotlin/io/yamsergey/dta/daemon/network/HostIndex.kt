@@ -35,6 +35,7 @@ import io.yamsergey.dta.protocol.rpc.DegradationMarker
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -67,6 +68,11 @@ class HostIndex(
     private var lag = 0L
     /** Entries the device cleared that the host never read, known when the clear went through the daemon. */
     private var neverReceived = 0
+    /** Feature 066: entries the device holds (its identity), when the last acknowledgement went, why none goes. */
+    private var deviceEntries = 0
+    private var lastAckMs: Long? = null
+    private var archiveHeld: String? = null
+    private var ackUnsupported = false
 
     private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, ::hostBodyBytes,
         { entry, part -> decodedJson(entry, part, epoch?.id, live::get) }, readEnvelope)
@@ -84,8 +90,46 @@ class HostIndex(
                 bodiesNotArchived = epoch?.let { store.countNotArchived(it.id) }?.takeIf { it > 0 },
                 archivedEpochs = store.archivedCount(device.key, packageName).takeIf { it > 0 },
                 archivingStopped = store.archivingStopped,
+                hostOnly = (live.size - deviceEntries).toLong().takeIf { lag == 0L && it > 0 },
+                archivedByOther = page.coverage.archivedOnly?.filterKeys { it != store.hostId }?.values?.sum()?.takeIf { it > 0 },
+                archiveHeld = archiveHeld,
             ),
         )
+    }
+
+    /** Feature 066: tell the device now what is archived (after the copy worker copied bodies). */
+    suspend fun acknowledgeNow() = mutex.withLock { runCatching { connection() }.getOrNull()?.let { acknowledge(it, force = true) } }
+
+    /**
+     * Feature 066 (research R1): what this computer has archived, so the device may remove it:
+     * the cursor of the last complete catch-up, less the entries whose bodies are not copied yet.
+     * None while the copy is far behind or the archive stopped, said in [archiveHeld]; at most one
+     * every [ACK_EVERY_MS] unless [force]. A failure never fails the answer.
+     */
+    private suspend fun acknowledge(app: AppConnection, force: Boolean = false) {
+        if (ackUnsupported) return
+        val now = clock()
+        if (!force && lastAckMs?.let { now - it < ACK_EVERY_MS } == true) return
+        val cursor = store.cursor(device.key, packageName) ?: return
+        val position = cursor.position ?: return
+        if (store.archivingStopped != null) { archiveHeld = "archive-stopped"; return }
+        val keep = pending().map { it.entryId }.distinct()
+        if (keep.size > MAX_KEEP) { archiveHeld = "copy-behind"; return }
+        archiveHeld = null
+        lastAckMs = now
+        try {
+            app.request(
+                "network_archived",
+                DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ArchiveAck.serializer(),
+                    io.yamsergey.dta.protocol.network.ArchiveAck(cursor.journalId, store.hostId, position, keep)).jsonObject,
+            )
+        } catch (e: io.yamsergey.dta.daemon.connection.SidekickRpcException) {
+            if (e.code == io.yamsergey.dta.protocol.rpc.ErrorCodes.METHOD_NOT_FOUND) { ackUnsupported = true; archiveHeld = "old-library" }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Sent again with the next answer.
+        }
     }
 
     /** Feature 040: the entries with search hits, over the host copy (live or archived). */
@@ -219,6 +263,7 @@ class HostIndex(
         val identity = DtaJson.decodeFromJsonElement(JournalIdentityResult.serializer(), app.request("network_identity"))
         if (!identity.persisted) return false
         context = identity.context
+        deviceEntries = identity.entries
         var current = currentEpoch(app, identity)
         val saved = store.cursor(device.key, packageName)
         var position = saved?.position
@@ -258,6 +303,7 @@ class HostIndex(
             store.setCursor(device.key, packageName, identity.journalId, position, lastId)
             if (page.end) {
                 lag = 0
+                acknowledge(app)
                 return true
             }
         }
@@ -274,13 +320,15 @@ class HostIndex(
      */
     private suspend fun continuity(app: AppConnection, line: String, lastId: String?, first: String?, identity: JournalIdentityResult): Continuity {
         val coverage = identity.context.coverage
+        // Feature 066: entries the device removed after archiving are gone the same way as evicted ones.
+        val removed = coverage.evicted + (coverage.archivedOnly?.values?.sum() ?: 0)
         if (lastId == null) {
             // A position from before the record was remembered: only one beyond the journal shows.
-            return if (first == null && coverage.evicted == 0) Continuity.ROLLED_BACK else Continuity.GOES_ON
+            return if (first == null && removed == 0) Continuity.ROLLED_BACK else Continuity.GOES_ON
         }
         if (first == lastId) return Continuity.SAME
         val time = live[lastId]?.timeMs
-        val evicted = coverage.evicted > 0 && (coverage.earliestMs == null || time == null || time <= coverage.earliestMs!!)
+        val evicted = removed > 0 && (coverage.earliestMs == null || time == null || time <= coverage.earliestMs!!)
         if (evicted) return Continuity.GOES_ON
         // That line was cut when read (being written, or a crash): the record is one line earlier.
         val earlier = previousLine(line) ?: return Continuity.ROLLED_BACK
@@ -429,6 +477,9 @@ class HostIndex(
 
     companion object {
         private const val CHUNK = 256L * 1024
+        /** Feature 066: acknowledgements at most this often per app, and at most this many entries kept for their bodies. */
+        const val ACK_EVERY_MS = 10_000L
+        const val MAX_KEEP = 2_000
 
         /**
          * Feature 040: the app answers a list itself — given the filters every app version knows;

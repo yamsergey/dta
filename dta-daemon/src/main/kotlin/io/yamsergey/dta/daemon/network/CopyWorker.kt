@@ -42,6 +42,8 @@ class CopyWorker(
                 return copied
             }
         }
+        // Feature 066: the device may now remove what these bodies held back.
+        if (copied > 0) index.acknowledgeNow()
         return copied
     }
 
