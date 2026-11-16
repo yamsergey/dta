@@ -289,6 +289,7 @@ class NetworkStore(
             warnBytes = warnBytes(),
             trimHeld = trimHeld(),
             lastArchivedMs = state.ack?.atMs,
+            archivedThrough = state.ack?.through,
             archivedOnly = state.archivedOnly.takeIf { it.isNotEmpty() },
         )
     }

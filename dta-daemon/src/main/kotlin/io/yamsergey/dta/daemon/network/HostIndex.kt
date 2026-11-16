@@ -407,6 +407,8 @@ class HostIndex(
             return if (first == null && removed == 0) Continuity.ROLLED_BACK else Continuity.GOES_ON
         }
         if (first == lastId) return Continuity.SAME
+        // Feature 066: the device removed what this computer archived up to there; a missing line is that, not a rollback.
+        coverage.archivedThrough?.let { through -> if (cursorAtOrBefore(line, through)) return Continuity.GOES_ON }
         val time = live[lastId]?.timeMs
         val evicted = removed > 0 && (coverage.earliestMs == null || time == null || time <= coverage.earliestMs!!)
         if (evicted) return Continuity.GOES_ON
@@ -429,6 +431,14 @@ class HostIndex(
         store.setCursor(device.key, packageName, identity.journalId, null)
         epoch = opened
         return opened
+    }
+
+    /** True when `segment:line` [position] is at or before [other]. */
+    private fun cursorAtOrBefore(position: String, other: String): Boolean {
+        fun parts(p: String) = p.split(':').takeIf { it.size == 2 }?.let { (s, l) -> (s.toIntOrNull() ?: return null) to (l.toIntOrNull() ?: return null) }
+        val (a, b) = parts(position) ?: return false
+        val (c, d) = parts(other) ?: return false
+        return a < c || (a == c && b <= d)
     }
 
     /** The position one line earlier, for a `segment:line` position; null when there is none. */

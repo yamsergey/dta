@@ -75,6 +75,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     var deviceBytes = 10_000L
     /** Feature 066: an app from before the device history settings reports none. */
     var reportsSize = true
+    var archivedThrough: String? = null
 
     fun record(entry: NetworkEntry) = records.add(entry)
 
@@ -92,7 +93,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     private fun latest(): List<NetworkEntry> = LinkedHashMap<String, NetworkEntry>().apply { records.filter { it.id !in evicted }.forEach { put(it.id, it) } }.values.toList()
 
     fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted, earliestMs = latest().minOfOrNull { it.timeMs }.takeIf { evicted.isNotEmpty() }, evicted = evicted.size, archivedOnly = archivedOnly,
-        deviceBytes = deviceBytes.takeIf { reportsSize }, keepBytes = keep.takeIf { reportsSize }, warnBytes = warn.takeIf { reportsSize }), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
+        deviceBytes = deviceBytes.takeIf { reportsSize }, archivedThrough = archivedThrough, keepBytes = keep.takeIf { reportsSize }, warnBytes = warn.takeIf { reportsSize }), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
 
     /** The sidekick's own answer over the same history: the reference the host must equal. */
     fun deviceAnswer(query: NetworkQuery): NetworkPage = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context, bodyBytes = { e, part ->

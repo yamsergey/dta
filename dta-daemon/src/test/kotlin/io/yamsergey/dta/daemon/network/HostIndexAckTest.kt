@@ -103,4 +103,23 @@ class HostIndexAckTest {
         assertEquals(3, coverage.archivedByOther)
         assertEquals(6, host.list(NetworkQuery()).entries.size, "every entry is still listed")
     }
+
+    @Test
+    fun `lines the device removed after this computer archived them are not a rollback`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        repeat(6) { http(app, it + 1) }
+        val s = store()
+        val host = index(app, s)
+        host.list(NetworkQuery())
+        // The device removed everything archived: those lines read as nothing now.
+        app.cutLines += 0 until 6
+        app.archivedOnly = mapOf(s.hostId to 6)
+        app.archivedThrough = "0:6"
+        app.entriesOverride = 1
+        http(app, 7)
+        val page = host.list(NetworkQuery())
+        assertEquals(7, page.entries.size, "the live history goes on: ${page.entries.map { it.id }}")
+        assertNull(page.coverage.archivedEpochs, "no epoch was closed as rolled back")
+        assertEquals(6L, page.coverage.hostOnly)
+    }
 }

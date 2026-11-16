@@ -508,6 +508,8 @@ data class Coverage(
     val trimHeld: String? = null,
     /** When the device last accepted an acknowledgement from a computer. */
     val lastArchivedMs: Long? = null,
+    /** The journal position up to which the device may have removed what a computer archived (`segment:line`). */
+    val archivedThrough: String? = null,
     /** Entries the device removed after a computer archived them, by that computer's id. */
     val archivedOnly: Map<String, Int>? = null,
     /** Entries the device removed after another computer archived them (they are not here). */
