@@ -367,23 +367,36 @@ class NetworkStore(
         if (!persisted || reading()) return
         val (ack, keep) = synchronized(lock) { (state.ack ?: return) to keepBytes() }
         if (diskBytes.get() <= keep) return
-        val throughSegment = runCatching { parseCursor(ack.through).first }.getOrNull() ?: return
+        val (throughSegment, throughLine) = runCatching { parseCursor(ack.through) }.getOrNull() ?: return
         val keepIds = ack.keep.toHashSet()
         synchronized(writeLock) {
-            val candidates = segmentIds.keys.filter { it != segment && (segmentIndex(it) ?: Int.MAX_VALUE) < throughSegment }
+            // The computer has read into the segment being written: the next records go to a new
+            // one, so this one can go once it is read to its end (bodies are large, records small:
+            // a whole history's records can sit in one segment).
+            if (segment != null && segmentIndex(segment!!) == throughSegment && throughLine > 0) {
+                runCatching { segmentWriter?.close() }
+                segmentIds[segment!!]?.compact()
+                segmentWriter = null
+                segment = null
+            }
+            val candidates = segmentIds.keys.filter { it != segment && (segmentIndex(it) ?: Int.MAX_VALUE) <= throughSegment }
                 .sortedBy { segmentIndex(it) }
             if (candidates.isEmpty()) return
             for (file in candidates) {
                 if (diskBytes.get() <= keep) break
                 val index = segmentIndex(file) ?: continue
                 val latest = LinkedHashMap<String, NetworkEntry>()
+                var lines = 0
                 runCatching {
                     file.forEachLine { line ->
+                        lines++
                         if (line.isBlank()) return@forEachLine
                         runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()
                             ?.takeUnless { isEvicted(it.id) }?.let { latest[it.id] = it }
                     }
                 }.onFailure { return }
+                // The cursor's own segment only when the computer read all of it.
+                if (index == throughSegment && lines > throughLine) break
                 val later = segmentIds.entries.filter { (f, _) -> (segmentIndex(f) ?: 0) > index }.map { it.value }
                 var removed = 0
                 for ((id, entry) in latest) {

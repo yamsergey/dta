@@ -148,9 +148,9 @@ class NetworkStoreArchiveTrimTest {
         val ids = List(10) { withBody(s).id }
         s.flush()
         s.setBudgetForTest(1_000)
-        ack(s, through = "4:1")
+        ack(s, through = "4:0")
         s.trimNow()
-        assertEquals(ids.take(3), ids.filter { s.get(it) == null }, "only segments 1–3, before the host's cursor segment")
+        assertEquals(ids.take(3), ids.filter { s.get(it) == null }, "only segments 1–3, before the host's cursor")
         assertEquals("unarchived", s.coverage().trimHeld)
     }
 
@@ -261,6 +261,38 @@ class NetworkStoreArchiveTrimTest {
         s.trimNow()
         assertEquals(ids.drop(4), s.journal(after = null, limit = 100).records.map { it.id })
         assertEquals(ids.drop(5), s.journal(after = "5:1", limit = 100).records.map { it.id }, "the host's cursor still resumes")
+    }
+
+    @Test
+    fun `records small and bodies large in one segment - it is closed and removed once read to its end`() {
+        val s = store()
+        val ids = List(6) { withBody(s, bytes = 20_000).id }
+        s.flush()
+        assertEquals(1, s.segmentIdsForTest().size, "all records in the segment being written")
+        s.setBudgetForTest(1_000)
+        ack(s, through = "1:6")
+        s.trimNow()
+        assertTrue(ids.all { s.get(it) == null }, "the whole segment went")
+        assertTrue(s.diskBytes() < 1_000)
+        val more = withBody(s, bytes = 100).id
+        assertNotNull(s.get(more), "capture goes on in a new segment")
+    }
+
+    @Test
+    fun `the cursor's own segment stays while the computer has not read all of it`() {
+        val s = store()
+        val ids = List(4) { withBody(s).id }
+        s.flush()
+        s.setBudgetForTest(1_000)
+        ack(s, through = "1:2")
+        s.trimNow()
+        assertTrue(ids.all { s.get(it) != null }, "two records not read yet")
+        val later = List(2) { withBody(s).id }
+        s.flush()
+        ack(s, through = "2:1")
+        s.trimNow()
+        assertTrue(ids.all { s.get(it) == null }, "segment 1 went once read past")
+        later.forEach { assertNotNull(s.get(it), "segment 2 is not read to its end") }
     }
 
     // ---- C1: the start warning ------------------------------------------------------------
