@@ -27,8 +27,10 @@ class NetworkStoreJournalTest {
     @AfterEach
     fun close() = opened.forEach { it.close() }
 
+    /** A store once it has read the earlier runs (NetworkStoreTest covers the time before). */
     private fun store(pid: Int = 42, window: Int = 3, root: File? = dir) =
-        NetworkStore(root?.let { StorageDir(it) }, pid = pid, clock = { now++ }, recentWindow = window).also { opened += it }
+        NetworkStore(root?.let { StorageDir(it) }, pid = pid, clock = { now++ }, recentWindow = window)
+            .also { opened += it; assertTrue(it.awaitLoaded()) }
 
     private fun http(s: NetworkStore, state: HttpState = HttpState.COMPLETE, id: String = s.nextId()) =
         HttpEntry(id = id, runId = s.runId, timeMs = now++, library = "okhttp3", method = "GET", url = "http://h/$id", state = state)

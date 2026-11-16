@@ -486,6 +486,11 @@ data class Coverage(
     val clearedAtMs: Long? = null,
     /** Journal records on the device the host has not indexed yet (feature 011). */
     val hostLagRecords: Long? = null,
+    /**
+     * True while the app is still reading its earlier runs' journal after its start: the counts
+     * (stored, earliest, runs) are not complete yet, and nothing new is in the journal until then.
+     */
+    val deviceReading: Boolean? = null,
     /** Finished bodies not yet copied to the host. */
     val bodiesPending: Int? = null,
     /** Bodies that will never be on the host (gone from the device before the copy). */

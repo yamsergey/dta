@@ -31,6 +31,7 @@ class NetworkStoreTest {
     @AfterEach
     fun closeStores() = opened.forEach { it.close() }
 
+    /** A store once it has read the earlier runs (the test of the read itself builds its own). */
     private fun store(
         root: File? = dir,
         queueCapacity: Int = 10_000,
@@ -44,7 +45,7 @@ class NetworkStoreTest {
         queueCapacity = queueCapacity,
         startWriter = startWriter,
         bounds = bounds,
-    ).also { opened += it }
+    ).also { opened += it; assertTrue(it.awaitLoaded()) }
 
     private fun http(store: NetworkStore, url: String = "http://h/x", state: HttpState = HttpState.PENDING): HttpEntry =
         HttpEntry(id = store.nextId(), runId = store.runId, timeMs = now++, library = "okhttp3", method = "GET", url = url, state = state)
@@ -214,6 +215,7 @@ class NetworkStoreTest {
 
     // ---- persistence (US5) ----------------------------------------------------------
 
+    /** A new process on the same storage, once it has read the earlier runs. */
     private fun restart(s: NetworkStore, pid: Int = 43, bounds: StoreBounds = StoreBounds()): NetworkStore {
         s.close()
         now += 1000
@@ -234,6 +236,43 @@ class NetworkStoreTest {
         assertEquals(RunEnd.PROCESS_ENDED, runs[0].ended)
         assertEquals(old.timeMs, runs[0].endedAtMs)
         assertNull(runs[1].ended)
+    }
+
+    /**
+     * A large history held the app's start past Android's limit (`failed to complete startup`):
+     * it was read in the constructor, on the main thread. Now it is read on the writer thread.
+     */
+    @Test
+    fun `the history is read after the constructor returns, and capture goes on meanwhile`() {
+        val first = store()
+        val old = http(first, state = HttpState.COMPLETE)
+        val unfinished = http(first)
+        first.upsert(old)
+        first.upsert(unfinished)
+        first.close()
+        now += 1000
+        val reading = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val second = NetworkStore(StorageDir(dir), pid = 43, clock = { now++ }, beforeLoad = { reading.countDown(); release.await() })
+            .also { opened += it }
+        assertTrue(reading.await(5, java.util.concurrent.TimeUnit.SECONDS), "the history is read on its own thread")
+        val fresh = http(second)
+        assertEquals(EntryChange.CREATED, second.upsert(fresh))
+        assertEquals(fresh.id, second.get(fresh.id)?.id)
+        // Nobody waits for the read: the host is answered at once, and told the counts are not complete.
+        assertEquals(true, second.coverage().deviceReading)
+        assertEquals(listOf(old.id, unfinished.id), second.journal(null, 10).records.map { it.id })
+        assertEquals(HttpState.PROCESS_ENDED, (second.get(unfinished.id) as HttpEntry).state, "its process is gone")
+        release.countDown()
+        assertTrue(second.awaitLoaded(5_000))
+        assertEquals(listOf(old.id, unfinished.id, fresh.id), second.list(order = Order.OLDEST_FIRST, limit = 10).entries.map { it.id })
+        assertEquals(3, second.coverage().stored)
+        assertNull(second.coverage().deviceReading)
+        assertEquals(HttpState.PROCESS_ENDED, (second.get(unfinished.id) as HttpEntry).state)
+        // The live run's records go after the earlier runs' segments, never over them.
+        second.flush()
+        val third = restart(second, pid = 44)
+        assertEquals(listOf(old.id, unfinished.id, fresh.id), third.list(order = Order.OLDEST_FIRST, limit = 10).entries.map { it.id })
     }
 
     @Test

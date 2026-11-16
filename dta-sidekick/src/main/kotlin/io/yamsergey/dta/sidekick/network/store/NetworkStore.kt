@@ -94,6 +94,8 @@ class NetworkStore(
     val bounds: StoreBounds = StoreBounds(),
     /** Finished entries held in memory besides the in-flight ones. */
     private val recentWindow: Int = 2_000,
+    /** Runs on the writer thread just before the earlier runs are read (tests hold the read with it). */
+    private val beforeLoad: () -> Unit = {},
 ) {
     private val storage: StorageDir? = storage?.takeIf { it.prepare() }
 
@@ -131,13 +133,44 @@ class NetworkStore(
     /** Per segment: the newest entry id recorded in it (all older ones are older). */
     private val segmentNewest = LinkedHashMap<File, String>()
     private val diskBytes = AtomicLong()
+    /** Open once the earlier runs are read (at once without storage). */
+    private val loaded = java.util.concurrent.CountDownLatch(1)
 
+    /**
+     * Only the small state file is read here: the store is made during the app's start, on its
+     * main thread. The earlier runs' journal (it can be gigabytes) is read on the writer thread,
+     * under [writeLock], so nothing is written before the last segment's index is known; capture
+     * meanwhile only queues. Queries that need the counters wait for it ([awaitLoaded]).
+     */
     init {
-        if (persisted) load() else newJournal("storage-new")
-        if (startWriter && persisted) {
-            writer = thread(isDaemon = true, name = "dta-network-store") { writerLoop() }
+        if (persisted) readState() else newJournal("storage-new")
+        when {
+            !persisted -> loaded.countDown()
+            startWriter -> writer = thread(isDaemon = true, name = "dta-network-store") {
+                try {
+                    synchronized(writeLock) {
+                        beforeLoad()
+                        load()
+                    }
+                } catch (_: InterruptedException) {
+                    return@thread
+                } finally {
+                    loaded.countDown()
+                }
+                // What arrived while reading was kept whole; the window applies again from here.
+                synchronized(lock) { trimWindow() }
+                writerLoop()
+            }
+            else -> {
+                load()
+                loaded.countDown()
+            }
         }
     }
+
+    /** Waits until the earlier runs are read; false when [timeoutMs] passed first. */
+    fun awaitLoaded(timeoutMs: Long = LOAD_WAIT_MS): Boolean =
+        runCatching { loaded.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) }.getOrDefault(false)
 
     fun nextId(): String = "$runId:${seq.incrementAndGet()}"
 
@@ -167,7 +200,10 @@ class NetworkStore(
             entries[id]?.let { return it }
             if (!persisted || isEvicted(id)) return null
         }
-        return fromJournal(id)
+        // The live run's entries stay in memory until the earlier runs are read (trimWindow), so
+        // capture never waits here; an earlier run's entry is asked for by a host, which may wait.
+        if (reading() && idParts(id)?.first == runId) return null
+        return fromJournal(id)?.let { if (it.runId != runId && inFlight(it)) endedByProcessDeath(it) else it }
     }
 
     /** Entries held in memory now: in flight plus the recent window (everything without storage). */
@@ -227,8 +263,12 @@ class NetworkStore(
             persisted = persisted,
             runs = runs(),
             clearedAtMs = state.clearedAtMs,
+            deviceReading = reading().takeIf { it },
         )
     }
+
+    /** Still reading the earlier runs: the counters are not complete, nothing is written yet. */
+    private fun reading(): Boolean = loaded.count > 0
 
     /** Which journal this is, and why it is new in this process (feature 011). */
     fun identity(): JournalIdentity = synchronized(lock) { JournalIdentity(state.journalId!!, journalReason, stored, persisted) }
@@ -327,6 +367,7 @@ class NetworkStore(
      * @return how many entries were removed.
      */
     fun clear(): Int {
+        awaitLoaded()
         val removed = synchronized(lock) {
             val count = stored
             entries.clear()
@@ -353,7 +394,15 @@ class NetworkStore(
     }
 
     /** Writes everything queued so far (the writer thread does this continuously). */
-    fun flush() = synchronized(writeLock) {
+    fun flush() {
+        // Before the earlier runs are read nothing can be written (the next segment's index is
+        // not known yet). A small history is read in milliseconds; a large one is not waited
+        // for longer than FLUSH_WAIT_MS: what is queued is written by the writer once it is read.
+        if (!awaitLoaded(FLUSH_WAIT_MS)) return
+        flushQueued()
+    }
+
+    private fun flushQueued() = synchronized(writeLock) {
         while (true) write(queue.poll() ?: break)
         runCatching { segmentWriter?.flush() }
         Unit
@@ -441,7 +490,9 @@ class NetworkStore(
 
     /** Drops the oldest finished entries beyond the window; they stay in the journal. */
     private fun trimWindow() {
-        if (!persisted || finishedInMemory <= recentWindow) return
+        // Not while the earlier runs are read: the journal is not written then, so [get] must find
+        // the live run's entries in memory.
+        if (!persisted || finishedInMemory <= recentWindow || reading()) return
         val iterator = entries.values.iterator()
         while (finishedInMemory > recentWindow && iterator.hasNext()) {
             val e = iterator.next()
@@ -480,12 +531,27 @@ class NetworkStore(
 
     // ---- loading ---------------------------------------------------------------------
 
-    private fun load() {
-        val dir = storage ?: return
+    /** The journal's identity and eviction watermark: one small file, read in the constructor. */
+    private fun readState() {
         try {
             val stateFile = stateFile()?.takeIf { it.isFile }
             state = stateFile?.let { DtaJson.decodeFromString(StoreState.serializer(), it.readText()) } ?: StoreState()
             if (stateFile == null || state.journalId == null) newJournal("storage-new")
+        } catch (_: Throwable) {
+            if (state.journalId == null) newJournal("storage-new")
+        }
+    }
+
+    /**
+     * Counts the earlier runs (on the writer thread, while capture goes on): the counters are
+     * kept locally and added under [lock] at the end, the earlier runs' being older than the live run's.
+     */
+    private fun load() {
+        val dir = storage ?: return
+        var stored = 0
+        var earliestMs: Long? = null
+        val runLastTime = LinkedHashMap<String, Long>()
+        try {
             // Counted, not held: the entries stay in the journal (feature 011 US1).
             val seen = HashMap<String, java.util.BitSet>()
             val pending = LinkedHashMap<String, NetworkEntry>()
@@ -516,7 +582,12 @@ class NetworkStore(
             pending.values.forEach { enqueue(EntryRecord(endedByProcessDeath(it))) }
         } catch (_: Throwable) {
             // A history that cannot be read is not a reason to stop capturing.
-            if (state.journalId == null) newJournal("storage-new")
+        } finally {
+            synchronized(lock) {
+                this.stored += stored
+                if (earliestMs != null) this.earliestMs = earliestMs
+                runLastTime.forEach { (run, time) -> this.runLastTime[run] = maxOf(this.runLastTime[run] ?: 0, time) }
+            }
         }
     }
 
@@ -665,6 +736,10 @@ class NetworkStore(
     private companion object {
         val RUN_ID = Regex("""r(\d+)-(\d+)""")
         val SEGMENT = Regex("""seg-(\d+)\.jsonl""")
+        /** How long a query waits for the earlier runs to be read before answering with what is counted. */
+        const val LOAD_WAIT_MS = 30_000L
+        /** How long [flush] (a host's read of the journal) waits for the earlier runs: under the host's 10 s. */
+        const val FLUSH_WAIT_MS = 2_000L
     }
 }
 
