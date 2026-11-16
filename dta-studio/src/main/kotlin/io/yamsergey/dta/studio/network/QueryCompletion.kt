@@ -22,7 +22,7 @@ import io.yamsergey.dta.protocol.network.RecentFilter
 /**
  * Feature 063: the query line's suggestions through the IDE's own completion. What is offered and how
  * it is inserted stay in [QueryLineModel] (one source); this only maps them to lookup items.
- * [input] is read on each completion (hosts seen, the app's recent filters, the kind switch);
+ * [input] is read on each completion (hosts seen, the app's recent and saved filters, the kind switch);
  * [recentChosen] gets a recent filter, which becomes a chip instead of text.
  */
 class QueryCompletion(
@@ -30,7 +30,7 @@ class QueryCompletion(
     private val recentChosen: (String) -> Unit,
 ) : TextCompletionProvider, DumbAware {
 
-    data class Input(val seen: Seen = Seen(), val recent: List<RecentFilter> = emptyList(), val kind: KindChoice = KindChoice.ALL)
+    data class Input(val seen: Seen = Seen(), val recent: List<RecentFilter> = emptyList(), val kind: KindChoice = KindChoice.ALL, val saved: List<String> = emptyList())
 
     /** In place of the IDE's random completion tip, which is about code (063). */
     override fun getAdvertisement(): String = "Enter with no list open saves the filters as chips"
@@ -89,6 +89,6 @@ class QueryCompletion(
                 .invokeCompletion(project, editor, 0)
 
         fun suggestions(input: Input, text: String, caret: Int, explicit: Boolean): List<Suggestion> =
-            QueryLineModel(text).suggestions(caret, input.seen, input.recent, kind = input.kind, explicit = explicit)
+            QueryLineModel(text).suggestions(caret, input.seen, input.recent, kind = input.kind, explicit = explicit, saved = input.saved)
     }
 }

@@ -74,4 +74,11 @@ class QueryCompletionTest : BasePlatformTestCase() {
         assertEquals("", text())
         assertEquals(listOf("host:api.example.test"), chips)
     }
+
+    fun `test the saved filters and the line's own words are not offered`() {
+        input = input.copy(saved = listOf("-host:api.example.test"))
+        line("-host:<caret>")
+        myFixture.completeBasic()
+        assertEquals("-host:cdn.example.test ", text()) // the one host left is inserted at once
+    }
 }

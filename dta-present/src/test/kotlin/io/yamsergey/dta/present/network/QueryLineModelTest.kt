@@ -67,6 +67,29 @@ class QueryLineModelTest {
     }
 
     @Test
+    fun `what the line or the saved filters already hold is not offered again`() {
+        val seen = Seen(hosts = setOf("api.example.test", "cdn.example.test"))
+        // A value already in the line, typed again: not offered.
+        assertEquals(listOf("-host:cdn.example.test"), line("-host:api.example.test -host:").suggestions(29, seen).map { it.text })
+        // A saved filter (a chip) is not offered as a value or as a recent one.
+        val saved = listOf("-host:api.example.test", "status:4xx")
+        assertEquals(listOf("-host:cdn.example.test"), line("-host:").suggestions(6, seen, saved = saved).map { it.text })
+        val recent = listOf(RecentFilter("-host:api.example.test", 1000), RecentFilter("-url:/health", 900))
+        assertEquals(listOf("-url:/health"), line("").suggestions(0, recent = recent, saved = saved, nowMs = 2000).filter { it.recent }.map { it.text })
+        // A key that takes one value, already given in the line: neither the key nor its values (the line would refuse it).
+        assertTrue(line("status:4xx st").suggestions(13).none { it.text == "status:" })
+        assertTrue(line("status:4xx -st").suggestions(14).any { it.text == "-status:" }, "an exclusion of the same key is still fine")
+        assertTrue(line("GET P").suggestions(5).none { it.text in setOf("POST", "PUT", "PATCH") }, "a second method would be refused")
+        assertTrue(line("http w").suggestions(6).none { it.text == "ws" })
+        // Duration and size take a lower and an upper bound.
+        assertTrue(line("duration:>1s du").suggestions(15).any { it.text == "duration:" })
+        // The word being typed is not a word already there.
+        assertEquals(listOf("status:4xx"), line("status:4").suggestions(8).map { it.text })
+        // Every key listed on an empty line or on Down leaves out the ones already given.
+        assertTrue(line("status:4xx ").suggestions(11, explicit = true).none { it.text == "status:" })
+    }
+
+    @Test
     fun `the word at the caret and what follows an inserted suggestion (063)`() {
         assertEquals("sta", QueryLineModel.word("POST sta", 8))
         assertEquals("st", QueryLineModel.word("POST sta", 7))

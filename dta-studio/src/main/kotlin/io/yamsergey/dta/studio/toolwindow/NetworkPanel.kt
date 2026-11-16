@@ -570,7 +570,7 @@ class NetworkPanel(
 
     /** What completion reads: hosts, statuses and methods seen in the list, the app's recent filters, the kind switch. */
     private fun refreshCompletionInput() {
-        completionInput = QueryCompletion.Input(QueryLineModel.seen(model.views()), last.saved.recent, kinds.selectedItem ?: KindChoice.ALL)
+        completionInput = QueryCompletion.Input(QueryLineModel.seen(model.views()), last.saved.recent, kinds.selectedItem ?: KindChoice.ALL, last.saved.saved)
     }
 
     /** The developer moved the caret to the line (a shortcut, a chip): the empty line may offer filters. */

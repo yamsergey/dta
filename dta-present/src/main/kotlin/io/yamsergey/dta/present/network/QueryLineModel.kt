@@ -51,17 +51,53 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
         kind: KindChoice = KindChoice.ALL,
         /** Feature 051: asked for (Down): every key even mid-line. */
         explicit: Boolean = false,
+        /** The app's saved filters (chips): not offered again. */
+        saved: List<String> = emptyList(),
     ): List<Suggestion> {
         val at = caret.coerceIn(0, text.length)
         val word = word(text, at)
         val from = at - word.length
+        val held = Held.of(text, from, at, saved)
         val back = recent.filter { it.word.startsWith(word, ignoreCase = true) && it.word != word }
-            .map { Suggestion(it.word, from, SavedChip.age(it.lastUsedMs, nowMs), recent = true) }
+            .map { Suggestion(it.word, from, SavedChip.age(it.lastUsedMs, nowMs), recent = true) }.filter(held::allows)
         // Feature 051: an empty line (or Down) lists every key, so none has to be remembered.
-        if (word.isEmpty()) return back + if (text.isBlank() || explicit) keys(kind).map { Suggestion("${it.name}:", from, it.hint) } else emptyList()
+        if (word.isEmpty()) return back + if (text.isBlank() || explicit) keys(kind).filter { held.allows(it.name) }.map { Suggestion("${it.name}:", from, it.hint) } else emptyList()
         // Feature 063: a value that is also a recent filter is offered once, as the recent one.
         val offered = back.map { it.text }.toSet()
-        return back + typed(from, word, seen, kind).filterNot { it.text in offered }
+        return back + typed(from, word, seen, kind).filterNot { it.text in offered || !held.allows(it) }
+    }
+
+    /**
+     * What the line (without the word at the caret) and the saved filters already hold: their words
+     * are not offered again, nor a key that takes one value and is already given in the line — the
+     * line would refuse it as given twice. An exclusion of the same key is always fine.
+     */
+    private class Held(val words: Set<String>, private val once: Set<String>) {
+        fun allows(key: String) = key !in once
+
+        fun allows(s: Suggestion): Boolean {
+            if (s.text in words) return false
+            val t = s.text
+            val key = when {
+                t.startsWith("-") -> return true
+                t in QueryLine.METHODS -> "method"
+                t == "http" || t == "ws" -> "kind"
+                else -> t.substringBefore(':', "").ifEmpty { return true }
+            }
+            return allows(key)
+        }
+
+        companion object {
+            /** Keys a second positive value of which the line refuses (duration and size take a lower and an upper bound). */
+            private val TWICE = setOf("duration", "size")
+
+            fun of(text: String, from: Int, at: Int, saved: List<String>): Held {
+                val rest = text.removeRange(from, at)
+                val tokens = QueryLine.parse(rest).tokens
+                val once = tokens.filter { it.key != null && !it.negated && it.key !in TWICE }.mapNotNull { it.key }.toSet()
+                return Held(tokens.map { it.text }.toSet() + saved, once)
+            }
+        }
     }
 
     /** Every key; the kind switch's own keys first, in the language's order otherwise. */
