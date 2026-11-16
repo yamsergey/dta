@@ -499,6 +499,23 @@ data class Coverage(
     val archivedEpochs: Int? = null,
     /** Why archiving stopped (disk full, write failure); live history keeps working. */
     val archivingStopped: String? = null,
+    /** Feature 066: journal and bodies on the device, in bytes. */
+    val deviceBytes: Long? = null,
+    /** The device's keep-on-device budget and warning size in force. */
+    val keepBytes: Long? = null,
+    val warnBytes: Long? = null,
+    /** Why the device stays over its budget: `no-archive`, `stale-archive` or `unarchived`. */
+    val trimHeld: String? = null,
+    /** When the device last accepted an acknowledgement from a computer. */
+    val lastArchivedMs: Long? = null,
+    /** Entries the device removed after a computer archived them, by that computer's id. */
+    val archivedOnly: Map<String, Int>? = null,
+    /** Entries the device removed after another computer archived them (they are not here). */
+    val archivedByOther: Int? = null,
+    /** Entries kept on this computer only: the device removed them after archiving. */
+    val hostOnly: Long? = null,
+    /** Why this computer does not let the device trim: `copy-behind`, `archive-stopped`, `old-library`. */
+    val archiveHeld: String? = null,
 )
 
 @Serializable
@@ -610,7 +627,12 @@ data class NetworkExportResult(
 
 /** Result of `network_clear`. */
 @Serializable
-data class ClearResult(val clearedEntries: Int, val clearedAtMs: Long)
+data class ClearResult(
+    val clearedEntries: Int,
+    val clearedAtMs: Long,
+    /** Feature 066: what was not on this computer yet and is gone (the copy before the clear did not finish). */
+    val notKept: NotKept? = null,
+)
 
 @Serializable
 enum class EntryChange {
