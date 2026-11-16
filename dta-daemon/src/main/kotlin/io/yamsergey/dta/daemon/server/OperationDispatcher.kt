@@ -99,6 +99,16 @@ class OperationDispatcher(
         "network.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
         "network.body" to { c -> encode(BodyResult.serializer(), body(c)) },
         "network.clear" to { c -> encode(ClearResult.serializer(), ops.networkClear(c.device, c.app)) },
+        "network.history" to { c -> encode(io.yamsergey.dta.protocol.network.HistorySummary.serializer(), ops.networkHistory(c.device, c.app)) },
+        "network.history.set" to { c ->
+            fun size(name: String): Long? = c.string(name)?.let {
+                try { io.yamsergey.dta.protocol.network.HistoryDefaults.parseSize(it) } catch (e: IllegalArgumentException) { invalid(e.message ?: "not a size") }
+            }
+            val keep = size("keep")
+            val warn = size("warn")
+            if (keep == null && warn == null) invalid("name keep, warn or both")
+            encode(io.yamsergey.dta.protocol.network.HistorySettings.serializer(), ops.networkHistorySet(c.device, c.app, keep, warn))
+        },
         "network.export" to { c -> encode(io.yamsergey.dta.protocol.network.NetworkExportResult.serializer(), export(c)) },
         "network.script.set" to { c -> encode(ScriptStatus.serializer(), ops.networkScriptSet(c.device, c.app, scriptSource(c))) },
         "network.script.clear" to { c -> buildJsonObject { put("cleared", ops.networkScriptClear(c.device, c.app)) } },
@@ -222,11 +232,13 @@ class OperationDispatcher(
         "links.verification" to { c -> encode(io.yamsergey.dta.protocol.network.AppLinksState.serializer(), ops.linksVerification(c.device, c.app)) },
         "archive.list" to { _ -> encode(ArchiveListing.serializer(), ops.archiveList()) },
         "archive.delete" to { c ->
+            // Feature 066: closedBeforeMs with packageName deletes only that app's history closed before then.
+            val before = c.long("closedBeforeMs")
             val targets = listOfNotNull(
                 c.string("epoch")?.let { DeleteTarget.Epoch(it) },
                 c.long("installation")?.let { DeleteTarget.Installation(it) },
-                c.string("packageName")?.let { DeleteTarget.Package(it) },
-                c.long("closedBeforeMs")?.let { DeleteTarget.ClosedBefore(it) },
+                c.string("packageName")?.takeIf { before == null }?.let { DeleteTarget.Package(it) },
+                before?.let { DeleteTarget.ClosedBefore(it, c.string("packageName")) },
             )
             if (targets.size != 1) invalid("name exactly one of epoch, installation, packageName or closedBeforeMs")
             try {

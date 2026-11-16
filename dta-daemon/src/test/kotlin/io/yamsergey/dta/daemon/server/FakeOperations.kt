@@ -113,6 +113,11 @@ class FakeOperations : DaemonOperations {
         return BodyResult(BodyInfo(part, 2, binary = false, completeness = Completeness.COMPLETE), text = "{}", bytes = 2)
     }
     override suspend fun networkClear(serial: String, pkg: String) = ClearResult(3, 1)
+    var historySet: Pair<Long?, Long?>? = null
+    override suspend fun networkHistory(serial: String, pkg: String) =
+        io.yamsergey.dta.protocol.network.HistorySummary(archive = io.yamsergey.dta.protocol.network.ArchiveHistory(5, 50))
+    override suspend fun networkHistorySet(serial: String, pkg: String, keepBytes: Long?, warnBytes: Long?) =
+        io.yamsergey.dta.protocol.network.HistorySettings(keepBytes ?: 1, warnBytes ?: 2).also { historySet = keepBytes to warnBytes }
     val events = kotlinx.coroutines.flow.MutableSharedFlow<NetworkEntryEvent>(extraBufferCapacity = 10_000)
     override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent> =
         events.onSubscription { onSubscribed() }

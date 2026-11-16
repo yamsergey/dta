@@ -70,6 +70,11 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     var acksUnsupported = false
     var entriesOverride: Int? = null
     var archivedOnly: Map<String, Int>? = null
+    var keep = 256L shl 20
+    var warn = 512L shl 20
+    var deviceBytes = 10_000L
+    /** Feature 066: an app from before the device history settings reports none. */
+    var reportsSize = true
 
     fun record(entry: NetworkEntry) = records.add(entry)
 
@@ -86,7 +91,8 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
 
     private fun latest(): List<NetworkEntry> = LinkedHashMap<String, NetworkEntry>().apply { records.filter { it.id !in evicted }.forEach { put(it.id, it) } }.values.toList()
 
-    fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted, earliestMs = latest().minOfOrNull { it.timeMs }.takeIf { evicted.isNotEmpty() }, evicted = evicted.size, archivedOnly = archivedOnly), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
+    fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted, earliestMs = latest().minOfOrNull { it.timeMs }.takeIf { evicted.isNotEmpty() }, evicted = evicted.size, archivedOnly = archivedOnly,
+        deviceBytes = deviceBytes.takeIf { reportsSize }, keepBytes = keep.takeIf { reportsSize }, warnBytes = warn.takeIf { reportsSize }), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
 
     /** The sidekick's own answer over the same history: the reference the host must equal. */
     fun deviceAnswer(query: NetworkQuery): NetworkPage = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context, bodyBytes = { e, part ->
@@ -128,6 +134,11 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
             "network_list" -> {
                 listCalls++
                 RpcResult(DtaJson.encodeToJsonElement(NetworkPage.serializer(), deviceAnswer(NetworkQuery.parse(params))))
+            }
+            "network_history_settings" -> {
+                str("keepBytes")?.let { keep = it.toLong() }
+                str("warnBytes")?.let { warn = it.toLong() }
+                RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.HistorySettings.serializer(), io.yamsergey.dta.protocol.network.HistorySettings(keep, warn)))
             }
             "network_archived" -> {
                 if (acksUnsupported) throw io.yamsergey.dta.daemon.connection.SidekickRpcException(io.yamsergey.dta.protocol.rpc.ErrorCodes.METHOD_NOT_FOUND, "Unknown method: network_archived")

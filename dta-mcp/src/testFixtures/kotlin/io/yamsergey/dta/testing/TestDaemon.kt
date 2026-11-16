@@ -93,6 +93,13 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
         BodyResult(BodyInfo(part, 13, contentType = "application/json", completeness = Completeness.COMPLETE), text = "{\"items\":[]}", bytes = 12)
     override suspend fun networkClear(serial: String, pkg: String) = ClearResult(clearedEntries = 3, clearedAtMs = 1L).also { cleared++ }
+    override suspend fun networkHistory(serial: String, pkg: String) = io.yamsergey.dta.protocol.network.HistorySummary(
+        device = io.yamsergey.dta.protocol.network.DeviceHistory(1_204, 212L shl 20, 1_000, 2_000, archivedEntries = 1_156, keepBytes = 256L shl 20, warnBytes = 512L shl 20),
+        archive = io.yamsergey.dta.protocol.network.ArchiveHistory(8_930, 1_400L shl 20, 1_000, 2_000),
+        hostOnly = 3_896,
+    )
+    override suspend fun networkHistorySet(serial: String, pkg: String, keepBytes: Long?, warnBytes: Long?) =
+        io.yamsergey.dta.protocol.network.HistorySettings(keepBytes ?: (256L shl 20), warnBytes ?: (512L shl 20))
     override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent> =
         events.onSubscription { onSubscribed() }
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true, id = "abc123")

@@ -97,6 +97,58 @@ class HostIndex(
         )
     }
 
+    /**
+     * Feature 066 (contracts/operations.md): how much history this app has on the device and on
+     * this computer. The device's part is null, said why, when the app cannot be reached or is
+     * too old to report it.
+     */
+    suspend fun history(): io.yamsergey.dta.protocol.network.HistorySummary = mutex.withLock {
+        var unknown: String? = null
+        val deviceHistory = try {
+            sync(connection())
+            val c = context?.coverage
+            if (c?.keepBytes == null || c.warnBytes == null) {
+                unknown = "this app's DTA library is older and does not report its history's size; update it"
+                null
+            } else {
+                val waiting = (pending().map { it.entryId } + live.values.filter(::inFlight).map { it.id }).toSet().size
+                io.yamsergey.dta.protocol.network.DeviceHistory(
+                    entries = deviceEntries,
+                    bytes = c.deviceBytes ?: 0,
+                    earliestMs = c.earliestMs ?: live.values.minOfOrNull { it.timeMs },
+                    latestMs = live.values.maxOfOrNull { it.timeMs },
+                    archivedEntries = (deviceEntries - waiting).coerceAtLeast(0).takeIf { lag == 0L },
+                    keepBytes = c.keepBytes!!,
+                    warnBytes = c.warnBytes!!,
+                    trimHeld = c.trimHeld,
+                    lastArchivedMs = c.lastArchivedMs,
+                    overWarning = (c.deviceBytes ?: 0) > c.warnBytes!!,
+                )
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            unknown = "the app is not running or cannot be reached (${e.message ?: e.javaClass.simpleName}); start it to see its part"
+            null
+        }
+        io.yamsergey.dta.protocol.network.HistorySummary(deviceHistory, unknown, archiveHistory(),
+            hostOnly = (live.size - deviceEntries).toLong().takeIf { deviceHistory != null && lag == 0L && it > 0 })
+    }
+
+    /** This app's epochs on this device, live and archived, with their totals. */
+    private fun archiveHistory(): io.yamsergey.dta.protocol.network.ArchiveHistory {
+        val installations = store.listing().devices.filter { it.key == device.key }
+            .flatMap { it.apps }.filter { it.packageName == packageName }.flatMap { it.installations }
+        val epochs = installations.flatMap { it.epochs }
+        return io.yamsergey.dta.protocol.network.ArchiveHistory(
+            entries = epochs.sumOf { it.entries.toLong() },
+            bytes = epochs.sumOf { it.bytes },
+            earliestMs = epochs.minOfOrNull { it.openedMs },
+            latestMs = epochs.maxOfOrNull { it.closedMs ?: clock() },
+            installations = installations,
+        )
+    }
+
     /** Feature 066: tell the device now what is archived (after the copy worker copied bodies). */
     suspend fun acknowledgeNow() = mutex.withLock { runCatching { connection() }.getOrNull()?.let { acknowledge(it, force = true) } }
 

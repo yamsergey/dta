@@ -32,7 +32,7 @@ class OperationCatalogTest {
         assertEquals(
             setOf(
                 "devices.list", "apps.list", "apps.watch", "capability.report", "layout.tree", "layout.watch", "layout.selection", "layout.select",
-                "network.list", "network.search", "network.entry", "network.body", "network.clear", "network.export", "network.watch",
+                "network.list", "network.search", "network.entry", "network.body", "network.clear", "network.history", "network.history.set", "network.export", "network.watch",
                 "network.script.set", "network.script.clear", "network.script.status", "network.script.logs",
                 "network.ws.push",
                 "network.schema.add", "network.schema.list", "network.schema.remove", "network.schema.sync",
@@ -65,6 +65,9 @@ class OperationCatalogTest {
         assertEquals(listOf("layout"), Catalog["layout.tree"].cliPath)
         assertEquals(listOf("capability"), Catalog["capability.report"].cliPath)
         assertEquals(listOf("network", "list"), Catalog["network.list"].cliPath)
+        assertEquals(listOf("network", "history"), Catalog["network.history"].cliPath)
+        assertEquals(listOf("network", "history", "set"), Catalog["network.history.set"].cliPath)
+        assertEquals("network_history_set", Catalog["network.history.set"].toolName)
         assertEquals("timeline_events", Catalog["timeline.events"].toolName)
         assertEquals(listOf("timeline", "events"), Catalog["timeline.events"].cliPath)
         assertEquals(listOf("timeline", "watch"), Catalog["timeline.watch"].cliPath)

@@ -323,7 +323,21 @@ object Catalog {
                 ParamSpec("allowUnredacted", ParamType.BOOLEAN, "With redact: return a body that cannot be redacted anyway, saying so."),
             ),
         ),
-        OperationSpec("network.clear", "Delete the app's captured network history.", Scope.APP),
+        OperationSpec("network.clear", "Delete the app's captured network history on the device. What this computer has not archived yet is copied first; the result says what could not be kept.", Scope.APP),
+        OperationSpec(
+            "network.history",
+            "How much network history this app has on the device and on this computer: entries, size and time span of each, how much of the device's part is already archived here, the keep-on-device budget and the warning size, and the archive per installation and epoch. Use it before clearing or deleting archive, or when a statement says the device history is large.",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "network.history.set",
+            "Change this app's keep-on-device budget (the device removes what this computer archived, oldest first, until it fits) and its warning size (over it, answers and the plugin say so). At least 16 MB each; the warning size cannot be under the budget.",
+            Scope.APP,
+            listOf(
+                ParamSpec("keep", ParamType.STRING, "Keep-on-device budget, e.g. 128MB or 1GB."),
+                ParamSpec("warn", ParamType.STRING, "Warning size, e.g. 512MB."),
+            ),
+        ),
         OperationSpec(
             "network.export",
             "Write the entries network.list selects (all pages, same filters) to a HAR 1.2 file that browsers' developer tools and proxies open: headers, timings, bodies (binary as base64), WebSocket connections with their messages. The result counts entries, messages and bodies, and bodies left out (each says why in the file).",
@@ -843,7 +857,7 @@ object Catalog {
                 ParamSpec("epoch", ParamType.STRING, "An epoch id from archive list."),
                 ParamSpec("installation", ParamType.LONG, "An install id from archive list."),
                 ParamSpec("packageName", ParamType.STRING, "An app's whole archive, on every device."),
-                ParamSpec("closedBeforeMs", ParamType.LONG, "Every epoch closed before this epoch millisecond."),
+                ParamSpec("closedBeforeMs", ParamType.LONG, "Every epoch closed before this epoch millisecond; with packageName, only that app's."),
                 ParamSpec("confirm", ParamType.BOOLEAN, "Delete for real; without it the answer only says what would go."),
             ),
         ),

@@ -347,6 +347,13 @@ class DtaDaemon(
     suspend fun networkClear(serial: String, pkg: String): ClearResult =
         networkService(serial, pkg).clear()
 
+    /** Feature 066: how much history the app has on the device and on this computer. */
+    suspend fun networkHistory(serial: String, pkg: String): io.yamsergey.dta.protocol.network.HistorySummary =
+        networkService(serial, pkg).history()
+
+    suspend fun networkHistorySet(serial: String, pkg: String, keepBytes: Long?, warnBytes: Long?): io.yamsergey.dta.protocol.network.HistorySettings =
+        networkService(serial, pkg).setHistory(keepBytes, warnBytes)
+
     private val timelineServices = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.timeline.TimelineService>()
 
     /** One app's timeline on the host, followed from its first use for the daemon's life (features 015/016). */

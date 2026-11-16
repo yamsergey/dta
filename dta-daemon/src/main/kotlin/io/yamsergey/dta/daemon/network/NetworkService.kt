@@ -282,6 +282,23 @@ class NetworkService(
         else -> "$n B"
     }
 
+    /** Feature 066: the app's history on the device and on this computer. */
+    suspend fun history(): io.yamsergey.dta.protocol.network.HistorySummary =
+        host?.history() ?: io.yamsergey.dta.protocol.network.HistorySummary(
+            deviceUnknown = "this app's history is not kept on this computer",
+            archive = io.yamsergey.dta.protocol.network.ArchiveHistory(0, 0),
+        )
+
+    /** Feature 066: the app's keep-on-device budget and warning size; the device refuses what it cannot take. */
+    suspend fun setHistory(keepBytes: Long?, warnBytes: Long?): io.yamsergey.dta.protocol.network.HistorySettings =
+        DtaJson.decodeFromJsonElement(
+            io.yamsergey.dta.protocol.network.HistorySettings.serializer(),
+            connection().request("network_history_settings", buildJsonObject {
+                keepBytes?.let { put("keepBytes", it) }
+                warnBytes?.let { put("warnBytes", it) }
+            }),
+        )
+
     /** Clears the app's history; the host keeps what it had as an archived epoch (feature 011). */
     suspend fun clear(): ClearResult =
         DtaJson.decodeFromJsonElement(ClearResult.serializer(), connection().request("network_clear")).also { host?.cleared(it.clearedEntries) }

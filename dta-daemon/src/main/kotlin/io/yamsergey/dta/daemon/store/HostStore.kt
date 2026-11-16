@@ -54,7 +54,8 @@ sealed interface DeleteTarget {
     data class App(val deviceKey: String, val packageName: String) : DeleteTarget
     /** An app's archive on every device. */
     data class Package(val packageName: String) : DeleteTarget
-    data class ClosedBefore(val ms: Long) : DeleteTarget
+    /** Every epoch closed before [ms]; only [packageName]'s when given (feature 066). */
+    data class ClosedBefore(val ms: Long, val packageName: String? = null) : DeleteTarget
 }
 
 class LiveEpochException(message: String) : Exception(message)
@@ -296,7 +297,12 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
             is DeleteTarget.Package -> query(
                 "SELECT e.id FROM epoch e JOIN installation i ON e.installation_id=i.id WHERE i.package=? AND e.closed_ms IS NOT NULL", target.packageName,
             ) { it.getString(1) }
-            is DeleteTarget.ClosedBefore -> query("SELECT id FROM epoch WHERE closed_ms IS NOT NULL AND closed_ms<?", target.ms) { it.getString(1) }
+            is DeleteTarget.ClosedBefore -> target.packageName?.let { pkg ->
+                query(
+                    "SELECT e.id FROM epoch e JOIN installation i ON e.installation_id=i.id WHERE i.package=? AND e.closed_ms IS NOT NULL AND e.closed_ms<?",
+                    pkg, target.ms,
+                ) { it.getString(1) }
+            } ?: query("SELECT id FROM epoch WHERE closed_ms IS NOT NULL AND closed_ms<?", target.ms) { it.getString(1) }
         }
         if (dryRun) {
             val entries = ids.sumOf { id -> query("SELECT count(*) FROM entry WHERE epoch_id=?", id) { it.getInt(1) }.single() }
