@@ -11,11 +11,10 @@ import io.yamsergey.dta.protocol.network.RecentFilter
 class QueryCompletionTest : BasePlatformTestCase() {
 
     private var input = QueryCompletion.Input(Seen(hosts = setOf("api.example.test", "cdn.example.test")), emptyList(), KindChoice.ALL)
-    private val chips = mutableListOf<String>()
 
     private fun line(text: String) {
         val file = myFixture.configureByText("query.txt", text)
-        TextCompletionUtil.installProvider(file, QueryCompletion({ input }, { chips += it }), true)
+        TextCompletionUtil.installProvider(file, QueryCompletion({ input }), true)
     }
 
     private fun text() = myFixture.editor.document.text
@@ -65,14 +64,43 @@ class QueryCompletionTest : BasePlatformTestCase() {
         assertTrue(QueryCompletion.suggestions(input, "token ", 6, explicit = false).isEmpty())
     }
 
-    fun `test a recent filter becomes a chip and leaves the line`() {
+    fun `test Tab takes the focused recent filter into the line, nothing is saved`() {
         input = input.copy(recent = listOf(RecentFilter("host:api.example.test", System.currentTimeMillis() - 60_000), RecentFilter("status:5xx", 0)))
         line("<caret>")
         myFixture.completeBasic()
-        assertEquals("host:api.example.test", myFixture.lookupElementStrings!!.first())
+        assertEquals("host:api.example.test", myFixture.lookup.currentItem!!.lookupString)
+        myFixture.finishLookup('\t')
+        assertEquals("host:api.example.test ", text())
+    }
+
+    fun `test Enter in the list takes the focused recent filter into the line too`() {
+        input = input.copy(recent = listOf(RecentFilter("-host:cdn.example.test", 0)))
+        line("token -host:<caret>")
+        myFixture.completeBasic()
+        assertEquals("-host:cdn.example.test", myFixture.lookup.currentItem!!.lookupString)
         myFixture.finishLookup('\n')
-        assertEquals("", text())
-        assertEquals(listOf("host:api.example.test"), chips)
+        assertEquals("token -host:cdn.example.test ", text())
+    }
+
+    fun `test an exclusion at the start of the line completes with Tab`() {
+        line("-ho<caret>")
+        myFixture.completeBasic()
+        myFixture.lookup?.let { myFixture.finishLookup('\t') }
+        assertEquals("-host:", text())
+        line("-host:<caret>")
+        myFixture.completeBasic()
+        assertEquals(listOf("-host:api.example.test", "-host:cdn.example.test"), myFixture.lookupElementStrings)
+        myFixture.lookup.currentItem = myFixture.lookupElements!!.first { it.lookupString == "-host:cdn.example.test" }
+        myFixture.finishLookup('\t')
+        assertEquals("-host:cdn.example.test ", text())
+    }
+
+    fun `test Tab replaces the word at the caret with the focused one`() {
+        line("POST s<caret>ta token")
+        myFixture.completeBasic()
+        assertEquals("status:", myFixture.lookup.currentItem!!.lookupString)
+        myFixture.finishLookup('\t')
+        assertEquals("POST status: token", text())
     }
 
     fun `test the saved filters and the line's own words are not offered`() {

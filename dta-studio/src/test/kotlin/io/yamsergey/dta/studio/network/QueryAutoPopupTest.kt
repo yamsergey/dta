@@ -19,7 +19,7 @@ class QueryAutoPopupTest : BasePlatformTestCase() {
         tester = CompletionAutoPopupTester(myFixture)
         edt<Throwable> {
             val file = myFixture.configureByText("query.txt", "<caret>")
-            TextCompletionUtil.installProvider(file, QueryCompletion({ input }, {}), true)
+            TextCompletionUtil.installProvider(file, QueryCompletion({ input }), true)
         }
     }
 
@@ -33,6 +33,22 @@ class QueryAutoPopupTest : BasePlatformTestCase() {
     fun `test typing the colon of a key opens its values`() = tester.runWithAutoPopupEnabled {
         tester.typeWithPauses("host:")
         assertEquals(listOf("host:api.example.test"), lookupStrings())
+    }
+
+    fun `test typing an exclusion opens the hosts with the minus kept`() = tester.runWithAutoPopupEnabled {
+        tester.typeWithPauses("-ho")
+        assertEquals(listOf("-host:"), lookupStrings())
+        tester.typeWithPauses("st:")
+        assertEquals(listOf("-host:api.example.test"), lookupStrings())
+        tester.typeWithPauses("\t")
+        assertEquals("-host:api.example.test ", myFixture.editor.document.text)
+    }
+
+    fun `test Tab in the open list completes the line with the focused item, a recent one too`() = tester.runWithAutoPopupEnabled {
+        tester.typeWithPauses("status:")
+        assertEquals("status:5xx", lookupStrings()?.first())
+        tester.typeWithPauses("\t")
+        assertEquals("status:5xx ", myFixture.editor.document.text)
     }
 
     fun `test text set by code opens nothing`() = tester.runWithAutoPopupEnabled {

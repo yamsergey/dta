@@ -11,7 +11,7 @@ import io.yamsergey.dta.protocol.network.BodyPart
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
-/** A completion: replace the word at the caret ([from]..caret) with [text]; a [recent] one is saved again as it is. */
+/** A completion: replace the word at the caret ([from]..caret) with [text]; [recent]: a filter the app had saved before (it goes into the line like any other). */
 data class Suggestion(val text: String, val from: Int, val hint: String? = null, val recent: Boolean = false)
 
 /** What the traffic shown so far offers as values. */

@@ -22,12 +22,12 @@ import io.yamsergey.dta.protocol.network.RecentFilter
 /**
  * Feature 063: the query line's suggestions through the IDE's own completion. What is offered and how
  * it is inserted stay in [QueryLineModel] (one source); this only maps them to lookup items.
- * [input] is read on each completion (hosts seen, the app's recent and saved filters, the kind switch);
- * [recentChosen] gets a recent filter, which becomes a chip instead of text.
+ * [input] is read on each completion (hosts seen, the app's recent and saved filters, the kind switch).
+ * Every item, a recent filter too, goes into the line where the caret is (Enter or Tab); only Enter with
+ * no list open saves the line's filters as chips.
  */
 class QueryCompletion(
     private val input: () -> Input,
-    private val recentChosen: (String) -> Unit,
 ) : TextCompletionProvider, DumbAware {
 
     data class Input(val seen: Seen = Seen(), val recent: List<RecentFilter> = emptyList(), val kind: KindChoice = KindChoice.ALL, val saved: List<String> = emptyList())
@@ -55,17 +55,8 @@ class QueryCompletion(
     }
 
     private fun element(s: Suggestion): LookupElement {
-        val base = LookupElementBuilder.create(s.text).withTypeText(s.hint, true)
-        return if (s.recent) {
-            base.withIcon(AllIcons.Vcs.History).withInsertHandler { ctx, _ ->
-                // A recent filter comes back as a chip in one choice (043).
-                ctx.document.deleteString(ctx.startOffset, ctx.tailOffset)
-                ctx.editor.caretModel.moveToOffset(ctx.startOffset)
-                recentChosen(s.text)
-            }
-        } else {
-            base.withInsertHandler { ctx, _ -> insert(ctx, s) }
-        }
+        val base = LookupElementBuilder.create(s.text).withTypeText(s.hint, true).withInsertHandler { ctx, _ -> insert(ctx, s) }
+        return if (s.recent) base.withIcon(AllIcons.Vcs.History) else base
     }
 
     private fun insert(ctx: InsertionContext, s: Suggestion) {

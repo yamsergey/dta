@@ -115,9 +115,6 @@ class NetworkController(private val context: ContextController, private val scop
         return true
     }
 
-    /** A recent filter saved again, in one choice. */
-    fun addSaved(word: String) = changeSaved("network.filters.add", "words", word)
-
     /** × on a chip: no longer applied; it stays among the recent ones. */
     fun removeSaved(word: String) = changeSaved("network.filters.remove", "word", word)
 

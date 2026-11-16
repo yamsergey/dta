@@ -121,7 +121,7 @@ class NetworkPanel(
     /** Feature 040: the query line — key:value filters and search words, as in the CLI and MCP; 063: the IDE's completion field. */
     private val query: TextFieldWithCompletion = TextFieldWithCompletion(
         project,
-        QueryCompletion({ completionInput }, { word -> javax.swing.SwingUtilities.invokeLater { network.addSaved(word) } }),
+        QueryCompletion({ completionInput }),
         "", /* oneLineMode = */ true, /* autoPopup = */ true, /* forceAutoPopup = */ false, /* showHint = */ false,
     ).apply {
         setPlaceholder("Filter and search: body:text body:/regex/ status:4xx dir:received host:… -host:… token \"a phrase\" (${completionShortcut()} for every filter)")
