@@ -245,4 +245,47 @@ class StatementsTest {
         assertEquals("pushed by script 3fa2, not sent by the server; delivered on the library's reading thread after 0 ms", topLevel.detail)
         assertEquals("intervened", StatementKind.INJECTED.token)
     }
+
+    // ---- 066: the device history ---------------------------------------------------------
+
+    private fun coverage(json: String) = Statements.forNetworkList(
+        kotlinx.serialization.json.Json.parseToJsonElement("""{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true,$json}}""").jsonObject,
+    )
+
+    private val mb = 1024L * 1024
+
+    @Test
+    fun `a device history over its warning size says how large, why and what to do`() {
+        val s = coverage(""""deviceBytes":${1126 * mb},"keepBytes":${256 * mb},"warnBytes":${512 * mb},"trimHeld":"no-archive"""")
+        val large = s.single { it.code == "history-large" }
+        assertEquals("device history 1.1 GB, over its 512.0 MB warning size", large.detail)
+        assertTrue(large.sentence.contains("no DTA client has archived it yet"), large.sentence)
+        assertTrue(large.sentence.contains("dta network clear") && large.sentence.contains("dta network history set"), large.sentence)
+        assertTrue(Statements.forNetworkTab(s).any { it.code == "history-large" }, "shown in the plugin's Network tab too")
+        assertTrue(s.none { it.code == "history-trim-held" }, "one statement, not two")
+    }
+
+    @Test
+    fun `over the budget but under the warning size, the hold is said with its reason`() {
+        val s = coverage(""""deviceBytes":${300 * mb},"keepBytes":${256 * mb},"warnBytes":${512 * mb},"trimHeld":"unarchived"""")
+        val held = s.single { it.code == "history-trim-held" }
+        assertEquals("the device keeps 44.0 MB over its 256.0 MB budget", held.detail)
+        assertTrue(held.sentence.contains("what is over the budget is not archived yet"), held.sentence)
+        val copying = coverage(""""deviceBytes":${300 * mb},"keepBytes":${256 * mb},"warnBytes":${512 * mb},"trimHeld":"unarchived","archiveHeld":"copy-behind","bodiesPending":2310""")
+        assertTrue(copying.single { it.code == "history-trim-held" }.sentence.contains("this computer is still copying 2310 bodies"))
+    }
+
+    @Test
+    fun `entries kept here only, those another computer took, and an older library`() {
+        val s = coverage(""""hostOnly":3896,"archivedByOther":12,"archiveHeld":"old-library"""")
+        assertEquals("3896 entries kept on this computer only", s.single { it.code == "history-host-only" }.detail)
+        assertTrue(s.single { it.code == "history-other-host" }.sentence.contains("another computer"))
+        assertTrue(s.single { it.code == "history-not-trimming" }.sentence.contains("update"))
+    }
+
+    @Test
+    fun `nothing is said when the history is within its budget`() {
+        val s = coverage(""""deviceBytes":${100 * mb},"keepBytes":${256 * mb},"warnBytes":${512 * mb}""")
+        assertTrue(s.none { it.code?.startsWith("history-") == true }, s.toString())
+    }
 }

@@ -151,11 +151,56 @@ object Statements {
         coverage?.long("bodiesPending")?.takeIf { it > 0 }?.let {
             add(Statement(StatementKind.PENDING, detail = "$it bodies not copied to this computer yet", explanation = "$it bodies are still on the device only; they are copied in the background."))
         }
+        coverage?.let { addAll(history(it)) }
         coverage?.long("archivedEpochs")?.takeIf { it > 0 }?.let {
             add(Statement(StatementKind.NOT_CAPTURED, word = "archived", detail = "$it archived epochs not shown (archive list; --archive all)",
                 explanation = "This computer keeps $it earlier histories of the app (cleared, reinstalled, older builds). List them with dta archive list; query them with --archive."))
         }
     }.ordered()
+
+    /**
+     * Feature 066 (contracts/operations.md): the device history's size against its warning size
+     * and budget, why it is not trimmed, and what is kept on this computer only.
+     */
+    private fun history(coverage: JsonObject): List<Statement> = buildList {
+        val bytes = coverage.long("deviceBytes")
+        val keep = coverage.long("keepBytes")
+        val warn = coverage.long("warnBytes")
+        val held = coverage.str("archiveHeld")
+        fun reason(): String = when {
+            held == "archive-stopped" -> "this computer's archive stopped"
+            held == "copy-behind" -> "this computer is still copying ${coverage.long("bodiesPending") ?: "its"} bodies"
+            held == "old-library" -> "this app's DTA library does not trim archived history"
+            coverage.str("trimHeld") == "no-archive" -> "no DTA client has archived it yet"
+            coverage.str("trimHeld") == "stale-archive" -> "nothing archived since " + (coverage.long("lastArchivedMs")?.let {
+                java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(it))
+            } ?: "a while")
+            coverage.str("trimHeld") == "unarchived" -> "what is over the budget is not archived yet"
+            else -> "it is being archived and trimmed"
+        }
+        if (bytes != null && warn != null && bytes > warn) {
+            add(Statement(StatementKind.EVICTED, word = "device history", code = "history-large",
+                detail = "device history ${Units.bytes(bytes)}, over its ${Units.bytes(warn)} warning size",
+                explanation = "This app's history on the device is ${Units.bytes(bytes)}, over its warning size of ${Units.bytes(warn)}: ${reason()}. " +
+                    "Connect a DTA client so it is archived and trimmed, clear it (dta network clear), or raise the budget (dta network history set)."))
+        } else if (bytes != null && keep != null && bytes > keep && coverage.str("trimHeld") != null) {
+            add(Statement(StatementKind.PENDING, word = "device history", code = "history-trim-held",
+                detail = "the device keeps ${Units.bytes(bytes - keep)} over its ${Units.bytes(keep)} budget",
+                explanation = "The device keeps ${Units.bytes(bytes - keep)} over its ${Units.bytes(keep)} budget: ${reason()}."))
+        }
+        coverage.long("hostOnly")?.takeIf { it > 0 }?.let {
+            add(Statement(StatementKind.NOT_CAPTURED, word = "on this computer", code = "history-host-only", detail = "$it entries kept on this computer only",
+                explanation = "$it entries are kept on this computer only (the device removed them after archiving); they are listed and read as before."))
+        }
+        coverage.long("archivedByOther")?.takeIf { it > 0 }?.let {
+            add(Statement(StatementKind.NOT_CAPTURED, word = "elsewhere", code = "history-other-host", detail = "$it entries archived by another computer",
+                explanation = "$it entries left the device after another computer archived them; they are not here."))
+        }
+        if (held == "old-library") {
+            add(Statement(StatementKind.PENDING, word = "not trimmed", code = "history-not-trimming", detail = "the app's DTA library does not trim archived history",
+                explanation = "This app's DTA library does not trim archived history, so its history on the device keeps growing; update it."))
+        }
+    }
 
     /** An entry from the archive: why its history was archived, and the app version then. */
     fun forArchived(mark: JsonObject): Statement {
