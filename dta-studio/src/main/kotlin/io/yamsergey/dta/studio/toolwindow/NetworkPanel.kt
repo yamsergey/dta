@@ -69,6 +69,8 @@ class NetworkPanel(
     private val network: NetworkController,
     private val context: ContextController,
     private val scope: CoroutineScope,
+    /** Feature 066: opens the Daemon tab on this app's network history. */
+    private val openHistory: () -> Unit = {},
 ) : JPanel(BorderLayout()) {
     private val model = RowsModel()
     private val table = JBTable(model).apply {
@@ -236,6 +238,7 @@ class NetworkPanel(
     /** Feature 043: the list's actions in a vertical strip at its left, as the IDE's Logcat and Run views have them. */
     private val strip = ActionManager.getInstance().createActionToolbar("DtaNetworkList", DefaultActionGroup(
         Act("Clear History…", AllIcons.Actions.GC) { clear() },
+        Act("Network History…", AllIcons.Vcs.History) { openHistory() },
         Toggle("Pause", AllIcons.Actions.Pause, enabled = { last.archive == null }, on = { last.list.paused }) { network.list(if (it) LiveEvent.Pause else LiveEvent.Resume) },
         // "Scroll to the newest", as the IDE's Build and Run views have it: shows and sets following.
         Toggle("Scroll to the Newest", AllIcons.RunConfigurations.Scroll_down, on = { last.list.following }) { state ->

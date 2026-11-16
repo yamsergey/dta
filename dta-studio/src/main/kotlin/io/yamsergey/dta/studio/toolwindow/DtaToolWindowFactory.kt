@@ -27,6 +27,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         val bar = ContextBar(controller)
         val banner = BannerPanel().apply { onAction { DtaApplicationService.get().session.retry() } }
         lateinit var tabs: JBTabbedPane
+        // Feature 066: the Network tab's "Network History…" and the history notification open the Daemon tab there.
+        var openHistory: () -> Unit = {}
         val daemonPanel = DaemonPanel(controller, service.scope) { scope ->
             service.network.setArchive(scope)
             tabs.selectedIndex = 0
@@ -70,13 +72,30 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         var dataFor: Pair<String?, String?>? = null
         // Feature 056: Agents and Schemas live in Settings › Tools › DTA; Timeline is a feature switched there.
         tabs = JBTabbedPane().apply {
-            addTab("Network", NetworkPanel(project, service.network, controller, service.scope))
+            addTab("Network", NetworkPanel(project, service.network, controller, service.scope, openHistory = { openHistory() }))
             addTab("Data", dataPanel)
             addTab("Runtime", runtimePanel)
             addTab("Links", linksPanel)
             addTab("Layout", layoutPanel)
             addTab("Script", scriptPanel)
             addTab("Daemon", daemonPanel)
+        }
+        openHistory = {
+            tabs.selectedComponent = daemonPanel
+            daemonPanel.revealHistory()
+        }
+        service.scope.launch {
+            service.network.historyAlerts.collect { alert ->
+                withContext(Dispatchers.Main) {
+                    com.intellij.notification.NotificationGroupManager.getInstance().getNotificationGroup("DTA history")
+                        .createNotification(alert.title, alert.text, com.intellij.notification.NotificationType.WARNING)
+                        .addAction(com.intellij.notification.NotificationAction.createSimpleExpiring("Open history") {
+                            toolWindow.activate(null)
+                            openHistory()
+                        })
+                        .notify(project)
+                }
+            }
         }
         val settings = io.yamsergey.dta.studio.inject.InjectionSettings.get()
         fun showTimeline(on: Boolean) {

@@ -241,7 +241,7 @@ class NetworkController(private val context: ContextController, private val scop
         relistJob = scope.launch {
             kotlinx.coroutines.delay(SEARCH_SETTLE_MS)
             runCatching { c.call("network.list", params(mutable.value)).result.jsonObject }
-                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page), savedApplied = applied(page)) }; search() }
+                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page)) }; search() }
         }
     }
 
@@ -338,7 +338,7 @@ class NetworkController(private val context: ContextController, private val scop
             source = scope.launch {
                 mutable.update { it.copy(loading = true) }
                 runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
-                    .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), savedApplied = applied(page), loading = false) }; search() }
+                    .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false) }; search() }
                     .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false) } }
             }
             return
@@ -353,7 +353,7 @@ class NetworkController(private val context: ContextController, private val scop
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
                         val e = loaded(page)
-                        mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page), savedApplied = applied(page), loading = false, watching = true) }
+                        mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false, watching = true) }
                         search()
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
@@ -384,6 +384,26 @@ class NetworkController(private val context: ContextController, private val scop
                 mutable.update { it.copy(loading = false, watching = false) }
             }
         }
+    }
+
+    /** Feature 066: one alert per app and growth episode, when a list says the device history is over its warning size. */
+    data class HistoryAlert(val device: String, val app: String, val title: String, val text: String)
+
+    private val episodes = io.yamsergey.dta.present.archive.HistoryEpisodes()
+    private val alerts = kotlinx.coroutines.flow.MutableSharedFlow<HistoryAlert>(extraBufferCapacity = 8)
+    val historyAlerts: kotlinx.coroutines.flow.SharedFlow<HistoryAlert> = alerts
+
+    private fun noteHistory(page: JsonObject) {
+        val s = mutable.value
+        val device = s.device ?: return
+        val app = s.app ?: return
+        if (s.archive != null) return
+        val coverage = page["coverage"] as? JsonObject ?: return
+        fun long(k: String) = (coverage[k] as? JsonPrimitive)?.content?.toLongOrNull()
+        val bytes = long("deviceBytes")
+        if (!episodes.crossed(device, app, bytes, long("warnBytes"))) return
+        val large = Statements.forNetworkList(page).firstOrNull { it.code == "history-large" } ?: return
+        alerts.tryEmit(HistoryAlert(device, app, "${app.substringAfterLast('.')}: device history is ${io.yamsergey.dta.present.Units.bytes(bytes!!)}", large.sentence))
     }
 
     private fun target(s: NetworkViewState) = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())

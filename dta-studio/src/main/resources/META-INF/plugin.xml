@@ -34,6 +34,8 @@ network scripts, and give coding agents the same tools over a local MCP server.<
                              displayName="Protobuf"
                              instance="io.yamsergey.dta.studio.settings.ProtobufConfigurable"/>
         <postStartupActivity implementation="io.yamsergey.dta.studio.agents.AgentServerStartup"/>
+        <!-- Feature 066: the device history grew past its warning size (once per app and episode). -->
+        <notificationGroup id="DTA history" displayType="BALLOON"/>
     </extensions>
 
     <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
