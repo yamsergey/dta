@@ -1,5 +1,7 @@
 package io.yamsergey.dta.sidekick.network.store
 
+import io.yamsergey.dta.protocol.network.ArchiveAck
+import io.yamsergey.dta.protocol.network.ArchiveAckResult
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.Coverage
 import io.yamsergey.dta.protocol.network.EntryChange
@@ -44,6 +46,10 @@ internal data class StoreState(
     /** Feature 066: the keep-on-device budget and warning size; null is the default. */
     val keepBytes: Long? = null,
     val warnBytes: Long? = null,
+    /** The last acknowledgement accepted for this journal: what a computer has archived. */
+    val ack: io.yamsergey.dta.protocol.network.ArchiveAck? = null,
+    /** Entries removed after a computer archived them, by that computer's id (at most 4 ids). */
+    val archivedOnly: Map<String, Int> = emptyMap(),
 )
 
 /** The journal's identity; [reason] says why it is new in this process (`cleared`, `storage-new`). */
@@ -138,6 +144,11 @@ class NetworkStore(
     /** Per segment: the newest entry id recorded in it (all older ones are older). */
     private val segmentNewest = LinkedHashMap<File, String>()
     private val diskBytes = AtomicLong()
+    /** Feature 066: the ids each segment holds (under [writeLock]), to find an entry's latest record. */
+    private val segmentIds = LinkedHashMap<File, SegmentIds>()
+    private val runOrdinals = HashMap<String, Int>()
+    private val runNames = ArrayList<String>()
+    private val stateFileLock = Any()
     /** Open once the earlier runs are read (at once without storage). */
     private val loaded = java.util.concurrent.CountDownLatch(1)
 
@@ -272,7 +283,139 @@ class NetworkStore(
             deviceBytes = diskBytes.get().takeIf { persisted },
             keepBytes = keepBytes(),
             warnBytes = warnBytes(),
+            trimHeld = trimHeld(),
+            lastArchivedMs = state.ack?.atMs,
+            archivedOnly = state.archivedOnly.takeIf { it.isNotEmpty() },
         )
+    }
+
+    /** Why the history stays over its budget, or null (research R2 hold reasons). */
+    private fun trimHeld(): String? {
+        if (!persisted || diskBytes.get() <= keepBytes()) return null
+        val ack = state.ack ?: return "no-archive"
+        return if (clock() - (ack.atMs ?: 0) > STALE_ACK_MS) "stale-archive" else "unarchived"
+    }
+
+    /**
+     * Feature 066 (research R1): a computer has archived the journal before [ArchiveAck.through],
+     * except the bodies of [ArchiveAck.keep]. Kept in the state file; the writer trims to it.
+     */
+    fun acceptAck(ack: ArchiveAck): ArchiveAckResult {
+        if (!persisted) return ArchiveAckResult(false, "not-persisted")
+        if (reading()) return ArchiveAckResult(false, "reading")
+        val cursor = runCatching { parseCursor(ack.through) }.getOrNull() ?: return ArchiveAckResult(false, "invalid-cursor")
+        synchronized(lock) {
+            if (ack.journalId != state.journalId) return ArchiveAckResult(false, "journal-changed")
+            val previous = state.ack?.let { runCatching { parseCursor(it.through) }.getOrNull() }
+            val through = if (previous != null && compareValuesBy(previous, cursor, { it.first }, { it.second }) > 0) state.ack!!.through else ack.through
+            state = state.copy(ack = ack.copy(through = through, atMs = clock()))
+        }
+        saveState()
+        return ArchiveAckResult(true, trimPending = diskBytes.get() > synchronized(lock) { keepBytes() })
+    }
+
+    /** Tests: a budget below the 16 MB a person may set. */
+    internal fun setBudgetForTest(keepBytes: Long) = synchronized(lock) { state = state.copy(keepBytes = keepBytes) }
+
+    /** Tests: writes what is queued and runs a trim pass now. */
+    internal fun trimNow() {
+        flush()
+        trimArchived()
+    }
+
+    internal fun segmentIdsForTest(): Map<String, List<String>> = synchronized(writeLock) {
+        segmentIds.entries.associate { (file, ids) -> file.name to ids.keys().map { k -> "${runNames[(k ushr SEQ_BITS).toInt()]}:${k and SEQ_MASK}" } }
+    }
+
+    internal fun segmentIndexBytesForTest(): Long = synchronized(writeLock) { segmentIds.values.sumOf { it.capacityBytes() } }
+
+    /**
+     * Removes whole segments before the acknowledged one, oldest first, while the history is over
+     * its budget (research R2). An entry whose latest record is in such a segment either leaves
+     * the device with its bodies (archived), or, in flight or with bodies not yet copied, has
+     * that record written again at the end of the journal. Runs on the writer thread.
+     */
+    fun trimArchived() {
+        if (!persisted || reading()) return
+        val (ack, keep) = synchronized(lock) { (state.ack ?: return) to keepBytes() }
+        if (diskBytes.get() <= keep) return
+        val throughSegment = runCatching { parseCursor(ack.through).first }.getOrNull() ?: return
+        val keepIds = ack.keep.toHashSet()
+        synchronized(writeLock) {
+            val candidates = segmentIds.keys.filter { it != segment && (segmentIndex(it) ?: Int.MAX_VALUE) < throughSegment }
+                .sortedBy { segmentIndex(it) }
+            if (candidates.isEmpty()) return
+            for (file in candidates) {
+                if (diskBytes.get() <= keep) break
+                val index = segmentIndex(file) ?: continue
+                val latest = LinkedHashMap<String, NetworkEntry>()
+                runCatching {
+                    file.forEachLine { line ->
+                        if (line.isBlank()) return@forEachLine
+                        runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()
+                            ?.takeUnless { isEvicted(it.id) }?.let { latest[it.id] = it }
+                    }
+                }.onFailure { return }
+                val later = segmentIds.entries.filter { (f, _) -> (segmentIndex(f) ?: 0) > index }.map { it.value }
+                var removed = 0
+                for ((id, entry) in latest) {
+                    val key = keyOf(id)
+                    if (key != null && later.any { it.contains(key) }) continue
+                    val held = synchronized(lock) { entries[id] }
+                    if (inFlight(held ?: entry) || id in keepIds) {
+                        write(EntryRecord(held ?: entry))
+                        continue
+                    }
+                    for (part in BodyPart.entries) {
+                        bodyFile(id, part)?.takeIf { it.isFile }?.let { body ->
+                            val size = body.length()
+                            if (body.delete()) diskBytes.addAndGet(-size)
+                        }
+                    }
+                    synchronized(lock) { entries.remove(id)?.let { if (!inFlight(it)) finishedInMemory-- } }
+                    removed++
+                }
+                runCatching { segmentWriter?.flush() }
+                val size = file.length()
+                if (file.delete()) diskBytes.addAndGet(-size)
+                segmentIds.remove(file)
+                segmentNewest.remove(file)
+                synchronized(lock) {
+                    stored -= removed
+                    val counts = state.archivedOnly.toMutableMap()
+                    val host = if (ack.hostId in counts || counts.size < MAX_HOSTS) ack.hostId else "other"
+                    counts[host] = (counts[host] ?: 0) + removed
+                    state = state.copy(archivedOnly = counts)
+                }
+            }
+            synchronized(lock) { earliestMs = firstRecordTime() }
+            saveState()
+        }
+    }
+
+    /** The time of the oldest record still in the journal. */
+    private fun firstRecordTime(): Long? {
+        for (file in segmentFiles()) {
+            val time = runCatching {
+                file.bufferedReader().useLines { lines ->
+                    lines.firstNotNullOfOrNull { line -> runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()?.takeUnless { isEvicted(it.id) }?.timeMs }
+                }
+            }.getOrNull()
+            if (time != null) return time
+        }
+        return null
+    }
+
+    /** `run:seq` → one long: the run's ordinal in the high bits. */
+    private fun keyOf(id: String): Long? {
+        val (run, n) = idParts(id) ?: return null
+        val ordinal = runOrdinals.getOrPut(run) { runNames += run; runNames.size - 1 }
+        return (ordinal.toLong() shl SEQ_BITS) or (n and SEQ_MASK)
+    }
+
+    private fun indexRecord(file: File, id: String) {
+        val key = keyOf(id) ?: return
+        segmentIds.getOrPut(file) { SegmentIds() }.add(key)
     }
 
     private fun keepBytes() = state.keepBytes ?: HistoryDefaults.KEEP_BYTES
@@ -413,6 +556,7 @@ class NetworkStore(
             segmentWriter = null
             segment = null
             segmentNewest.clear()
+            segmentIds.clear()
             storage?.segments?.listFiles()?.forEach { it.delete() }
             storage?.bodies?.listFiles()?.forEach { it.delete() }
             diskBytes.set(0)
@@ -496,6 +640,7 @@ class NetworkStore(
             val size = file.length()
             if (file.delete()) diskBytes.addAndGet(-size)
             iterator.remove()
+            segmentIds.remove(file)
         }
     }
 
@@ -592,6 +737,7 @@ class NetworkStore(
                     val entry = runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()
                         ?: return@forEachLine
                     newest = entry.id
+                    indexRecord(file, entry.id)
                     if (isEvicted(entry.id)) return@forEachLine
                     val (run, n) = idParts(entry.id) ?: (entry.runId to 0L)
                     val bits = seen.getOrPut(run) { java.util.BitSet() }
@@ -603,6 +749,7 @@ class NetworkStore(
                     runLastTime[entry.runId] = maxOf(runLastTime[entry.runId] ?: 0, entry.timeMs)
                     if (inFlight(entry)) pending[entry.id] = entry else pending.remove(entry.id)
                 }
+                segmentIds[file]?.compact()
                 segmentNewest[file] = newest ?: continue
             }
             dir.bodies.listFiles()?.forEach { diskBytes.addAndGet(it.length()) }
@@ -674,6 +821,7 @@ class NetworkStore(
                 return
             }
             if (queue.isEmpty()) runCatching { evictIfNeeded() }
+            if (queue.isEmpty()) runCatching { trimArchived() }
         }
     }
 
@@ -686,7 +834,10 @@ class NetworkStore(
             writerFor(bytes).write(line)
             segmentBytes += bytes
             diskBytes.addAndGet(bytes)
-            segment?.let { segmentNewest[it] = newer(segmentNewest[it], record.entry.id) }
+            segment?.let {
+                segmentNewest[it] = newer(segmentNewest[it], record.entry.id)
+                indexRecord(it, record.entry.id)
+            }
         } catch (_: Throwable) {
             persisted = false
             runCatching { segmentWriter?.close() }
@@ -698,13 +849,14 @@ class NetworkStore(
         val writer = segmentWriter
         if (segment != null && writer != null && (segmentBytes == 0L || segmentBytes + incoming <= bounds.segmentBytes)) return writer
         writer?.close()
+        segment?.let { segmentIds[it]?.compact() }
         val file = File(storage!!.segments, "seg-%06d.jsonl".format(++lastSegmentIndex))
         segment = file
         segmentBytes = 0
         return file.bufferedWriter().also { segmentWriter = it }
     }
 
-    private fun saveState() {
+    private fun saveState(): Unit = synchronized(stateFileLock) {
         val target = stateFile() ?: return
         try {
             val tmp = File(target.parentFile, target.name + ".tmp")
@@ -768,6 +920,11 @@ class NetworkStore(
         const val LOAD_WAIT_MS = 30_000L
         /** How long [flush] (a host's read of the journal) waits for the earlier runs: under the host's 10 s. */
         const val FLUSH_WAIT_MS = 2_000L
+        /** An acknowledgement older than this, with the history over its budget, is stated as stale. */
+        const val STALE_ACK_MS = 3_600_000L
+        const val MAX_HOSTS = 4
+        const val SEQ_BITS = 40
+        const val SEQ_MASK = (1L shl SEQ_BITS) - 1
     }
 }
 
@@ -786,4 +943,29 @@ private class BoundedInputStream(input: InputStream, private var remaining: Long
         if (n > 0) remaining -= n
         return n
     }
+}
+
+/** The ids (as keys) a segment holds: appended in write order, sorted when first searched. */
+private class SegmentIds {
+    private var keys = LongArray(16)
+    private var size = 0
+    private var sorted = true
+
+    fun add(key: Long) {
+        if (size == keys.size) keys = keys.copyOf(size * 2)
+        if (size > 0 && key < keys[size - 1]) sorted = false
+        keys[size++] = key
+    }
+
+    fun contains(key: Long): Boolean {
+        if (!sorted) { java.util.Arrays.sort(keys, 0, size); sorted = true }
+        return java.util.Arrays.binarySearch(keys, 0, size, key) >= 0
+    }
+
+    /** Trims the array to its size: the segment is no longer written. */
+    fun compact() { if (keys.size > size) keys = keys.copyOf(maxOf(size, 1)) }
+
+    fun keys(): List<Long> = keys.copyOf(size).toList()
+
+    fun capacityBytes(): Long = keys.size * 8L
 }

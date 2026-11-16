@@ -79,7 +79,7 @@ class JournalMethodsTest {
     fun `the methods are registered under their wire names`() {
         val registry = MethodRegistry()
         methods.install(registry)
-        listOf("network_identity", "network_journal", "network_body_range", "network_history_settings").forEach { assertTrue(registry[it] != null, it) }
+        listOf("network_identity", "network_journal", "network_body_range", "network_history_settings", "network_archived").forEach { assertTrue(registry[it] != null, it) }
         DtaJson.encodeToString(JournalIdentityResult.serializer(), methods.identity())
     }
 
@@ -91,5 +91,15 @@ class JournalMethodsTest {
         assertEquals(128L shl 20, store.settings().warnBytes)
         assertFailsWith<InvalidParamsException> { methods.historySettings(params("keepBytes" to 10)) }
         assertFailsWith<InvalidParamsException> { methods.historySettings(params("keepBytes" to "lots")) }
+    }
+
+    @Test
+    fun `an acknowledgement is accepted for this journal and refused for another (066)`() {
+        record()
+        val journalId = methods.identity().journalId
+        fun call(vararg pairs: Pair<String, Any>) = methods.archived(params(*pairs))
+        assertTrue(call("journalId" to journalId, "hostId" to "h", "through" to "1:1").accepted)
+        assertEquals("journal-changed", call("journalId" to "other", "hostId" to "h", "through" to "1:1").reason)
+        assertFailsWith<InvalidParamsException> { call("hostId" to "h") }
     }
 }

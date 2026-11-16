@@ -55,9 +55,19 @@ class NetworkMethods(
         registry.register("network_body_range") { ctx ->
             DtaJson.encodeToJsonElement(BodyRangeResult.serializer(), bodyRange(ctx.params, ctx::attachBinary))
         }
+        registry.register("network_archived") { ctx ->
+            DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ArchiveAckResult.serializer(), archived(ctx.params))
+        }
         registry.register("network_history_settings") { ctx ->
             DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.HistorySettings.serializer(), historySettings(ctx.params))
         }
+    }
+
+    /** Feature 066: a computer says what it has archived of this journal (research R1). */
+    fun archived(params: JsonObject?): io.yamsergey.dta.protocol.network.ArchiveAckResult {
+        val ack = runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.ArchiveAck.serializer(), params ?: JsonObject(emptyMap())) }
+            .getOrElse { throw InvalidParamsException("network_archived needs journalId, hostId and through") }
+        return store.acceptAck(ack)
     }
 
     /** Feature 066: the keep-on-device budget and warning size; params set either or both. */
