@@ -142,6 +142,9 @@ object Statements {
         coverage?.long("bodiesNotArchived")?.takeIf { it > 0 }?.let {
             add(Statement(StatementKind.DEGRADED, detail = "$it bodies not archived", explanation = "$it bodies left the device before this computer could copy them; their entries are kept without them."))
         }
+        if (coverage?.get("deviceReading")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } == "true") {
+            add(Statement(StatementKind.PENDING, detail = "the app is still reading its earlier history", explanation = "The app reads the history of its earlier runs in the background after it starts; until it is done the counts are not complete and new entries are not in the history yet. Ask again shortly."))
+        }
         coverage?.long("hostLagRecords")?.takeIf { it > 0 }?.let {
             add(Statement(StatementKind.PENDING, detail = "$it entries not read from the device yet", explanation = "This computer is still reading $it entries from the device; ask again for the rest."))
         }

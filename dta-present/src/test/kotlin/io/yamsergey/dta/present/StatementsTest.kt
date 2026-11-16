@@ -112,6 +112,16 @@ class StatementsTest {
     }
 
     @Test
+    fun `a list says the app is still reading its earlier history`() {
+        val page = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true,"deviceReading":true}}""",
+        ).jsonObject
+        val s = Statements.forNetworkList(page)
+        assertEquals(listOf(PENDING), s.kinds())
+        assertEquals("the app is still reading its earlier history", s[0].detail)
+    }
+
+    @Test
     fun `a list states what the host has not caught up with, and the archive beside it`() {
         val page = kotlinx.serialization.json.Json.parseToJsonElement(
             """{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true,
