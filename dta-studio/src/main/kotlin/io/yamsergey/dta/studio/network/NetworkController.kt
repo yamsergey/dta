@@ -142,6 +142,7 @@ class NetworkController(private val context: ContextController, private val scop
      */
     private fun followSaved(client: DaemonClient) {
         savedJob?.cancel()
+        savedClient = client
         savedJob = scope.launch {
             while (true) {
                 val s = mutable.value
@@ -162,6 +163,7 @@ class NetworkController(private val context: ContextController, private val scop
     }
 
     private var savedJob: Job? = null
+    private var savedClient: DaemonClient? = null
 
     private fun applied(page: JsonObject): SavedFiltersApplied? =
         page["saved"]?.let { DtaJson.decodeFromJsonElement(SavedFiltersApplied.serializer(), it) }
@@ -329,7 +331,8 @@ class NetworkController(private val context: ContextController, private val scop
             )
         }
         val client = target.client ?: return
-        if (!sameApp || savedJob == null) followSaved(client)
+        // A new daemon connection (restarted, replaced) is a new client: the old one answers nothing any more.
+        if (!sameApp || savedJob == null || savedClient !== client) followSaved(client)
         // The archive answers without the app running; it is a snapshot, not watched.
         if (mutable.value.archive != null && target.device != null && target.app != null) {
             source = scope.launch {

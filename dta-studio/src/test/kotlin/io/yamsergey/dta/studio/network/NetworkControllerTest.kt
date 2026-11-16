@@ -163,6 +163,18 @@ class NetworkControllerTest {
     }
 
     @Test
+    fun `after the daemon is replaced the saved filters still follow it`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        val other = daemon.connect(ClientKind.CLI).client
+        other.request(io.yamsergey.dta.protocol.ops.DaemonMethods.REPLACE, io.yamsergey.dta.client.DaemonClient.replaceParams(io.yamsergey.dta.protocol.ops.VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)))
+        until { (session.state.value as? DaemonSession.State.Connected)?.statements?.any { "replaced" in it } == true }
+        await { it.list.rows.size == 3 && it.watching }
+        daemon.ops.savedWords += "-url:/after"
+        withTimeout(8_000) { network.state.first { it.saved.saved == listOf("-url:/after") } }
+    }
+
+    @Test
     fun `a clear by another client empties the list and says who cleared it`() = runBlocking<Unit> {
         session.start()
         await { it.list.rows.size == 3 && it.watching }
