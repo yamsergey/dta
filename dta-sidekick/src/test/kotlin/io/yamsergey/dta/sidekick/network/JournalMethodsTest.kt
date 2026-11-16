@@ -79,7 +79,17 @@ class JournalMethodsTest {
     fun `the methods are registered under their wire names`() {
         val registry = MethodRegistry()
         methods.install(registry)
-        listOf("network_identity", "network_journal", "network_body_range").forEach { assertTrue(registry[it] != null, it) }
+        listOf("network_identity", "network_journal", "network_body_range", "network_history_settings").forEach { assertTrue(registry[it] != null, it) }
         DtaJson.encodeToString(JournalIdentityResult.serializer(), methods.identity())
+    }
+
+    @Test
+    fun `history settings are read, set, and refused with the reason (066)`() {
+        assertEquals(256L shl 20, methods.historySettings(null).keepBytes)
+        val set = methods.historySettings(params("keepBytes" to (64L shl 20), "warnBytes" to (128L shl 20)))
+        assertEquals(64L shl 20, set.keepBytes)
+        assertEquals(128L shl 20, store.settings().warnBytes)
+        assertFailsWith<InvalidParamsException> { methods.historySettings(params("keepBytes" to 10)) }
+        assertFailsWith<InvalidParamsException> { methods.historySettings(params("keepBytes" to "lots")) }
     }
 }

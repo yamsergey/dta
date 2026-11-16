@@ -55,6 +55,19 @@ class NetworkMethods(
         registry.register("network_body_range") { ctx ->
             DtaJson.encodeToJsonElement(BodyRangeResult.serializer(), bodyRange(ctx.params, ctx::attachBinary))
         }
+        registry.register("network_history_settings") { ctx ->
+            DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.HistorySettings.serializer(), historySettings(ctx.params))
+        }
+    }
+
+    /** Feature 066: the keep-on-device budget and warning size; params set either or both. */
+    fun historySettings(params: JsonObject?): io.yamsergey.dta.protocol.network.HistorySettings {
+        fun bytes(name: String): Long? = (params?.get(name) as? JsonPrimitive)?.let {
+            it.content.toLongOrNull() ?: throw InvalidParamsException("$name must be a number of bytes")
+        }
+        val keep = bytes("keepBytes")
+        val warn = bytes("warnBytes")
+        return if (keep == null && warn == null) store.settings() else store.setSettings(keep, warn)
     }
 
     fun identity(): JournalIdentityResult = store.identity().let { JournalIdentityResult(it.journalId, it.reason, it.entries, it.persisted, context()) }

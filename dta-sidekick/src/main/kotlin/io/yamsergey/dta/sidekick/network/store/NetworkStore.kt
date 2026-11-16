@@ -3,6 +3,8 @@ package io.yamsergey.dta.sidekick.network.store
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.Coverage
 import io.yamsergey.dta.protocol.network.EntryChange
+import io.yamsergey.dta.protocol.network.HistoryDefaults
+import io.yamsergey.dta.protocol.network.HistorySettings
 import io.yamsergey.dta.protocol.network.HttpEntry
 import io.yamsergey.dta.protocol.network.HttpState
 import io.yamsergey.dta.protocol.network.NetworkEntry
@@ -39,6 +41,9 @@ internal data class StoreState(
     val clearedAtMs: Long? = null,
     /** Changes when the history is cleared or the storage is new (feature 011, contracts/sidekick-journal.md). */
     val journalId: String? = null,
+    /** Feature 066: the keep-on-device budget and warning size; null is the default. */
+    val keepBytes: Long? = null,
+    val warnBytes: Long? = null,
 )
 
 /** The journal's identity; [reason] says why it is new in this process (`cleared`, `storage-new`). */
@@ -264,7 +269,30 @@ class NetworkStore(
             runs = runs(),
             clearedAtMs = state.clearedAtMs,
             deviceReading = reading().takeIf { it },
+            deviceBytes = diskBytes.get().takeIf { persisted },
+            keepBytes = keepBytes(),
+            warnBytes = warnBytes(),
         )
+    }
+
+    private fun keepBytes() = state.keepBytes ?: HistoryDefaults.KEEP_BYTES
+    private fun warnBytes() = state.warnBytes ?: HistoryDefaults.WARN_BYTES
+
+    /** Feature 066: the keep-on-device budget and warning size in force, with the history's size. */
+    fun settings(): HistorySettings = synchronized(lock) {
+        HistorySettings(keepBytes(), warnBytes(), deviceBytes = diskBytes.get().takeIf { persisted })
+    }
+
+    /** Sets either or both; kept in the state file. Refused (nothing changes) below 16 MB or with the warning under the budget. */
+    fun setSettings(keepBytes: Long? = null, warnBytes: Long? = null): HistorySettings {
+        synchronized(lock) {
+            val keep = keepBytes ?: keepBytes()
+            val warn = warnBytes ?: warnBytes()
+            HistoryDefaults.problem(keep, warn)?.let { throw InvalidParamsException(it) }
+            state = state.copy(keepBytes = keep, warnBytes = warn)
+        }
+        synchronized(writeLock) { saveState() }
+        return settings()
     }
 
     /** Still reading the earlier runs: the counters are not complete, nothing is written yet. */
@@ -375,7 +403,7 @@ class NetworkStore(
             stored = 0
             earliestMs = null
             runLastTime.clear()
-            state = StoreState(clearedAtMs = clock(), journalId = UUID.randomUUID().toString())
+            state = StoreState(clearedAtMs = clock(), journalId = UUID.randomUUID().toString(), keepBytes = state.keepBytes, warnBytes = state.warnBytes)
             journalReason = "cleared"
             count
         }
