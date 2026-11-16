@@ -107,6 +107,8 @@ class NetworkStore(
     private val recentWindow: Int = 2_000,
     /** Runs on the writer thread just before the earlier runs are read (tests hold the read with it). */
     private val beforeLoad: () -> Unit = {},
+    /** Feature 066: where the start warning goes when the history is over its warning size (the device log). */
+    private val warn: (String) -> Unit = {},
 ) {
     private val storage: StorageDir? = storage?.takeIf { it.prepare() }
 
@@ -173,6 +175,7 @@ class NetworkStore(
                 } finally {
                     loaded.countDown()
                 }
+                warnIfLarge()
                 // What arrived while reading was kept whole; the window applies again from here.
                 synchronized(lock) { trimWindow() }
                 writerLoop()
@@ -180,6 +183,7 @@ class NetworkStore(
             else -> {
                 load()
                 loaded.countDown()
+                warnIfLarge()
             }
         }
     }
@@ -289,6 +293,24 @@ class NetworkStore(
         )
     }
 
+    /**
+     * Feature 066 (research R7): once, after the earlier runs are read, a history over its warning
+     * size is said in the device log with its size, the last archiving and what to do.
+     */
+    private fun warnIfLarge() {
+        val (warnAt, ack) = synchronized(lock) { warnBytes() to state.ack }
+        val bytes = diskBytes.get()
+        if (!persisted || bytes <= warnAt) return
+        val mb = 1024 * 1024
+        val since = ack?.atMs?.let {
+            "nothing archived since " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(it))
+        } ?: "no DTA client has archived it yet"
+        runCatching {
+            warn("DTA network history on this device is ${bytes / mb} MB, over its ${warnAt / mb} MB warning size: $since. " +
+                "Connect a DTA client so it is archived and trimmed, clear it (dta network clear), or raise the budget (dta network history set).")
+        }
+    }
+
     /** Why the history stays over its budget, or null (research R2 hold reasons). */
     private fun trimHeld(): String? {
         if (!persisted || diskBytes.get() <= keepBytes()) return null
@@ -312,6 +334,12 @@ class NetworkStore(
         }
         saveState()
         return ArchiveAckResult(true, trimPending = diskBytes.get() > synchronized(lock) { keepBytes() })
+    }
+
+    /** Tests: a warning size below the 16 MB a person may set, kept in the state file. */
+    internal fun setWarnForTest(warnBytes: Long) {
+        synchronized(lock) { state = state.copy(warnBytes = warnBytes) }
+        saveState()
     }
 
     /** Tests: a budget below the 16 MB a person may set. */

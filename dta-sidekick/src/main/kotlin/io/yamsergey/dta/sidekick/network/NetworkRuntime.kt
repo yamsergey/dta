@@ -58,7 +58,7 @@ object NetworkRuntime {
         if (store != null) return
         val root = File(context.noBackupFilesDir, "dta/network")
         scriptStore = ScriptStore(root)
-        val created = NetworkStore(StorageDir(root), pid = Process.myPid())
+        val created = NetworkStore(StorageDir(root), pid = Process.myPid(), warn = { android.util.Log.w("DTA", it) })
         val recorder = NetworkRecorder(created, observe = { entry ->
             io.yamsergey.dta.sidekick.ui.UiRuntime.observe(entry)
             io.yamsergey.dta.sidekick.timeline.TimelineSources.observe(entry)

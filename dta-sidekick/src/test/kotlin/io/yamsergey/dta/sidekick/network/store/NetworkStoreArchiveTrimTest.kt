@@ -262,4 +262,27 @@ class NetworkStoreArchiveTrimTest {
         assertEquals(ids.drop(4), s.journal(after = null, limit = 100).records.map { it.id })
         assertEquals(ids.drop(5), s.journal(after = "5:1", limit = 100).records.map { it.id }, "the host's cursor still resumes")
     }
+
+    // ---- C1: the start warning ------------------------------------------------------------
+
+    @Test
+    fun `a history over its warning size is said once in the device log at the start`() {
+        tiny().apply {
+            List(5) { withBody(this, bytes = 20_000) }
+            flush()
+            close()
+        }
+        opened.clear()
+        // Settings below 16 MB are for tests only: write them through a store, then start again.
+        NetworkStore(StorageDir(dir), pid = 9, clock = { now++ }).also { it.awaitLoaded(); it.setWarnForTest(50_000); it.close() }
+        val said = mutableListOf<String>()
+        NetworkStore(StorageDir(dir), pid = 10, clock = { now++ }, warn = { said += it }).also { opened += it; it.awaitLoaded() }
+        Thread.sleep(100)
+        val line = said.single()
+        assertTrue(line.contains("over its 0 MB warning size") && line.contains("no DTA client has archived it yet") && line.contains("dta network clear"), line)
+        val quiet = mutableListOf<String>()
+        NetworkStore(StorageDir(File(dir, "other")), pid = 11, clock = { now++ }, warn = { quiet += it }).also { opened += it; it.awaitLoaded() }
+        Thread.sleep(100)
+        assertTrue(quiet.isEmpty())
+    }
 }
