@@ -135,6 +135,11 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
                 listCalls++
                 RpcResult(DtaJson.encodeToJsonElement(NetworkPage.serializer(), deviceAnswer(NetworkQuery.parse(params))))
             }
+            "network_clear" -> {
+                val n = latest().size
+                reset("j-cleared-${requests.size}", "cleared")
+                RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ClearResult.serializer(), io.yamsergey.dta.protocol.network.ClearResult(n, 1)))
+            }
             "network_history_settings" -> {
                 str("keepBytes")?.let { keep = it.toLong() }
                 str("warnBytes")?.let { warn = it.toLong() }

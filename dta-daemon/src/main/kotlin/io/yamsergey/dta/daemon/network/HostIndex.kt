@@ -149,6 +149,34 @@ class HostIndex(
         )
     }
 
+    /**
+     * Feature 066 (research R6): before the device forgets, everything it has that this computer
+     * does not is copied, within [timeoutMs]. What is still missing then is returned, with why.
+     */
+    suspend fun copyBeforeClear(timeoutMs: Long = CLEAR_COPY_MS): io.yamsergey.dta.protocol.network.NotKept? {
+        val deadline = clock() + timeoutMs
+        var why = "the copy did not finish in ${timeoutMs / 1000} s"
+        try {
+            mutex.withLock {
+                val app = connection()
+                while (sync(app) && lag > 0 && clock() < deadline) Unit
+            }
+            for (body in pendingBodies()) {
+                if (clock() >= deadline) break
+                copyBody(body.entryId, body.part)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            why = "the copy failed: ${e.message ?: e.javaClass.simpleName}"
+        }
+        return mutex.withLock {
+            val bodies = pending().size
+            val entries = lag.toInt()
+            if (bodies == 0 && entries == 0) null else io.yamsergey.dta.protocol.network.NotKept(entries, bodies, why)
+        }
+    }
+
     /** Feature 066: tell the device now what is archived (after the copy worker copied bodies). */
     suspend fun acknowledgeNow() = mutex.withLock { runCatching { connection() }.getOrNull()?.let { acknowledge(it, force = true) } }
 
@@ -531,6 +559,8 @@ class HostIndex(
         private const val CHUNK = 256L * 1024
         /** Feature 066: acknowledgements at most this often per app, and at most this many entries kept for their bodies. */
         const val ACK_EVERY_MS = 10_000L
+        /** How long a clear waits for the copy of what this computer does not have yet. */
+        const val CLEAR_COPY_MS = 20_000L
         const val MAX_KEEP = 2_000
 
         /**

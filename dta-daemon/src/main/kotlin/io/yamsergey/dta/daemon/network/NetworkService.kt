@@ -300,8 +300,13 @@ class NetworkService(
         )
 
     /** Clears the app's history; the host keeps what it had as an archived epoch (feature 011). */
-    suspend fun clear(): ClearResult =
-        DtaJson.decodeFromJsonElement(ClearResult.serializer(), connection().request("network_clear")).also { host?.cleared(it.clearedEntries) }
+    suspend fun clear(copyTimeoutMs: Long = HostIndex.CLEAR_COPY_MS): ClearResult {
+        // Feature 066: what this computer does not have yet is copied first; what could not be is said.
+        val notKept = host?.copyBeforeClear(copyTimeoutMs)
+        return DtaJson.decodeFromJsonElement(ClearResult.serializer(), connection().request("network_clear"))
+            .also { host?.cleared(it.clearedEntries) }
+            .copy(notKept = notKept)
+    }
 
     /** Live `network.entry` events pushed by the sidekick; not replayed (use [list] for history). */
     fun events(onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> = flow {
