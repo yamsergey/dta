@@ -78,8 +78,10 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
         fun allows(s: Suggestion): Boolean {
             if (s.text in words) return false
             val t = s.text
+            // The opposite of a word already there would undo it (or leave nothing).
+            if (t.startsWith("-")) return t.drop(1) !in words
+            if ("-$t" in words) return false
             val key = when {
-                t.startsWith("-") -> return true
                 t in QueryLine.METHODS -> "method"
                 t == "http" || t == "ws" -> "kind"
                 else -> t.substringBefore(':', "").ifEmpty { return true }
@@ -118,7 +120,9 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
         val colon = body.indexOf(':')
         if (colon < 0) {
             if (body.isEmpty() && !negated) return emptyList()
-            val keys = keys(kind).filter { it.name.startsWith(body.lowercase()) && it.name != body.lowercase() }.map { Suggestion("$n${it.name}:", from, it.hint) }
+            // run:, since: and until: cannot be excluded (they say which part of the history).
+            val keys = keys(kind).filter { it.name.startsWith(body.lowercase()) && it.name != body.lowercase() && !(negated && it.name in QueryLine.SESSION_KEYS) }
+                .map { Suggestion("$n${it.name}:", from, it.hint) }
             val bare = if (negated) emptyList() else (listOf("http", "ws") + QueryLine.METHODS).filter { it.startsWith(body, ignoreCase = true) && it != body }
                 .map { Suggestion(it, from, if (it in QueryLine.METHODS) "method" else "kind") }
             return keys + bare

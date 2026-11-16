@@ -90,6 +90,16 @@ class QueryLineModelTest {
     }
 
     @Test
+    fun `nothing is offered that the line would refuse or that undoes a word already there`() {
+        val keys = line("-").suggestions(1).map { it.text }
+        listOf("-run:", "-since:", "-until:").forEach { assertTrue(it !in keys, it) }
+        assertTrue("-has:" in keys, "has: is negated as -has:intervention")
+        val seen = Seen(hosts = setOf("api.example.test", "cdn.example.test"))
+        assertEquals(listOf("-host:cdn.example.test"), line("host:api.example.test -host:").suggestions(28, seen).map { it.text }, "excluding the host the line asks for leaves nothing")
+        assertEquals(listOf("-host:cdn.example.test"), line("-host:").suggestions(6, seen, saved = listOf("host:api.example.test")).map { it.text })
+    }
+
+    @Test
     fun `the word at the caret and what follows an inserted suggestion (063)`() {
         assertEquals("sta", QueryLineModel.word("POST sta", 8))
         assertEquals("st", QueryLineModel.word("POST sta", 7))
