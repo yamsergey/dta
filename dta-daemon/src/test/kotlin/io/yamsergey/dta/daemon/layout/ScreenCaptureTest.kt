@@ -107,6 +107,15 @@ class ScreenCaptureTest {
     }
 
     @Test
+    fun `an image that cannot be decoded is still returned, the comparison is stated as not made`() {
+        val broken = png().copyOf(64)
+        val c = Device(images = listOf({ broken }, { png() })).run()
+        assertEquals(ScreenImageState.PRESENT, c.screenImage!!.state)
+        val changed = c.degraded!!.single { it.reason.startsWith(DegradationCodes.SCREEN_CHANGED_DURING_CAPTURE) }
+        assertTrue("could not be compared" in changed.reason, changed.reason)
+    }
+
+    @Test
     fun `a secure window blocks the image - nothing is taken, the tree is returned`() {
         val d = Device(windows = listOf("secure", "secure"), images = emptyList())
         val c = d.run()

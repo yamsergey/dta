@@ -100,10 +100,12 @@ class ScreenCapture(
         before.filter { it.name !in afterNames }.forEach { parts += "${it.name} closed" }
         after.filter { it.name in beforeNames && (it.name to it.bounds) !in beforeKeys }.forEach { parts += "${it.name} moved to ${it.bounds.show()}" }
         if (parts.isEmpty() && beforeKeys.sortedBy { it.toString() } != afterKeys.sortedBy { it.toString() }) parts += "the windows on screen changed"
-        when (val diff = ScreenDiff.compare(a, b, after.filter { it.app }.map { it.bounds })) {
+        // The comparison only says whether the screen moved; an image it cannot read never fails the capture.
+        when (val diff = runCatching { ScreenDiff.compare(a, b, after.filter { it.app }.map { it.bounds }) }.getOrElse { e -> e }) {
             is ScreenDiff.Result.Changed -> parts += "the app's pixels changed in ${diff.box.show()}"
             is ScreenDiff.Result.Resized -> parts += "the screen changed size from ${diff.widthA}×${diff.heightA} to ${diff.widthB}×${diff.heightB}"
             ScreenDiff.Result.Same -> {}
+            is Throwable -> parts += "the two images could not be compared (${diff.message ?: diff.javaClass.simpleName}), so a change on screen during the capture may be missed"
         }
         return parts.takeIf { it.isNotEmpty() }?.joinToString("; ")
     }

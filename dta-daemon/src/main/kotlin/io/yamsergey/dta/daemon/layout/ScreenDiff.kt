@@ -51,6 +51,21 @@ object ScreenDiff {
         return if (right == Int.MIN_VALUE) Result.Same else Result.Changed(Rect(left, top, right, bottom))
     }
 
+    private val SIGNATURE = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0x0d, 0x0a, 0x1a, 0x0a)
+
+    /**
+     * The PNG in what `screencap -p` printed. Some devices print a line before the image on the same
+     * output (several displays: "[Warning] Multiple displays were found…"); that text is cut off.
+     * Throws with what was printed when there is no image at all.
+     */
+    fun png(bytes: ByteArray): ByteArray {
+        val at = (0..bytes.size - SIGNATURE.size).firstOrNull { i -> SIGNATURE.indices.all { bytes[i + it] == SIGNATURE[it] } }
+        if (at == 0) return bytes
+        if (at != null) return bytes.copyOfRange(at, bytes.size)
+        val text = String(bytes, 0, minOf(bytes.size, 200), Charsets.UTF_8).replace(Regex("[^\\p{Print}]+"), " ").trim()
+        error("screencap returned no PNG image (${bytes.size} bytes)" + if (text.isNotEmpty()) ": $text" else "")
+    }
+
     /** Width and height from the PNG header, or null when [png] is not a PNG. */
     fun size(png: ByteArray): Pair<Int, Int>? {
         val signature = byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte())

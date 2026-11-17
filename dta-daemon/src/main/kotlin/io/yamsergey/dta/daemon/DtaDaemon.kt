@@ -276,7 +276,7 @@ class DtaDaemon(
             val adb = AdbExec(adbPath ?: error(adbUnavailableReason ?: "adb is not available"))
             val r = adb.runBytes("-s", serial, "exec-out", "screencap", "-p", timeout = 15.seconds)
             check(r.exitCode == 0 && r.stdout.isNotEmpty()) { r.stderr.trim().ifEmpty { "screencap exited with ${r.exitCode}" } }
-            r.stdout
+            io.yamsergey.dta.daemon.layout.ScreenDiff.png(r.stdout)
         },
     )
 

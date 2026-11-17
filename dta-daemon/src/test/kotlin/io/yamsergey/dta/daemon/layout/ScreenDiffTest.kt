@@ -56,4 +56,18 @@ class ScreenDiffTest {
         assertEquals(100 to 200, ScreenDiff.size(png()))
         assertNull(ScreenDiff.size(byteArrayOf(1, 2, 3)))
     }
+
+    @Test
+    fun `text a device prints before the image (several displays) is cut off`() {
+        val image = png()
+        val noisy = "[Warning] Multiple displays were found, but no display id was specified! Defaulting to the first display found, however this default is not guaranteed to be consistent across captures.\n".toByteArray() + image
+        assertEquals(image.toList(), ScreenDiff.png(noisy).toList())
+        assertEquals(image.toList(), ScreenDiff.png(image).toList())
+    }
+
+    @Test
+    fun `bytes with no image say what they were`() {
+        val e = kotlin.test.assertFailsWith<IllegalStateException> { ScreenDiff.png("/system/bin/sh: screencap: inaccessible or not found\n".toByteArray()) }
+        kotlin.test.assertTrue("screencap: inaccessible or not found" in e.message!!, e.message)
+    }
 }
