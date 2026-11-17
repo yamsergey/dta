@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonPrimitive
@@ -110,6 +111,33 @@ class NetworkControllerTest {
         kotlinx.coroutines.delay(200)
         val kept = network.state.value
         assertEquals("r1-1:2" to false, kept.list.selectedId to kept.list.selectedGone)
+    }
+
+    @Test
+    fun `typed search words, matches arriving faster than the settle time still show while traffic goes on`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        val arrived = java.util.concurrent.CopyOnWriteArrayList<HttpEntry>()
+        daemon.ops.listed = { q -> if (q.q == "api") daemon.ops.entries + arrived else daemon.ops.entries }
+        network.setQuery("api")
+        until { daemon.ops.queries.any { it.second.q == "api" } }
+        await { it.list.rows.size == 3 }
+        // A socket sending every 300 ms: never a whole second without traffic.
+        val traffic = launch(Dispatchers.IO) {
+            var seq = 100
+            while (true) {
+                val e = http(seq++)
+                arrived += e
+                daemon.ops.events.emit(NetworkEntryEvent(e, EntryChange.CREATED))
+                kotlinx.coroutines.delay(300)
+            }
+        }
+        try {
+            val s = runCatching { withTimeout(4_000) { network.state.first { it.list.rows.size > 3 } } }.getOrNull()
+            assertTrue(s != null, "no new match listed while traffic kept arriving: ${network.state.value.list.rows.size} rows")
+        } finally {
+            traffic.cancel()
+        }
     }
 
     @Test

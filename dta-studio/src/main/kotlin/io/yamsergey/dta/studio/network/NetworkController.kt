@@ -236,14 +236,25 @@ class NetworkController(private val context: ContextController, private val scop
 
     /** Feature 041: new traffic while only matches are listed — listed again once it settles (an entry matches only once searched). */
     private fun relist() {
-        relistJob?.cancel()
+        // At most SEARCH_SETTLE_MS after the first new event, not after the last: traffic that never
+        // pauses for that long (a busy socket) would otherwise postpone the list for ever.
+        // Traffic that comes while the list is asked for is listed by one more round (the trigger is conflated).
         val c = context.client ?: return
-        relistJob = scope.launch {
-            kotlinx.coroutines.delay(SEARCH_SETTLE_MS)
-            runCatching { c.call("network.list", params(mutable.value)).result.jsonObject }
-                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page)) }; search() }
+        if (relistJob?.isActive != true) {
+            val trigger = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+            relistTrigger = trigger
+            relistJob = scope.launch {
+                for (ignored in trigger) {
+                    kotlinx.coroutines.delay(SEARCH_SETTLE_MS)
+                    runCatching { c.call("network.list", params(mutable.value)).result.jsonObject }
+                        .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page)) }; search() }
+                }
+            }
         }
+        relistTrigger?.trySend(Unit)
     }
+
+    private var relistTrigger: kotlinx.coroutines.channels.Channel<Unit>? = null
 
     /** Feature 042: the next list answers the person's own change of query: a selection it leaves out is cleared quietly. */
     @Volatile private var quietNext = false
