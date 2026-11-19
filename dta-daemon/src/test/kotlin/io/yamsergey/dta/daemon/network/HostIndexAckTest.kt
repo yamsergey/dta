@@ -79,17 +79,6 @@ class HostIndexAckTest {
     }
 
     @Test
-    fun `an older library is told once, and said`() = runBlocking<Unit> {
-        val app = FakeJournalApp().apply { acksUnsupported = true }
-        http(app, 1)
-        val host = index(app)
-        assertEquals("old-library", host.list(NetworkQuery()).coverage.archiveHeld)
-        now += 20_000
-        host.list(NetworkQuery())
-        assertEquals(1, app.requests.count { it == "network_archived" })
-    }
-
-    @Test
     fun `entries kept here only, and those another computer took`() = runBlocking<Unit> {
         val app = FakeJournalApp()
         repeat(6) { http(app, it + 1) }

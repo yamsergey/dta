@@ -170,7 +170,6 @@ object Statements {
         fun reason(): String = when {
             held == "archive-stopped" -> "this computer's archive stopped"
             held == "copy-behind" -> "this computer is still copying ${coverage.long("bodiesPending") ?: "its"} bodies"
-            held == "old-library" -> "this app's DTA library does not trim archived history"
             coverage.str("trimHeld") == "no-archive" -> "no DTA client has archived it yet"
             coverage.str("trimHeld") == "stale-archive" -> "nothing archived since " + (coverage.long("lastArchivedMs")?.let {
                 java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(it))
@@ -195,10 +194,6 @@ object Statements {
         coverage.long("archivedByOther")?.takeIf { it > 0 }?.let {
             add(Statement(StatementKind.NOT_CAPTURED, word = "elsewhere", code = "history-other-host", detail = "$it entries archived by another computer",
                 explanation = "$it entries left the device after another computer archived them; they are not here."))
-        }
-        if (held == "old-library") {
-            add(Statement(StatementKind.PENDING, word = "not trimmed", code = "history-not-trimming", detail = "the app's DTA library does not trim archived history",
-                explanation = "This app's DTA library does not trim archived history, so its history on the device keeps growing; update it."))
         }
     }
 

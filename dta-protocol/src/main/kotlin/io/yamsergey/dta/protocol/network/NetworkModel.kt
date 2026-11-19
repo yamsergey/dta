@@ -516,7 +516,7 @@ data class Coverage(
     val archivedByOther: Int? = null,
     /** Entries kept on this computer only: the device removed them after archiving. */
     val hostOnly: Long? = null,
-    /** Why this computer does not let the device trim: `copy-behind`, `archive-stopped`, `old-library`. */
+    /** Why this computer does not let the device trim: `copy-behind`, `archive-stopped`. */
     val archiveHeld: String? = null,
 )
 

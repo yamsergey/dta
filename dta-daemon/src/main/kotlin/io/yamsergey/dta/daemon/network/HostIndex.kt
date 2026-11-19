@@ -79,7 +79,6 @@ class HostIndex(
     private var deviceEntries = 0
     private var lastAckMs: Long? = null
     private var archiveHeld: String? = null
-    private var ackUnsupported = false
 
     private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, { e, p -> hostBodyBytes(epoch?.id, e, p) },
         { entry, part -> decodedJson(entry, part, epoch?.id, live::get) }, readEnvelope)
@@ -381,7 +380,6 @@ class HostIndex(
      * every [ACK_EVERY_MS] unless [force]. A failure never fails the answer.
      */
     private suspend fun acknowledge(app: AppConnection, force: Boolean = false) {
-        if (ackUnsupported) return
         val now = clock()
         if (!force && lastAckMs?.let { now - it < ACK_EVERY_MS } == true) return
         val cursor = store.cursor(device.key, packageName) ?: return
@@ -397,8 +395,6 @@ class HostIndex(
                 DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ArchiveAck.serializer(),
                     io.yamsergey.dta.protocol.network.ArchiveAck(cursor.journalId, store.hostId, position, keep)).jsonObject,
             )
-        } catch (e: io.yamsergey.dta.daemon.connection.SidekickRpcException) {
-            if (e.code == io.yamsergey.dta.protocol.rpc.ErrorCodes.METHOD_NOT_FOUND) { ackUnsupported = true; archiveHeld = "old-library" }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {

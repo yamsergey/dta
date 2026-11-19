@@ -276,11 +276,10 @@ class StatementsTest {
     }
 
     @Test
-    fun `entries kept here only, those another computer took, and an older library`() {
-        val s = coverage(""""hostOnly":3896,"archivedByOther":12,"archiveHeld":"old-library"""")
+    fun `entries kept here only, and those another computer took`() {
+        val s = coverage(""""hostOnly":3896,"archivedByOther":12""")
         assertEquals("3896 entries kept on this computer only", s.single { it.code == "history-host-only" }.detail)
         assertTrue(s.single { it.code == "history-other-host" }.sentence.contains("another computer"))
-        assertTrue(s.single { it.code == "history-not-trimming" }.sentence.contains("update"))
     }
 
     @Test

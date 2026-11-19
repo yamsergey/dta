@@ -67,7 +67,6 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
 
     /** Feature 066: acknowledgements received, whether the app is too old to take them, what it says it removed. */
     val acks = mutableListOf<io.yamsergey.dta.protocol.network.ArchiveAck>()
-    var acksUnsupported = false
     var entriesOverride: Int? = null
     var archivedOnly: Map<String, Int>? = null
     var keep = 256L shl 20
@@ -147,7 +146,6 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
                 RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.HistorySettings.serializer(), io.yamsergey.dta.protocol.network.HistorySettings(keep, warn)))
             }
             "network_archived" -> {
-                if (acksUnsupported) throw io.yamsergey.dta.daemon.connection.SidekickRpcException(io.yamsergey.dta.protocol.rpc.ErrorCodes.METHOD_NOT_FOUND, "Unknown method: network_archived")
                 acks += DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.ArchiveAck.serializer(), params!!)
                 RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ArchiveAckResult.serializer(), io.yamsergey.dta.protocol.network.ArchiveAckResult(true)))
             }
