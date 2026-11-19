@@ -109,6 +109,12 @@ class NetworkStore(
     private val beforeLoad: () -> Unit = {},
     /** Feature 066: where the start warning goes when the history is over its warning size (the device log). */
     private val warn: (String) -> Unit = {},
+    /**
+     * Where a trim pass's body files are deleted: a thread of their own, so the writer goes on
+     * writing traffic (found under load, 2026-11-19: deleting tens of thousands of small files on
+     * the writer thread filled the queue and records were dropped).
+     */
+    bodyDeleter: ((Runnable) -> Unit)? = null,
 ) {
     private val storage: StorageDir? = storage?.takeIf { it.prepare() }
 
@@ -146,6 +152,19 @@ class NetworkStore(
     /** Per segment: the newest entry id recorded in it (all older ones are older). */
     private val segmentNewest = LinkedHashMap<File, String>()
     private val diskBytes = AtomicLong()
+
+    /** Bytes of body files a trim pass gave to [bodyDeleter] and not deleted yet: counted gone already. */
+    private val deleting = AtomicLong()
+    private val deletes = AtomicLong()
+    private val ownDeleter = bodyDeleter == null
+    private val bodyDeleter: (Runnable) -> Unit = bodyDeleter ?: run {
+        val pool = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "dta-network-bodies").apply { isDaemon = true } }
+        val run: (Runnable) -> Unit = { pool.execute(it) }
+        run
+    }
+
+    /** What the history takes once the body files being deleted are gone: what the budget is held to. */
+    private fun occupied(): Long = diskBytes.get() - deleting.get()
 
     /** Counts not written yet, and when each entry's record was last written by [upsertCount] (under [lock]). */
     private val deferred = HashMap<String, NetworkEntry>()
@@ -369,7 +388,7 @@ class NetworkStore(
 
     /** Why the history stays over its budget, or null (research R2 hold reasons). */
     private fun trimHeld(): String? {
-        if (!persisted || diskBytes.get() <= keepBytes()) return null
+        if (!persisted || occupied() <= keepBytes()) return null
         val ack = state.ack ?: return "no-archive"
         return if (clock() - (ack.atMs ?: 0) > STALE_ACK_MS) "stale-archive" else "unarchived"
     }
@@ -389,7 +408,7 @@ class NetworkStore(
             state = state.copy(ack = ack.copy(through = through, atMs = clock()))
         }
         saveState()
-        return ArchiveAckResult(true, trimPending = diskBytes.get() > synchronized(lock) { keepBytes() })
+        return ArchiveAckResult(true, trimPending = occupied() > synchronized(lock) { keepBytes() })
     }
 
     /** Tests: a warning size below the 16 MB a person may set, kept in the state file. */
@@ -405,6 +424,15 @@ class NetworkStore(
     internal fun trimNow() {
         flush()
         trimArchived()
+        awaitBodyDeletesForTest()
+    }
+
+    /** Tests: waits until the body files given to the deleting thread are deleted. */
+    internal fun awaitBodyDeletesForTest() {
+        if (!ownDeleter) return
+        val done = java.util.concurrent.CountDownLatch(1)
+        bodyDeleter(Runnable { done.countDown() })
+        done.await(10, java.util.concurrent.TimeUnit.SECONDS)
     }
 
     internal fun segmentIdsForTest(): Map<String, List<String>> = synchronized(writeLock) {
@@ -422,7 +450,7 @@ class NetworkStore(
     fun trimArchived() {
         if (!persisted || reading()) return
         val (ack, keep) = synchronized(lock) { (state.ack ?: return) to keepBytes() }
-        if (diskBytes.get() <= keep) return
+        if (occupied() <= keep) return
         val (throughSegment, throughLine) = runCatching { parseCursor(ack.through) }.getOrNull() ?: return
         val keepIds = ack.keep.toHashSet()
         val candidates = synchronized(writeLock) {
@@ -443,7 +471,7 @@ class NetworkStore(
         // One segment at a time, the writer lock held only to decide and remove: a large history
         // has many segments and many bodies, and traffic is written and the journal read meanwhile.
         for (file in candidates) {
-            if (diskBytes.get() <= keep) break
+            if (occupied() <= keep) break
             val index = segmentIndex(file) ?: continue
             // A closed segment is never written again: it is read with no lock held.
             val records = ArrayList<NetworkEntry>()
@@ -458,7 +486,7 @@ class NetworkStore(
             if (read.isFailure) break
             // The cursor's own segment only when the computer read all of it.
             if (index == throughSegment && lines > throughLine) break
-            val bodies = ArrayList<File>()
+            val bodies = ArrayList<Pair<File, Long>>()
             val gone = synchronized(writeLock) {
                 // Cleared meanwhile: nothing of it is left to remove.
                 if (file !in segmentIds) return@synchronized false
@@ -474,7 +502,12 @@ class NetworkStore(
                         write(EntryRecord(held ?: entry))
                         continue
                     }
-                    for (part in BodyPart.entries) bodyFile(id, part)?.let { bodies += it }
+                    // Every part kind: a body file can exist before its entry says so. Counted gone by
+                    // what the entry says it stored; the deleting thread counts the files exactly.
+                    for (part in BodyPart.entries) {
+                        val info = io.yamsergey.dta.protocol.network.NetworkHistoryView.bodyOf(held ?: entry, part)
+                        bodyFile(id, part)?.let { bodies += it to (info?.let { b -> onDisk(b.storedBytes) } ?: 0L) }
+                    }
                     synchronized(lock) { entries.remove(id)?.let { if (!inFlight(it)) finishedInMemory-- } }
                     removed++
                 }
@@ -494,12 +527,10 @@ class NetworkStore(
             }
             if (!gone) break
             trimmed = true
-            // The bodies of the entries removed: their records are gone, nothing reads them any more.
-            for (body in bodies) {
-                if (!body.isFile) continue
-                val size = onDisk(body.length())
-                if (body.delete()) diskBytes.addAndGet(-size)
-            }
+            // The bodies of the entries removed: their records are gone, nothing reads them any
+            // more. Deleted on their own thread, counted gone now; a process killed before that
+            // leaves them to the sweep at start.
+            deleteBodies(bodies)
             betweenSegmentsForTest?.invoke()
         }
         if (!trimmed) return
@@ -507,6 +538,22 @@ class NetworkStore(
             synchronized(lock) { earliestMs = firstRecordTime() }
             saveState()
         }
+    }
+
+    private fun deleteBodies(bodies: List<Pair<File, Long>>) {
+        if (bodies.isEmpty()) return
+        val counted = bodies.sumOf { it.second }
+        val generation = deletes.get()
+        deleting.addAndGet(counted)
+        bodyDeleter(Runnable {
+            for ((body, _) in bodies) {
+                if (!body.isFile) continue
+                val size = onDisk(body.length())
+                if (body.delete()) diskBytes.addAndGet(-size)
+            }
+            // A clear meanwhile started the count over.
+            if (deletes.get() == generation) deleting.addAndGet(-counted)
+        })
     }
 
     /** Tests: called between two segments of a trim pass, with no lock held. */
@@ -681,6 +728,8 @@ class NetworkStore(
             segmentIds.clear()
             storage?.segments?.listFiles()?.forEach { it.delete() }
             storage?.bodies?.listFiles()?.forEach { it.delete() }
+            deletes.incrementAndGet()
+            deleting.set(0)
             diskBytes.set(0)
             saveState()
         }

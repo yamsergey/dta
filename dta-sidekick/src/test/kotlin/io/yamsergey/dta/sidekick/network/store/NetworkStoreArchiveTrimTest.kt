@@ -31,7 +31,8 @@ class NetworkStoreArchiveTrimTest {
     fun close() = opened.forEach { it.close() }
 
     private fun store(pid: Int = 42, segmentBytes: Long = 4L * 1024 * 1024) =
-        NetworkStore(StorageDir(dir), pid = pid, clock = { now++ }, bounds = StoreBounds(segmentBytes = segmentBytes))
+        // Body files deleted at once (the store's own thread deletes them later; tested apart).
+        NetworkStore(StorageDir(dir), pid = pid, clock = { now++ }, bounds = StoreBounds(segmentBytes = segmentBytes), bodyDeleter = { it.run() })
             .also { opened += it; assertTrue(it.awaitLoaded()) }
 
     private fun http(s: NetworkStore, state: HttpState = HttpState.COMPLETE) =
@@ -364,5 +365,31 @@ class NetworkStoreArchiveTrimTest {
         assertFalse(orphan.exists(), "an earlier run's body with no entry is removed")
         assertNotNull(again.bodySize(kept.id, BodyPart.RESPONSE), "a body of an entry in the journal stays")
         assertEquals(File(dir, "segments").listFiles()!!.sumOf { it.length() } + 4096L, again.diskBytes())
+    }
+
+    @Test
+    fun `a trim pass leaves deleting body files to another thread, counting them gone at once`() {
+        val later = ArrayDeque<Runnable>()
+        val s = NetworkStore(StorageDir(dir), pid = 42, clock = { now++ }, bounds = StoreBounds(segmentBytes = 1), bodyDeleter = { later += it })
+            .also { opened += it; assertTrue(it.awaitLoaded()) }
+        // Entries that say what they stored, as the recorder writes them.
+        val ids = List(10) {
+            val e = http(s).copy(responseBody = io.yamsergey.dta.protocol.network.BodyInfo(BodyPart.RESPONSE, storedBytes = 1000, completeness = io.yamsergey.dta.protocol.network.Completeness.COMPLETE))
+            s.upsert(e)
+            s.openBodySink(e.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(1000), 0, 1000); close() }
+            e.id
+        }
+        s.flush()
+        s.setBudgetForTest(s.diskBytes() - 20_000)
+        assertTrue(ack(s, through = "8:0").accepted)
+        s.flush()
+        s.trimArchived()
+        val gone = ids.filter { s.get(it) == null }
+        assertTrue(gone.size in 4..7, "only what the budget needs, as if the files were gone: ${gone.size}")
+        assertTrue(gone.all { s.bodySize(it, BodyPart.RESPONSE) != null }, "the files are left to the deleting thread")
+        assertTrue(later.isNotEmpty())
+        while (later.isNotEmpty()) later.removeFirst().run()
+        assertTrue(gone.all { s.bodySize(it, BodyPart.RESPONSE) == null })
+        assertTrue(s.diskBytes() <= s.settings().keepBytes, "fits: ${s.diskBytes()} > ${s.settings().keepBytes}")
     }
 }
