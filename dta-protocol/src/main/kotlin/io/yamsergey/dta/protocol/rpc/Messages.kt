@@ -8,7 +8,8 @@ import kotlinx.serialization.json.JsonObject
 
 /** Wire protocol version, negotiated in `hello` (contract §3). v1 policy: exact match. */
 /** 2: the journal methods of feature 011; the daemon answers network queries from its own store. */
-const val PROTOCOL_VERSION = 2
+/** 3: the network feed of feature 068 (network_feed_open, network.feed); journal pages carry small bodies. */
+const val PROTOCOL_VERSION = 3
 
 object ErrorCodes {
     const val METHOD_NOT_FOUND = -32601

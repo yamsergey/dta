@@ -17,9 +17,12 @@ data class JournalIdentityResult(
     val context: HistoryContext,
 )
 
-/** `network_journal`: records in write order after a cursor; [next] resumes; [end] when caught up. */
+/**
+ * `network_journal`: records in write order after a cursor; [next] resumes; [end] when caught up.
+ * Feature 068: [bodies] carries their bodies of up to [FeedBody.MAX_BYTES].
+ */
 @Serializable
-data class JournalPageResult(val journalId: String, val records: List<NetworkEntry>, val next: String, val end: Boolean)
+data class JournalPageResult(val journalId: String, val records: List<NetworkEntry>, val next: String, val end: Boolean, val bodies: List<FeedBody>? = null)
 
 /** `network_body_range`: the range is the binary attachment; [totalBytes] is the whole stored body. */
 @Serializable
