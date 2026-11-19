@@ -313,4 +313,18 @@ class NetworkRecorderTest {
         assertTrue("s1" in d.failure!!)
         assertEquals(true, d.intervention!!.dropped)
     }
+
+    @Test
+    fun `a busy socket does not write its connection again for every message`() {
+        val id = recorder.wsStarted("okhttp3-ws", "ws://h/ws", listOf(Header("Upgrade", "websocket")), initiator)
+        recorder.wsOpened(id)
+        repeat(300) { recorder.wsMessage(id, Direction.IN, MessageOpcode.TEXT, "{\"n\":$it}".toByteArray(), null) }
+        assertEquals(300, (entry(id) as WsConnectionEntry).messageCount, "the count is exact")
+        store.flushQueuedForTest()
+        val written = File(dir, "segments").listFiles()!!.sumOf { f -> f.readLines().count { "\"type\":\"ws-connection\"" in it } }
+        assertTrue(written <= 4, "connection records written: $written (one per message before)")
+        recorder.wsClosed(id, 1000, "bye")
+        val last = store.journal(null, 10_000).records.last { it.id == id } as WsConnectionEntry
+        assertEquals(WsState.CLOSED to 300, last.state to last.messageCount)
+    }
 }

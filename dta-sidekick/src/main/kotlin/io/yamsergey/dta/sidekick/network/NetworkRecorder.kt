@@ -142,7 +142,8 @@ class NetworkRecorder(
                 finish(endOfStream = true)
             }
             put(WsMessageEntry(id, store.runId, time, connection.library, initiator, connectionId, direction, opcode, info!!, url = connection.url, injected = injected))
-            updateWs(connectionId) { it.copy(messageCount = it.messageCount + 1) }
+            // The count alone: written to the journal at most once a second (the store's upsertCount).
+            updateWs(connectionId, countOnly = true) { it.copy(messageCount = it.messageCount + 1) }
             id
         }
 
@@ -338,11 +339,11 @@ class NetworkRecorder(
         }
     }
 
-    private fun updateWs(id: String, change: (WsConnectionEntry) -> WsConnectionEntry) {
+    private fun updateWs(id: String, countOnly: Boolean = false, change: (WsConnectionEntry) -> WsConnectionEntry) {
         synchronized(lock) {
             val current = store.get(id) as? WsConnectionEntry ?: return
             val next = change(current)
-            if (next != current) put(next)
+            if (next != current) put(next, countOnly)
         }
     }
 
@@ -351,8 +352,8 @@ class NetworkRecorder(
         put(build(store.nextId(), store.runId, clock()))
     }
 
-    private fun put(entry: NetworkEntry) {
-        val change = store.upsert(entry)
+    private fun put(entry: NetworkEntry, countOnly: Boolean = false) {
+        val change = if (countOnly) store.upsertCount(entry) else store.upsert(entry)
         try {
             observe(entry)
             publish(

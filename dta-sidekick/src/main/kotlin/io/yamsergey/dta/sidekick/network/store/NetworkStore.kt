@@ -146,6 +146,11 @@ class NetworkStore(
     /** Per segment: the newest entry id recorded in it (all older ones are older). */
     private val segmentNewest = LinkedHashMap<File, String>()
     private val diskBytes = AtomicLong()
+
+    /** Counts not written yet, and when each entry's record was last written by [upsertCount] (under [lock]). */
+    private val deferred = HashMap<String, NetworkEntry>()
+    private val journaledAt = HashMap<String, Long>()
+    private var deferredCheckedMs = 0L
     /** Feature 066: the ids each segment holds (under [writeLock]), to find an entry's latest record. */
     private val segmentIds = LinkedHashMap<File, SegmentIds>()
     private val runOrdinals = HashMap<String, Int>()
@@ -195,8 +200,60 @@ class NetworkStore(
     fun nextId(): String = "$runId:${seq.incrementAndGet()}"
 
     fun upsert(entry: NetworkEntry): EntryChange {
-        val change = synchronized(lock) {
-            if (isEvicted(entry.id)) return EntryChange.UPDATED
+        val change = remember(entry) ?: return EntryChange.UPDATED
+        synchronized(lock) {
+            // A full record supersedes a count not written yet; a finished entry's count never changes again.
+            deferred.remove(entry.id)
+            if (!inFlight(entry)) journaledAt.remove(entry.id)
+        }
+        enqueue(EntryRecord(entry))
+        return change
+    }
+
+    /**
+     * An open socket's message count changed and nothing else (found under load, 2026-11-19: a
+     * record of the whole connection per message was four fifths of the journal). Memory has it
+     * at once; the journal at most once per [DEFER_MS], the last count written by the writer a
+     * second later or by [flush].
+     */
+    fun upsertCount(entry: NetworkEntry): EntryChange {
+        val change = remember(entry) ?: return EntryChange.UPDATED
+        val now = clock()
+        val write = synchronized(lock) {
+            val at = journaledAt[entry.id]
+            if (at == null || now - at >= DEFER_MS) {
+                journaledAt[entry.id] = now
+                deferred.remove(entry.id)
+                true
+            } else {
+                deferred[entry.id] = entry
+                false
+            }
+        }
+        if (write) enqueue(EntryRecord(entry))
+        return change
+    }
+
+    /** Writes the deferred counts due now, or all of them when [all]. */
+    private fun writeDeferred(all: Boolean) {
+        val due = synchronized(lock) {
+            if (deferred.isEmpty()) return
+            val now = clock()
+            val ready = deferred.values.filter { all || now - (journaledAt[it.id] ?: 0) >= DEFER_MS }
+            ready.forEach { deferred.remove(it.id); journaledAt[it.id] = now }
+            ready
+        }
+        due.forEach { enqueue(EntryRecord(it)) }
+    }
+
+    internal fun writeDeferredForTest() = writeDeferred(all = false)
+
+    internal fun flushQueuedForTest() = flushQueued()
+
+    /** The entry in memory; null when it was evicted. */
+    private fun remember(entry: NetworkEntry): EntryChange? {
+        return synchronized(lock) {
+            if (isEvicted(entry.id)) return null
             val created = isNew(entry.id)
             val previous = entries.remove(entry.id)
             if (previous != null && !inFlight(previous)) finishedInMemory--
@@ -210,8 +267,6 @@ class NetworkStore(
             trimWindow()
             if (created) EntryChange.CREATED else EntryChange.UPDATED
         }
-        enqueue(EntryRecord(entry))
-        return change
     }
 
     /** The entry by id: from memory, else (when it left the recent window) from the journal. */
@@ -607,6 +662,8 @@ class NetworkStore(
         val removed = synchronized(lock) {
             val count = stored
             entries.clear()
+            deferred.clear()
+            journaledAt.clear()
             finishedInMemory = 0
             stored = 0
             earliestMs = null
@@ -636,6 +693,7 @@ class NetworkStore(
         // not known yet). A small history is read in milliseconds; a large one is not waited
         // for longer than FLUSH_WAIT_MS: what is queued is written by the writer once it is read.
         if (!awaitLoaded(FLUSH_WAIT_MS)) return
+        writeDeferred(all = true)
         flushQueued()
     }
 
@@ -892,6 +950,8 @@ class NetworkStore(
             } catch (_: InterruptedException) {
                 return
             }
+            val now = clock()
+            if (now - deferredCheckedMs >= 100) { deferredCheckedMs = now; runCatching { writeDeferred(all = false) } }
             if (queue.isEmpty()) runCatching { evictIfNeeded() }
             if (queue.isEmpty()) runCatching { trimArchived() }
         }
@@ -998,6 +1058,8 @@ class NetworkStore(
     internal companion object {
         /** The disk block a body file takes at least (ext4 and f2fs on Android: 4 KB). */
         const val BODY_BLOCK = 4096L
+        /** A count alone is written at most this often per entry ([upsertCount]). */
+        const val DEFER_MS = 1_000L
         val RUN_ID = Regex("""r(\d+)-(\d+)""")
         val SEGMENT = Regex("""seg-(\d+)\.jsonl""")
         /** How long a query waits for the earlier runs to be read before answering with what is counted. */
