@@ -76,4 +76,18 @@ class ArchiveFeedTest {
         host.connectionChanged()
         assertEquals(false, host.feedLive)
     }
+
+    @Test
+    fun `a body its preview holds whole is archived when its record comes, never waiting to be copied`() = runBlocking<Unit> {
+        val app = FakeJournalApp().apply { attachBodies = true }
+        val host = index(app)
+        host.openFeed()
+        val id = "r1-1:${++n}"
+        app.record(io.yamsergey.dta.protocol.network.WsMessageEntry(id, "r1-1", 5, "okhttp3-ws", connectionId = "r1-1:0",
+            direction = io.yamsergey.dta.protocol.network.Direction.IN, opcode = io.yamsergey.dta.protocol.network.MessageOpcode.TEXT,
+            payload = BodyInfo(BodyPart.MESSAGE, 4, completeness = Completeness.COMPLETE, preview = "tick")))
+        host.onAppEvent(event(app.batch(0)))
+        assertEquals(emptyList(), host.pendingBodies())
+        assertEquals("tick", host.storedBody(id, BodyPart.MESSAGE)?.second?.decodeToString())
+    }
 }

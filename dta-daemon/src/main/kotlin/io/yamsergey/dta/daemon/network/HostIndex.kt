@@ -201,7 +201,11 @@ class HostIndex(
             if (inFlight(r)) continue
             for (part in BodyPart.entries) {
                 val info = NetworkHistoryView.bodyOf(r, part) ?: continue
-                if (info.storedBytes > 0 && store.bodyRef(epochId, r.id, part) == null) pendingCopies[r.id to part] = PendingBody(r.id, part, info.storedBytes)
+                if (info.storedBytes <= 0 || store.bodyRef(epochId, r.id, part) != null) continue
+                // Feature 068: a body its preview holds whole (a small text message) is archived with its record.
+                val whole = info.wholeText()
+                if (whole != null) whole.toByteArray(Charsets.UTF_8).inputStream().use { store.putBody(epochId, r.id, part, it) }
+                else pendingCopies[r.id to part] = PendingBody(r.id, part, info.storedBytes)
             }
         }
     }
