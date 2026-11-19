@@ -12,6 +12,7 @@ import io.yamsergey.dta.protocol.network.HttpState
 import io.yamsergey.dta.protocol.network.NetworkQuery
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.rpc.Event
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
@@ -89,5 +90,31 @@ class ArchiveFeedTest {
         host.onAppEvent(event(app.batch(0)))
         assertEquals(emptyList(), host.pendingBodies())
         assertEquals("tick", host.storedBody(id, BodyPart.MESSAGE)?.second?.decodeToString())
+    }
+
+    /** A channel whose journal pages take [ms] each: catching up takes a while. */
+    private class SlowPages(private val ms: Long) : FakeJournalApp() {
+        override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
+            if (method == "network_journal") kotlinx.coroutines.delay(ms)
+            return super.requestFull(method, params, timeout)
+        }
+    }
+
+    @Test
+    fun `while it catches up, the history says how far it is at once, without waiting for it`() = runBlocking<Unit> {
+        val app = SlowPages(ms = 300)
+        repeat(3_000) { http(app, 10) }
+        val host = index(app)
+        host.pageSize = 500
+        val catching = this.async(kotlinx.coroutines.Dispatchers.IO) { host.list(NetworkQuery(limit = 1)) }
+        kotlinx.coroutines.delay(800)
+        val started = System.currentTimeMillis()
+        val h = host.history()
+        assertTrue(System.currentTimeMillis() - started < 200, "answered at once")
+        val behind = h.device?.catchingUp
+        assertTrue(behind != null && behind in 1..2_999, "how far: $behind")
+        catching.await()
+        repeat(5) { host.list(NetworkQuery(limit = 1)) }
+        assertEquals(null, host.history().device?.catchingUp, "caught up")
     }
 }

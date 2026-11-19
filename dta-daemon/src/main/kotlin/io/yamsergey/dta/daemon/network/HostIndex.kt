@@ -61,6 +61,10 @@ class HostIndex(
     /** Journal records per request, and requests per answer before the rest is left to the next one. */
     var pageSize = 500
     var catchUpBudgetPages = 40
+
+    /** Feature 068: records still to read while a catch-up runs (read without the mutex by [history]). */
+    @Volatile
+    private var catchingUpNow = 0L
     /**
      * How long an answer copies the bodies it reads before it is given: the rest is read by its
      * preview and counted (coverage.bodiesPending), and the copy worker goes on. A large backlog
@@ -301,7 +305,21 @@ class HostIndex(
      * this computer. The device's part is null, said why, when the app cannot be reached or is
      * too old to report it.
      */
-    suspend fun history(): io.yamsergey.dta.protocol.network.HistorySummary = mutex.withLock {
+    suspend fun history(): io.yamsergey.dta.protocol.network.HistorySummary {
+        // Feature 068: while this computer catches up (the mutex held for a long read), say how far at once.
+        if (mutex.isLocked) {
+            val c = context?.coverage
+            val device = if (c != null) io.yamsergey.dta.protocol.network.DeviceHistory(
+                entries = deviceEntries, bytes = c.deviceBytes ?: 0, keepBytes = c.keepBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.KEEP_BYTES,
+                warnBytes = c.warnBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.WARN_BYTES, trimHeld = c.trimHeld, lastArchivedMs = c.lastArchivedMs,
+                overWarning = c.warnBytes != null && (c.deviceBytes ?: 0) > c.warnBytes!!, catchingUp = catchingUpNow.takeIf { it > 0 }, reading = c.deviceReading == true,
+            ) else null
+            return io.yamsergey.dta.protocol.network.HistorySummary(device, if (device == null) "this computer is reading the app's history" else null, archiveHistory())
+        }
+        return mutex.withLock { historyLocked() }
+    }
+
+    private suspend fun historyLocked(): io.yamsergey.dta.protocol.network.HistorySummary {
         var unknown: String? = null
         val deviceHistory = try {
             sync(connection())
@@ -332,7 +350,7 @@ class HostIndex(
             unknown = "the app is not running or cannot be reached (${e.message ?: e.javaClass.simpleName}); start it to see its part"
             null
         }
-        io.yamsergey.dta.protocol.network.HistorySummary(deviceHistory, unknown, archiveHistory(),
+        return io.yamsergey.dta.protocol.network.HistorySummary(deviceHistory, unknown, archiveHistory(),
             hostOnly = (live.size - deviceEntries).toLong().takeIf { deviceHistory != null && lag == 0L && it > 0 })
     }
 
@@ -598,6 +616,7 @@ class HostIndex(
             }
             position = next
             store.setCursor(device.key, packageName, identity.journalId, position, lastId)
+            catchingUpNow = if (page.end) 0 else (identity.entries - live.size).toLong().coerceAtLeast(1)
             if (page.end) {
                 lag = 0
                 acknowledge(app)
