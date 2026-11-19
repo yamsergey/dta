@@ -130,7 +130,7 @@ class NetworkFeed(
 
         private fun batch(records: List<NetworkEntry>, to: String) {
             if (!running) return
-            send(FeedBatch.EVENT, DtaJson.encodeToJsonElement(FeedBatch.serializer(), FeedBatch(id, journalId, sentTo, to, records)))
+            send(FeedBatch.EVENT, DtaJson.encodeToJsonElement(FeedBatch.serializer(), FeedBatch(id, journalId, sentTo, to, records, smallBodies(store, records))))
             sentTo = to
         }
     }
@@ -141,4 +141,24 @@ class NetworkFeed(
         /** Records per live batch. */
         const val BATCH = 500
     }
+}
+
+/**
+ * Feature 068 (research R3): the bodies of up to [FeedBody.MAX_BYTES] of [records], as they travel
+ * with them: the latest record of an entry says which parts it holds; a body its preview holds
+ * whole is not repeated, nor one larger than the limit (this computer fetches it by range).
+ */
+internal fun smallBodies(store: NetworkStore, records: List<NetworkEntry>): List<io.yamsergey.dta.protocol.network.FeedBody>? {
+    val latest = LinkedHashMap<String, NetworkEntry>()
+    for (r in records) latest[r.id] = r
+    val out = ArrayList<io.yamsergey.dta.protocol.network.FeedBody>()
+    for (entry in latest.values) {
+        for (part in io.yamsergey.dta.protocol.network.BodyPart.entries) {
+            val info = io.yamsergey.dta.protocol.network.NetworkHistoryView.bodyOf(entry, part) ?: continue
+            if (info.storedBytes <= 0 || info.storedBytes > io.yamsergey.dta.protocol.network.FeedBody.MAX_BYTES || info.wholeText() != null) continue
+            val bytes = runCatching { store.openBody(entry.id, part)?.use { it.readBytes() } }.getOrNull() ?: continue
+            out += io.yamsergey.dta.protocol.network.FeedBody.of(entry.id, part, bytes, info.binary)
+        }
+    }
+    return out.ifEmpty { null }
 }

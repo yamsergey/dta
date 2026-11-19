@@ -132,4 +132,19 @@ class NetworkFeedTest {
         assertTrue(sink.batches.none { it.subscription == again && it.records.isNotEmpty() }, "nothing after close")
         assertNull(f.current(), id)
     }
+
+    @Test
+    fun `live batches carry the small bodies of their records`() {
+        val s = store()
+        val sink = Sink()
+        val f = feed(s, sink)
+        f.open(FeedOpenParams(s.identity().journalId, s.journal(null, 1).next))
+        val e = http(s)
+        s.openBodySink(e.id, io.yamsergey.dta.protocol.network.BodyPart.RESPONSE)!!.apply { val b = "[1,2,3]".toByteArray(); write(b, 0, b.size); close() }
+        s.upsert(e.copy(responseBody = io.yamsergey.dta.protocol.network.BodyInfo(io.yamsergey.dta.protocol.network.BodyPart.RESPONSE, 7,
+            completeness = io.yamsergey.dta.protocol.network.Completeness.COMPLETE)))
+        s.flush()
+        waitFor("the body") { sink.batches.any { b -> b.bodies.orEmpty().any { it.entryId == e.id } } }
+        assertEquals("[1,2,3]", sink.batches.flatMap { it.bodies.orEmpty() }.single { it.entryId == e.id }.text)
+    }
 }

@@ -101,7 +101,7 @@ class NetworkMethods(
         val after = (params?.get("after") as? JsonPrimitive)?.takeIf { it.isString }?.content
         val limit = ((params?.get("limit") as? JsonPrimitive)?.content?.toIntOrNull() ?: JOURNAL_PAGE).coerceIn(1, MAX_JOURNAL_PAGE)
         val page = store.journal(after, limit)
-        return JournalPageResult(page.journalId, page.records, page.next, page.end)
+        return JournalPageResult(page.journalId, page.records, page.next, page.end, smallBodies(store, page.records))
     }
 
     fun bodyRange(params: JsonObject?, attach: (ByteArray) -> Unit): BodyRangeResult {

@@ -102,4 +102,28 @@ class JournalMethodsTest {
         assertEquals("journal-changed", call("journalId" to "other", "hostId" to "h", "through" to "1:1").reason)
         assertFailsWith<InvalidParamsException> { call("hostId" to "h") }
     }
+
+    /** Feature 068: an entry with one body written as the recorder does (the body first, then the entry saying what it holds). */
+    private fun withBody(bytes: ByteArray, binary: Boolean = false, preview: String? = null): HttpEntry {
+        val e = HttpEntry(store.nextId(), store.runId, now++, "okhttp3", method = "GET", url = "http://h/x", state = HttpState.COMPLETE)
+        store.openBodySink(e.id, BodyPart.RESPONSE)!!.apply { write(bytes, 0, bytes.size); close() }
+        val done = e.copy(responseBody = io.yamsergey.dta.protocol.network.BodyInfo(BodyPart.RESPONSE, bytes.size.toLong(), binary = binary,
+            completeness = io.yamsergey.dta.protocol.network.Completeness.COMPLETE, preview = preview))
+        store.upsert(done)
+        return done
+    }
+
+    @Test
+    fun `journal pages carry bodies of up to 64 KB, not larger ones, nor one its preview holds whole`() {
+        val small = withBody("{\"price\": 12}".repeat(30).toByteArray())
+        val binary = withBody(byteArrayOf(0, 1, 2, -1), binary = true)
+        val large = withBody(ByteArray(70 * 1024) { 'a'.code.toByte() })
+        val whole = withBody("ok".toByteArray(), preview = "ok")
+        val page = methods.journal(params("limit" to 100))
+        val bodies = page.bodies.orEmpty().associateBy { it.entryId }
+        assertEquals(setOf(small.id, binary.id), bodies.keys)
+        assertEquals("{\"price\": 12}".repeat(30), bodies.getValue(small.id).text)
+        assertContentEquals(byteArrayOf(0, 1, 2, -1), bodies.getValue(binary.id).bytes())
+        assertTrue(large.id !in bodies && whole.id !in bodies)
+    }
 }
