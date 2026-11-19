@@ -60,8 +60,8 @@ data class NetworkViewState(
     val wait: BackgroundWait? = null,
 )
 
-/** Feature 068: what the IDE's background task says: [text], [detail] and how far ([fraction], 0 to 1). */
-data class BackgroundWait(val text: String, val detail: String?, val fraction: Double)
+/** Feature 068: what the IDE's background task says: [text], [detail] and how far ([fraction], 0 to 1; null when not known). */
+data class BackgroundWait(val text: String, val detail: String?, val fraction: Double?)
 
 /**
  * The Network view's live source (R7, FR-006/007/010): the newest page of `network.list`
@@ -206,7 +206,7 @@ class NetworkController(private val context: ContextController, private val scop
                         val wait = if (behind != null) {
                             BackgroundWait("DTA: catching up $app", "$behind entries to read from the device", if (most > 0) 1.0 - behind.toDouble() / most else 0.0)
                         } else {
-                            BackgroundWait("DTA: reading the history of $app", "the app reads its earlier runs after it starts", 0.0)
+                            BackgroundWait("DTA: reading the history of $app", "the app reads its earlier runs after it starts", null)
                         }
                         if (mutable.value.wait != wait) mutable.update { it.copy(wait = wait) }
                     }

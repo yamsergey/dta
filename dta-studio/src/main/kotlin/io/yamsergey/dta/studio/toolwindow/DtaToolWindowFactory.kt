@@ -108,13 +108,14 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                 withContext(Dispatchers.Main) {
                     object : com.intellij.openapi.progress.Task.Backgroundable(project, wait.text, false) {
                         override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
-                            indicator.isIndeterminate = false
                             try {
                                 while (true) {
                                     val now = service.network.state.value.wait ?: break
                                     indicator.text = now.text
                                     indicator.text2 = now.detail ?: ""
-                                    indicator.fraction = now.fraction
+                                    // How far the app is in reading its history is not known: an indeterminate bar.
+                                    indicator.isIndeterminate = now.fraction == null
+                                    now.fraction?.let { indicator.fraction = it }
                                     Thread.sleep(200)
                                 }
                             } finally {

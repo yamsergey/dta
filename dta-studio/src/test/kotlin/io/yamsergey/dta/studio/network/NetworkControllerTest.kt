@@ -280,11 +280,12 @@ class NetworkControllerTest {
         await { it.list.rows.size == 3 }
         val shown = await { it.wait != null }
         assertTrue(shown.wait!!.text.startsWith("DTA: catching up "), shown.wait!!.text)
-        assertEquals(0.0, shown.wait!!.fraction, 0.001)
+        assertEquals(0.0, shown.wait!!.fraction!!, 0.001)
         waiting(12_000)
-        await { s -> s.wait?.let { kotlin.math.abs(it.fraction - 0.75) < 0.001 } == true }
+        await { s -> s.wait?.fraction?.let { kotlin.math.abs(it - 0.75) < 0.001 } == true }
         waiting(null, reading = true)
-        await { it.wait?.text?.startsWith("DTA: reading the history of ") == true }
+        val reading = await { it.wait?.text?.startsWith("DTA: reading the history of ") == true }
+        assertEquals(null, reading.wait!!.fraction, "how far the app is in its history is not known")
         waiting(null)
         await { it.wait == null }
     }
