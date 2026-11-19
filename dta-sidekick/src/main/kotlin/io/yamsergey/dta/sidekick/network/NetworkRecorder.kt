@@ -367,7 +367,8 @@ class NetworkRecorder(
         val change = if (countOnly) store.upsertCount(entry) else store.upsert(entry)
         try {
             observe(entry)
-            publish(
+            // Feature 068: a journal reaches this computer as its feed; only a history kept in memory is sent entry by entry.
+            if (!store.isPersisted) publish(
                 NetworkEntryEvent.NAME,
                 DtaJson.encodeToJsonElement(NetworkEntryEvent.serializer(), NetworkEntryEvent(entry.summary(), change)),
             )

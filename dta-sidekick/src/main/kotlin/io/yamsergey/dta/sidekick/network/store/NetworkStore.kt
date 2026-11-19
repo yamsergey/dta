@@ -619,6 +619,9 @@ class NetworkStore(
     /** Feature 068: the earlier runs are still being read; nothing can be fed until they are. */
     val isReading: Boolean get() = reading()
 
+    /** Feature 068: the history is in a journal (else it is kept in memory only). */
+    val isPersisted: Boolean get() = persisted
+
     /** Which journal this is, and why it is new in this process (feature 011). */
     fun identity(): JournalIdentity = synchronized(lock) { JournalIdentity(state.journalId!!, journalReason, stored, persisted) }
 

@@ -308,15 +308,21 @@ class NetworkService(
             .copy(notKept = notKept)
     }
 
-    /** Live `network.entry` events pushed by the sidekick; not replayed (use [list] for history). */
+    /**
+     * Live entries; not replayed (use [list] for history). Feature 068: what the archive takes from
+     * the app's feed; a history the app keeps in memory only (no journal) comes from the app's own events.
+     */
     fun events(onSubscribed: suspend () -> Unit = {}): Flow<NetworkEntryEvent> = flow {
-        emitAll(
-            connection().events
-                .onSubscription { onSubscribed() }
-                .filter { it.name == NetworkEntryEvent.NAME }
-                .mapNotNull { event ->
-                    event.data?.let { runCatching { DtaJson.decodeFromJsonElement(NetworkEntryEvent.serializer(), it) }.getOrNull() }
-                },
-        )
+        val h = host
+        val ready = java.util.concurrent.atomic.AtomicInteger(if (h == null) 1 else 2)
+        suspend fun subscribed() { if (ready.decrementAndGet() == 0) onSubscribed() }
+        val appEvents = connection().events
+            .onSubscription { subscribed() }
+            .filter { it.name == NetworkEntryEvent.NAME && (h == null || !h.archiving) }
+            .mapNotNull { event ->
+                event.data?.let { runCatching { DtaJson.decodeFromJsonElement(NetworkEntryEvent.serializer(), it) }.getOrNull() }
+            }
+        if (h == null) emitAll(appEvents)
+        else emitAll(kotlinx.coroutines.flow.merge(h.applied.onSubscription { subscribed() }, appEvents))
     }
 }

@@ -192,9 +192,11 @@ class HostIndex(
         removals++
     }
 
-    private fun putLive(epochId: String, records: List<NetworkEntry>) {
+    private fun putLive(epochId: String, records: List<NetworkEntry>, emit: Boolean = true) {
         for (r in records) {
+            val created = !live.containsKey(r.id)
             live[r.id] = r
+            if (emit) emitApplied(r, created)
             if (r is WsConnectionEntry) liveSockets[r.id] = r
             changeSeq[r.id] = nextSeq()
             BodyPart.entries.forEach { pendingCopies.remove(r.id to it) }
@@ -546,6 +548,7 @@ class HostIndex(
     /** Catches up with the journal; false when the app keeps no journal (it answers itself). */
     private suspend fun sync(app: AppConnection): Boolean {
         val identity = DtaJson.decodeFromJsonElement(JournalIdentityResult.serializer(), app.request("network_identity"))
+        archiving = identity.persisted
         if (!identity.persisted) return false
         context = identity.context
         deviceEntries = identity.entries
@@ -607,6 +610,25 @@ class HostIndex(
 
     /** Feature 068: what [apply] did with a batch. */
     enum class Applied { APPLIED, DUPLICATE, GAP, STALE }
+
+    /**
+     * Feature 068 (research R7): every entry the archive takes, for watchers (the plugin, agents,
+     * `--follow`). Never waits: a watcher that falls behind is told how many it missed with the next one.
+     */
+    private val appliedFlow = kotlinx.coroutines.flow.MutableSharedFlow<io.yamsergey.dta.protocol.network.NetworkEntryEvent>(extraBufferCapacity = APPLIED_BUFFER)
+    val applied: kotlinx.coroutines.flow.SharedFlow<io.yamsergey.dta.protocol.network.NetworkEntryEvent> = appliedFlow
+    private var missed = 0
+
+    /** Feature 068: this app's history is in a journal this computer archives (else the app's own events are its live entries). */
+    @Volatile
+    var archiving: Boolean = false
+        private set
+
+    private fun emitApplied(entry: NetworkEntry, created: Boolean) {
+        if (appliedFlow.subscriptionCount.value == 0) return
+        val change = if (created) io.yamsergey.dta.protocol.network.EntryChange.CREATED else io.yamsergey.dta.protocol.network.EntryChange.UPDATED
+        if (appliedFlow.tryEmit(io.yamsergey.dta.protocol.network.NetworkEntryEvent(entry.summary(), change, missed.takeIf { it > 0 }))) missed = 0 else missed++
+    }
 
     /** Feature 068: the subscription this computer holds on the app's journal, if any. */
     @Volatile
@@ -750,7 +772,7 @@ class HostIndex(
     private suspend fun currentEpoch(app: AppConnection, identity: JournalIdentityResult): Epoch {
         val known = epoch ?: store.liveEpoch(device.key, packageName)?.also { e ->
             resetLive()
-            putLive(e.id, store.entries(e.id))
+            putLive(e.id, store.entries(e.id), emit = false)
         }
         val cursor = store.cursor(device.key, packageName)
         if (known != null && cursor?.journalId == identity.journalId && known.journalId == identity.journalId) return known.also { epoch = it }
@@ -905,6 +927,8 @@ class HostIndex(
         private const val CHUNK = 256L * 1024
         /** Feature 066: acknowledgements at most this often per app, and at most this many entries kept for their bodies. */
         const val ACK_EVERY_MS = 10_000L
+        /** Feature 068: entries held for a watcher that has not taken them yet. */
+        const val APPLIED_BUFFER = 65_536
         /** The app's word that a session's events were dropped (its SessionHub). */
         const val EVENTS_DROPPED = "network.events-dropped"
         /** How long a clear waits for the copy of what this computer does not have yet. */

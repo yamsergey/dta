@@ -43,6 +43,14 @@ class NetworkRecorderTest {
             events += DtaJson.decodeFromJsonElement(NetworkEntryEvent.serializer(), data!!)
         }
     }
+    /** Feature 068: a history kept in memory only is the one still sent entry by entry (a journal goes as its feed). */
+    private val memory by lazy { NetworkStore(null, pid = 7, clock = { now }) }
+    private val announcing by lazy {
+        NetworkRecorder(memory, clock = { now }) { name, data: JsonElement? ->
+            assertEquals(NetworkEntryEvent.NAME, name)
+            events += DtaJson.decodeFromJsonElement(NetworkEntryEvent.serializer(), data!!)
+        }
+    }
     private val initiator = Initiator(thread = "main", site = InitiatorSite.CALL, missing = "not captured in this test")
 
     @AfterEach
@@ -52,8 +60,8 @@ class NetworkRecorderTest {
 
     @Test
     fun `http start is a pending entry announced as created`() {
-        val id = recorder.httpStarted("okhttp3", "GET", "http://h/a", listOf(Header("Accept", "*/*")), initiator)
-        val e = entry(id) as HttpEntry
+        val id = announcing.httpStarted("okhttp3", "GET", "http://h/a", listOf(Header("Accept", "*/*")), initiator)
+        val e = memory.get(id)!! as HttpEntry
         assertEquals(HttpState.PENDING, e.state)
         assertEquals(listOf(Header("Accept", "*/*")), e.requestHeaders)
         assertEquals(initiator, e.initiator)
@@ -79,7 +87,21 @@ class NetworkRecorderTest {
         assertEquals(3, e.responseBody!!.declaredBytes)
         assertEquals(Completeness.COMPLETE, e.responseBody!!.completeness)
         assertContentEquals("abc".toByteArray(), store.openBody(id, BodyPart.RESPONSE)!!.readBytes())
+    }
+
+    @Test
+    fun `a history kept in memory announces each change of an entry`() {
+        val id = announcing.httpStarted("okhttp3", "GET", "http://h/a", emptyList(), initiator)
+        announcing.httpResponse(id, 200, emptyList(), "http/1.1")
+        val body = announcing.httpResponseBody(id, contentType = "text/plain", encoding = null, declaredBytes = 3)
+        TeeInputStream(ByteArrayInputStream("abc".toByteArray()), body).use { it.readBytes() }
         assertEquals(listOf(EntryChange.CREATED, EntryChange.UPDATED, EntryChange.UPDATED), events.map { it.change })
+    }
+
+    @Test
+    fun `a history in a journal is not announced entry by entry`() {
+        recorder.httpStarted("okhttp3", "GET", "http://h/a", emptyList(), initiator)
+        assertEquals(emptyList(), events, "it reaches this computer as the journal's feed (068)")
     }
 
     @Test
@@ -249,13 +271,13 @@ class NetworkRecorderTest {
 
     @Test
     fun `calls on unknown ids and failing publishers never throw`() {
-        val broken = NetworkRecorder(store, clock = { now }) { _, _ -> error("publisher down") }
+        val broken = NetworkRecorder(memory, clock = { now }) { _, _ -> error("publisher down") }
         broken.httpResponse("nope", 200, emptyList(), null)
         broken.httpFailed("nope", IOException())
         broken.wsClosed("nope", 1000, "")
         assertNull(broken.wsMessage("nope", Direction.IN, MessageOpcode.TEXT, byteArrayOf(), null))
         val id = broken.httpStarted("okhttp3", "GET", "http://h/a", emptyList(), initiator)
-        assertTrue(store.get(id) != null, "the entry is stored even when publishing fails")
+        assertTrue(memory.get(id) != null, "the entry is stored even when publishing fails")
         assertTrue(broken.errorCount > 0)
     }
 

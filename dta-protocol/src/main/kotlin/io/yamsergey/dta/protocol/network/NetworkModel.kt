@@ -644,7 +644,12 @@ enum class EntryChange {
 
 /** Data of the `network.entry` event. */
 @Serializable
-data class NetworkEntryEvent(val entry: NetworkEntry, val change: EntryChange) {
+data class NetworkEntryEvent(
+    val entry: NetworkEntry,
+    val change: EntryChange,
+    /** Feature 068: entries this watcher missed before this one (it fell behind); null when none. */
+    val missed: Int? = null,
+) {
     companion object {
         const val NAME = "network.entry"
         const val DROPPED = "network.events-dropped"

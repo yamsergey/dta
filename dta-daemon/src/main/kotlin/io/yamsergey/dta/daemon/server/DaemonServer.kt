@@ -304,6 +304,8 @@ class DaemonServer(
                         }
                     }
                     fun offer(event: NetworkEntryEvent) {
+                        // Feature 068: the archive could not hold entries for this watcher: said with the next one.
+                        if ((event.missed ?: 0) > 0) dropped.set(true)
                         (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
                         if (view != null) {
                             val (d, had) = ops.networkDecide(serial, pkg, view, liveQuery, event.entry) { connectionUrls[it] } ?: (null to false)
