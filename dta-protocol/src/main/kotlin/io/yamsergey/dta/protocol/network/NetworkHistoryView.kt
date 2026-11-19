@@ -52,7 +52,18 @@ class NetworkHistoryView(
         return readEnvelope(m.copy(url = url), text)
     }
 
-    fun list(query: NetworkQuery): NetworkPage {
+    /**
+     * @param candidates feature 067: only these entries can match (a narrowed pass); the others are
+     *   skipped unread. Null: every entry is checked.
+     * @param stop feature 067: called once per entry; throws to abandon a pass a newer query replaced.
+     * @param onMatch feature 067: every match with its number of search hits, for the view's match set.
+     */
+    fun list(
+        query: NetworkQuery,
+        candidates: ((NetworkEntry) -> Boolean)? = null,
+        stop: () -> Unit = {},
+        onMatch: ((NetworkEntry, Int) -> Unit)? = null,
+    ): NetworkPage {
         val ctx = context()
         val (filter, terms) = query.resolved()
         val search = search(terms, query.redact)
@@ -83,14 +94,19 @@ class NetworkHistoryView(
         val onlyHits = search != null && !query.allRows
         val pageHits = HashMap<String, List<SearchHit>>()
         all.forEachIndexed { index, entry ->
+            stop()
+            if (candidates != null && !candidates(entry)) return@forEachIndexed
             var matched: List<MatchLocation>? = null
             if (eval != null) matched = eval.matches(entry) ?: return@forEachIndexed
             val inPage = index >= start && page.size < query.limit
+            var hitCount = 0
             if (onlyHits) {
                 val h = search!!.hits(entry) ?: return@forEachIndexed
+                hitCount = h.size
                 if (inPage) pageHits[entry.id] = h
             }
             if (!matched.isNullOrEmpty()) locations[entry.id] = matched
+            onMatch?.invoke(entry, hitCount)
             total++
             if (index < start) return@forEachIndexed
             if (page.size < query.limit) page += entry else more = true
@@ -147,7 +163,12 @@ class NetworkHistoryView(
      * Feature 040: the entries the query's filters keep that hold every search word, in list
      * order, [NetworkQuery.limit] per page after [NetworkQuery.before] (an entry id).
      */
-    fun search(query: NetworkQuery): SearchPage {
+    /**
+     * @param candidates feature 067: only these entries can hold the words (a narrowed pass); the
+     *   others are still counted in [SearchPage.searched] when the filters keep them, which a caller
+     *   may only allow for filters that read no bodies.
+     */
+    fun search(query: NetworkQuery, candidates: ((NetworkEntry) -> Boolean)? = null, stop: () -> Unit = {}): SearchPage {
         val ctx = context()
         val (filter, terms) = query.resolved()
         val patterns = filter?.let { it.bodyPattern != null || it.requestPattern != null || it.responsePattern != null } == true
@@ -162,8 +183,10 @@ class NetworkHistoryView(
         var more = false
         val page = ArrayList<EntryHits>()
         for (entry in all) {
+            stop()
             if (eval != null && eval.matches(entry) == null) continue
             searched++
+            if (candidates != null && !candidates(entry)) continue
             val h = (if (s != null) s.hits(entry) ?: continue else emptyList()) + eval?.patternHits?.get(entry.id).orEmpty()
             total++
             if (!passed) { if (entry.id == query.before) passed = true; continue }
@@ -171,6 +194,25 @@ class NetworkHistoryView(
         }
         if (!passed) throw InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared")
         return SearchPage(page, total, if (more) page.last().id else null, searched, notSearched(eval, s))
+    }
+
+    /**
+     * Feature 067: [query]'s decision for one entry, with the same evaluators as [list] (filters,
+     * then the search words): a live event is decided as a full pass would decide it.
+     */
+    fun decide(query: NetworkQuery, entry: NetworkEntry): EntryDecision {
+        val ctx = context()
+        val (filter, terms) = query.resolved()
+        if (entry is LinkEntry && filter?.kinds == null) return EntryDecision.NO
+        val s = search(terms, query.redact)
+        val eval = filter?.let { NetworkFilterEval(it, ctx.runId, { id -> (byId(id) as? WsConnectionEntry)?.url }, decoded, ::envelopeOf, patternBudget(), bodyBytes) }
+        val locations = if (eval != null) eval.matches(entry) else emptyList()
+        val unchecked = (eval?.budget?.skipped ?: 0) > 0
+        if (locations == null) return EntryDecision(false, unchecked = unchecked)
+        val words = if (s != null) s.hits(entry) else emptyList()
+        if (words == null) return EntryDecision(false, byPreview = s!!.byPreview > 0, unchecked = unchecked)
+        val hits = words + eval?.patternHits?.get(entry.id).orEmpty()
+        return EntryDecision(true, locations.ifEmpty { null }, hits.ifEmpty { null }, byPreview = (s?.byPreview ?: 0) > 0, unchecked = unchecked)
     }
 
     private fun search(terms: List<Term>, redact: Boolean): NetworkSearch? = terms.takeIf { it.isNotEmpty() }?.let {
