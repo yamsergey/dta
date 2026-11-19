@@ -139,6 +139,14 @@ class DaemonServer(
         private val networkTargets = ConcurrentHashMap<String, Pair<String, String>>()
         private val seq = AtomicLong(0)
         private val subscriptionIds = AtomicLong(0)
+        /** Feature 067: this client's live views are its own (another client may use the same names). */
+        val viewPrefix = "c${java.util.UUID.randomUUID()}:"
+
+        /** A client's view name made this session's. */
+        private fun withView(params: JsonObject?): JsonObject? {
+            val view = (params?.get("view") as? JsonPrimitive)?.content ?: return params
+            return JsonObject(params + ("view" to JsonPrimitive(viewPrefix + view)))
+        }
 
         val info: ClientInfo? get() = hello?.let { ClientInfo(it.client, it.identity.version, connectedAt) }
 
@@ -172,7 +180,8 @@ class DaemonServer(
                 }
                 else -> scope.launch {
                     try {
-                        val selected = dispatcher.dispatch(request.method, request.params, hello?.client?.let { who(it) })
+                        val params = if (request.method == "network.list" || request.method == "network.search") withView(request.params) else request.params
+                        val selected = dispatcher.dispatch(request.method, params, hello?.client?.let { who(it) })
                         respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), selected))
                         if (request.method == "network.clear") {
                             val device = selected.selection?.device
@@ -235,6 +244,12 @@ class DaemonServer(
                 val typed = (params["q"] as? JsonPrimitive)?.content
                 val line = if (ignoreSaved) typed else io.yamsergey.dta.protocol.network.SavedFilters.merge(ops.networkFilters(pkg).saved, typed).q
                 val filter = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given, q = line).resolved().first ?: NetworkFilter()
+                // Feature 067: a live view's subscription decides each entry with the whole line, search words included.
+                val view = (params["view"] as? JsonPrimitive)?.content?.let { viewPrefix + it }
+                val redact = (params["redact"] as? JsonPrimitive)?.content == "true"
+                val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redact, ignoreSavedFilters = true)
+                /** Entries decided by a body's preview: decided again once the body is copied here. */
+                val byPreview = ConcurrentHashMap.newKeySet<String>()
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val connectionUrls = ConcurrentHashMap<String, String>()
                 // Body filters on live events: an event carries only the preview, so a body the preview
@@ -246,7 +261,7 @@ class DaemonServer(
                     NetworkHistoryView.bodyOf(entry, part)?.wholeText()?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
                         ?: run { unchecked = true; null }
                 })
-                val buffer = Channel<Pair<NetworkEntryEvent, Boolean>>(subscriberBuffer)
+                val buffer = Channel<Pair<NetworkEntryEvent, Any>>(subscriberBuffer)
                 val dropped = AtomicBoolean(false)
                 // history=current: the running process's entries first, then the live ones.
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
@@ -254,7 +269,10 @@ class DaemonServer(
                 val events = ops.networkEvents(serial, pkg) { subscribed.complete(Unit) }
                 val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     launch {
-                        for ((event, bodyUnchecked) in buffer) {
+                        for ((event, mark) in buffer) {
+                            val bodyUnchecked = mark == true
+                            val decision = mark as? io.yamsergey.dta.protocol.network.EntryDecision
+                            val left = mark == LEFT
                             val marker = if (dropped.getAndSet(false)) {
                                 listOf(DegradationMarker("network", "network-events-dropped: this client fell behind; use network.list with sinceMs to catch up"))
                             } else {
@@ -270,6 +288,15 @@ class DaemonServer(
                                         put("app", pkg)
                                         put("event", DtaJson.encodeToJsonElement(NetworkEntryEvent.serializer(), event))
                                         if (bodyUnchecked) put("bodyFilterUnchecked", true)
+                                        decision?.let { d ->
+                                            put("decision", buildJsonObject {
+                                                put("match", true)
+                                                d.hits?.let { put("hits", DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer()), it)) }
+                                                if (d.byPreview) put("byPreview", true)
+                                                if (d.unchecked) put("unchecked", true)
+                                            })
+                                        }
+                                        if (left) put("decision", buildJsonObject { put("match", false); put("left", true) })
                                         marker?.let { put("degraded", DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(DegradationMarker.serializer()), it)) }
                                     },
                                 ),
@@ -278,11 +305,32 @@ class DaemonServer(
                     }
                     fun offer(event: NetworkEntryEvent) {
                         (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
+                        if (view != null) {
+                            val (d, had) = ops.networkDecide(serial, pkg, view, liveQuery, event.entry) { connectionUrls[it] } ?: (null to false)
+                            if (d != null) {
+                                if (d.byPreview) byPreview += event.entry.id else byPreview -= event.entry.id
+                                val mark: Any? = when {
+                                    d.match -> d
+                                    had -> LEFT
+                                    else -> null
+                                }
+                                if (mark != null && buffer.trySend(event to mark).isFailure) dropped.set(true)
+                                return
+                            }
+                        }
                         unchecked = false
                         val budget = PatternBudget(perBodyMs = 20, totalMs = 50)
                         val matched = eval(budget).matches(event.entry) != null
                         if (budget.skipped > 0) unchecked = true
                         if ((matched || unchecked) && buffer.trySend(event to unchecked).isFailure) dropped.set(true)
+                    }
+                    // Feature 067: a body decided by its preview is decided again once its copy is here.
+                    if (view != null) launch {
+                        ops.networkCopied(serial, pkg).collect { id ->
+                            if (id !in byPreview) return@collect
+                            val entry = ops.networkLiveEntry(serial, pkg, id) ?: return@collect
+                            offer(NetworkEntryEvent(entry, EntryChange.UPDATED))
+                        }
                     }
                     try {
                         if (!history) {
@@ -321,7 +369,10 @@ class DaemonServer(
                 job.invokeOnCompletion { networkTargets.remove(id) }
                 respond(
                     request.id,
-                    DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("subscription", id) })),
+                    DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject {
+                        put("subscription", id)
+                        if (view != null) put("liveQuery", true)
+                    })),
                 )
                 // Started after the answer: a client knows its subscription before the first event.
                 job.start()
@@ -517,6 +568,7 @@ class DaemonServer(
             sessions -= this
             subscriptions.values.forEach { it.cancel() }
             subscriptions.clear()
+            ops.networkViewsClosed(viewPrefix)
         }
     }
 
@@ -534,3 +586,6 @@ internal fun who(kind: io.yamsergey.dta.protocol.ops.ClientKind): String = when 
     io.yamsergey.dta.protocol.ops.ClientKind.CLI -> "cli"
     io.yamsergey.dta.protocol.ops.ClientKind.MCP, io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP -> "mcp"
 }
+
+/** Feature 067: an entry that left a live view's matches (it matched before, it does not now). */
+private object LEFT
