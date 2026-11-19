@@ -662,6 +662,27 @@ class HostIndex(
         if (ended.subscription == feedSub) feedSub = null
     }
 
+    /**
+     * Feature 068: an event of the app's channel. A feed batch goes in ([apply]); the subscription
+     * ends when the app ends it or says it dropped events (a batch may be among them).
+     */
+    suspend fun onAppEvent(event: io.yamsergey.dta.protocol.rpc.Event) {
+        when (event.name) {
+            io.yamsergey.dta.protocol.network.FeedBatch.EVENT -> event.data?.let {
+                runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedBatch.serializer(), it) }.getOrNull()
+            }?.let { apply(it) }
+            io.yamsergey.dta.protocol.network.FeedEnded.EVENT -> event.data?.let {
+                runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedEnded.serializer(), it) }.getOrNull()
+            }?.let { feedEnded(it) }
+            EVENTS_DROPPED -> feedSub = null
+        }
+    }
+
+    /** Feature 068: the app's channel is another one (reconnected): its subscription is gone. */
+    fun connectionChanged() {
+        feedSub = null
+    }
+
     private fun storeBodies(epochId: String, bodies: List<io.yamsergey.dta.protocol.network.FeedBody>?) {
         bodies?.forEach { b -> b.bytes().inputStream().use { store.putBody(epochId, b.entryId, b.part, it) } }
     }
@@ -880,6 +901,8 @@ class HostIndex(
         private const val CHUNK = 256L * 1024
         /** Feature 066: acknowledgements at most this often per app, and at most this many entries kept for their bodies. */
         const val ACK_EVERY_MS = 10_000L
+        /** The app's word that a session's events were dropped (its SessionHub). */
+        const val EVENTS_DROPPED = "network.events-dropped"
         /** How long a clear waits for the copy of what this computer does not have yet. */
         const val CLEAR_COPY_MS = 20_000L
         /** Feature 067: an answer's own body copying; measured, a backlog of 100k bodies took 871 s. */

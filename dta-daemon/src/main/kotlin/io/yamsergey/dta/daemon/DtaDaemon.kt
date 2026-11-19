@@ -113,6 +113,9 @@ class DtaDaemon(
      */
     private fun startCopying(key: ConnectionKey, index: io.yamsergey.dta.daemon.network.HostIndex) {
         val worker = io.yamsergey.dta.daemon.network.CopyWorker(index)
+        // Feature 068: the app's events of the connection held now; another connection ends the subscription.
+        var watched: io.yamsergey.dta.daemon.connection.AppConnection? = null
+        var listening: kotlinx.coroutines.Job? = null
         background.launch(HeldOnly()) {
             while (isActive) {
                 if (key !in connections.openKeys()) {
@@ -120,7 +123,15 @@ class DtaDaemon(
                     continue
                 }
                 val copied = try {
-                    index.refresh()
+                    val app = connections.held(key)
+                    if (app != null && app !== watched) {
+                        listening?.cancel()
+                        index.connectionChanged()
+                        watched = app
+                        listening = background.launch(HeldOnly()) { app.events.collect { index.onAppEvent(it) } }
+                    }
+                    // Feature 068: subscribed, the app sends what it writes; else read pages and subscribe again.
+                    if (!index.feedLive) index.openFeed()
                     worker.runOnce()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
