@@ -547,6 +547,11 @@ class HostIndex(
         deviceEntries = identity.entries
         var current = currentEpoch(app, identity)
         val saved = store.cursor(device.key, packageName)
+        // Feature 068: subscribed to this journal, the feed brings what is written; no page is read.
+        if (feedSub != null) {
+            if (saved?.journalId == identity.journalId) { lag = 0; return true }
+            feedSub = null
+        }
         var position = saved?.position
         var lastId = saved?.lastId
         // The first page starts on the line of the last record read, so reading it also checks it (feature 046).
@@ -577,6 +582,8 @@ class HostIndex(
             }
             if (records.isNotEmpty()) {
                 store.putEntries(current.id, records)
+                // Feature 068: small bodies come with their records; nothing is asked for them.
+                storeBodies(current.id, page.bodies)
                 putLive(current.id, records)
                 lastId = records.last().id
             }
@@ -593,6 +600,71 @@ class HostIndex(
     }
 
     private enum class Continuity { SAME, GOES_ON, ROLLED_BACK }
+
+    /** Feature 068: what [apply] did with a batch. */
+    enum class Applied { APPLIED, DUPLICATE, GAP, STALE }
+
+    /** Feature 068: the subscription this computer holds on the app's journal, if any. */
+    @Volatile
+    private var feedSub: String? = null
+
+    val feedLive: Boolean get() = feedSub != null
+
+    /**
+     * Feature 068 (research R1): reads the journal to its end by pages, then subscribes from there;
+     * from then on the app sends each record as it writes it ([apply]). Under the mutex, so a batch
+     * that arrives before the answer waits for it. Null when there is no journal or it is not read
+     * to its end yet.
+     */
+    suspend fun openFeed(): io.yamsergey.dta.protocol.network.FeedOpenResult? = mutex.withLock {
+        val app = connection()
+        feedSub = null
+        if (!sync(app) || lag > 0) return null
+        val saved = store.cursor(device.key, packageName) ?: return null
+        val params = DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.FeedOpenParams.serializer(),
+            io.yamsergey.dta.protocol.network.FeedOpenParams(saved.journalId, saved.position ?: "0:0")).jsonObject
+        val result = DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedOpenResult.serializer(), app.request("network_feed_open", params))
+        feedSub = result.subscription
+        result
+    }
+
+    /**
+     * Feature 068 (research R6): a batch of the subscription goes into the archive when it starts at
+     * the position this computer holds; one it already has is skipped; a gap ends the subscription
+     * (pages are read again); one of an earlier subscription is not taken.
+     */
+    suspend fun apply(batch: io.yamsergey.dta.protocol.network.FeedBatch): Applied = mutex.withLock {
+        if (batch.subscription != feedSub) return Applied.STALE
+        val saved = store.cursor(device.key, packageName)
+        val current = epoch
+        if (saved == null || current == null || saved.journalId != batch.journalId) { feedSub = null; return Applied.GAP }
+        val position = saved.position ?: "0:0"
+        if (batch.from != position) {
+            if (cursorAtOrBefore(batch.to, position)) return Applied.DUPLICATE
+            feedSub = null
+            return Applied.GAP
+        }
+        var lastId = saved.lastId
+        if (batch.records.isNotEmpty()) {
+            store.putEntries(current.id, batch.records)
+            storeBodies(current.id, batch.bodies)
+            putLive(current.id, batch.records)
+            lastId = batch.records.last().id
+        }
+        store.setCursor(device.key, packageName, batch.journalId, batch.to, lastId)
+        lag = 0
+        runCatching { acknowledge(connection()) }
+        Applied.APPLIED
+    }
+
+    /** Feature 068: the app ended the subscription; pages are read again before the next one. */
+    fun feedEnded(ended: io.yamsergey.dta.protocol.network.FeedEnded) {
+        if (ended.subscription == feedSub) feedSub = null
+    }
+
+    private fun storeBodies(epochId: String, bodies: List<io.yamsergey.dta.protocol.network.FeedBody>?) {
+        bodies?.forEach { b -> b.bytes().inputStream().use { store.putBody(epochId, b.entryId, b.part, it) } }
+    }
 
     /**
      * Is this still the journal the daemon was reading (feature 046)? An emulator's snapshot takes

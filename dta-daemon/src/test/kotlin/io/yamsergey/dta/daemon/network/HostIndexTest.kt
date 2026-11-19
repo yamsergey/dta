@@ -78,6 +78,28 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
 
     fun record(entry: NetworkEntry) = records.add(entry)
 
+    /** Feature 068: journal pages and feed batches carry bodies of up to 64 KB, as the app does. */
+    var attachBodies = false
+    /** Feature 068: the position the last subscription was opened from, and its id. */
+    var feedFrom: String? = null
+    var feedId: String? = null
+    private var feeds = 0
+
+    fun smallBodies(page: List<NetworkEntry>): List<io.yamsergey.dta.protocol.network.FeedBody>? = if (!attachBodies) null else
+        LinkedHashMap<String, NetworkEntry>().apply { page.forEach { put(it.id, it) } }.values.flatMap { e ->
+            BodyPart.entries.mapNotNull { part ->
+                val info = NetworkHistoryView.bodyOf(e, part) ?: return@mapNotNull null
+                if (info.storedBytes > io.yamsergey.dta.protocol.network.FeedBody.MAX_BYTES || info.wholeText() != null) return@mapNotNull null
+                bodies[e.id to part]?.let { io.yamsergey.dta.protocol.network.FeedBody.of(e.id, part, it, info.binary) }
+            }
+        }.ifEmpty { null }
+
+    /** The batch the app would send for its records from line [from] to [to] (positions `0:n`, as the journal pages give). */
+    fun batch(from: Int, to: Int = records.size, subscription: String = feedId!!): io.yamsergey.dta.protocol.network.FeedBatch {
+        val page = (from until to).filter { it !in cutLines && records[it].id !in evicted }.map { records[it] }
+        return io.yamsergey.dta.protocol.network.FeedBatch(subscription, journalId, "0:$from", "0:$to", page, smallBodies(page))
+    }
+
     /** The journal returned to its first [lines] lines, with the same id: an emulator snapshot (feature 046). */
     fun goBack(lines: Int) = records.subList(lines, records.size).clear()
 
@@ -122,7 +144,20 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
                     if (at !in cutLines && records[at].id !in evicted) page += records[at]
                 }
                 val next = if (line == 0) after ?: "0:0" else "0:$line"
-                RpcResult(DtaJson.encodeToJsonElement(JournalPageResult.serializer(), JournalPageResult(journalId, page, next, line >= records.size)))
+                RpcResult(DtaJson.encodeToJsonElement(JournalPageResult.serializer(), JournalPageResult(journalId, page, next, line >= records.size, smallBodies(page))))
+            }
+            "network_feed_open" -> {
+                val open = DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedOpenParams.serializer(), params!!)
+                val result = when {
+                    !persisted -> io.yamsergey.dta.protocol.network.FeedOpenResult(refused = io.yamsergey.dta.protocol.network.FeedOpenResult.NOT_PERSISTED)
+                    open.journalId != journalId -> io.yamsergey.dta.protocol.network.FeedOpenResult(refused = io.yamsergey.dta.protocol.network.FeedOpenResult.JOURNAL_CHANGED)
+                    else -> {
+                        feedFrom = open.after
+                        feedId = "f${++feeds}"
+                        io.yamsergey.dta.protocol.network.FeedOpenResult(subscription = feedId)
+                    }
+                }
+                RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.FeedOpenResult.serializer(), result))
             }
             "network_body_range" -> {
                 val part = BodyPart.entries.first { DtaJson.encodeToJsonElement(BodyPart.serializer(), it).let { j -> (j as JsonPrimitive).content } == str("part") }
