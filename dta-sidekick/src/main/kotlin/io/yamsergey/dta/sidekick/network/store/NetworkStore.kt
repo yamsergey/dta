@@ -147,6 +147,14 @@ class NetworkStore(
     private var segmentWriter: Writer? = null
     /** Bytes written to [segment] (its file length lags behind the buffered writer). */
     private var segmentBytes = 0L
+    /** Lines written to [segment]: a record's position is `segment:line` after it (feature 068). */
+    private var segmentLines = 0
+
+    /** Feature 068: who gets each record once it is on disk, and those written but not flushed yet (under [writeLock]). */
+    private var liveListener: ((NetworkEntry, String) -> Unit)? = null
+    private val unflushed = ArrayList<Pair<NetworkEntry, String>>()
+    private var unflushedSinceMs = 0L
+    private var liveEnded: (() -> Unit)? = null
     /** Highest segment index ever used; indices never repeat, so file order is time order. */
     private var lastSegmentIndex = 0
     /** Per segment: the newest entry id recorded in it (all older ones are older). */
@@ -511,7 +519,7 @@ class NetworkStore(
                     synchronized(lock) { entries.remove(id)?.let { if (!inFlight(it)) finishedInMemory-- } }
                     removed++
                 }
-                runCatching { segmentWriter?.flush() }
+                flushWriter()
                 val size = file.length()
                 if (file.delete()) diskBytes.addAndGet(-size)
                 segmentIds.remove(file)
@@ -725,6 +733,11 @@ class NetworkStore(
         }
         synchronized(writeLock) {
             queue.clear()
+            // Feature 068: a live subscriber's journal is gone; it is told, and nothing more comes.
+            unflushed.clear()
+            liveListener = null
+            liveEnded?.let { runCatching { it() } }
+            liveEnded = null
             runCatching { segmentWriter?.close() }
             segmentWriter = null
             segment = null
@@ -750,9 +763,47 @@ class NetworkStore(
         flushQueued()
     }
 
+    /** What [startLive] gives: the records written after the position, and the position after them. */
+    class LiveStart(val records: List<NetworkEntry>, val to: String)
+
+    /**
+     * Feature 068 (research R1): the journal read from [after] and kept open. Under the writer lock,
+     * so nothing is written meanwhile, it reads what was written after [after] and registers
+     * [listener], which then gets each record with its position once it is on disk, on the writer
+     * thread (it must not wait). Null when more than [limit] records follow [after]: read pages first.
+     */
+    fun startLive(after: String, limit: Int, onEnd: () -> Unit = {}, listener: (NetworkEntry, String) -> Unit): LiveStart? {
+        if (!persisted || !awaitLoaded(FLUSH_WAIT_MS)) return null
+        synchronized(writeLock) {
+            val page = journal(after, limit)
+            if (!page.end) return null
+            unflushed.clear()
+            liveListener = listener
+            liveEnded = onEnd
+            return LiveStart(page.records, page.next)
+        }
+    }
+
+    /** Stops [startLive]'s listener. */
+    fun stopLive() = synchronized(writeLock) {
+        liveListener = null
+        liveEnded = null
+        unflushed.clear()
+    }
+
+    /** Flushes the segment being written and hands what it held to the live listener. */
+    private fun flushWriter() {
+        runCatching { segmentWriter?.flush() }
+        if (unflushed.isEmpty()) return
+        val listener = liveListener
+        val out = ArrayList(unflushed)
+        unflushed.clear()
+        if (listener != null) for ((entry, at) in out) runCatching { listener(entry, at) }
+    }
+
     private fun flushQueued() = synchronized(writeLock) {
         while (true) write(queue.poll() ?: break)
-        runCatching { segmentWriter?.flush() }
+        flushWriter()
         Unit
     }
 
@@ -998,7 +1049,8 @@ class NetworkStore(
                         queue.poll()
                     }
                     if (record != null) write(record)
-                    if (queue.isEmpty()) runCatching { segmentWriter?.flush() }
+                    // Feature 068: a live subscriber gets records once they are on disk, at least every 50 ms or 500 records.
+                    if (queue.isEmpty() || unflushed.size >= LIVE_BATCH || (unflushed.isNotEmpty() && clock() - unflushedSinceMs >= LIVE_MS)) flushWriter()
                 }
             } catch (_: InterruptedException) {
                 return
@@ -1018,6 +1070,11 @@ class NetworkStore(
             val bytes = line.toByteArray(Charsets.UTF_8).size.toLong()
             writerFor(bytes).write(line)
             segmentBytes += bytes
+            segmentLines++
+            if (liveListener != null) {
+                if (unflushed.isEmpty()) unflushedSinceMs = clock()
+                unflushed += record.entry to "${segmentIndex(segment!!)}:$segmentLines"
+            }
             diskBytes.addAndGet(bytes)
             segment?.let {
                 segmentNewest[it] = newer(segmentNewest[it], record.entry.id)
@@ -1038,6 +1095,7 @@ class NetworkStore(
         val file = File(storage!!.segments, "seg-%06d.jsonl".format(++lastSegmentIndex))
         segment = file
         segmentBytes = 0
+        segmentLines = 0
         return file.bufferedWriter().also { segmentWriter = it }
     }
 
@@ -1113,6 +1171,9 @@ class NetworkStore(
         const val BODY_BLOCK = 4096L
         /** A count alone is written at most this often per entry ([upsertCount]). */
         const val DEFER_MS = 1_000L
+        /** Feature 068: a live subscriber waits at most this long, or this many records, for a flush. */
+        const val LIVE_MS = 50L
+        const val LIVE_BATCH = 500
         val RUN_ID = Regex("""r(\d+)-(\d+)""")
         val SEGMENT = Regex("""seg-(\d+)\.jsonl""")
         /** How long a query waits for the earlier runs to be read before answering with what is counted. */
