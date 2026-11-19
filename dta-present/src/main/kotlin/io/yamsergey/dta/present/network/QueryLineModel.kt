@@ -203,6 +203,23 @@ data class HitNavigator(val entries: List<EntryHits> = emptyList(), val index: I
 
     fun hitsOf(id: String): List<SearchHit>? = entries.firstOrNull { it.id == id }?.hits
 
+    /**
+     * Feature 067: a live entry's hits (a subscription's decision), in place when known, else at the
+     * newest end — first when [newestFirst] — keeping the position on its entry; null hits remove it.
+     */
+    fun live(id: String, timeMs: Long, hits: List<SearchHit>?, newestFirst: Boolean): HitNavigator {
+        val at = entries.indexOfFirst { it.id == id }
+        val was = current?.id
+        val next = when {
+            hits.isNullOrEmpty() -> if (at < 0) return this else entries.filterIndexed { i, _ -> i != at }
+            at >= 0 -> entries.toMutableList().also { it[at] = EntryHits(id, timeMs, hits) }
+            newestFirst -> listOf(EntryHits(id, timeMs, hits)) + entries
+            else -> entries + EntryHits(id, timeMs, hits)
+        }
+        val index = was?.let { w -> next.indexOfFirst { it.id == w } } ?: -1
+        return HitNavigator(next, index)
+    }
+
     /** The same position by entry id after a refresh; [order] is the list's ids top to bottom, for the nearest. */
     fun refreshed(fresh: List<EntryHits>, order: List<String> = emptyList()): HitNavigator {
         val was = current?.id ?: return HitNavigator(fresh)

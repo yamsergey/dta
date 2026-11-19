@@ -217,7 +217,7 @@ class NetworkController(private val context: ContextController, private val scop
             mutable.update { it.copy(searching = true) }
             val params = JsonObject(
                 target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive(SEARCH_LIMIT), "order" to JsonPrimitive(if (s.hitsNewestFirst) "newest-first" else "oldest-first")) +
-                    (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
+                    (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
             )
             runCatching { DtaJson.decodeFromJsonElement(SearchPage.serializer(), c.call("network.search", params).result) }
                 .onSuccess { page ->
@@ -359,8 +359,10 @@ class NetworkController(private val context: ContextController, private val scop
             mutable.update { it.copy(loading = true) }
             try {
                 val s = mutable.value
-                client.networkEvents(JsonObject(target(s) + s.line.params(s.kind))).collect { data ->
+                val live = mapOf("view" to JsonPrimitive(VIEW)) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+                client.networkEvents(JsonObject(target(s) + s.line.params(s.kind) + live)).collect { data ->
                     if (data["selection"] != null) {
+                        liveDecisions = ((data["selection"] as? JsonObject)?.get("result") as? JsonObject)?.get("liveQuery")?.let { (it as? JsonPrimitive)?.content == "true" } == true
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
                         val e = loaded(page)
@@ -376,6 +378,10 @@ class NetworkController(private val context: ContextController, private val scop
                         val change = (event["change"] as? JsonPrimitive)?.content
                         // A body filter the event's preview could not decide: the list (host copy) decides.
                         val unchecked = (data["bodyFilterUnchecked"] as? JsonPrimitive)?.content == "true"
+                        if (liveDecisions && data["decision"] != null) {
+                            decided(data, entry, change)
+                            return@collect
+                        }
                         if (filtering(mutable.value) || unchecked) {
                             // Only matches are listed: a listed row may change in place; anything new waits for the next list.
                             if (change == "updated" && mutable.value.list.rows.any { it.id == entry["id"]?.let { i -> (i as? JsonPrimitive)?.content } }) list(LiveEvent.Updated(entry))
@@ -422,10 +428,34 @@ class NetworkController(private val context: ContextController, private val scop
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
         target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive(PAGE)) +
             (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
-            (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()),
+            (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
     )
 
+    /** Feature 067: the daemon decides each live entry with the whole line (an older daemon does not: the list is asked again). */
+    @Volatile private var liveDecisions = false
+
+    /** A live decision: the row joins, changes or leaves, and the hits follow it — nothing is listed again. */
+    private fun decided(data: JsonObject, entry: JsonObject, change: String?) {
+        val decision = data["decision"] as? JsonObject
+        val id = (entry["id"] as? JsonPrimitive)?.content ?: return
+        val time = (entry["timeMs"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+        if (decision?.get("left") != null) {
+            mutable.update { it.copy(list = it.list.reduce(LiveEvent.Left(id)), hits = it.hits.live(id, time, null, it.hitsNewestFirst)) }
+            return
+        }
+        val hits = (decision?.get("hits") as? kotlinx.serialization.json.JsonArray)?.let {
+            runCatching { DtaJson.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer()), it) }.getOrNull()
+        }
+        val event = if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry)
+        mutable.update { s ->
+            val withRow = s.copy(list = s.list.reduce(event))
+            if (s.line.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
+        }
+    }
+
     companion object {
+        /** Feature 067: this tab's live view at the daemon (its match sets make the next query cheap). */
+        const val VIEW = "network-tab"
         const val PAGE = 500
         const val SEARCH_LIMIT = 1000
         const val SEARCH_SETTLE_MS = 1000L

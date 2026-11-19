@@ -140,6 +140,37 @@ class NetworkControllerTest {
         }
     }
 
+    private fun hit(id: String) = io.yamsergey.dta.protocol.network.SearchHit(id, io.yamsergey.dta.protocol.network.SearchPlace.URL, "api", 8, 11, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("api", 0, 3))
+
+    @Test
+    fun `with live decisions, matches join and hits grow while traffic goes on, and nothing is listed again (067)`() = runBlocking<Unit> {
+        daemon.ops.decide = { q, e -> io.yamsergey.dta.protocol.network.EntryDecision(true, hits = if (q.q?.contains("api") == true) listOf(hit(e.id)) else null) to false }
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("api")
+        until { daemon.ops.queries.any { it.second.q == "api" } }
+        await { it.list.rows.size == 3 && it.watching }
+        until { daemon.ops.searches.any { it.q == "api" } }
+        await { !it.searching }
+        val lists = daemon.ops.queries.size
+        repeat(10) { daemon.ops.events.emit(NetworkEntryEvent(http(100 + it), EntryChange.CREATED)) }
+        val s = await { it.list.rows.size == 13 }
+        assertEquals(10, s.hits.total, "each decision's hits are counted")
+        kotlinx.coroutines.delay(1_500)
+        assertEquals(lists, daemon.ops.queries.size, "no list asked again for live traffic")
+        assertTrue(daemon.ops.views.all { it?.endsWith(":network-tab") == true }, "the tab lists as its live view: ${daemon.ops.views}")
+    }
+
+    @Test
+    fun `an entry that stops matching leaves the list (067)`() = runBlocking<Unit> {
+        daemon.ops.decide = { _, e -> if (e.id == "r1-1:2") io.yamsergey.dta.protocol.network.EntryDecision(false) to true else io.yamsergey.dta.protocol.network.EntryDecision(true) to false }
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        daemon.ops.events.emit(NetworkEntryEvent(http(2), EntryChange.UPDATED))
+        val s = await { it.list.rows.size == 2 }
+        assertTrue(s.list.rows.none { it.id == "r1-1:2" })
+    }
+
     @Test
     fun `a line with problems changes nothing but says what is wrong (040)`() = runBlocking<Unit> {
         session.start()

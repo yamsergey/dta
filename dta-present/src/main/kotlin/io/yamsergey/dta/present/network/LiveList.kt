@@ -30,6 +30,8 @@ sealed interface LiveEvent {
     data class Older(val page: JsonObject) : LiveEvent
     data class Arrived(val entry: JsonObject) : LiveEvent
     data class Updated(val entry: JsonObject) : LiveEvent
+    /** Feature 067: an entry that no longer matches the query (it changed): its row goes. */
+    data class Left(val id: String) : LiveEvent
     data class Selected(val id: String?) : LiveEvent
     data object ScrolledAway : LiveEvent
     data object JumpToEnd : LiveEvent
@@ -89,7 +91,7 @@ data class LiveList(
             val merged = (entries(event.page).filter { it.id !in known } + rows).sortedWith(ORDER)
             copy(rows = merged, index = indexOf(merged), older = cursor(event.page))
         }
-        is LiveEvent.Arrived, is LiveEvent.Updated -> if (paused) copy(pending = pending + event) else apply(event)
+        is LiveEvent.Arrived, is LiveEvent.Updated, is LiveEvent.Left -> if (paused) copy(pending = pending + event) else apply(event)
         is LiveEvent.Selected -> copy(selectedId = event.id, selectedGone = false, following = if (event.id != null) false else following)
         LiveEvent.ScrolledAway -> copy(following = false)
         LiveEvent.JumpToEnd -> copy(following = true, newCount = 0)
@@ -99,6 +101,11 @@ data class LiveList(
     }
 
     private fun apply(event: LiveEvent): LiveList {
+        if (event is LiveEvent.Left) {
+            val at = index[event.id] ?: return this
+            val kept = rows.toMutableList().also { it.removeAt(at) }
+            return copy(rows = kept, index = indexOf(kept), total = (total - 1).coerceAtLeast(kept.size), selectedGone = selectedGone || event.id == selectedId)
+        }
         val entry = when (event) {
             is LiveEvent.Arrived -> event.entry
             is LiveEvent.Updated -> event.entry

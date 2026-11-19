@@ -102,6 +102,12 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
         io.yamsergey.dta.protocol.network.HistorySettings(keepBytes ?: (256L shl 20), warnBytes ?: (512L shl 20))
     override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent> =
         events.onSubscription { onSubscribed() }
+    /** Feature 067: live decisions as a daemon with live views makes them (null: an older daemon, none). */
+    @Volatile var decide: ((NetworkQuery, io.yamsergey.dta.protocol.network.NetworkEntry) -> Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean>)? = null
+    val views = java.util.concurrent.CopyOnWriteArrayList<String?>()
+    override suspend fun network(serial: String, pkg: String, query: NetworkQuery, view: String?) = network(serial, pkg, query).also { views += view }
+    override fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, socketUrl: (String) -> String?) =
+        decide?.invoke(query, entry)
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true, id = "abc123")
     override suspend fun networkScriptClear(serial: String, pkg: String) = true
     override suspend fun networkScriptStatus(serial: String, pkg: String) = ScriptStatus(active = false)
