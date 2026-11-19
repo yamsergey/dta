@@ -739,6 +739,14 @@ class HostIndex(
     }
 
     private suspend fun copyOne(e: Epoch, entryId: String, part: BodyPart, paced: suspend (bytes: Long, ms: Long) -> Unit) {
+        // A body all in its preview (a small text message): archived from the record; the device keeps no file for it.
+        live[entryId]?.let { NetworkHistoryView.bodyOf(it, part)?.wholeText() }?.let { text ->
+            text.toByteArray(Charsets.UTF_8).inputStream().use { store.putBody(e.id, entryId, part, it) }
+            pendingCopies.remove(entryId to part)
+            changeSeq[entryId] = nextSeq()
+            copied.tryEmit(entryId)
+            return
+        }
         val app = connection()
         val partial = store.partialFile(e.id, entryId, part)
         val partName = DtaJson.encodeToJsonElement(BodyPart.serializer(), part).jsonPrimitive.content

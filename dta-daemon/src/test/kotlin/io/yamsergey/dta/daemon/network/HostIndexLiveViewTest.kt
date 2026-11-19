@@ -221,6 +221,23 @@ class HostIndexLiveViewTest {
         assertEquals(page.hits, host.list(q).hits)
     }
 
+    @Test
+    fun `a body all in its preview is archived from the preview, with nothing asked of the app`() = runBlocking<Unit> {
+        val app = FakeJournalApp().apply { record(socket) }
+        val host = index(app)
+        val r = Random(8)
+        val sent = List(20) { message(app, r, wholePreview = true) }
+        // The device keeps no file for them (the record holds them): asking would fail.
+        app.bodies.clear()
+        host.list(NetworkQuery(limit = 1))
+        host.copyAllPending()
+        assertEquals(0, app.requests.count { it == "network_body_range" })
+        assertEquals(emptyList(), host.pendingBodies())
+        assertEquals(null, host.list(NetworkQuery(limit = 1)).coverage.bodiesNotArchived, "archived, not lost")
+        val m = sent.first()
+        assertEquals(m.payload.preview, host.storedBody(m.id, BodyPart.MESSAGE)?.second?.decodeToString())
+    }
+
     /** A channel whose body ranges wait until released, or fail on this computer's side. */
     private class StuckBodies : FakeJournalApp() {
         val entered = CountDownLatch(1)

@@ -327,4 +327,21 @@ class NetworkRecorderTest {
         val last = store.journal(null, 10_000).records.last { it.id == id } as WsConnectionEntry
         assertEquals(WsState.CLOSED to 300, last.state to last.messageCount)
     }
+
+    @Test
+    fun `a small text message all in its preview has no body file, and is read from its record`() {
+        val id = recorder.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)
+        recorder.wsOpened(id)
+        val text = "{\"type\": \"tick\", \"symbol\": \"FAST\", \"n\": 1}"
+        val m = recorder.wsMessage(id, Direction.IN, MessageOpcode.TEXT, text.toByteArray(), null)!!
+        val big = recorder.wsMessage(id, Direction.IN, MessageOpcode.TEXT, "x".repeat(300).toByteArray(), null)!!
+        store.flush()
+        val files = File(dir, "bodies").listFiles()!!.map { it.name }
+        assertTrue(files.none { it.startsWith(m.replace(':', '_')) }, "no file for a message its record holds: $files")
+        assertTrue(files.any { it.startsWith(big.replace(':', '_')) }, "a longer one keeps its file")
+        val payload = (entry(m) as WsMessageEntry).payload
+        assertEquals(text, payload.wholeText())
+        assertEquals(text.length.toLong(), store.bodySize(m, BodyPart.MESSAGE))
+        assertEquals(text.substring(10, 20), String(store.openBodyRange(m, BodyPart.MESSAGE, 10, 10)!!.readBytes()))
+    }
 }

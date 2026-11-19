@@ -170,7 +170,9 @@ class NetworkMethodsTest {
     @Test
     fun `a body whose file is gone is reported dropped with zero frames`() {
         val id = recorder.httpStarted("okhttp3", "POST", "http://h/a", emptyList(), initiator)
-        recorder.httpRequestBody(id, "text/plain", 1).apply { accept(byteArrayOf(1), 0, 1); finish(endOfStream = true) }
+        // Longer than its preview: without the file nothing holds it (a body all in its preview is read from the record).
+        val body = ByteArray(300) { 'a'.code.toByte() }
+        recorder.httpRequestBody(id, "text/plain", body.size.toLong()).apply { accept(body, 0, body.size); finish(endOfStream = true) }
         File(dir, "bodies").listFiles()!!.forEach { it.delete() }
         val chunks = mutableListOf<ByteArray>()
         val result = methods.body(params("""{"id":"$id","part":"request"}""")) { chunks += it }

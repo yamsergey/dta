@@ -668,7 +668,7 @@ class NetworkStore(
     }
 
     fun openBody(id: String, part: BodyPart): InputStream? {
-        val file = bodyFile(id, part)?.takeIf { it.isFile } ?: return null
+        val file = bodyFile(id, part)?.takeIf { it.isFile } ?: return inRecord(id, part)?.let { java.io.ByteArrayInputStream(it) }
         return try {
             FileInputStream(file)
         } catch (_: Throwable) {
@@ -694,7 +694,11 @@ class NetworkStore(
     }
 
     /** Bytes of a stored body, or null when there is none. */
-    fun bodySize(id: String, part: BodyPart): Long? = bodyFile(id, part)?.takeIf { it.isFile }?.length()
+    fun bodySize(id: String, part: BodyPart): Long? = bodyFile(id, part)?.takeIf { it.isFile }?.length() ?: inRecord(id, part)?.size?.toLong()
+
+    /** A body with no file that its entry's preview holds whole (a small text message). */
+    private fun inRecord(id: String, part: BodyPart): ByteArray? =
+        get(id)?.let { io.yamsergey.dta.protocol.network.NetworkHistoryView.bodyOf(it, part)?.wholeText()?.toByteArray(Charsets.UTF_8) }
 
     /** Bytes the history occupies on disk: segments plus bodies. */
     fun diskBytes(): Long = diskBytes.get()

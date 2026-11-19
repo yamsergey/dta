@@ -129,8 +129,10 @@ class NetworkRecorder(
             val connection = store.get(connectionId) as? WsConnectionEntry ?: return@guardOrNull null
             val id = store.nextId()
             val time = atMs ?: clock()
-            var info: BodyInfo? = null
-            BodyRecorder(store.openBodySink(id, BodyPart.MESSAGE), bodyBound) { capture ->
+            var info: BodyInfo? = inRecord(opcode, payload)
+            // A small text message is all in its preview: its record holds it, no file is kept
+            // (found under load, 2026-11-19: a file per message was most of the device's disk).
+            if (info == null) BodyRecorder(store.openBodySink(id, BodyPart.MESSAGE), bodyBound) { capture ->
                 val head = payload.copyOf(minOf(payload.size, PREVIEW_HEAD_BYTES))
                 info = bodyInfo(BodyPart.MESSAGE, capture, contentType = null, encoding = null, declaredBytes = payload.size.toLong())
                     .copy(
@@ -319,6 +321,15 @@ class NetworkRecorder(
         }
     } catch (_: Throwable) {
         null
+    }
+
+    /** The payload as its record holds it, when the preview is all of it; else null (it is stored as a file). */
+    private fun inRecord(opcode: MessageOpcode, payload: ByteArray): BodyInfo? {
+        if (opcode != MessageOpcode.TEXT || payload.size > BodyInfo.PREVIEW_CHARS) return null
+        if (bodyBound != null && payload.size > bodyBound) return null
+        val text = BodyCodec.preview(payload, "text/plain") ?: return null
+        val info = BodyInfo(BodyPart.MESSAGE, storedBytes = payload.size.toLong(), declaredBytes = payload.size.toLong(), completeness = io.yamsergey.dta.protocol.network.Completeness.COMPLETE, preview = text)
+        return info.takeIf { it.wholeText() != null && text.toByteArray(Charsets.UTF_8).contentEquals(payload) }
     }
 
     private fun bodyInfo(part: BodyPart, capture: BodyCapture, contentType: String?, encoding: String?, declaredBytes: Long?) =
