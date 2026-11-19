@@ -143,13 +143,13 @@ object Statements {
             add(Statement(StatementKind.DEGRADED, detail = "$it bodies not archived", explanation = "$it bodies left the device before this computer could copy them; their entries are kept without them."))
         }
         if (coverage?.get("deviceReading")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } == "true") {
-            add(Statement(StatementKind.PENDING, detail = "the app is still reading its earlier history", explanation = "The app reads the history of its earlier runs in the background after it starts; until it is done the counts are not complete and new entries are not in the history yet. Ask again shortly."))
+            add(Statement(StatementKind.PENDING, code = "device-reading", detail = "the app is still reading its earlier history", explanation = "The app reads the history of its earlier runs in the background after it starts; until it is done the counts are not complete and new entries are not in the history yet. Ask again shortly."))
         }
         coverage?.long("hostLagRecords")?.takeIf { it > 0 }?.let {
-            add(Statement(StatementKind.PENDING, detail = "$it entries not read from the device yet", explanation = "This computer is still reading $it entries from the device; ask again for the rest."))
+            add(Statement(StatementKind.PENDING, code = "host-lag", detail = "$it entries not read from the device yet", explanation = "This computer is still reading $it entries from the device; ask again for the rest."))
         }
         coverage?.long("bodiesPending")?.takeIf { it > 0 }?.let {
-            add(Statement(StatementKind.PENDING, detail = "$it bodies not copied to this computer yet", explanation = "$it bodies are still on the device only; they are copied in the background."))
+            add(Statement(StatementKind.PENDING, code = "bodies-copying", detail = "$it bodies not copied to this computer yet", explanation = "$it bodies are still on the device only; they are copied in the background."))
         }
         coverage?.let { addAll(history(it)) }
         coverage?.long("archivedEpochs")?.takeIf { it > 0 }?.let {
@@ -283,7 +283,15 @@ object Statements {
      * What the plugin's Network tab shows (user decision, 2026-11-03): no "degraded" marks there, as
      * they misled more than they told; CLI and MCP results keep them for agents.
      */
-    fun forNetworkTab(statements: List<Statement>): List<Statement> = statements.filter { it.kind != StatementKind.DEGRADED }
+    fun forNetworkTab(statements: List<Statement>): List<Statement> =
+        statements.filter { it.kind != StatementKind.DEGRADED && it.code !in ARCHIVING }
+
+    /**
+     * Feature 068 (research R8): the archiving's own state, not the answer's. The plugin tells a
+     * lasting wait with the IDE's background task and a large device history with a notification;
+     * CLI and MCP results keep these statements.
+     */
+    private val ARCHIVING = setOf("device-reading", "host-lag", "bodies-copying", "history-trim-held", "history-large", "history-host-only")
 
     fun markers(element: JsonElement?): List<Statement> = (element as? JsonArray).orEmpty().map { m ->
         val marker = m.asObj()

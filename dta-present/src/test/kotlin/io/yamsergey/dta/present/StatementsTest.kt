@@ -261,7 +261,7 @@ class StatementsTest {
         assertEquals("device history 1.1 GB, over its 512.0 MB warning size", large.detail)
         assertTrue(large.sentence.contains("no DTA client has archived it yet"), large.sentence)
         assertTrue(large.sentence.contains("dta network clear") && large.sentence.contains("dta network history set"), large.sentence)
-        assertTrue(Statements.forNetworkTab(s).any { it.code == "history-large" }, "shown in the plugin's Network tab too")
+        assertTrue(Statements.forNetworkTab(s).none { it.code == "history-large" }, "068: in the plugin it is a notification, not a mark")
         assertTrue(s.none { it.code == "history-trim-held" }, "one statement, not two")
     }
 
@@ -286,5 +286,18 @@ class StatementsTest {
     fun `nothing is said when the history is within its budget`() {
         val s = coverage(""""deviceBytes":${100 * mb},"keepBytes":${256 * mb},"warnBytes":${512 * mb}""")
         assertTrue(s.none { it.code?.startsWith("history-") == true }, s.toString())
+    }
+
+    @Test
+    fun `the Network tab shows what changes the answer, not the archiving's waits (068)`() {
+        val all = coverage(""""deviceReading":true,"hostLagRecords":2140,"bodiesPending":15061,"deviceBytes":${300 * mb},"keepBytes":${256 * mb},"warnBytes":${512 * mb},"trimHeld":"unarchived","hostOnly":3896,"archivedByOther":12,"archivedEpochs":6,"evicted":3""")
+        val waits = setOf("device-reading", "host-lag", "bodies-copying", "history-trim-held", "history-large", "history-host-only")
+        assertTrue(waits.filter { it != "history-large" }.all { code -> all.any { it.code == code } }, "CLI and MCP say every wait: ${all.map { it.code }}")
+        assertTrue(all.single { it.code == "bodies-copying" }.detail!!.contains("15061"))
+        val shown = Statements.forNetworkTab(all)
+        assertTrue(shown.none { it.code in waits }, shown.toString())
+        assertTrue(shown.any { it.code == "history-other-host" }, "entries taken by another computer are missing from the answer")
+        assertTrue(shown.any { it.word == "archived" }, "earlier histories not shown")
+        assertTrue(shown.any { it.code == "network-history-evicted" })
     }
 }
