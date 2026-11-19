@@ -107,7 +107,7 @@ object SidekickServer {
             // Diagnostic: proves JVMTI entry/exit hooks on app and boot classes (feature 004).
             register("hook_selftest") { HookSelfTest.run() }
             NetworkRuntime.store?.let { store ->
-                NetworkMethods(store, { NetworkRuntime.scripts.degradations() }) { NetworkRuntime.capability() }.install(this)
+                NetworkMethods(store, { NetworkRuntime.scripts.degradations() }, { name, data -> sessions.publish(name, data) }) { NetworkRuntime.capability() }.install(this)
             }
             NetworkScriptMethods(NetworkRuntime.scripts, NetworkRuntime.scriptStore) {
                 if (io.yamsergey.dta.sidekick.hooks.HookAttach.attached) null else io.yamsergey.dta.sidekick.hooks.HookAttach.reason

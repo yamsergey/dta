@@ -40,8 +40,12 @@ class NetworkMethods(
     private val store: NetworkStore,
     /** Codes the network script contributes (feature 005: unavailable, not persisted). */
     private val scriptDegradations: () -> List<String> = { emptyList() },
+    /** Feature 068: where feed events go (the sessions); none: no feed. */
+    publish: ((String, kotlinx.serialization.json.JsonElement?) -> Unit)? = null,
     private val captureStatus: () -> CapabilityStatus,
 ) {
+    private val feed = publish?.let { NetworkFeed(store, it) }
+
     fun install(registry: MethodRegistry) {
         registry.register("network_list") { ctx -> DtaJson.encodeToJsonElement(NetworkPage.serializer(), list(ctx.params)) }
         registry.register("network_entry") { ctx -> DtaJson.encodeToJsonElement(NetworkEntryDetail.serializer(), entry(ctx.params)) }
@@ -57,6 +61,17 @@ class NetworkMethods(
         }
         registry.register("network_archived") { ctx ->
             DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ArchiveAckResult.serializer(), archived(ctx.params))
+        }
+        // Feature 068: the journal as one feed from the position this computer read to.
+        registry.register("network_feed_open") { ctx ->
+            val params = runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedOpenParams.serializer(), ctx.params ?: JsonObject(emptyMap())) }
+                .getOrElse { throw InvalidParamsException("network_feed_open needs journalId and after") }
+            val result = feed?.open(params) ?: io.yamsergey.dta.protocol.network.FeedOpenResult(refused = io.yamsergey.dta.protocol.network.FeedOpenResult.NOT_PERSISTED)
+            DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.FeedOpenResult.serializer(), result)
+        }
+        registry.register("network_feed_close") { ctx ->
+            (ctx.params?.get("subscription") as? JsonPrimitive)?.content?.let { feed?.close(it) }
+            kotlinx.serialization.json.JsonObject(emptyMap())
         }
         registry.register("network_history_settings") { ctx ->
             DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.HistorySettings.serializer(), historySettings(ctx.params))

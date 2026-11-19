@@ -616,6 +616,9 @@ class NetworkStore(
     /** Still reading the earlier runs: the counters are not complete, nothing is written yet. */
     private fun reading(): Boolean = loaded.count > 0
 
+    /** Feature 068: the earlier runs are still being read; nothing can be fed until they are. */
+    val isReading: Boolean get() = reading()
+
     /** Which journal this is, and why it is new in this process (feature 011). */
     fun identity(): JournalIdentity = synchronized(lock) { JournalIdentity(state.journalId!!, journalReason, stored, persisted) }
 
