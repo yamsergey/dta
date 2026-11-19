@@ -204,6 +204,22 @@ class HostIndexLiveViewTest {
     }
 
     @Test
+    fun `a body whose preview is all of it is searched as the body, with nothing copied first`() = runBlocking<Unit> {
+        val app = FakeJournalApp().apply { record(socket) }
+        val host = index(app)
+        val r = Random(6)
+        repeat(40) { message(app, r, wholePreview = true) }
+        val q = NetworkQuery(q = "tick", limit = 1000)
+        val page = host.list(q, "v")
+        assertEquals(0, app.requests.count { it == "network_body_range" }, "small messages need no copy to be searched")
+        assertEquals(null, host.search(q).notSearched, "read as the body, not as a preview")
+        // The same answer as with every body copied.
+        host.copyAllPending()
+        assertEquals(plain(page).entries, plain(host.list(q)).entries)
+        assertEquals(page.hits, host.list(q).hits)
+    }
+
+    @Test
     fun `match sets are bounded per view and in all`() {
         val views = LiveViews(perView = 2, total = 3)
         val state = HostIndex.LiveState("e1", 0, 0, emptyList(), emptyMap(), emptySet())

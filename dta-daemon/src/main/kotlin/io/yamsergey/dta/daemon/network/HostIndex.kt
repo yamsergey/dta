@@ -216,7 +216,7 @@ class HostIndex(
     )
 
     private fun snapshot() = Snapshot(ArrayList(live.values), HashMap(live), epoch?.id, context!!, lastSeq, removals, HashMap(changeSeq),
-        pendingCopies.keys.mapTo(HashSet()) { it.first })
+        pendingCopies.keys.filter { (id, part) -> !whole(live[id], part) }.mapTo(HashSet()) { it.first })
 
     private fun Snapshot.state() = LiveState(epochId, seq, removals, entries, changes, pending)
 
@@ -234,7 +234,7 @@ class HostIndex(
         val toCopy = mutex.withLock {
             val app = connection()
             if (!sync(app)) return appAnswers(app, query)
-            if (needsBodies(query)) pending() else emptyList()
+            if (needsBodies(query)) pending().filterNot { whole(live[it.entryId], it.part) } else emptyList()
         }
         // Copied outside the mutex: opening an entry does not wait for the bodies a search needs.
         copyAll(toCopy)
@@ -416,7 +416,7 @@ class HostIndex(
             if (!sync(app)) {
                 return SearchPage(emptyList(), 0, searched = 0, degraded = listOf(DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)))
             }
-            pending()
+            pending().filterNot { whole(live[it.entryId], it.part) }
         }
         copyAll(toCopy)
         val snap = mutex.withLock { snapshot() }
@@ -431,7 +431,7 @@ class HostIndex(
         val toCopy = mutex.withLock {
             val app = connection()
             check(sync(app)) { "this app's network history is not copied to this computer, so Network's filters cannot be applied to its timeline" }
-            if (needsBodies(query)) pending() else emptyList()
+            if (needsBodies(query)) pending().filterNot { whole(live[it.entryId], it.part) } else emptyList()
         }
         copyAll(toCopy)
         val snap = mutex.withLock { snapshot() }
@@ -777,9 +777,15 @@ class HostIndex(
         }
     }
 
+    /** The body is all in its preview (a small message, a short answer): searched as is, no copy needed for it. */
+    private fun whole(entry: NetworkEntry?, part: BodyPart): Boolean =
+        entry != null && NetworkHistoryView.bodyOf(entry, part)?.wholeText() != null
+
     private fun hostBodyBytes(epochId: String?, entry: NetworkEntry, part: BodyPart): NetworkFilterEval.BodyBytes? {
-        epochId ?: return null
         val info = NetworkHistoryView.bodyOf(entry, part) ?: return null
+        // Feature 067: a preview that is all of the body is the body (and costs no store lookup).
+        info.wholeText()?.let { return NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
+        epochId ?: return null
         val sha = store.bodyRef(epochId, entry.id, part)?.sha256 ?: return null
         val raw = store.openBody(sha)?.use { it.readBytes() } ?: return null
         val decoded = BodyCodec.decode(raw, info.encoding)
