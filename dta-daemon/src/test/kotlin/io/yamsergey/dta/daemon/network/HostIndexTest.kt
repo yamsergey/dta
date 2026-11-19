@@ -127,7 +127,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
             }
             "network_body_range" -> {
                 val part = BodyPart.entries.first { DtaJson.encodeToJsonElement(BodyPart.serializer(), it).let { j -> (j as JsonPrimitive).content } == str("part") }
-                val bytes = bodies[str("id")!! to part]!!
+                val bytes = bodies[str("id")!! to part] ?: throw io.yamsergey.dta.daemon.connection.SidekickRpcException(-32602, "no stored body for ${str("id")} (it may have been evicted or cleared)")
                 val offset = str("offset")!!.toInt()
                 val slice = bytes.copyOfRange(offset, minOf(bytes.size, offset + str("length")!!.toInt()))
                 RpcResult(DtaJson.encodeToJsonElement(BodyRangeResult.serializer(), BodyRangeResult(bytes.size.toLong(), offset.toLong(), slice.size.toLong())), listOf(slice))

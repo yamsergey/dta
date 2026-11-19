@@ -14,6 +14,8 @@ import io.yamsergey.dta.protocol.network.WsMessageEntry
 import io.yamsergey.dta.protocol.network.WsState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
@@ -217,6 +219,44 @@ class HostIndexLiveViewTest {
         host.copyAllPending()
         assertEquals(plain(page).entries, plain(host.list(q)).entries)
         assertEquals(page.hits, host.list(q).hits)
+    }
+
+    /** A channel whose body ranges wait until released, or fail on this computer's side. */
+    private class StuckBodies : FakeJournalApp() {
+        val entered = CountDownLatch(1)
+        var fail: Exception? = null
+        override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
+            if (method == "network_body_range") {
+                fail?.let { throw it }
+                entered.countDown()
+                kotlinx.coroutines.awaitCancellation()
+            }
+            return super.requestFull(method, params, timeout)
+        }
+    }
+
+    @Test
+    fun `a copy that is cancelled or fails on this computer leaves the body to copy later, not lost`() = runBlocking<Unit> {
+        val app = StuckBodies().apply { record(socket) }
+        val host = index(app)
+        val m = message(app, Random(7))
+        host.list(NetworkQuery(limit = 1))
+        // Cancelled (an answer gave way, the daemon stops): the app still has the body.
+        val copy = launch(Dispatchers.IO) { host.copyBody(m.id, BodyPart.MESSAGE) }
+        assertTrue(app.entered.await(10, TimeUnit.SECONDS))
+        copy.cancelAndJoin()
+        assertEquals(listOf(m.id), host.pendingBodies().map { it.entryId }, "still to copy")
+        assertEquals(null, host.list(NetworkQuery(limit = 1)).coverage.bodiesNotArchived, "not said lost")
+        // A failure here (a file of this computer) is not the app losing it either.
+        app.fail = java.io.FileNotFoundException("partial file")
+        host.copyBody(m.id, BodyPart.MESSAGE)
+        assertEquals(listOf(m.id), host.pendingBodies().map { it.entryId })
+        assertEquals(null, host.list(NetworkQuery(limit = 1)).coverage.bodiesNotArchived)
+        // Only the app saying it has no such body makes it lost.
+        app.fail = io.yamsergey.dta.daemon.connection.SidekickRpcException(-32602, "no stored message body for ${m.id}")
+        host.copyBody(m.id, BodyPart.MESSAGE)
+        assertEquals(emptyList(), host.pendingBodies())
+        assertEquals(1, host.list(NetworkQuery(limit = 1)).coverage.bodiesNotArchived)
     }
 
     @Test

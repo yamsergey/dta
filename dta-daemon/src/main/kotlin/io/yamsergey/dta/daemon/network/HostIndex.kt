@@ -3,6 +3,7 @@ package io.yamsergey.dta.daemon.network
 import io.yamsergey.dta.daemon.connection.AppConnection
 import io.yamsergey.dta.daemon.connection.ConnectionLostException
 import io.yamsergey.dta.daemon.connection.RequestTimeoutException
+import io.yamsergey.dta.daemon.connection.SidekickRpcException
 import io.yamsergey.dta.daemon.store.ArchivingStoppedException
 import io.yamsergey.dta.daemon.store.DeviceIdentity
 import io.yamsergey.dta.daemon.store.Epoch
@@ -770,10 +771,17 @@ class HostIndex(
             throw timeout
         } catch (_: ArchivingStoppedException) {
             // Stated in coverage (archivingStopped).
-        } catch (ex: Exception) {
+        } catch (gone: SidekickRpcException) {
+            // Only the app saying it has no such body makes it lost: the archive acknowledgement then lets the device drop it.
             partial.delete()
-            store.markNotArchived(e.id, entryId, part, "the app no longer had it: ${ex.message ?: ex.javaClass.simpleName}")
+            store.markNotArchived(e.id, entryId, part, "the app no longer had it: ${gone.message ?: "no body"}")
             pendingCopies.remove(entryId to part)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            // The answer gave way or the daemon stops: the partial copy resumes later.
+            throw cancelled
+        } catch (_: Exception) {
+            // A failure on this computer (its files): the body stays pending, copied again later.
+            partial.delete()
         }
     }
 
