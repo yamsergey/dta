@@ -53,6 +53,10 @@ data class DeviceHistory(
     val trimHeld: String? = null,
     val lastArchivedMs: Long? = null,
     val overWarning: Boolean = false,
+    /** Feature 068: records of the device's journal this computer still has to read (catching up); null when none. */
+    val catchingUp: Long? = null,
+    /** Feature 068: the app is still reading its earlier runs after it started. */
+    val reading: Boolean = false,
 )
 
 /** This computer's part of an app's history (`network.history`). */

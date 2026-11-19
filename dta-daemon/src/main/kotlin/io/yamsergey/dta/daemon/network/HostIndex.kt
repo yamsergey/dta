@@ -322,6 +322,8 @@ class HostIndex(
                     trimHeld = c.trimHeld,
                     lastArchivedMs = c.lastArchivedMs,
                     overWarning = (c.deviceBytes ?: 0) > c.warnBytes!!,
+                    catchingUp = lag.takeIf { it > 0 },
+                    reading = c.deviceReading == true,
                 )
             }
         } catch (e: kotlinx.coroutines.CancellationException) {

@@ -56,7 +56,12 @@ data class NetworkViewState(
     val loading: Boolean = false,
     val watching: Boolean = false,
     val error: String? = null,
+    /** Feature 068: a wait of the archiving that lasts, for the IDE's background task; null when none. */
+    val wait: BackgroundWait? = null,
 )
+
+/** Feature 068: what the IDE's background task says: [text], [detail] and how far ([fraction], 0 to 1). */
+data class BackgroundWait(val text: String, val detail: String?, val fraction: Double)
 
 /**
  * The Network view's live source (R7, FR-006/007/010): the newest page of `network.list`
@@ -163,6 +168,53 @@ class NetworkController(private val context: ContextController, private val scop
     }
 
     private var savedJob: Job? = null
+    private var waitJob: Job? = null
+    private var waitClient: DaemonClient? = null
+
+    /** Feature 068: how often the archiving's state is asked, and how long a wait lasts before it is shown. */
+    @Volatile internal var waitPollMs = 1_000L
+    @Volatile internal var waitShowAfterMs = 3_000L
+
+    /**
+     * Feature 068 (research R8): the archiving's waits (the app reading its history after it starts,
+     * this computer catching up) are not marks in the tab; one that lasts is the IDE's background
+     * task, with how far it is, and it ends when the wait does.
+     */
+    private fun followWait(client: DaemonClient) {
+        waitJob?.cancel()
+        waitClient = client
+        waitJob = scope.launch {
+            var since: Long? = null
+            var most = 0L
+            while (true) {
+                val s = mutable.value
+                val device = if (s.app != null && s.device != null && s.archive == null) runCatching {
+                    DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistorySummary.serializer(), client.call("network.history", target(s)).result).device
+                }.getOrNull() else null
+                val behind = device?.catchingUp
+                val waiting = device != null && (device.reading || behind != null)
+                if (!waiting) {
+                    since = null
+                    most = 0
+                    if (mutable.value.wait != null) mutable.update { it.copy(wait = null) }
+                } else {
+                    val now = System.currentTimeMillis()
+                    val start = since ?: now.also { since = it }
+                    if (behind != null) most = maxOf(most, behind)
+                    if (now - start >= waitShowAfterMs) {
+                        val app = s.app!!
+                        val wait = if (behind != null) {
+                            BackgroundWait("DTA: catching up $app", "$behind entries to read from the device", if (most > 0) 1.0 - behind.toDouble() / most else 0.0)
+                        } else {
+                            BackgroundWait("DTA: reading the history of $app", "the app reads its earlier runs after it starts", 0.0)
+                        }
+                        if (mutable.value.wait != wait) mutable.update { it.copy(wait = wait) }
+                    }
+                }
+                kotlinx.coroutines.delay(waitPollMs)
+            }
+        }
+    }
     private var savedClient: DaemonClient? = null
 
     private fun applied(page: JsonObject): SavedFiltersApplied? =
@@ -344,6 +396,7 @@ class NetworkController(private val context: ContextController, private val scop
         val client = target.client ?: return
         // A new daemon connection (restarted, replaced) is a new client: the old one answers nothing any more.
         if (!sameApp || savedJob == null || savedClient !== client) followSaved(client)
+        if (!sameApp || waitJob == null || waitClient !== client) followWait(client)
         // The archive answers without the app running; it is a snapshot, not watched.
         if (mutable.value.archive != null && target.device != null && target.app != null) {
             source = scope.launch {

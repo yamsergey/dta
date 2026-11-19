@@ -21,6 +21,9 @@ import javax.swing.JPanel
 
 /** The DTA tool window (contracts/tool-window.md): context line, whole-view banner, one tab per view. */
 class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
+    /** Feature 068: one background task at a time for the archiving's wait. */
+    private val backgroundWait = java.util.concurrent.atomic.AtomicBoolean(false)
+
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val service = DtaProjectService.get(project)
         val controller = service.context
@@ -94,6 +97,31 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
                             openHistory()
                         })
                         .notify(project)
+                }
+            }
+        }
+        // Feature 068: a lasting wait of the archiving is the IDE's background task (as indexing is), not a mark in the tab.
+        service.scope.launch {
+            service.network.state.collect { s ->
+                val wait = s.wait ?: return@collect
+                if (backgroundWait.getAndSet(true)) return@collect
+                withContext(Dispatchers.Main) {
+                    object : com.intellij.openapi.progress.Task.Backgroundable(project, wait.text, false) {
+                        override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
+                            indicator.isIndeterminate = false
+                            try {
+                                while (true) {
+                                    val now = service.network.state.value.wait ?: break
+                                    indicator.text = now.text
+                                    indicator.text2 = now.detail ?: ""
+                                    indicator.fraction = now.fraction
+                                    Thread.sleep(200)
+                                }
+                            } finally {
+                                backgroundWait.set(false)
+                            }
+                        }
+                    }.queue()
                 }
             }
         }

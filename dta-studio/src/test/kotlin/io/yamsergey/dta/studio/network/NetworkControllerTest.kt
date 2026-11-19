@@ -266,4 +266,39 @@ class NetworkControllerTest {
         await { it.app == "com.example.shop" && it.list.rows.size == 3 && it.watching }
         assertTrue(daemon.ops.queries.size > before)
     }
+
+    private fun waiting(catchingUp: Long?, reading: Boolean = false) {
+        daemon.ops.history = daemon.ops.history.copy(device = daemon.ops.history.device!!.copy(catchingUp = catchingUp, reading = reading))
+    }
+
+    @Test
+    fun `a wait that lasts is one background task with the app and how far it is, and it ends when caught up (068)`() = runBlocking<Unit> {
+        network.waitPollMs = 20
+        network.waitShowAfterMs = 150
+        waiting(48_000)
+        session.start()
+        await { it.list.rows.size == 3 }
+        val shown = await { it.wait != null }
+        assertTrue(shown.wait!!.text.startsWith("DTA: catching up "), shown.wait!!.text)
+        assertEquals(0.0, shown.wait!!.fraction, 0.001)
+        waiting(12_000)
+        await { s -> s.wait?.let { kotlin.math.abs(it.fraction - 0.75) < 0.001 } == true }
+        waiting(null, reading = true)
+        await { it.wait?.text?.startsWith("DTA: reading the history of ") == true }
+        waiting(null)
+        await { it.wait == null }
+    }
+
+    @Test
+    fun `a short wait shows nothing (068)`() = runBlocking<Unit> {
+        network.waitPollMs = 20
+        network.waitShowAfterMs = 400
+        waiting(300)
+        session.start()
+        await { it.list.rows.size == 3 }
+        kotlinx.coroutines.delay(150)
+        waiting(null)
+        kotlinx.coroutines.delay(600)
+        assertEquals(null, network.state.value.wait)
+    }
 }
