@@ -143,6 +143,25 @@ class NetworkStoreArchiveTrimTest {
     }
 
     @Test
+    fun `a trim pass lets traffic be written and the journal be read between segments`() {
+        val s = tiny()
+        List(10) { withBody(s) }
+        s.flush()
+        s.setBudgetForTest(1_000)
+        assertTrue(ack(s, through = "8:0").accepted)
+        var between = 0
+        s.betweenSegmentsForTest = {
+            between++
+            // Another thread writes and reads while the pass is still going: no lock is held here.
+            val other = Thread { withBody(s); s.flush(); s.journal(null, 5) }.apply { start(); join(2_000) }
+            assertFalse(other.isAlive, "the writer waited for the trim pass")
+        }
+        s.trimNow()
+        assertTrue(between >= 2, "the pass went over several segments: $between")
+        assertTrue((s.coverage().archivedOnly?.get("h1") ?: 0) >= 2)
+    }
+
+    @Test
     fun `nothing at or after the acknowledged segment is removed`() {
         val s = tiny()
         val ids = List(10) { withBody(s).id }

@@ -370,7 +370,7 @@ class NetworkStore(
         if (diskBytes.get() <= keep) return
         val (throughSegment, throughLine) = runCatching { parseCursor(ack.through) }.getOrNull() ?: return
         val keepIds = ack.keep.toHashSet()
-        synchronized(writeLock) {
+        val candidates = synchronized(writeLock) {
             // The computer has read into the segment being written: the next records go to a new
             // one, so this one can go once it is read to its end (bodies are large, records small:
             // a whole history's records can sit in one segment).
@@ -380,24 +380,35 @@ class NetworkStore(
                 segmentWriter = null
                 segment = null
             }
-            val candidates = segmentIds.keys.filter { it != segment && (segmentIndex(it) ?: Int.MAX_VALUE) <= throughSegment }
+            segmentIds.keys.filter { it != segment && (segmentIndex(it) ?: Int.MAX_VALUE) <= throughSegment }
                 .sortedBy { segmentIndex(it) }
-            if (candidates.isEmpty()) return
-            for (file in candidates) {
-                if (diskBytes.get() <= keep) break
-                val index = segmentIndex(file) ?: continue
+        }
+        if (candidates.isEmpty()) return
+        var trimmed = false
+        // One segment at a time, the writer lock held only to decide and remove: a large history
+        // has many segments and many bodies, and traffic is written and the journal read meanwhile.
+        for (file in candidates) {
+            if (diskBytes.get() <= keep) break
+            val index = segmentIndex(file) ?: continue
+            // A closed segment is never written again: it is read with no lock held.
+            val records = ArrayList<NetworkEntry>()
+            var lines = 0
+            val read = runCatching {
+                file.forEachLine { line ->
+                    lines++
+                    if (line.isBlank()) return@forEachLine
+                    runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()?.let { records += it }
+                }
+            }
+            if (read.isFailure) break
+            // The cursor's own segment only when the computer read all of it.
+            if (index == throughSegment && lines > throughLine) break
+            val bodies = ArrayList<File>()
+            val gone = synchronized(writeLock) {
+                // Cleared meanwhile: nothing of it is left to remove.
+                if (file !in segmentIds) return@synchronized false
                 val latest = LinkedHashMap<String, NetworkEntry>()
-                var lines = 0
-                runCatching {
-                    file.forEachLine { line ->
-                        lines++
-                        if (line.isBlank()) return@forEachLine
-                        runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()
-                            ?.takeUnless { isEvicted(it.id) }?.let { latest[it.id] = it }
-                    }
-                }.onFailure { return }
-                // The cursor's own segment only when the computer read all of it.
-                if (index == throughSegment && lines > throughLine) break
+                records.forEach { if (!isEvicted(it.id)) latest[it.id] = it }
                 val later = segmentIds.entries.filter { (f, _) -> (segmentIndex(f) ?: 0) > index }.map { it.value }
                 var removed = 0
                 for ((id, entry) in latest) {
@@ -408,12 +419,7 @@ class NetworkStore(
                         write(EntryRecord(held ?: entry))
                         continue
                     }
-                    for (part in BodyPart.entries) {
-                        bodyFile(id, part)?.takeIf { it.isFile }?.let { body ->
-                            val size = body.length()
-                            if (body.delete()) diskBytes.addAndGet(-size)
-                        }
-                    }
+                    for (part in BodyPart.entries) bodyFile(id, part)?.let { bodies += it }
                     synchronized(lock) { entries.remove(id)?.let { if (!inFlight(it)) finishedInMemory-- } }
                     removed++
                 }
@@ -429,11 +435,28 @@ class NetworkStore(
                     counts[host] = (counts[host] ?: 0) + removed
                     state = state.copy(archivedOnly = counts)
                 }
+                true
             }
+            if (!gone) break
+            trimmed = true
+            // The bodies of the entries removed: their records are gone, nothing reads them any more.
+            for (body in bodies) {
+                if (!body.isFile) continue
+                val size = body.length()
+                if (body.delete()) diskBytes.addAndGet(-size)
+            }
+            betweenSegmentsForTest?.invoke()
+        }
+        if (!trimmed) return
+        synchronized(writeLock) {
             synchronized(lock) { earliestMs = firstRecordTime() }
             saveState()
         }
     }
+
+    /** Tests: called between two segments of a trim pass, with no lock held. */
+    @Volatile
+    internal var betweenSegmentsForTest: (() -> Unit)? = null
 
     /** The time of the oldest record still in the journal. */
     private fun firstRecordTime(): Long? {
