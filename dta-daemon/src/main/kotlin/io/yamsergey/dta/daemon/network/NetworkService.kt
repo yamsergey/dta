@@ -51,8 +51,8 @@ class NetworkService(
     private val connection: suspend () -> AppConnection,
 ) {
 
-    suspend fun list(query: NetworkQuery = NetworkQuery()): NetworkPage {
-        val page = host?.list(query) ?: HostIndex.appAnswers(connection(), query)
+    suspend fun list(query: NetworkQuery = NetworkQuery(), view: String? = null): NetworkPage {
+        val page = (if (view != null) host?.list(query, view) else host?.list(query)) ?: HostIndex.appAnswers(connection(), query)
         if (!query.redact) return page
         val (entries, info) = redactAll(page.entries)
         return page.copy(entries = entries, redaction = info, degraded = withheldMarker(page.degraded, info))
@@ -63,8 +63,8 @@ class NetworkService(
         host?.passing(query) ?: error("this app's network history is not kept on this computer, so Network's filters cannot be applied to its timeline")
 
     /** Feature 040: entries with search hits; the host copy searches (the app alone cannot). */
-    suspend fun search(query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage =
-        host?.search(query) ?: io.yamsergey.dta.protocol.network.SearchPage(
+    suspend fun search(query: NetworkQuery, view: String? = null): io.yamsergey.dta.protocol.network.SearchPage =
+        (if (view != null) host?.search(query, view) else host?.search(query)) ?: io.yamsergey.dta.protocol.network.SearchPage(
             emptyList(), 0, searched = 0,
             degraded = listOf(DegradationMarker("network", DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)),
         ).also { query.resolved() }

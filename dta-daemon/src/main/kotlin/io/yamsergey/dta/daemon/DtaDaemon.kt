@@ -304,6 +304,35 @@ class DtaDaemon(
         return { texts[it.id] }
     }
 
+    /**
+     * Feature 067: [network] for a live [view]: its answers reuse what its earlier queries matched.
+     * The saved filters' count of what they hid is a view of its own (`#unsaved`).
+     */
+    suspend fun network(serial: String, pkg: String, query: NetworkQuery, view: String?): NetworkPage {
+        if (view == null) return network(serial, pkg, query)
+        val service = networkService(serial, pkg)
+        var calls = 0
+        val page = savedFilters.applied(pkg, query, { service.list(it, if (calls++ == 0) view else "$view#unsaved") }, { it.total }, { p, saved -> p.copy(saved = saved) })
+        return formats.annotate(pkg, page, fullTexts(service, pkg, page.entries.filterIsInstance<io.yamsergey.dta.protocol.network.WsMessageEntry>(), query.redact))
+    }
+
+    suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery, view: String?): io.yamsergey.dta.protocol.network.SearchPage {
+        if (view == null) return networkSearch(serial, pkg, query)
+        val service = networkService(serial, pkg)
+        var calls = 0
+        return savedFilters.applied(pkg, query, { service.search(it, if (calls++ == 0) view else "$view#unsaved") }, { it.total }, { p, saved -> p.copy(saved = saved) })
+    }
+
+    /** Feature 067: a live view's decision for one entry of a subscription (see [io.yamsergey.dta.daemon.network.HostIndex.decide]). */
+    fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, socketUrl: (String) -> String? = { null }) =
+        hostIndex(serial, pkg).decide(view, query, entry, socketUrl)
+
+    fun networkCopied(serial: String, pkg: String): Flow<String> = hostIndex(serial, pkg).copied
+
+    suspend fun networkLiveEntry(serial: String, pkg: String, id: String) = hostIndex(serial, pkg).liveEntry(id)
+
+    fun networkViewsClosed(prefix: String) = hostIndexes.values.forEach { it.views.dropAll(prefix) }
+
     /** Feature 040: entries holding every search word of the query line, with where. */
     suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage {
         val service = networkService(serial, pkg)

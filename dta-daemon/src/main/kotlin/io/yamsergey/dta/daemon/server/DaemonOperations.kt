@@ -41,6 +41,20 @@ interface DaemonOperations {
     suspend fun layout(serial: String, pkg: String?, filters: LayoutFilter?, detail: DetailLevel, frameworkFrames: Boolean, screen: io.yamsergey.dta.daemon.layout.ScreenRequest?): LayoutCapture
     suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage
     suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage
+    /** Feature 067: [network] for a live [view] (null: none), whose next queries read only what can match. */
+    suspend fun network(serial: String, pkg: String, query: NetworkQuery, view: String?): NetworkPage = network(serial, pkg, query)
+    suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery, view: String?): io.yamsergey.dta.protocol.network.SearchPage = networkSearch(serial, pkg, query)
+    /**
+     * Feature 067: [query]'s decision for one live entry, kept in [view]'s match set; with whether the
+     * entry was in it before (a `left` when it no longer matches). Null when decisions are not made here.
+     */
+    fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, socketUrl: (String) -> String?): Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean>? = null
+    /** Feature 067: entries whose bodies were just copied to this computer (decided by their preview before). */
+    fun networkCopied(serial: String, pkg: String): Flow<String> = kotlinx.coroutines.flow.emptyFlow()
+    /** Feature 067: the live entry [id] as this computer holds it now, for a decision again. */
+    suspend fun networkLiveEntry(serial: String, pkg: String, id: String): io.yamsergey.dta.protocol.network.NetworkEntry? = null
+    /** Feature 067: a client went away: its views' match sets are dropped. */
+    fun networkViewsClosed(prefix: String) {}
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail
     suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult
     suspend fun networkClear(serial: String, pkg: String): ClearResult
@@ -154,6 +168,13 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
         daemon.layout(serial, pkg, filters, detail, frameworkFrames, screen)
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) = daemon.network(serial, pkg, query)
     override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) = daemon.networkSearch(serial, pkg, query)
+    override suspend fun network(serial: String, pkg: String, query: NetworkQuery, view: String?) = daemon.network(serial, pkg, query, view)
+    override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery, view: String?) = daemon.networkSearch(serial, pkg, query, view)
+    override fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, socketUrl: (String) -> String?) =
+        daemon.networkDecide(serial, pkg, view, query, entry, socketUrl)
+    override fun networkCopied(serial: String, pkg: String) = daemon.networkCopied(serial, pkg)
+    override suspend fun networkLiveEntry(serial: String, pkg: String, id: String) = daemon.networkLiveEntry(serial, pkg, id)
+    override fun networkViewsClosed(prefix: String) = daemon.networkViewsClosed(prefix)
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = daemon.networkEntry(serial, pkg, id, redact)
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
         daemon.networkBody(serial, pkg, id, part, output, redact, allowUnredacted)

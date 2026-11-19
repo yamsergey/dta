@@ -170,6 +170,13 @@ object Catalog {
         "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched, fuzzily " +
         "(case and separators ignored, one typo allowed in words of 5+ letters, numbers exact), in URLs, headers, bodies and message payloads."
 
+    /** Feature 067: a live view's name; its answers reuse what its earlier queries matched (the same, a recent or a wider query). */
+    private val VIEW = ParamSpec(
+        "view", ParamType.STRING,
+        "A live view's name, chosen by the client (one per list it keeps up to date): the next query of the same view reads only what can match, when it is the same, a recent or a narrower one.",
+        cliHidden = true,
+    )
+
     private val NETWORK_FILTERS = listOf(
         ParamSpec("url", ParamType.STRING, "Case-insensitive URL substring; WebSocket messages match by their connection's URL."),
         ParamSpec("method", ParamType.STRING, "HTTP method, case-insensitive."),
@@ -285,6 +292,7 @@ object Catalog {
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
                 ParamSpec("allRows", ParamType.BOOLEAN, "With search words: list every entry the filters keep, hits marked, instead of only the matches.", cliName = "all-rows"),
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result says what they hid.", cliName = "no-saved-filters"),
+                VIEW,
             ),
         ),
         OperationSpec(
@@ -299,6 +307,7 @@ object Catalog {
                 ParamSpec("redact", ParamType.BOOLEAN, "Search URLs, headers and bodies as redacted: masked secrets are not found."),
                 ParamSpec("archive", ParamType.STRING, "Search the archived history: all, version:<name>, <fromMs>..<toMs>, or an epoch id."),
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result says what they hid.", cliName = "no-saved-filters"),
+                VIEW,
             ),
         ),
         OperationSpec(
@@ -356,7 +365,7 @@ object Catalog {
         OperationSpec(
             "network.watch", "Follow new network entries as they happen, until interrupted. With history=current, the running process's entries come first.", Scope.APP,
             NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")) +
-                ParamSpec("q", ParamType.STRING, "Query line; its filters apply (search words hide nothing). See network list.", cliShort = "-q", cliName = "query") +
+                ParamSpec("q", ParamType.STRING, "Query line, as in network list: its filters apply, and search words list only the entries holding them (each with its hits).", cliShort = "-q", cliName = "query") +
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result says what they hid.", cliName = "no-saved-filters"),
             streaming = true, cliOnly = true,
         ),

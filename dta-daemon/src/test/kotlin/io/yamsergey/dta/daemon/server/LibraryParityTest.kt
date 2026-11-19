@@ -21,7 +21,8 @@ class LibraryParityTest {
         val library = DtaDaemon::class.java.methods
             .filter { it.declaringClass == DtaDaemon::class.java && Modifier.isPublic(it.modifiers) && !it.name.contains('$') }
             .map { it.name }.toSet() - notOperations
-        val served = DaemonOperations::class.java.methods.map { it.name }.toSet()
+        // Default methods of the interface (feature 067) compile to helpers named with a `$`: not operations.
+        val served = DaemonOperations::class.java.methods.map { it.name }.filter { !it.contains('$') }.toSet()
         assertEquals(emptySet(), library - served, "library operations the daemon does not serve")
         assertEquals(emptySet(), served - library, "daemon operations the library does not have")
     }
