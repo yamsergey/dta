@@ -104,7 +104,8 @@ class Runner(
             apps -> client.appEvents(params)
             timeline -> client.timelineEvents(params)
             layout -> client.layoutChanges(params)
-            else -> client.networkEvents(params)
+            // Feature 067: a live view: search words list only the entries holding them, as in network list.
+            else -> client.networkEvents(JsonObject(params + ("view" to kotlinx.serialization.json.JsonPrimitive("watch"))))
         }
         return try {
             events.collect { data ->
@@ -134,6 +135,9 @@ class Runner(
                     timeline && data["saved"] != null -> formatters.timelineSavedLine(data).takeIf { it.isNotEmpty() }?.let(err::println)
                     timeline -> formatters.timelineEventLine(data).takeIf { it.isNotEmpty() }?.let(out::println)
                     layout -> out.println(formatters.layoutChangeLine(data))
+                    // Feature 067: an entry that stopped matching (a request finished another way): said, not listed.
+                    (data["decision"] as? kotlinx.serialization.json.JsonObject)?.get("left") != null ->
+                        err.println("  ${(((data["event"] as? kotlinx.serialization.json.JsonObject)?.get("entry") as? kotlinx.serialization.json.JsonObject)?.get("id") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "an entry"} no longer matches")
                     else -> out.println(formatters.watchLine(data))
                 }
                 out.flush()
