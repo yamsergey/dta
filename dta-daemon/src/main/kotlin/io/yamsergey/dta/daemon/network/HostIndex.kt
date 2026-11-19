@@ -60,6 +60,12 @@ class HostIndex(
     /** Journal records per request, and requests per answer before the rest is left to the next one. */
     var pageSize = 500
     var catchUpBudgetPages = 40
+    /**
+     * How long an answer copies the bodies it reads before it is given: the rest is read by its
+     * preview and counted (coverage.bodiesPending), and the copy worker goes on. A large backlog
+     * would otherwise hold the first search for minutes.
+     */
+    var searchCopyMs = SEARCH_COPY_MS
 
     private val mutex = Mutex()
     @Volatile private var epoch: Epoch? = null
@@ -85,6 +91,8 @@ class HostIndex(
     val copied = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1024, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
 
     private val pendingCopies = java.util.concurrent.ConcurrentHashMap<Pair<String, BodyPart>, PendingBody>()
+    /** Bodies being copied now: an answer and the copy worker never append to one partial file at once. */
+    private val copying = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<String, BodyPart>>()
 
     /** Feature 067: each live entry's change number (new or updated record), and the last one given. */
     private val changeSeq = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -699,9 +707,17 @@ class HostIndex(
         else -> false
     }
 
-    /** Bodies a body search needs, copied to the host first (the copy worker does this for every body). */
+    /**
+     * Bodies a body search needs, copied to the host first, newest first (the first page), for at
+     * most [searchCopyMs]; one the copy worker is copying is left to it. The copy worker copies
+     * every body in time.
+     */
     private suspend fun copyAll(bodies: List<PendingBody>) {
-        bodies.forEach { copyBody(it.entryId, it.part) }
+        val deadline = clock() + searchCopyMs
+        for (body in bodies.asReversed()) {
+            if (clock() >= deadline) break
+            copyBody(body.entryId, body.part)
+        }
     }
 
     /**
@@ -712,6 +728,16 @@ class HostIndex(
      */
     suspend fun copyBody(entryId: String, part: BodyPart, paced: suspend (bytes: Long, ms: Long) -> Unit = { _, _ -> }) {
         val e = epoch ?: return
+        val key = entryId to part
+        if (!pendingCopies.containsKey(key) || !copying.add(key)) return
+        try {
+            copyOne(e, entryId, part, paced)
+        } finally {
+            copying.remove(key)
+        }
+    }
+
+    private suspend fun copyOne(e: Epoch, entryId: String, part: BodyPart, paced: suspend (bytes: Long, ms: Long) -> Unit) {
         val app = connection()
         val partial = store.partialFile(e.id, entryId, part)
         val partName = DtaJson.encodeToJsonElement(BodyPart.serializer(), part).jsonPrimitive.content
@@ -766,6 +792,8 @@ class HostIndex(
         const val ACK_EVERY_MS = 10_000L
         /** How long a clear waits for the copy of what this computer does not have yet. */
         const val CLEAR_COPY_MS = 20_000L
+        /** Feature 067: an answer's own body copying; measured, a backlog of 100k bodies took 871 s. */
+        const val SEARCH_COPY_MS = 2_000L
         const val MAX_KEEP = 2_000
 
         /**

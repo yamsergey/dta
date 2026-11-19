@@ -171,6 +171,38 @@ class HostIndexLiveViewTest {
         assertEquals(true, had, "it was in the view's matches: it has left")
     }
 
+    /** A channel where every body range takes [ms]: a large backlog of bodies takes long to copy. */
+    private class SlowBodies(private val ms: Long) : FakeJournalApp() {
+        override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
+            if (method == "network_body_range") kotlinx.coroutines.delay(ms)
+            return super.requestFull(method, params, timeout)
+        }
+    }
+
+    @Test
+    fun `a search copies bodies for a bounded time, newest first, and says how many it read only in part`() = runBlocking<Unit> {
+        val app = SlowBodies(ms = 40).apply { record(socket) }
+        val host = index(app)
+        host.searchCopyMs = 300
+        val r = Random(5)
+        val sent = List(80) { message(app, r) }
+        host.list(NetworkQuery(limit = 1)) // catches up; no search words, so nothing is copied
+        assertEquals(80, host.pendingBodies().size)
+        val started = System.currentTimeMillis()
+        val page = host.list(NetworkQuery(q = "tick", limit = 30), "v")
+        assertTrue(System.currentTimeMillis() - started < 2_000, "the answer did not wait for every body")
+        val left = host.pendingBodies().map { it.entryId }.toSet()
+        assertTrue(left.size in 1 until 80, "some copied, the rest left to the copy worker: ${left.size}")
+        assertEquals(left.size, page.coverage.bodiesPending, "the answer says how many bodies it read only in part")
+        val copied = sent.map { it.id }.filter { it !in left }
+        assertEquals(sent.takeLast(copied.size).map { it.id }, copied, "the newest first: the first page is the newest")
+        // Once the rest is copied, the answer is the whole one.
+        host.searchCopyMs = 60_000
+        val whole = host.list(NetworkQuery(q = "tick", limit = 30), "v")
+        assertEquals(null, whole.coverage.bodiesPending)
+        assertEquals(plain(host.list(NetworkQuery(q = "tick", limit = 30))), plain(whole))
+    }
+
     @Test
     fun `match sets are bounded per view and in all`() {
         val views = LiveViews(perView = 2, total = 3)
