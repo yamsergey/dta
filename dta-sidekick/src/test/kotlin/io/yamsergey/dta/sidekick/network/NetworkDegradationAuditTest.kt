@@ -98,7 +98,7 @@ class NetworkDegradationAuditTest {
     }
 
     @Test
-    fun `history-evicted comes from eviction`() = withStore(bounds = StoreBounds(historyBytes = 6_000, segmentBytes = 500)) { store, recorder ->
+    fun `history-evicted comes from eviction`() = withStore(bounds = StoreBounds(historyBytes = 16_000, segmentBytes = 500)) { store, recorder -> // each 1000-byte body takes a 4 KB block
         repeat(6) { completeGet(recorder, bodyBytes = 1_000); store.flush() }
         store.evictIfNeeded()
         val oldest = NetworkMethods(store) { available }.list(Json.parseToJsonElement("""{"order":"oldest-first","limit":1}""").jsonObject)

@@ -244,7 +244,7 @@ class NetworkMethodsTest {
 
     @Test
     fun `a page reaching the evicted boundary says history was evicted`() {
-        val small = NetworkStore(StorageDir(File(dir, "small")), pid = 8, clock = { now++ }, bounds = StoreBounds(historyBytes = 8_000, segmentBytes = 500))
+        val small = NetworkStore(StorageDir(File(dir, "small")), pid = 8, clock = { now++ }, bounds = StoreBounds(historyBytes = 20_000, segmentBytes = 500)) // each 800-byte body takes a 4 KB block
         try {
             val rec = NetworkRecorder(small, clock = { now }) { _, _ -> }
             val ids = (1..6).map { i ->

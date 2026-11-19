@@ -128,7 +128,7 @@ class NetworkStoreArchiveTrimTest {
         val s = tiny()
         val ids = List(10) { withBody(s).id }
         s.flush()
-        s.setBudgetForTest(s.diskBytes() - 5_000)
+        s.setBudgetForTest(s.diskBytes() - 20_000) // a 1000-byte body takes a 4 KB block
         assertTrue(ack(s, through = "8:0").accepted)
         s.trimNow()
         assertTrue(s.diskBytes() <= s.settings().keepBytes, "fits: ${s.diskBytes()} > ${s.settings().keepBytes}")
@@ -335,5 +335,34 @@ class NetworkStoreArchiveTrimTest {
         NetworkStore(StorageDir(File(dir, "other")), pid = 11, clock = { now++ }, warn = { quiet += it }).also { opened += it; it.awaitLoaded() }
         Thread.sleep(100)
         assertTrue(quiet.isEmpty())
+    }
+
+    // ---- found under load (2026-11-19) -----------------------------------------------------
+
+    @Test
+    fun `a small body counts as the disk block it takes, not its bytes`() {
+        val s = store()
+        val before = s.diskBytes()
+        repeat(10) { withBody(s, bytes = 46) }
+        s.flush()
+        val bodies = s.diskBytes() - before - File(dir, "segments").listFiles()!!.sumOf { it.length() }
+        assertEquals(10L * NetworkStore.BODY_BLOCK, bodies, "ten 46-byte messages take ten blocks of the device's disk")
+        s.close(); opened.clear()
+        assertEquals(s.diskBytes(), store().diskBytes(), "counted the same when read again at start")
+    }
+
+    @Test
+    fun `bodies whose entries are no longer in the journal are removed at start`() {
+        val s = store(pid = 1)
+        val kept = withBody(s)
+        s.flush()
+        s.close(); opened.clear()
+        // A trim pass ended by the process being killed: the segment went, its bodies stayed.
+        val bodies = File(dir, "bodies")
+        val orphan = File(bodies, "r5-7_12.response").apply { writeBytes(ByteArray(3000)) }
+        val again = store(pid = 2)
+        assertFalse(orphan.exists(), "an earlier run's body with no entry is removed")
+        assertNotNull(again.bodySize(kept.id, BodyPart.RESPONSE), "a body of an entry in the journal stays")
+        assertEquals(File(dir, "segments").listFiles()!!.sumOf { it.length() } + 4096L, again.diskBytes())
     }
 }

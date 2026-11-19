@@ -442,7 +442,7 @@ class NetworkStore(
             // The bodies of the entries removed: their records are gone, nothing reads them any more.
             for (body in bodies) {
                 if (!body.isFile) continue
-                val size = body.length()
+                val size = onDisk(body.length())
                 if (body.delete()) diskBytes.addAndGet(-size)
             }
             betweenSegmentsForTest?.invoke()
@@ -557,7 +557,7 @@ class NetworkStore(
                 }
                 override fun close() {
                     out.close()
-                    diskBytes.addAndGet(written)
+                    diskBytes.addAndGet(onDisk(written))
                 }
             }
         } catch (_: Throwable) {
@@ -686,7 +686,7 @@ class NetworkStore(
                 }
                 for (part in BodyPart.entries) {
                     bodyFile(oldest.id, part)?.takeIf { it.isFile }?.let { file ->
-                        val size = file.length()
+                        val size = onDisk(file.length())
                         if (file.delete()) diskBytes.addAndGet(-size)
                     }
                 }
@@ -817,7 +817,14 @@ class NetworkStore(
                 segmentIds[file]?.compact()
                 segmentNewest[file] = newest ?: continue
             }
-            dir.bodies.listFiles()?.forEach { diskBytes.addAndGet(it.length()) }
+            // A body whose entry is not in the journal of an earlier run is removed (a trim pass
+            // ended by the process being killed between a segment and its bodies); this run's
+            // bodies may be written before their records, so they are kept.
+            dir.bodies.listFiles()?.forEach { body ->
+                val (run, n) = bodyId(body.name)?.let(::idParts) ?: (null to 0L)
+                if (run != null && run != runId && seen[run]?.get(n.toInt()) != true) body.delete()
+                else diskBytes.addAndGet(onDisk(body.length()))
+            }
             // The process that owned them is gone (FR-027): the journal says so for the host too.
             pending.values.forEach { enqueue(EntryRecord(endedByProcessDeath(it))) }
         } catch (_: Throwable) {
@@ -976,9 +983,21 @@ class NetworkStore(
 
     private fun stateFile(): File? = storage?.let { File(it.root, "state.json") }
 
+    /** The entry id of a body file's name (`run_seq.part`, see [bodyFile]). */
+    private fun bodyId(name: String): String? {
+        val base = name.substringBefore('.')
+        val at = base.lastIndexOf('_').takeIf { it > 0 } ?: return null
+        return base.substring(0, at) + ":" + base.substring(at + 1)
+    }
+
+    /** What a body file takes on the device's disk: whole blocks (a 46-byte message takes one). */
+    private fun onDisk(bytes: Long): Long = if (bytes <= 0) 0 else (bytes + BODY_BLOCK - 1) / BODY_BLOCK * BODY_BLOCK
+
     private fun segmentIndex(file: File): Int? = SEGMENT.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull()
 
-    private companion object {
+    internal companion object {
+        /** The disk block a body file takes at least (ext4 and f2fs on Android: 4 KB). */
+        const val BODY_BLOCK = 4096L
         val RUN_ID = Regex("""r(\d+)-(\d+)""")
         val SEGMENT = Regex("""seg-(\d+)\.jsonl""")
         /** How long a query waits for the earlier runs to be read before answering with what is counted. */
