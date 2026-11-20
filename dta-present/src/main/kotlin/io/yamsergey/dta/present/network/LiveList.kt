@@ -53,7 +53,8 @@ data class LiveList(
     val newCount: Int = 0,
     val selectedId: String? = null,
     val selectedGone: Boolean = false,
-    val total: Int = 0,
+    /** Feature 069: how many entries the history holds (no count of matches is kept). */
+    val history: Int = 0,
     /** Cursor of the next older page; null when everything matching is loaded. */
     val older: String? = null,
     private val pending: List<LiveEvent> = emptyList(),
@@ -71,7 +72,7 @@ data class LiveList(
             val loaded = entries(event.page).sortedWith(ORDER)
             val missing = selectedId != null && loaded.none { it.id == selectedId }
             copy(
-                rows = loaded, index = indexOf(loaded), total = total(event.page, loaded.size), older = cursor(event.page),
+                rows = loaded, index = indexOf(loaded), history = history(event.page, loaded.size), older = cursor(event.page),
                 newCount = 0, pending = emptyList(),
                 selectedId = if (missing && event.quiet) null else selectedId,
                 selectedGone = missing && !event.quiet,
@@ -84,7 +85,7 @@ data class LiveList(
             val known = index.keys
             val merged = (kept + fresh.filter { it.id !in known }).sortedWith(ORDER)
             val added = merged.size - rows.size
-            copy(rows = merged, index = indexOf(merged), total = maxOf(total(event.page, merged.size), merged.size), newCount = if (following) 0 else newCount + added)
+            copy(rows = merged, index = indexOf(merged), history = history(event.page, merged.size), newCount = if (following) 0 else newCount + added)
         }
         is LiveEvent.Older -> {
             val known = index.keys
@@ -104,7 +105,7 @@ data class LiveList(
         if (event is LiveEvent.Left) {
             val at = index[event.id] ?: return this
             val kept = rows.toMutableList().also { it.removeAt(at) }
-            return copy(rows = kept, index = indexOf(kept), total = (total - 1).coerceAtLeast(kept.size), selectedGone = selectedGone || event.id == selectedId)
+            return copy(rows = kept, index = indexOf(kept), selectedGone = selectedGone || event.id == selectedId)
         }
         val entry = when (event) {
             is LiveEvent.Arrived -> event.entry
@@ -123,7 +124,7 @@ data class LiveList(
         } else {
             (rows + row).sortedWith(ORDER).let { it to indexOf(it) }
         }
-        return copy(rows = added.first, index = added.second, total = total + 1, newCount = if (following) 0 else newCount + 1)
+        return copy(rows = added.first, index = added.second, history = history + 1, newCount = if (following) 0 else newCount + 1)
     }
 
     private companion object {
@@ -133,7 +134,7 @@ data class LiveList(
 
         fun indexOf(rows: List<Row>): Map<String, Int> = HashMap<String, Int>(rows.size * 2).apply { rows.forEachIndexed { i, r -> put(r.id, i) } }
 
-        fun total(page: JsonObject, fallback: Int) = (page["total"] as? JsonPrimitive)?.intOrNull ?: fallback
+        fun history(page: JsonObject, fallback: Int) = ((page["coverage"] as? JsonObject)?.get("searched") as? JsonPrimitive)?.intOrNull ?: fallback
 
         fun cursor(page: JsonObject) = (page["next"] as? JsonPrimitive)?.takeIf { it.isString }?.content
     }

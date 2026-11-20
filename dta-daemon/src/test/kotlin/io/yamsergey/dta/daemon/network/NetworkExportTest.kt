@@ -53,7 +53,7 @@ class NetworkExportTest {
             // Two pages of at most 2 entries, oldest first.
             val start = q.before?.toInt() ?: 0
             val slice = listed.drop(start).take(2)
-            NetworkPage(slice, total = listed.size, next = (start + 2).takeIf { it < listed.size }?.toString(), coverage = Coverage(searched = 5, stored = 5, persisted = true))
+            NetworkPage(slice, next = (start + 2).takeIf { it < listed.size }?.toString(), coverage = Coverage(searched = 5, stored = 5, persisted = true))
         },
         entry = { id ->
             when (id) {

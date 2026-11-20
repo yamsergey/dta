@@ -8,8 +8,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * Feature 067: one entry is decided exactly as a full pass decides it (live events), a pass over a
- * superset of the matches answers as the full pass does (narrowed passes), and a pass can be stopped.
+ * Feature 067: one entry is decided exactly as a full pass decides it (live events), paging by `next`
+ * lists what one large page lists (feature 069), and a pass can be stopped.
  */
 class EntryDecisionTest {
     private fun body(part: BodyPart, stored: Long = 10, preview: String? = null) =
@@ -72,33 +72,27 @@ class EntryDecisionTest {
     }
 
     @Test
-    fun `a pass over any superset of the matches answers as the full pass`() {
+    fun `following next pages lists what one large page lists`() {
         repeat(40) { seed ->
             val (entries, bodies) = history(seed)
             val v = view(entries, bodies)
-            val r = Random(seed)
             for (q in queries) {
-                val query = NetworkQuery(q = q, limit = 30)
-                val full = v.list(query)
-                val matched = v.list(query.copy(limit = 1000)).entries.map { it.id }.toSet()
-                val superset = matched + entries.filter { r.nextBoolean() }.map { it.id }
-                val narrowed = v.list(query, candidates = { it.id in superset })
-                assertEquals(full.entries, narrowed.entries, "seed $seed, '$q'")
-                assertEquals(full.total to full.next, narrowed.total to narrowed.next, "seed $seed, '$q'")
-                assertEquals(full.hits, narrowed.hits, "seed $seed, '$q'")
+                val all = v.list(NetworkQuery(q = q, limit = 1000))
+                val paged = ArrayList<NetworkEntry>()
+                val hits = HashMap<String, List<SearchHit>>()
+                var before: String? = null
+                do {
+                    val page = v.list(NetworkQuery(q = q, limit = 7, before = before))
+                    paged += page.entries
+                    page.hits?.let { hits.putAll(it) }
+                    if (page.next != null) assertEquals(page.entries.last().id, page.next, "seed $seed, '$q'")
+                    before = page.next
+                } while (before != null)
+                assertEquals(all.entries, paged, "seed $seed, '$q'")
+                assertEquals(all.hits.orEmpty(), hits, "seed $seed, '$q'")
+                assertEquals(null, all.next, "seed $seed, '$q'")
             }
         }
-    }
-
-    @Test
-    fun `onMatch sees every match once, with its hit count`() {
-        val (entries, bodies) = history(7)
-        val v = view(entries, bodies)
-        val seen = LinkedHashMap<String, Int>()
-        val all = v.list(NetworkQuery(q = "tick", limit = 1000), onMatch = { e, hits -> seen[e.id] = hits })
-        assertEquals(all.entries.map { it.id }.toSet(), seen.keys)
-        assertEquals(all.total, seen.size)
-        all.hits!!.forEach { (id, h) -> assertEquals(h.size, seen[id]) }
     }
 
     @Test
@@ -111,18 +105,23 @@ class EntryDecisionTest {
     }
 
     @Test
-    fun `a search over a superset of the matches gives the same page and counts`() {
+    fun `following next search pages finds what one large search page finds`() {
         repeat(20) { seed ->
             val (entries, bodies) = history(seed)
             val v = view(entries, bodies)
             for (q in listOf("tick", "FAST price", "status:5xx boom", "-host:telemetry.example.test tick")) {
-                val query = NetworkQuery(q = q, limit = 20)
-                val full = v.search(query)
-                val matched = v.list(query.copy(limit = 1000)).entries.map { it.id }.toSet()
-                val narrowed = v.search(query, candidates = { it.id in matched })
-                // The counts of bodies read by preview come from the entries read; narrowing keeps them
-                // exact by adding those entries to the candidates (feature 067, research R3).
-                assertEquals(full.copy(notSearched = null), narrowed.copy(notSearched = null), "seed $seed, '$q'")
+                val all = v.search(NetworkQuery(q = q, limit = 1000))
+                val paged = ArrayList<EntryHits>()
+                var before: String? = null
+                do {
+                    val page = v.search(NetworkQuery(q = q, limit = 5, before = before))
+                    paged += page.entries
+                    before = page.next
+                } while (before != null)
+                assertEquals(all.entries, paged, "seed $seed, '$q'")
+                // The search pages hold the entries the list keeps that have hits, in list order.
+                val listed = v.list(NetworkQuery(q = q, limit = 1000))
+                assertEquals(listed.entries.filter { !listed.hits?.get(it.id).isNullOrEmpty() }.map { it.id }, all.entries.map { it.id }, "seed $seed, '$q'")
             }
         }
     }

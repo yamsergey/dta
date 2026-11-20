@@ -57,13 +57,6 @@ class NetworkFiltersTest {
     }
 
     @Test
-    fun `the caption says how much is shown and that filters combine with AND`() {
-        assertEquals("120 of 340 shown", NetworkFilters().caption(shown = 120, total = 340))
-        assertEquals("12 of 40 shown · 2 filters, combined with AND", NetworkFilters().with("url", JsonPrimitive("a")).with("method", JsonPrimitive("GET")).caption(12, 40))
-        assertEquals("1 of 1 shown · 1 filter", NetworkFilters().with("url", JsonPrimitive("a")).caption(1, 1))
-    }
-
-    @Test
     fun `the kind switch is the kinds filter - HTTP, WebSocket (connections and messages) or all`() {
         val ws = NetworkFilters().withKind(KindChoice.WEBSOCKET)
         assertEquals(JsonArray(listOf(JsonPrimitive("ws-connection"), JsonPrimitive("ws-message"))), ws.params()["kinds"])

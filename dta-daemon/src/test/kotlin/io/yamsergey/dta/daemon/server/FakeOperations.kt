@@ -89,14 +89,14 @@ class FakeOperations : DaemonOperations {
     var duringHistory: suspend () -> Unit = {}
     var searchQuery: NetworkQuery? = null
     override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) =
-        io.yamsergey.dta.protocol.network.SearchPage(emptyList(), 0, searched = 0).also { searchQuery = query }
+        io.yamsergey.dta.protocol.network.SearchPage(emptyList()).also { searchQuery = query }
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage {
         lastQuery = query
         if (query.filter?.runs == io.yamsergey.dta.protocol.network.RunScope.CURRENT) {
             duringHistory()
-            return NetworkPage(history, total = history.size, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = history.size, stored = history.size, persisted = true))
+            return NetworkPage(history, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = history.size, stored = history.size, persisted = true))
         }
-        return NetworkPage(emptyList(), total = 0, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = 0, stored = 0, persisted = true))
+        return NetworkPage(emptyList(), coverage = io.yamsergey.dta.protocol.network.Coverage(searched = 0, stored = 0, persisted = true))
     }
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail {
         entryFailure?.let { throw it }

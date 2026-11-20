@@ -16,7 +16,7 @@ class NetworkRowsTest {
            "url":"wss://chat.example.com/chat","direction":"out","opcode":"binary","payload":{"part":"message","storedBytes":16,"completeness":"complete","binary":true}},
           {"type":"ws-message","id":"r1-1:8","runId":"r1-1","timeMs":1700000005100,"library":"okhttp3","connectionId":"r1-1:6",
            "url":"wss://chat.example.com/chat","direction":"in","opcode":"text","payload":{"part":"message","storedBytes":5,"completeness":"complete","preview":"hello"}}
-        ], "total": 3}
+        ]}
     """)
 
     private val out = Formatters(Style.PLAIN).format("network.list", list).lines()

@@ -27,22 +27,22 @@ class LiveListTest {
     }
 
     /** A network.list page: newest first, as the daemon returns it. */
-    private fun page(vararg seqs: Int, total: Int = seqs.size, next: String? = null) = buildJsonObject {
+    /** Feature 069: no count of matches; [history] is how many entries the history holds. */
+    private fun page(vararg seqs: Int, history: Int = seqs.size, next: String? = null) = buildJsonObject {
         put("entries", buildJsonArray { seqs.sortedDescending().forEach { add(entry(it)) } })
-        put("total", total)
         next?.let { put("next", it) }
-        put("coverage", buildJsonObject { put("searched", total); put("stored", total); put("persisted", true) })
+        put("coverage", buildJsonObject { put("searched", history); put("stored", history); put("persisted", true) })
     }
 
     private fun ids(list: LiveList) = list.rows.map { it.id }
 
-    private val loaded = LiveList().reduce(Loaded(page(1, 2, 3, total = 10, next = "c1")))
+    private val loaded = LiveList().reduce(Loaded(page(1, 2, 3, history = 10, next = "c1")))
 
     @Test
-    fun `a page loads oldest to newest and following, with the total and the older cursor`() {
+    fun `a page loads oldest to newest and following, with the history's size and the older cursor`() {
         assertEquals(listOf("r1-1:1", "r1-1:2", "r1-1:3"), ids(loaded))
         assertTrue(loaded.following)
-        assertEquals(3 to 10, loaded.shown to loaded.total)
+        assertEquals(3 to 10, loaded.shown to loaded.history)
         assertEquals("c1", loaded.older)
     }
 
@@ -106,7 +106,7 @@ class LiveListTest {
 
     @Test
     fun `older pages prepend, and page or event overlap never duplicates`() {
-        val older = loaded.reduce(Older(page(0, 1, total = 10)))
+        val older = loaded.reduce(Older(page(0, 1, history = 10)))
         assertEquals(listOf("r1-1:0", "r1-1:1", "r1-1:2", "r1-1:3"), ids(older))
         assertEquals(null, older.older)
         val dup = older.reduce(Arrived(entry(3)))
@@ -125,7 +125,6 @@ class LiveListTest {
     fun `one arrival on 5,000 rows takes under 5 ms`() {
         val big = LiveList().reduce(Loaded(buildJsonObject {
             put("entries", buildJsonArray { (5000 downTo 1).forEach { add(entry(it)) } })
-            put("total", 5000)
             put("coverage", buildJsonObject { put("searched", 5000); put("stored", 5000); put("persisted", true) })
         }))
         var list = big
@@ -155,4 +154,12 @@ class LiveListTest {
         assertEquals("r1-1:2" to true, gone.selectedId to gone.selectedGone)
     }
 
+
+    @Test
+    fun `the history's size grows with every arrival, and a row that leaves the list stays in the history`() {
+        val arrived = loaded.reduce(Arrived(entry(4)))
+        assertEquals(11, arrived.history)
+        assertEquals(11, arrived.reduce(LiveEvent.Left("r1-1:4")).history)
+        assertEquals(40, arrived.reduce(LiveEvent.Merged(page(4, 5, history = 40))).history, "a new page says it again")
+    }
 }

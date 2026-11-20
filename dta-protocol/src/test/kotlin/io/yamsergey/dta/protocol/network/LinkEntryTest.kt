@@ -32,7 +32,7 @@ class LinkEntryTest {
     fun `network views leave links out unless kinds asks for them`() {
         val v = view(listOf(http, link))
         assertEquals(listOf("r1-1:1"), v.list(NetworkQuery()).entries.map { it.id })
-        assertEquals(1, v.list(NetworkQuery()).total)
+        assertEquals(null, v.list(NetworkQuery()).next)
         assertEquals(listOf("r1-1:3"), v.list(NetworkQuery(filter = NetworkFilter(kinds = listOf(EntryKind.LINK)))).entries.map { it.id })
     }
 

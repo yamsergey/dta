@@ -14,7 +14,7 @@ class LinksViewTest {
 
     @Test
     fun `rows and detail`() {
-        val page = Json.parseToJsonElement("""{"entries":[$link],"total":1,"coverage":{"searched":1,"stored":1,"persisted":true}}""").jsonObject
+        val page = Json.parseToJsonElement("""{"entries":[$link],"coverage":{"searched":1,"stored":1,"persisted":true}}""").jsonObject
         val row = LinksView.rows(page, ZoneOffset.UTC).single()
         assertEquals(LinkRow("r1-1:3", "01:00:00", "fixture://item/42", "new intent", "DeepLinkActivity"), row)
         val detail = LinksView.detail(Json.parseToJsonElement(link).jsonObject)

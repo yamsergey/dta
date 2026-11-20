@@ -56,14 +56,10 @@ class StoreEntrySource internal constructor(
                     }
                     val args = buildList<Any?> { add(epochs[i]); cursor?.let { add(it) }; pre?.let { addAll(it.args) } }
                     val rows = query(
-                        "SELECT seq, json, entry_id, change_seq FROM entry WHERE ${conditions.joinToString(" AND ")} ORDER BY seq ${if (newestFirst) "DESC" else "ASC"} LIMIT $PAGE",
+                        "SELECT seq, json FROM entry WHERE ${conditions.joinToString(" AND ")} ORDER BY seq ${if (newestFirst) "DESC" else "ASC"} LIMIT $PAGE",
                         args,
-                    ) { Row(it.getLong(1), it.getString(2), it.getString(3), it.getLong(4)) }
-                    for (row in rows) {
-                        lastId = row.id
-                        lastChange = row.change
-                        yield(decode(row.json))
-                    }
+                    ) { Row(it.getLong(1), it.getString(2)) }
+                    for (row in rows) yield(decode(row.json))
                     if (rows.size < PAGE) break
                     cursor = rows.last().seq
                 }
@@ -71,18 +67,7 @@ class StoreEntrySource internal constructor(
         }
     }
 
-    private class Row(val seq: Long, val json: String, val id: String, val change: Long)
-
-    private var lastId: String? = null
-    private var lastChange = 0L
-
-    /** Feature 069: the change number of an entry (067 live views); the one just walked costs no read. */
-    fun changeOf(id: String): Long? = if (id == lastId) lastChange else epochs.asReversed().firstNotNullOfOrNull { e ->
-        query("SELECT change_seq FROM entry WHERE epoch_id=? AND entry_id=?", listOf(e, id)) { it.getLong(1) }.firstOrNull()
-    }
-
-    /** Feature 069: the last change number given when this read began. */
-    fun changeNow(): Long = query("SELECT n FROM change_counter", emptyList()) { it.getLong(1) }.firstOrNull() ?: 0
+    private class Row(val seq: Long, val json: String)
 
     override fun count(links: Boolean): Int = epochs.sumOf { e ->
         query("SELECT entries, links FROM epoch WHERE id=?", listOf(e)) { if (links) it.getInt(1) else it.getInt(1) - it.getInt(2) }.firstOrNull() ?: 0

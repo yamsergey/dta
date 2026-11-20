@@ -550,9 +550,7 @@ enum class MatchLocation {
 data class NetworkPage(
     val entries: List<NetworkEntry>,
     val matches: Map<String, List<MatchLocation>>? = null,
-    /** Matching entries before the limit. */
-    val total: Int,
-    /** Cursor for the next page when [total] exceeds what was returned. */
+    /** Cursor for the next page when more entries match after this one (feature 069: matches are not counted). */
     val next: String? = null,
     val coverage: Coverage,
     val redaction: RedactionInfo? = null,
@@ -563,10 +561,8 @@ data class NetworkPage(
     val fields: Map<String, List<String>>? = null,
     /** Feature 040: the page's rows that hold every search word of the query line, and where. */
     val hits: Map<String, List<SearchHit>>? = null,
-    /** Feature 043: the saved filters behind this page and what they hid. */
+    /** Feature 043: the saved filters behind this page. */
     val saved: SavedFiltersApplied? = null,
-    /** Feature 069: absent when every number is exact; else how far counting got within the answer's time. */
-    val counts: Counts? = null
 )
 
 /** One entry's search hits (feature 040). */
@@ -577,26 +573,14 @@ data class EntryHits(val id: String, val timeMs: Long, val hits: List<SearchHit>
 @Serializable
 data class SearchPage(
     val entries: List<EntryHits>,
-    /** Entries with hits in all (not only this page). */
-    val total: Int,
+    /** Cursor for the next page when more entries have hits (feature 069: they are not counted). */
     val next: String? = null,
-    /** Entries the filters left to search. */
-    val searched: Int,
+    /** What this page's search could not read, for the entries it read. */
     val notSearched: List<String>? = null,
     val degraded: List<DegradationMarker>? = null,
-    /** Feature 043: the saved filters behind this page and what they hid. */
+    /** Feature 043: the saved filters behind this page. */
     val saved: SavedFiltersApplied? = null,
-    /** Feature 069: absent when [total], [searched] and [notSearched] are exact. */
-    val counts: Counts? = null
 )
-
-/**
- * Feature 069: counts an answer gave before its time to count ran out. Its numbers are "at least":
- * they cover the [countedEntries] entries walked, the last being [countedThrough] (newest first by
- * default). A live view finishes counting and tells the exact numbers later.
- */
-@Serializable
-data class Counts(val complete: Boolean, val countedThrough: String? = null, val countedEntries: Int)
 
 /** Result of `network_entry`. */
 @Serializable

@@ -50,7 +50,7 @@ class ArchiveScaleBench {
             val (_, termMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, q = "item-12")) } }
             val (_, historyMs) = ms { runBlocking { host.history() } }
             val after = heapMb()
-            println("BENCH n=$n fill=${fillMs}ms start+first=${startMs}ms (total ${first.total}) again=${againMs}ms 4xx=${filterMs}ms (${filtered.total}) host+POST=${hostMs}ms term=${termMs}ms history=${historyMs}ms heap=${after - before}MB")
+            println("BENCH n=$n fill=${fillMs}ms start+first=${startMs}ms (${first.entries.size} of ${first.coverage.searched}) again=${againMs}ms 4xx=${filterMs}ms (${filtered.entries.size}) host+POST=${hostMs}ms term=${termMs}ms history=${historyMs}ms heap=${after - before}MB")
             store.close()
         }
     }

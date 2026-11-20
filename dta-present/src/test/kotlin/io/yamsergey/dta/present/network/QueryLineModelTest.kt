@@ -185,6 +185,8 @@ class QueryLineModelTest {
         assertEquals("d", n.current!!.id)
         assertEquals("No matches", HitNavigator().next().label)
         assertEquals("c", HitNavigator(entries("a", "b", "c")).previous().current!!.id)
+        // Feature 069: hits are those of the rows loaded; more may follow.
+        assertEquals("2 / 3 loaded", HitNavigator(entries("a", "b", "c"), more = true).next().next().label)
     }
 
     @Test

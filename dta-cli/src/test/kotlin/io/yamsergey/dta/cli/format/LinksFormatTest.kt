@@ -15,9 +15,9 @@ class LinksFormatTest {
 
     @Test
     fun `a list row names the URI, how it arrived and where`() {
-        val text = f.format("links.list", Json.parseToJsonElement("""{"entries":[$link],"total":1,"coverage":{"searched":1,"stored":1,"persisted":true}}"""))
+        val text = f.format("links.list", Json.parseToJsonElement("""{"entries":[$link],"coverage":{"searched":1,"stored":1,"persisted":true}}"""))
         assertTrue("r1-1:3" in text && "fixture://item/42?ref=mail" in text && "cold-start" in text && "DeepLinkActivity" in text, text)
-        assertEquals("No links have reached the app.", f.format("links.list", Json.parseToJsonElement("""{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true}}""")).lines().first())
+        assertEquals("No links have reached the app.", f.format("links.list", Json.parseToJsonElement("""{"entries":[],"coverage":{"searched":0,"stored":0,"persisted":true}}""")).lines().first())
     }
 
     @Test

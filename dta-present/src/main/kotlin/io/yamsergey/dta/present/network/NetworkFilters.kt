@@ -63,15 +63,6 @@ data class NetworkFilters(
         before?.let { put("before", JsonPrimitive(it)) }
     })
 
-    fun caption(shown: Int, total: Int): String {
-        val base = "$shown of $total shown"
-        return when (chosen.size) {
-            0 -> base
-            1 -> "$base · 1 filter"
-            else -> "$base · ${chosen.size} filters, combined with AND"
-        }
-    }
-
     private fun label(name: String, value: JsonElement): String {
         val text = (value as? JsonPrimitive)?.content ?: (value as? JsonArray)?.joinToString(", ") { (it as JsonPrimitive).content } ?: value.toString()
         val time = { (value as? JsonPrimitive)?.longOrNull?.let { TIME.withZone(zone).format(Instant.ofEpochMilli(it)) } ?: text }

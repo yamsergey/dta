@@ -29,9 +29,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Feature 067: a live view's answers equal the plain answers whatever it reuses (the same query, a
- * recent one, a narrower one), while traffic arrives and bodies are copied; opening an entry never
- * waits for a pass; a newer query of a view abandons the running pass; live decisions equal the list.
+ * Feature 067, as of 069: a live view's answers equal the plain answers while traffic arrives and
+ * bodies are copied; a view remembers what it was shown so an entry that stops matching has left;
+ * opening an entry never waits for a pass; a newer query of a view abandons the running pass; live
+ * decisions equal the list.
  */
 class HostIndexLiveViewTest {
     @TempDir
@@ -75,9 +76,8 @@ class HostIndexLiveViewTest {
                 host.pendingBodies().filter { r.nextInt(3) == 0 }.forEach { host.copyBody(it.entryId, it.part) }
                 val query = NetworkQuery(q = q, limit = 30)
                 val viewed = host.list(query, "v")
-                val kind = host.lastPass
                 val reference = host.list(query)
-                assertEquals(plain(reference), plain(viewed), "seed $seed, '$q' ($kind)")
+                assertEquals(plain(reference), plain(viewed), "seed $seed, '$q'")
                 val searched = host.search(query.copy(limit = 50), "v")
                 assertEquals(host.search(query.copy(limit = 50)), searched, "search, seed $seed, '$q'")
             }
@@ -85,23 +85,37 @@ class HostIndexLiveViewTest {
     }
 
     @Test
-    fun `the same query, a recent one and a narrower one are not full passes`() = runBlocking<Unit> {
-        val app = FakeJournalApp().apply { record(socket) }
-        val host = index(app)
-        val r = Random(1)
-        repeat(50) { message(app, r) }
-        host.list(NetworkQuery(q = "ti"), "v")
-        assertEquals(LiveViews.Kind.FULL, host.lastPass)
-        host.list(NetworkQuery(q = "tick"), "v")
-        assertEquals(LiveViews.Kind.NARROWED, host.lastPass)
-        host.list(NetworkQuery(q = "tick"), "v")
-        assertEquals(LiveViews.Kind.SAME, host.lastPass)
-        host.list(NetworkQuery(q = "ti"), "v")
-        assertEquals(LiveViews.Kind.RECENT, host.lastPass, "Backspace: the set of 'ti' is reused")
-        host.list(NetworkQuery(q = "price"), "v")
-        assertEquals(LiveViews.Kind.FULL, host.lastPass)
-        host.list(NetworkQuery(q = "tick", redact = true), "v")
-        assertEquals(LiveViews.Kind.FULL, host.lastPass, "redaction is never reused")
+    fun `a view remembers what it was shown, so a shown entry that stops matching has left, one never shown has not`() {
+        val views = LiveViews()
+        val q = NetworkQuery(q = "tick")
+        views.shown("v", q, listOf("1", "2"))
+        assertEquals(true, views.decided("v", "1", false), "shown, no longer matching: it left")
+        assertEquals(false, views.decided("v", "1", false), "it left once")
+        assertEquals(false, views.decided("v", "9", false), "never shown: nothing left")
+        assertEquals(false, views.decided("other", "2", false), "a view that was shown nothing")
+        // Paging and order do not change the query: a next page adds to what was shown.
+        views.shown("v", q.copy(limit = 7, before = "2", order = io.yamsergey.dta.protocol.network.Order.OLDEST_FIRST), listOf("3"))
+        assertEquals(true, views.decided("v", "2", false))
+        assertEquals(true, views.decided("v", "3", false))
+    }
+
+    @Test
+    fun `a new query of the same view starts over`() {
+        val views = LiveViews()
+        views.shown("v", NetworkQuery(q = "tick"), listOf("1", "2"))
+        views.shown("v", NetworkQuery(q = "tock"), listOf("3"))
+        assertEquals(false, views.decided("v", "1", false), "shown for the old query only")
+        assertEquals(true, views.decided("v", "3", false))
+        assertEquals(1, views.size())
+    }
+
+    @Test
+    fun `a live match is remembered, so it can leave later`() {
+        val views = LiveViews()
+        views.shown("v", NetworkQuery(q = "tick"), emptyList())
+        assertEquals(false, views.decided("v", "5", true), "new: it was not shown before")
+        assertEquals(true, views.decided("v", "5", true), "shown now")
+        assertEquals(true, views.decided("v", "5", false), "and it leaves")
     }
 
     @Test
@@ -277,11 +291,18 @@ class HostIndexLiveViewTest {
     }
 
     @Test
-    fun `match sets are bounded per view and in all`() {
-        val views = LiveViews(perView = 2, total = 3)
-        val state = HostIndex.LiveState("e1", 0, 0, { null }, emptySet())
-        for (v in listOf("a", "b")) for (q in listOf("x", "y", "z")) views.record(v, NetworkQuery(q = q), state, setOf("1"))
-        assertTrue(views.size() <= 3)
+    fun `what a view was shown is bounded, the oldest forgotten first, and views are dropped`() {
+        val views = LiveViews(keepUpTo = 2)
+        views.shown("a", NetworkQuery(q = "x"), listOf("1", "2", "3"))
+        assertEquals(false, views.decided("a", "1", false), "the oldest is forgotten")
+        assertEquals(true, views.decided("a", "3", false))
+        views.shown("c1/a", NetworkQuery(q = "x"), listOf("1"))
+        views.shown("c1/b", NetworkQuery(q = "x"), listOf("1"))
+        assertEquals(3, views.size())
+        views.dropAll("c1/")
+        assertEquals(1, views.size())
+        views.drop("a")
+        assertEquals(0, views.size())
     }
 
     private suspend fun HostIndex.copyAllPending() = pendingBodies().forEach { copyBody(it.entryId, it.part) }

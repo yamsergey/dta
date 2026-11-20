@@ -7,12 +7,12 @@ import kotlin.test.assertEquals
 
 class SavedFiltersFormatTest {
     private fun format(op: String, json: String) = Formatters(Style.PLAIN).format(op, Json.parseToJsonElement(json))
-    private val base = """"entries":[],"total":0,"coverage":{"complete":true}"""
+    private val base = """"entries":[],"coverage":{"searched":0,"stored":0,"persisted":true}"""
 
     @Test
-    fun `a list says what saved filters hid`() {
-        val text = format("network.list", """{$base,"saved":{"words":["-host:t.example.test","status:2xx"],"hidden":26}}""")
-        assertContains(text, "hidden by saved filters: 26 (-host:t.example.test, status:2xx)")
+    fun `a list says which saved filters applied, not how many they hid (069)`() {
+        val text = format("network.list", """{$base,"saved":{"words":["-host:t.example.test","status:2xx"]}}""")
+        assertContains(text, "saved filters: -host:t.example.test, status:2xx")
     }
 
     @Test

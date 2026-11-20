@@ -345,7 +345,8 @@ class Formatters(private val style: Style) {
             hitLines(o.obj("hits")?.get(e.obj.str("id") ?: "")).forEach { appendLine(it) }
         }
         if (entries.isEmpty()) appendLine("No entries.")
-        append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
+        // Feature 069: rows shown and the history's size; matches are not counted.
+        append(style.paint("${entries.size} shown · ${o.obj("coverage")?.long("searched") ?: entries.size} in the history", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         savedLine(o)?.let { append("\n" + style.paint(it, Token.INK_MUTED)) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
@@ -357,7 +358,6 @@ class Formatters(private val style: Style) {
         val words = saved.arr("words").joinToString(", ") { it.jsonContent }
         return when {
             saved.bool("ignored") -> "saved filters ignored: $words"
-            saved.long("hidden") != null -> "hidden by saved filters: ${saved.long("hidden")} ($words)"
             else -> "saved filters: $words"
         }
     }
@@ -401,7 +401,7 @@ class Formatters(private val style: Style) {
             hitLines(e.obj["hits"]).forEach { appendLine(it) }
         }
         if (entries.isEmpty()) appendLine("Not found.")
-        append(style.paint("${entries.size} of ${o.long("total")} entries with hits, ${o.long("searched")} searched", Token.INK_MUTED))
+        append(style.paint("${entries.size} with hits shown", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         savedLine(o)?.let { append("\n" + style.paint(it, Token.INK_MUTED)) }
         o.arr("notSearched").forEach { append("\n" + style.mark(io.yamsergey.dta.present.StatementKind.DEGRADED, "not searched: ${it.jsonContent}")) }
@@ -420,7 +420,7 @@ class Formatters(private val style: Style) {
             appendLine(listOf(style.paint(l.str("id") ?: "", Token.INK_MUTED), l.str("uri") ?: "", style.paint(l.str("delivery") ?: "", Token.ACCENT),
                 (l.str("activity") ?: "").substringAfterLast('.')).joinToString("  ") + mark)
         }
-        append(style.paint("${entries.size} of ${o.long("total")} shown", Token.INK_MUTED))
+        append(style.paint("${entries.size} shown", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
     }
 

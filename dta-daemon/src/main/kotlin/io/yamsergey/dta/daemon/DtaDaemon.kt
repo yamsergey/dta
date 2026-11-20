@@ -294,7 +294,7 @@ class DtaDaemon(
     /** Network history of [pkg]: HTTP and WebSocket entries in one list (feature 004). */
     suspend fun network(serial: String, pkg: String, query: NetworkQuery = NetworkQuery()): NetworkPage {
         val service = networkService(serial, pkg)
-        val page = savedFilters.applied(pkg, query, { service.list(it) }, { it.total }, { p, saved -> p.copy(saved = saved) })
+        val page = savedFilters.applied(pkg, query, { service.list(it) }, { p, saved -> p.copy(saved = saved) })
         return formats.annotate(pkg, page, fullTexts(service, pkg, page.entries.filterIsInstance<io.yamsergey.dta.protocol.network.WsMessageEntry>(), query.redact))
     }
 
@@ -316,22 +316,20 @@ class DtaDaemon(
     }
 
     /**
-     * Feature 067: [network] for a live [view]: its answers reuse what its earlier queries matched.
-     * The saved filters' count of what they hid is a view of its own (`#unsaved`).
+     * Feature 067: [network] for a live [view]: the rows it is shown are remembered, so an entry
+     * that stops matching is told as left.
      */
     suspend fun network(serial: String, pkg: String, query: NetworkQuery, view: String?): NetworkPage {
         if (view == null) return network(serial, pkg, query)
         val service = networkService(serial, pkg)
-        var calls = 0
-        val page = savedFilters.applied(pkg, query, { service.list(it, if (calls++ == 0) view else "$view#unsaved") }, { it.total }, { p, saved -> p.copy(saved = saved) })
+        val page = savedFilters.applied(pkg, query, { service.list(it, view) }, { p, saved -> p.copy(saved = saved) })
         return formats.annotate(pkg, page, fullTexts(service, pkg, page.entries.filterIsInstance<io.yamsergey.dta.protocol.network.WsMessageEntry>(), query.redact))
     }
 
     suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery, view: String?): io.yamsergey.dta.protocol.network.SearchPage {
         if (view == null) return networkSearch(serial, pkg, query)
         val service = networkService(serial, pkg)
-        var calls = 0
-        return savedFilters.applied(pkg, query, { service.search(it, if (calls++ == 0) view else "$view#unsaved") }, { it.total }, { p, saved -> p.copy(saved = saved) })
+        return savedFilters.applied(pkg, query, { service.search(it, view) }, { p, saved -> p.copy(saved = saved) })
     }
 
     /** Feature 067: a live view's decision for one entry of a subscription (see [io.yamsergey.dta.daemon.network.HostIndex.decide]). */
@@ -347,7 +345,7 @@ class DtaDaemon(
     /** Feature 040: entries holding every search word of the query line, with where. */
     suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.SearchPage {
         val service = networkService(serial, pkg)
-        return savedFilters.applied(pkg, query, { service.search(it) }, { it.total }, { p, saved -> p.copy(saved = saved) })
+        return savedFilters.applied(pkg, query, { service.search(it) }, { p, saved -> p.copy(saved = saved) })
     }
 
     /** Feature 043: the app's saved network filters. */

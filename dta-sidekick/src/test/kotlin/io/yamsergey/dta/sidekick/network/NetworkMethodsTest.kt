@@ -57,7 +57,7 @@ class NetworkMethodsTest {
         val entry = page.entries.single() as HttpEntry
         assertEquals(id, entry.id)
         assertNull(entry.requestHeaders)
-        assertEquals(1, page.total)
+        assertNull(page.next, "one entry, one page")
         assertEquals(1, page.coverage.stored)
         assertEquals(1, page.coverage.searched)
         assertNull(page.degraded)
@@ -213,7 +213,7 @@ class NetworkMethodsTest {
 
         val page = methods.list(params("""{"filter":{"bodyContains":"account_id"},"order":"oldest-first"}"""))
         assertEquals(listOf(auth, other, msg), page.entries.map { it.id })
-        assertEquals(3, page.total)
+        assertNull(page.next, "the three matches are the whole answer")
         assertEquals(4, page.coverage.searched)
         assertEquals(listOf(MatchLocation.REQUEST_BODY), page.matches!![auth])
         assertEquals(listOf(MatchLocation.REQUEST_BODY_BINARY), page.matches!![other], "found inside the protobuf body")
@@ -230,7 +230,7 @@ class NetworkMethodsTest {
 
         val none = methods.list(params("""{"filter":{"url":"nothing-here"}}"""))
         assertTrue(none.entries.isEmpty())
-        assertEquals(0, none.total)
+        assertNull(none.next)
         assertEquals(5, none.coverage.searched)
         assertNull(none.matches)
     }

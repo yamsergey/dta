@@ -10,9 +10,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Feature 069 A2: the history is walked from a source, a page from its cursor and the counts over
- * the whole history under a time budget. Without a budget the answer is today's; with one that
- * runs out, the page is the same and the counts say how far they got.
+ * Feature 069 A2: the history is walked from a source, a page from its cursor; the answer is the
+ * one the list gives, page by page, and matches are not counted.
  */
 class EntrySourceTest {
     private fun body(part: BodyPart, preview: String? = null) =
@@ -51,9 +50,9 @@ class EntrySourceTest {
     private fun listView(entries: List<NetworkEntry>, bodies: Map<String, String>) =
         NetworkHistoryView({ entries }, { id -> entries.firstOrNull { it.id == id } }, { context(entries) }, bodyBytes = bytes(bodies))
 
-    /** The same history through a source, with a default count budget. */
-    private fun sourceView(entries: List<NetworkEntry>, bodies: Map<String, String>, budgetMs: Long?) =
-        NetworkHistoryView.over(EntrySourceProvider { ListEntrySource(entries) }, { context(entries) }, bodyBytes = bytes(bodies), countBudgetMs = budgetMs)
+    /** The same history through a source. */
+    private fun sourceView(entries: List<NetworkEntry>, bodies: Map<String, String>) =
+        NetworkHistoryView.over(EntrySourceProvider { ListEntrySource(entries) }, { context(entries) }, bodyBytes = bytes(bodies))
 
     private val queries = listOf(
         "", "tick", "FAST", "tick price", "\"token expired\"", "status:5xx", "status:5xx boom", "-host:telemetry.example.test tick",
@@ -61,18 +60,17 @@ class EntrySourceTest {
     )
 
     @Test
-    fun `without a budget a source answers exactly as the list, page by page`() {
+    fun `a source answers exactly as the list, page by page`() {
         repeat(30) { seed ->
             val (entries, bodies) = history(seed)
             val old = listView(entries, bodies)
-            val new = sourceView(entries, bodies, budgetMs = null)
+            val new = sourceView(entries, bodies)
             for (q in queries) for (kinds in listOf(null, NetworkFilter(kinds = listOf(EntryKind.LINK, EntryKind.HTTP)))) for (order in Order.entries) {
                 var query = NetworkQuery(q = q.ifEmpty { null }, limit = 7, order = order, filter = kinds)
                 repeat(4) {
                     val a = old.list(query)
                     val b = new.list(query)
                     assertEquals(a, b, "seed $seed '$q' $order $kinds")
-                    assertNull(b.counts)
                     query = query.copy(before = a.next ?: return@repeat)
                 }
                 if (q.isNotEmpty()) {
@@ -93,55 +91,19 @@ class EntrySourceTest {
     }
 
     @Test
-    fun `with no time to count, the page is the same and the counts say they are partial`() {
-        repeat(30) { seed ->
-            val (entries, bodies) = history(seed)
-            val exact = listView(entries, bodies)
-            val pageOnly = sourceView(entries, bodies, budgetMs = 0)
-            for (q in queries) {
-                val query = NetworkQuery(q = q.ifEmpty { null }, limit = 7)
-                val a = exact.list(query)
-                val b = pageOnly.list(query)
-                assertEquals(a.entries, b.entries, "seed $seed '$q'")
-                assertEquals(a.matches, b.matches)
-                assertEquals(a.hits, b.hits)
-                assertEquals(a.next, b.next)
-                assertEquals(a.fields, b.fields)
-                assertEquals(a.coverage.searched, b.coverage.searched, "how many were searched is known without counting")
-                if (b.counts == null) assertEquals(a.total, b.total, "exact when it says nothing")
-                else if (a.total > b.entries.size) {
-                    val counts = b.counts!!
-                    assertEquals(false, counts.complete)
-                    assertTrue(b.total in b.entries.size..a.total, "a lower bound: ${b.total} of ${a.total}")
-                }
-            }
-        }
-    }
-
-    @Test
-    fun `a budget asked in the query wins over the default, and a negative one is no limit`() {
-        val (entries, bodies) = history(3, size = 400)
-        val pageOnly = sourceView(entries, bodies, budgetMs = 0)
-        val exact = listView(entries, bodies).list(NetworkQuery(q = "tick", limit = 3))
-        assertEquals(exact, pageOnly.list(NetworkQuery(q = "tick", limit = 3, countBudgetMs = -1)))
-        val partial = sourceView(entries, bodies, budgetMs = null).list(NetworkQuery(q = "tick", limit = 3, countBudgetMs = 0))
-        assertEquals(false, partial.counts?.complete)
-    }
-
-    @Test
     fun `an unknown cursor is refused as before`() {
         val (entries, bodies) = history(1)
-        val v = sourceView(entries, bodies, budgetMs = null)
+        val v = sourceView(entries, bodies)
         assertFailsWith<InvalidParamsException> { v.list(NetworkQuery(before = "r1:nope")) }
         assertFailsWith<InvalidParamsException> { v.search(NetworkQuery(q = "tick", before = "r1:nope")) }
     }
 
     @Test
-    fun `with no filter and no words, the total is known without counting`() {
+    fun `with no filter and no words, how many were searched is the history, exactly`() {
         val (entries, bodies) = history(5, size = 300)
         val exact = listView(entries, bodies).list(NetworkQuery(limit = 10))
-        val pageOnly = sourceView(entries, bodies, budgetMs = 0).list(NetworkQuery(limit = 10))
-        assertEquals(exact, pageOnly)
-        assertNull(pageOnly.counts)
+        val page = sourceView(entries, bodies).list(NetworkQuery(limit = 10))
+        assertEquals(exact, page)
+        assertEquals(entries.count { it !is LinkEntry }, page.coverage.searched, "network views leave links out")
     }
 }

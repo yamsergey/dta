@@ -83,31 +83,6 @@ class HostStoreColumnsTest {
     }
 
     @Test
-    fun `a change number grows with every write of an entry and every body copied or lost`() {
-        val s = store()
-        val epoch = s.openEpoch(device, "io.example", v14, "j1", 1)
-        val random = Random(1)
-        val a = ArchiveFixtures.entry(20, random) as HttpEntry
-        val b = ArchiveFixtures.entry(21, random)
-        fun change(id: String) = sql("SELECT change_seq FROM entry WHERE entry_id=?", id) { it.getLong(1) }.single()
-        s.putEntries(epoch.id, listOf(a, b))
-        val first = change(a.id)
-        assertTrue(change(b.id) > first, "each entry its own number, in write order")
-        s.putEntries(epoch.id, listOf(a.copy(status = 500)))
-        val updated = change(a.id)
-        assertTrue(updated > change(b.id), "an update is a change")
-        s.putBody(epoch.id, a.id, BodyPart.RESPONSE, "x".byteInputStream())
-        val copied = change(a.id)
-        assertTrue(copied > updated, "a body copied is a change")
-        s.markNotArchived(epoch.id, a.id, BodyPart.REQUEST, "lost")
-        assertTrue(change(a.id) > copied, "a body lost is a change")
-        s.close(); stores.clear()
-        val again = store()
-        again.putEntries(epoch.id, listOf(b))
-        assertTrue(change(b.id) > change(a.id), "the numbers go on after a restart")
-    }
-
-    @Test
     fun `an epoch keeps how many of its entries are links`() {
         val s = store()
         val epoch = s.openEpoch(device, "io.example", v14, "j1", 1)

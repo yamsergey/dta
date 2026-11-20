@@ -83,9 +83,10 @@ class ArchiveQueryTest {
         assertEquals("1.4.0", marks.getValue("r1-1:1").version)
 
         val v14 = host.list(NetworkQuery(archive = ArchiveScope(version = "1.4.0")))
-        assertEquals(3, v14.total)
+        assertEquals(3, v14.entries.size)
+        assertEquals(null, v14.next)
         val epoch = store.epochs("dev1", "io.example", ArchiveScope(all = true)).first().id
-        assertEquals(2, host.list(NetworkQuery(archive = ArchiveScope(epoch = epoch))).total)
+        assertEquals(2, host.list(NetworkQuery(archive = ArchiveScope(epoch = epoch))).entries.size)
     }
 
     @Test
@@ -115,9 +116,9 @@ class ArchiveQueryTest {
         assertEquals(1, preview.bodiesFreed)
         assertEquals(2, store.epochs("dev1", "io.example", ArchiveScope(all = true)).size, "a preview deletes nothing")
         store.delete(DeleteTarget.Epoch(first))
-        assertEquals(1, host.list(NetworkQuery(archive = ArchiveScope(all = true))).total)
+        assertEquals(1, host.list(NetworkQuery(archive = ArchiveScope(all = true))).entries.size)
         assertEquals(1, store.delete(DeleteTarget.Package("io.example")).epochs, "an app's archive, on every device, its live epoch kept")
-        assertTrue(host.list(NetworkQuery()).total == 1)
+        assertTrue(host.list(NetworkQuery()).entries.size == 1)
         assertFailsWith<io.yamsergey.dta.daemon.store.LiveEpochException> { store.delete(DeleteTarget.Epoch(store.liveEpoch("dev1", "io.example")!!.id)) }
     }
 }

@@ -139,7 +139,7 @@ class ArchiveFeedTest {
         }
         assertTrue(seen != null && seen in 1..3_000, "how far was said while it ran: $seen")
         assertEquals(null, host.history().device?.catchingUp, "and it ended by itself")
-        assertEquals(6_000, host.list(NetworkQuery(limit = 1)).total)
+        assertEquals(6_000, host.list(NetworkQuery(limit = 1)).coverage.searched, "every entry is in the history")
     }
 
     @Test

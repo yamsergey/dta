@@ -263,9 +263,9 @@ class HostIndexTest {
     fun `new records are caught up before each answer`() = runBlocking<Unit> {
         val app = FakeJournalApp().also(::corpus)
         val host = index(app)
-        val before = host.list(NetworkQuery()).total
+        val before = host.list(NetworkQuery()).entries.size
         http(app, 40)
-        assertEquals(before + 1, host.list(NetworkQuery()).total)
+        assertEquals(before + 1, host.list(NetworkQuery()).entries.size)
         assertEquals(app.deviceAnswer(NetworkQuery()), host.answer(NetworkQuery()))
     }
 
@@ -323,7 +323,8 @@ class HostIndexTest {
         assertTrue(page.degraded!!.any { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SEARCH_UNAVAILABLE })
         assertEquals(null, host.list(NetworkQuery(q = "status:4xx")).degraded?.filter { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_SEARCH_UNAVAILABLE }?.ifEmpty { null })
         val s = host.search(NetworkQuery(q = "cart"))
-        assertEquals(0, s.total)
+        assertTrue(s.entries.isEmpty())
+        assertEquals(null, s.next)
         assertTrue(s.degraded!!.isNotEmpty())
     }
 
@@ -362,7 +363,7 @@ class HostIndexTest {
         val started = System.nanoTime()
         val page = host.list(NetworkQuery(filter = NetworkFilter(status = "4xx", url = "item/9")))
         val ms = (System.nanoTime() - started) / 1_000_000
-        assertTrue(page.total > 0)
+        assertTrue(page.entries.isNotEmpty())
         assertTrue(ms < 200, "took $ms ms")
     }
 }

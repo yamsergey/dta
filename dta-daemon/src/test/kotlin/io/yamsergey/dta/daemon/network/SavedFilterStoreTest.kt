@@ -86,24 +86,28 @@ class SavedFilterStoreTest {
 
     private data class Page(val total: Int, val saved: SavedFiltersApplied? = null, val q: String? = null)
 
+    private val runs = ArrayList<String?>()
+
     private fun run(s: SavedFilterStore, query: NetworkQuery, totals: (String?) -> Int) = runBlocking {
-        s.applied("app", query, run = { q -> Page(totals(q.q), q = q.q) }, total = { it.total }, mark = { p, a -> p.copy(saved = a) })
+        s.applied("app", query, run = { q -> runs += q.q; Page(totals(q.q), q = q.q) }, mark = { p, a -> p.copy(saved = a) })
     }
 
     @Test
-    fun `a call runs with the saved words and reports what they hid`() {
+    fun `a call runs once with the saved words and says which applied, not what they hid`() {
         val s = store()
         s.add("app", "-host:t.example.test")
         val page = run(s, NetworkQuery(q = "ACME")) { q -> if (q == "ACME") 10 else 3 }
         assertEquals("-host:t.example.test ACME", page.q)
-        assertEquals(SavedFiltersApplied(listOf("-host:t.example.test"), hidden = 7), page.saved)
+        assertEquals(SavedFiltersApplied(listOf("-host:t.example.test")), page.saved)
+        assertEquals(listOf<String?>("-host:t.example.test ACME"), runs, "no second run to count what was hidden")
     }
 
     @Test
-    fun `later pages do not count again`() {
+    fun `later pages carry the same words`() {
         val s = store()
         s.add("app", "-host:t.example.test")
         val page = run(s, NetworkQuery(before = "cursor")) { 3 }
+        assertEquals(SavedFiltersApplied(listOf("-host:t.example.test")), page.saved)
         assertNull(page.saved!!.hidden)
     }
 

@@ -65,7 +65,7 @@ class NetworkService(
     /** Feature 040: entries with search hits; the host copy searches (the app alone cannot). */
     suspend fun search(query: NetworkQuery, view: String? = null): io.yamsergey.dta.protocol.network.SearchPage =
         (if (view != null) host?.search(query, view) else host?.search(query)) ?: io.yamsergey.dta.protocol.network.SearchPage(
-            emptyList(), 0, searched = 0,
+            emptyList(),
             degraded = listOf(DegradationMarker("network", DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)),
         ).also { query.resolved() }
 

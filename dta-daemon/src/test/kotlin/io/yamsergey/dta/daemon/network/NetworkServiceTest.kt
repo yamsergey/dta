@@ -109,7 +109,7 @@ class NetworkServiceTest {
     private fun registry() = MethodRegistry().apply {
         register("network_list") { ctx ->
             lastParams = ctx.params
-            DtaJson.encodeToJsonElement(NetworkPage.serializer(), NetworkPage(listOf(entry), total = 1, coverage = coverage))
+            DtaJson.encodeToJsonElement(NetworkPage.serializer(), NetworkPage(listOf(entry), coverage = coverage))
         }
         register("network_entry") { ctx ->
             lastParams = ctx.params

@@ -40,7 +40,7 @@ class ArchiveFormatTest {
     fun `archived entries are marked in the list`() {
         val page = Json.parseToJsonElement(
             """{"entries":[{"kind":"http","id":"r1-1:1","runId":"r1-1","timeMs":0,"library":"okhttp3","method":"GET","url":"https://api/cart","state":"complete","status":200}],
-               "total":1,"coverage":{"searched":1,"stored":1,"persisted":true},
+               "coverage":{"searched":1,"stored":1,"persisted":true},
                "archived":{"r1-1:1":{"epoch":"e1","reason":"cleared","closedMs":5,"version":"1.4.0"}}}""",
         )
         assertTrue("! archived" in f.format("network.list", page) || "archived" in f.format("network.list", page).lines().first(), f.format("network.list", page))

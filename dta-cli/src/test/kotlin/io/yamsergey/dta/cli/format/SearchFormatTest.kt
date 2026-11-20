@@ -16,7 +16,7 @@ class SearchFormatTest {
     @Test
     fun `a list row with hits shows where under it`() {
         val text = format("network.list", """{"entries":[{"type":"http","id":"r1:2","runId":"r1","timeMs":1,"library":"okhttp3","method":"POST","url":"https://api.example.test/login","state":"complete","status":401}],
-            "total":1,"coverage":{"searched":1,"stored":1,"persisted":true},"hits":{"r1:2":[$hit,$header]}}""")
+            "coverage":{"searched":1,"stored":1,"persisted":true},"hits":{"r1:2":[$hit,$header]}}""")
         val lines = text.lines()
         assertTrue(lines[0].contains("api.example.test/login"), text)
         assertEquals("      ▸ response body: {\"error\":\"Token expired\"}", lines[1])
@@ -25,12 +25,13 @@ class SearchFormatTest {
 
     @Test
     fun `search lists entries with their hits and what was not searched`() {
-        val text = format("network.search", """{"entries":[{"id":"r1:2","timeMs":1,"hits":[$hit]}],"total":1,"searched":40,
+        val text = format("network.search", """{"entries":[{"id":"r1:2","timeMs":1,"hits":[$hit]}],
             "notSearched":["bodies stored cut, searched as far as stored (2)"]}""")
         assertTrue(text.lines()[0].startsWith("r1:2  "), text)
         assertTrue("▸ response body: {\"error\":\"Token expired\"}" in text, text)
-        assertTrue("1 of 1 entries with hits, 40 searched" in text, text)
+        assertTrue("1 with hits shown" in text, text)
+        assertTrue("of" !in text.lines().first { "with hits" in it }, "no count of every hit (069): $text")
         assertTrue("not searched: bodies stored cut" in text, text)
-        assertTrue(format("network.search", """{"entries":[],"total":0,"searched":3}""").startsWith("Not found."))
+        assertTrue(format("network.search", """{"entries":[]}""").startsWith("Not found."))
     }
 }

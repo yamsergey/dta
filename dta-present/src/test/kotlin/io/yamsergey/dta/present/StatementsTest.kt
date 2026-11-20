@@ -114,7 +114,7 @@ class StatementsTest {
     @Test
     fun `a list says the app is still reading its earlier history`() {
         val page = kotlinx.serialization.json.Json.parseToJsonElement(
-            """{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true,"deviceReading":true}}""",
+            """{"entries":[],"coverage":{"searched":0,"stored":0,"persisted":true,"deviceReading":true}}""",
         ).jsonObject
         val s = Statements.forNetworkList(page)
         assertEquals(listOf(PENDING), s.kinds())
@@ -124,7 +124,7 @@ class StatementsTest {
     @Test
     fun `a list states what the host has not caught up with, and the archive beside it`() {
         val page = kotlinx.serialization.json.Json.parseToJsonElement(
-            """{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true,
+            """{"entries":[],"coverage":{"searched":0,"stored":0,"persisted":true,
                "hostLagRecords":120,"bodiesPending":3,"bodiesNotArchived":2,"archivedEpochs":4,"archivingStopped":"archiving stopped: disk full"}}""",
         ).jsonObject
         val s = Statements.forNetworkList(page)
@@ -249,7 +249,7 @@ class StatementsTest {
     // ---- 066: the device history ---------------------------------------------------------
 
     private fun coverage(json: String) = Statements.forNetworkList(
-        kotlinx.serialization.json.Json.parseToJsonElement("""{"entries":[],"total":0,"coverage":{"searched":0,"stored":0,"persisted":true,$json}}""").jsonObject,
+        kotlinx.serialization.json.Json.parseToJsonElement("""{"entries":[],"coverage":{"searched":0,"stored":0,"persisted":true,$json}}""").jsonObject,
     )
 
     private val mb = 1024L * 1024

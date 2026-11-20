@@ -275,7 +275,7 @@ class NetworkController(private val context: ContextController, private val scop
                 .onSuccess { page ->
                     mutable.update {
                         it.copy(
-                            hits = it.hits.refreshed(page.entries, order = it.list.rows.map { r -> r.id }.let { ids -> if (it.hitsNewestFirst) ids.asReversed() else ids }),
+                            hits = it.hits.refreshed(page.entries, order = it.list.rows.map { r -> r.id }.let { ids -> if (it.hitsNewestFirst) ids.asReversed() else ids }, more = page.next != null),
                             searching = false, searchStatements = Statements.forSearch(page),
                         )
                     }

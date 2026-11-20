@@ -22,11 +22,11 @@ class SavedChipTest {
     }
 
     @Test
-    fun `the caption says what saved filters hid`() {
-        assertEquals("3 of 3 shown", SavedChip.caption(3, 3, null))
-        assertEquals("3 shown · 26 hidden by 2 saved filters", SavedChip.caption(3, 3, SavedFiltersApplied(listOf("a:1", "b:2"), hidden = 26)))
-        assertEquals("3 of 9 shown · 1 hidden by 1 saved filter", SavedChip.caption(3, 9, SavedFiltersApplied(listOf("a:1"), hidden = 1)))
-        assertEquals("3 of 3 shown", SavedChip.caption(3, 3, SavedFiltersApplied(listOf("a:1"), hidden = 0)))
-        assertEquals("3 of 3 shown", SavedChip.caption(3, 3, SavedFiltersApplied(listOf("a:1"), ignored = true)))
+    fun `the caption says what is shown and the history's size, never a count of matches (069)`() {
+        assertEquals("125 690 entries", SavedChip.caption(100, 125_690, null, filtered = false))
+        assertEquals("12 shown · 125 690 in the history", SavedChip.caption(12, 125_690, null, filtered = true))
+        assertEquals("12 shown · 125 690 in the history · 2 saved filters on", SavedChip.caption(12, 125_690, SavedFiltersApplied(listOf("a:1", "b:2")), filtered = false))
+        assertEquals("12 shown · 9 in the history · 1 saved filter on", SavedChip.caption(12, 9, SavedFiltersApplied(listOf("a:1")), filtered = true))
+        assertEquals("9 entries", SavedChip.caption(9, 9, SavedFiltersApplied(listOf("a:1"), ignored = true), filtered = false))
     }
 }

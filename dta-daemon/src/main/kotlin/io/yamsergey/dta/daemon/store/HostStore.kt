@@ -254,9 +254,6 @@ class HostStore(
         .sortedWith(compareBy({ it.second }, { it.first.second.ordinal })).map { it.first }
 
     @Synchronized
-    fun pendingIds(epochId: String): Set<String> = query("SELECT DISTINCT entry_id FROM pending_body WHERE epoch_id=?", epochId) { it.getString(1) }.toSet()
-
-    @Synchronized
     fun countNotArchived(epochId: String): Int = query("SELECT not_archived FROM epoch WHERE id=?", epochId) { it.getInt(1) }.firstOrNull() ?: 0
 
     @Synchronized
@@ -491,7 +488,7 @@ class HostStore(
             """CREATE TABLE IF NOT EXISTS entry(epoch_id TEXT NOT NULL REFERENCES epoch(id), entry_id TEXT NOT NULL, seq INTEGER NOT NULL,
                time_ms INTEGER NOT NULL, kind TEXT NOT NULL, url TEXT, status INTEGER,
                method TEXT, host TEXT, connection_id TEXT, direction TEXT, library TEXT, run_id TEXT, state TEXT, has_body INTEGER NOT NULL DEFAULT 0,
-               change_seq INTEGER NOT NULL DEFAULT 0, json TEXT NOT NULL, PRIMARY KEY(epoch_id, entry_id))""",
+               json TEXT NOT NULL, PRIMARY KEY(epoch_id, entry_id))""",
             "CREATE INDEX IF NOT EXISTS entry_seq ON entry(epoch_id, seq)",
             "CREATE INDEX IF NOT EXISTS entry_time ON entry(epoch_id, time_ms)",
             // Feature 069: what a query narrows by before each entry is decided, newest first by seq.
@@ -499,30 +496,14 @@ class HostStore(
             "CREATE INDEX IF NOT EXISTS entry_host ON entry(epoch_id, host, seq)",
             "CREATE INDEX IF NOT EXISTS entry_status ON entry(epoch_id, status, seq)",
             "CREATE INDEX IF NOT EXISTS entry_connection ON entry(epoch_id, connection_id, seq)",
-            "CREATE INDEX IF NOT EXISTS entry_change ON entry(epoch_id, change_seq)",
-            "CREATE TABLE IF NOT EXISTS change_counter(n INTEGER NOT NULL)",
             // Feature 069: bodies of finished entries not copied yet (large ones; small ones come with their records).
             "CREATE TABLE IF NOT EXISTS pending_body(epoch_id TEXT NOT NULL, entry_id TEXT NOT NULL, part TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY(epoch_id, entry_id, part))",
-            "INSERT INTO change_counter(n) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM change_counter)",
             "CREATE TABLE IF NOT EXISTS body(sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, ref_count INTEGER NOT NULL)",
             """CREATE TABLE IF NOT EXISTS body_ref(epoch_id TEXT NOT NULL, entry_id TEXT NOT NULL, part TEXT NOT NULL, sha256 TEXT, bytes INTEGER NOT NULL,
                not_archived TEXT, PRIMARY KEY(epoch_id, entry_id, part))""",
             "CREATE TABLE IF NOT EXISTS cursor(device_key TEXT NOT NULL, package TEXT NOT NULL, journal_id TEXT NOT NULL, position TEXT, last_id TEXT, PRIMARY KEY(device_key, package))",
-            """CREATE TRIGGER IF NOT EXISTS entry_added AFTER INSERT ON entry BEGIN
-               UPDATE epoch SET entries=entries+1, links=links+(NEW.kind='link') WHERE id=NEW.epoch_id;
-               UPDATE change_counter SET n=n+1;
-               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE rowid=NEW.rowid; END""",
-            """CREATE TRIGGER IF NOT EXISTS entry_rewritten AFTER UPDATE OF json ON entry BEGIN
-               UPDATE change_counter SET n=n+1;
-               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE rowid=NEW.rowid; END""",
+            "CREATE TRIGGER IF NOT EXISTS entry_added AFTER INSERT ON entry BEGIN UPDATE epoch SET entries=entries+1, links=links+(NEW.kind='link') WHERE id=NEW.epoch_id; END",
             "CREATE TRIGGER IF NOT EXISTS entry_removed AFTER DELETE ON entry BEGIN UPDATE epoch SET entries=entries-1, links=links-(OLD.kind='link') WHERE id=OLD.epoch_id; END",
-            // A body copied or lost changes what its entry answers (067 live views).
-            """CREATE TRIGGER IF NOT EXISTS body_ref_change_added AFTER INSERT ON body_ref BEGIN
-               UPDATE change_counter SET n=n+1;
-               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE epoch_id=NEW.epoch_id AND entry_id=NEW.entry_id; END""",
-            """CREATE TRIGGER IF NOT EXISTS body_ref_change_changed AFTER UPDATE ON body_ref BEGIN
-               UPDATE change_counter SET n=n+1;
-               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE epoch_id=NEW.epoch_id AND entry_id=NEW.entry_id; END""",
             """CREATE TRIGGER IF NOT EXISTS body_ref_added AFTER INSERT ON body_ref BEGIN
                UPDATE epoch SET body_bytes=body_bytes+NEW.bytes, not_archived=not_archived+(NEW.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
             """CREATE TRIGGER IF NOT EXISTS body_ref_changed AFTER UPDATE ON body_ref BEGIN
@@ -535,14 +516,14 @@ class HostStore(
         /**
          * The archive's format. Version 1 (2026-11-20): an archive from before versions were kept
          * is not converted (the user's call: nothing is released). Version 2 (069): columns each
-         * query narrows by, change numbers, link counts; format 1 is not converted either.
+         * query narrows by and link counts; format 1 is not converted either.
          */
         val SCHEMA = StoreSchema(
             version = 2,
             create = CREATE,
             migrations = mapOf(
                 1 to Migration.StartOver("the archive was in a format from before format versions (2026-11-20); it was cleared"),
-                // Feature 069 (the user's call, 2026-11-20): columns queries narrow by and change numbers; not converted.
+                // Feature 069 (the user's call, 2026-11-20): columns queries narrow by; not converted.
                 2 to Migration.StartOver("the archive was in format 1, from before queries read it from disk (2026-11-20); it was cleared"),
             ),
         )

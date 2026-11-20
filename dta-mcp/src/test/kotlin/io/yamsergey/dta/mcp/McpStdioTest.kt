@@ -49,7 +49,7 @@ class McpStdioTest {
     @Test
     fun `lists are cut at item boundaries and say so`() {
         val entries = buildJsonArray { repeat(200) { i -> add(buildJsonObject { put("id", "r1-1:$i"); put("url", "https://api.example.com/" + "x".repeat(100)) }) } }
-        val text = ResultBound(4_000).apply("network.list", Selected(null, buildJsonObject { put("entries", entries); put("total", 200) }))
+        val text = ResultBound(4_000).apply("network.list", Selected(null, buildJsonObject { put("entries", entries) }))
         assertTrue(text.toByteArray().size <= 4_000, "${text.length}")
         val doc = DtaJson.parseToJsonElement(text).jsonObject
         val kept = doc["result"]!!.jsonObject["entries"]!!.jsonArray.size

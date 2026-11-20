@@ -22,12 +22,19 @@ data class SavedChip(val word: String, val key: String, val value: String) {
             }
         }
 
-        /** The line under the list: what is shown and what the saved filters hid. */
-        fun caption(shown: Int, total: Int, saved: SavedFiltersApplied?): String {
-            val hidden = saved?.hidden?.takeIf { it > 0 && !saved.ignored } ?: return "$shown of $total shown"
-            val count = saved.words.size
-            val base = if (shown == total) "$shown shown" else "$shown of $total shown"
-            return "$base · $hidden hidden by $count saved filter" + if (count == 1) "" else "s"
+        /**
+         * The line under the list: without a filter, the history's size; with one, how many rows are
+         * shown and the history's size, and the saved filters that apply. Feature 069: matches are
+         * not counted (it would read the whole history).
+         */
+        fun caption(shown: Int, history: Int, saved: SavedFiltersApplied?, filtered: Boolean): String {
+            val savedOn = saved?.takeIf { !it.ignored && it.words.isNotEmpty() }?.words?.size
+            if (!filtered && savedOn == null) return "${grouped(history)} entries"
+            val base = "${grouped(shown)} shown · ${grouped(history)} in the history"
+            return if (savedOn == null) base else "$base · $savedOn saved filter${if (savedOn == 1) "" else "s"} on"
         }
+
+        /** 125690 as "125 690", as the tab writes counts. */
+        private fun grouped(n: Int): String = n.toString().reversed().chunked(3).joinToString(" ").reversed()
     }
 }

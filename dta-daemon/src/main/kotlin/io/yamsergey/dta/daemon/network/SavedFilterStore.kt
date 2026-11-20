@@ -56,14 +56,13 @@ class SavedFilterStore(
     }
 
     /**
-     * Runs a list or search as the app's saved filters say and marks the result: the words that
-     * applied and, on a first page, how many entries they hid (a second count without them).
+     * Runs a list or search as the app's saved filters say and marks the result with the words
+     * that applied (feature 069: what they hid is not counted; that would read the whole history).
      */
     suspend fun <T> applied(
         pkg: String,
         query: NetworkQuery,
         run: suspend (NetworkQuery) -> T,
-        total: (T) -> Int,
         mark: (T, SavedFiltersApplied) -> T,
     ): T {
         val saved = state(pkg).saved
@@ -71,10 +70,7 @@ class SavedFilterStore(
         if (query.ignoreSavedFilters) return mark(run(query), SavedFiltersApplied(saved, ignored = true))
         val merged = SavedFilters.merge(saved, query.q)
         if (merged.applied.isEmpty()) return run(query)
-        val page = run(query.copy(q = merged.q))
-        val hidden = if (query.before != null) null else
-            runCatching { (total(run(query.copy(limit = 1))) - total(page)).coerceAtLeast(0) }.getOrNull()
-        return mark(page, SavedFiltersApplied(merged.applied, hidden))
+        return mark(run(query.copy(q = merged.q)), SavedFiltersApplied(merged.applied))
     }
 
     /**

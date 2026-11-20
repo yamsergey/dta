@@ -8,6 +8,7 @@ import io.yamsergey.dta.protocol.ops.DeviceInfo
 import io.yamsergey.dta.protocol.ops.Selected
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayOutputStream
@@ -130,7 +131,7 @@ class CliTest {
         assertEquals(0, dta("--json", "network", "list"))
         val selected = DtaJson.decodeFromString(Selected.serializer(), stdout.trim())
         assertEquals("emulator-5554", selected.selection!!.device)
-        assertEquals(3, selected.result.jsonObject["total"]!!.jsonPrimitive.content.toInt())
+        assertEquals(3, selected.result.jsonObject["entries"]!!.jsonArray.size)
         assertEquals("", stderr, "no selection chatter in json mode")
     }
 
@@ -139,7 +140,7 @@ class CliTest {
         assertEquals(0, dta("network", "list"))
         assertTrue("device emulator-5554 (only device) · app com.example.shop (foreground)" in stderr, stderr)
         assertTrue("POST" in stdout && "503" in stdout && "* scripted" in stdout && ".. pending" in stdout, stdout)
-        assertTrue("3 of 3 shown" in stdout, stdout)
+        assertTrue(Regex("3 shown · \\d+ in the history").containsMatchIn(stdout), stdout)
     }
 
     @Test

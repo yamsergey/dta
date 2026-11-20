@@ -34,13 +34,14 @@ class HistoryQueryTest {
     fun `search words leave only the entries that hold them`() {
         val page = view.list(NetworkQuery(q = "-host:telemetry.example.test \"token expired\""))
         assertEquals(listOf("r1:4", "r1:2"), page.entries.map { it.id })
-        assertEquals(2, page.total)
+        assertNull(page.next)
         assertEquals(setOf("r1:4", "r1:2"), page.hits!!.keys)
         assertEquals(SearchPlace.RESPONSE_BODY, page.hits!!.getValue("r1:2").single().place)
         // Paging over the matches only.
         val first = view.list(NetworkQuery(q = "expired", limit = 1))
         assertEquals(listOf("r1:4"), first.entries.map { it.id })
-        assertEquals(3, first.total)
+        assertEquals("r1:4", first.next)
+        assertEquals(3, view.list(NetworkQuery(q = "expired", limit = 1000)).entries.size)
         assertEquals(listOf("r1:3"), view.list(NetworkQuery(q = "expired", limit = 1, before = first.next)).entries.map { it.id })
     }
 
@@ -62,8 +63,8 @@ class HistoryQueryTest {
     fun `search pages through the entries with hits`() {
         val first = view.search(NetworkQuery(q = "expired", limit = 2, order = Order.OLDEST_FIRST))
         assertEquals(listOf("r1:2", "r1:3"), first.entries.map { it.id })
-        assertEquals(3, first.total)
-        assertEquals(5, first.searched)
+        assertEquals("r1:3", first.next)
+        assertEquals(3, view.search(NetworkQuery(q = "expired", limit = 1000)).entries.size)
         val second = view.search(NetworkQuery(q = "expired", limit = 2, order = Order.OLDEST_FIRST, before = first.next))
         assertEquals(listOf("r1:4"), second.entries.map { it.id })
         assertNull(second.next)

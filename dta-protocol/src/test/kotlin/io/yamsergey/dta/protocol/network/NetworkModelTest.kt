@@ -116,7 +116,6 @@ class NetworkModelTest {
         val page = NetworkPage(
             entries = listOf(http.summary(), wsConnection.summary(), wsMessage),
             matches = mapOf("r1-42:1" to listOf(MatchLocation.REQUEST_BODY, MatchLocation.URL)),
-            total = 7,
             next = "r1-42:3",
             coverage = Coverage(
                 searched = 7, stored = 7, earliestMs = 1000, evicted = 3, dropped = 1, persisted = true,

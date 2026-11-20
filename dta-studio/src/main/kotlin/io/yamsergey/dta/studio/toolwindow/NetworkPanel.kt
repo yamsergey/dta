@@ -396,8 +396,10 @@ class NetworkPanel(
         }
         hitLabel.toolTipText = problems.takeIf { it.size > 1 }?.joinToString("<br>", "<html>", "</html>") { it.message }
         // The caption keeps its width while traffic arrives (024); it starts over on new filters or a cleared list.
-        if (s.line != previous.line || s.list.total < previous.list.total) caption.reset()
-        caption.text = io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.total, s.savedApplied)
+        if (s.line != previous.line || s.list.history < previous.list.history) caption.reset()
+        // Feature 069: rows shown and the history's size; matches are not counted.
+        val filtered = s.line.text.isNotBlank() || s.kind != io.yamsergey.dta.present.network.KindChoice.ALL
+        caption.text = io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.history, s.savedApplied, filtered)
         if (s.hits != previous.hits) table.repaint()
         statements.removeAll()
         s.saved.problem?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.text(io.yamsergey.dta.present.StatementKind.DEGRADED) }) }

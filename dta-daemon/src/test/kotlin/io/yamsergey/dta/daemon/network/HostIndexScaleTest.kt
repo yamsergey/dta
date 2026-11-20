@@ -43,16 +43,14 @@ class HostIndexScaleTest {
         val store = HostStore(dir).also { stores += it }
         val before = heapMb()
         val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, ArchiveFixtures.entry(n - 1, Random(0))) }
-        val (first, startMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, countBudgetMs = 0)) } }
+        val (first, startMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100)) } }
         assertEquals(100, first.entries.size)
         assertTrue(startMs < 150, "first page, after a start, in $startMs ms")
-        val (filtered, filterMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, filter = NetworkFilter(status = "4xx"), countBudgetMs = 0)) } }
+        val (filtered, filterMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, filter = NetworkFilter(status = "4xx"))) } }
         assertTrue(filtered.entries.isNotEmpty())
         assertTrue(filterMs < 100, "a page by recorded fields in $filterMs ms")
-        // With its counts: the page, then counting for at most the default budget.
-        val (counted, countedMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100)) } }
-        assertTrue(countedMs < HostIndex.DEFAULT_COUNT_BUDGET_MS + 150, "with counts in $countedMs ms")
-        println("SCALE n=$n first=${startMs}ms filtered=${filterMs}ms counted=${countedMs}ms counts=${counted.counts} total=${counted.total}")
+        assertEquals(n, first.coverage.searched, "how many the history holds is known without counting matches")
+        println("SCALE n=$n first=${startMs}ms filtered=${filterMs}ms history=${first.coverage.searched}")
         repeat(3) { host.list(NetworkQuery(limit = 100, q = "host:api.example.test method:POST")) }
         val held = heapMb() - before
         assertTrue(held < 30, "memory held after answers over $n entries: $held MB")

@@ -138,12 +138,6 @@ data class NetworkQuery(
     val allRows: Boolean = false,
     /** Feature 043: do not apply the app's saved filters to this call (they stay saved). */
     val ignoreSavedFilters: Boolean = false,
-    /**
-     * Feature 069: how long the answer may count its matches after its page, in ms. Null: the
-     * answerer's default (this computer: 300 ms; the app: no limit). Negative: no limit. Zero: the
-     * page only. What is not counted in time is said ([NetworkPage.counts]), never guessed.
-     */
-    val countBudgetMs: Long? = null,
 ) {
     /**
      * The filter of [filter] and the line's filters together (the line's win where both give a

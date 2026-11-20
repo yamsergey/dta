@@ -187,16 +187,19 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
  * Feature 040: stepping through search hits in the order the list shows them. The current hit
  * stays on its entry when the hits are refreshed (new traffic), else moves to the nearest.
  */
-data class HitNavigator(val entries: List<EntryHits> = emptyList(), val index: Int = -1) {
+data class HitNavigator(val entries: List<EntryHits> = emptyList(), val index: Int = -1, val more: Boolean = false) {
+    /** The hits of the rows loaded (feature 069: not a count of every hit). */
     val total: Int get() = entries.size
     val current: EntryHits? get() = entries.getOrNull(index)
 
-    /** "3 / 17", "– / 17" before the first move, "No matches". */
+    /** "3 / 17", "– / 17" before the first move, "No matches"; "… loaded" when more rows have hits. */
     val label: String get() = when {
         entries.isEmpty() -> "No matches"
-        index < 0 -> "– / $total"
-        else -> "${index + 1} / $total"
+        index < 0 -> "– / $total" + loaded
+        else -> "${index + 1} / $total" + loaded
     }
+
+    private val loaded: String get() = if (more) " loaded" else ""
 
     fun next() = if (entries.isEmpty()) this else copy(index = (index + 1).mod(total))
     fun previous() = if (entries.isEmpty()) this else copy(index = if (index < 0) total - 1 else (index - 1).mod(total))
@@ -221,14 +224,14 @@ data class HitNavigator(val entries: List<EntryHits> = emptyList(), val index: I
     }
 
     /** The same position by entry id after a refresh; [order] is the list's ids top to bottom, for the nearest. */
-    fun refreshed(fresh: List<EntryHits>, order: List<String> = emptyList()): HitNavigator {
-        val was = current?.id ?: return HitNavigator(fresh)
-        fresh.indexOfFirst { it.id == was }.takeIf { it >= 0 }?.let { return HitNavigator(fresh, it) }
+    fun refreshed(fresh: List<EntryHits>, order: List<String> = emptyList(), more: Boolean = this.more): HitNavigator {
+        val was = current?.id ?: return HitNavigator(fresh, more = more)
+        fresh.indexOfFirst { it.id == was }.takeIf { it >= 0 }?.let { return HitNavigator(fresh, it, more) }
         val pos = order.indexOf(was)
-        if (pos < 0 || fresh.isEmpty()) return HitNavigator(fresh)
+        if (pos < 0 || fresh.isEmpty()) return HitNavigator(fresh, more = more)
         val rank = order.withIndex().associate { it.value to it.index }
         val nearest = fresh.indices.minByOrNull { i -> rank[fresh[i].id]?.let { kotlin.math.abs(it - pos) } ?: Int.MAX_VALUE }!!
-        return HitNavigator(fresh, nearest)
+        return HitNavigator(fresh, nearest, more)
     }
 
     /** The detail tab the entry's first hit is in. */
