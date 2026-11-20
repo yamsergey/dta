@@ -65,18 +65,6 @@ class HostStoreTest {
     }
 
     @Test
-    fun `a store from before the last record was remembered keeps its positions`() {
-        val s = store()
-        s.setCursor("dev1", "io.example", "j1", "3:40", "r1-1:9")
-        assertEquals(Cursor("j1", "3:40", "r1-1:9"), s.cursor("dev1", "io.example"))
-        s.close(); stores.clear()
-        java.sql.DriverManager.getConnection("jdbc:sqlite:${java.io.File(dir, "dta.db").path}").use { c ->
-            c.createStatement().use { it.execute("ALTER TABLE cursor DROP COLUMN last_id") }
-        }
-        assertEquals(Cursor("j1", "3:40", null), store().cursor("dev1", "io.example"))
-    }
-
-    @Test
     fun `the store survives a restart`() {
         val s = store()
         val epoch = s.openEpoch(device, "io.example", v14, "j1", 1)
@@ -235,26 +223,5 @@ class HostStoreTest {
         s.putBody(a.id, "r1-1:1", BodyPart.RESPONSE, bytes(30))
         s.markNotArchived(a.id, "r1-1:2", BodyPart.RESPONSE, "lost")
         assertEquals(Triple(2, 30L, 1), epochColumns(a.id))
-    }
-
-    @Test
-    fun `a store from before the counts were kept counts them once when opened`() {
-        val s = store()
-        val a = s.openEpoch(device, "io.example", v14, "j1", 1)
-        s.putEntries(a.id, listOf(http("r1-1:1"), http("r1-1:2")))
-        s.putBody(a.id, "r1-1:1", BodyPart.RESPONSE, bytes(30))
-        s.markNotArchived(a.id, "r1-1:2", BodyPart.RESPONSE, "lost")
-        s.close(); stores.clear()
-        java.sql.DriverManager.getConnection("jdbc:sqlite:${File(dir, "dta.db").path}").use { c ->
-            c.createStatement().use { st ->
-                val triggers = st.executeQuery("SELECT name FROM sqlite_master WHERE type='trigger'").use { r -> generateSequence { if (r.next()) r.getString(1) else null }.toList() }
-                triggers.forEach { st.execute("DROP TRIGGER $it") }
-                listOf("entries", "body_bytes", "not_archived").forEach { st.execute("ALTER TABLE epoch DROP COLUMN $it") }
-            }
-        }
-        val again = store()
-        assertEquals(Triple(2 to 30L, 1, 2), counts(again, a.id))
-        again.putEntries(a.id, listOf(http("r1-1:3")))
-        assertEquals(Triple(3 to 30L, 1, 3), counts(again, a.id), "and kept from then on")
     }
 }

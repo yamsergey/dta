@@ -19,6 +19,9 @@ interface BodyStore {
 
     /** Removes the body; returns the bytes freed. */
     fun delete(sha256: String): Long
+
+    /** Removes every body: the archive they belonged to was made anew. */
+    fun clear() {}
 }
 
 class FileBodyStore(private val root: File) : BodyStore {
@@ -49,6 +52,10 @@ class FileBodyStore(private val root: File) : BodyStore {
         val f = file(sha256)
         val size = f.length()
         return if (f.delete()) size else 0
+    }
+
+    override fun clear() {
+        root.deleteRecursively()
     }
 
     private fun file(sha: String) = File(root, "${sha.take(2)}/$sha")

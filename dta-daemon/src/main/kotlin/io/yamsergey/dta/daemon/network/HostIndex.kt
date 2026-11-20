@@ -759,7 +759,7 @@ class HostIndex(
         // Feature 066: entries the device removed after archiving are gone the same way as evicted ones.
         val removed = coverage.evicted + (coverage.archivedOnly?.values?.sum() ?: 0)
         if (lastId == null) {
-            // A position from before the record was remembered: only one beyond the journal shows.
+            // No record was read at this position: only one beyond the journal shows.
             return if (first == null && removed == 0) Continuity.ROLLED_BACK else Continuity.GOES_ON
         }
         if (first == lastId) return Continuity.SAME

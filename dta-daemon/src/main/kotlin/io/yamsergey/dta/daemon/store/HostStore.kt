@@ -41,7 +41,7 @@ data class Epoch(val id: String, val installationId: Long, val journalId: String
 data class Cursor(
     val journalId: String,
     val position: String?,
-    /** The id of the last record read at [position] (feature 046); null on a position stored by an earlier version. */
+    /** The id of the last record read at [position] (feature 046); null while no record was read. */
     val lastId: String? = null,
 )
 
@@ -83,50 +83,23 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
     var archivingStopped: String? = null
         private set
 
+    /** Why the archive was made anew when opened (its format's rule said so), or null. */
+    var startedOver: String? = null
+        private set
+
     init {
         root.mkdirs()
         ownerOnly(root, directory = true)
         val file = File(root, "dta.db")
-        db = DriverManager.getConnection("jdbc:sqlite:${file.path}")
+        db = VersionedDatabase.open(file, SCHEMA) { why ->
+            bodies.clear()
+            File(root, "partial").deleteRecursively()
+            startedOver = why
+        }
         ownerOnly(file, directory = false)
         db.createStatement().use { st ->
             st.execute("PRAGMA journal_mode=WAL")
             st.execute("PRAGMA foreign_keys=ON")
-            SCHEMA.forEach(st::execute)
-            // Feature 046: stores from before it have no last_id on their cursors.
-            val columns = st.executeQuery("PRAGMA table_info(cursor)").use { r -> generateSequence { if (r.next()) r.getString("name") else null }.toList() }
-            if ("last_id" !in columns) st.execute("ALTER TABLE cursor ADD COLUMN last_id TEXT")
-            keepCounts(st)
-        }
-    }
-
-    /**
-     * An epoch's entries, body bytes and bodies not archived are kept in its row by triggers, so no
-     * answer counts them (found 2026-11-20: 19 s for network.history, 11 s for network list on an
-     * archive of 4 million entries, the app's feed waiting meanwhile). A store from before them
-     * counts them once here.
-     */
-    private fun keepCounts(st: java.sql.Statement) {
-        val columns = st.executeQuery("PRAGMA table_info(epoch)").use { r -> generateSequence { if (r.next()) r.getString("name") else null }.toList() }
-        if ("entries" !in columns) {
-            db.autoCommit = false
-            try {
-                COUNT_COLUMNS.forEach { st.execute("ALTER TABLE epoch ADD COLUMN $it INTEGER NOT NULL DEFAULT 0") }
-                st.execute(
-                    """UPDATE epoch SET entries=(SELECT count(*) FROM entry WHERE epoch_id=epoch.id),
-                       body_bytes=(SELECT coalesce(sum(bytes),0) FROM body_ref WHERE epoch_id=epoch.id),
-                       not_archived=(SELECT count(*) FROM body_ref WHERE epoch_id=epoch.id AND not_archived IS NOT NULL)""",
-                )
-                TRIGGERS.forEach(st::execute)
-                db.commit()
-            } catch (e: Exception) {
-                db.rollback()
-                throw e
-            } finally {
-                db.autoCommit = true
-            }
-        } else {
-            TRIGGERS.forEach(st::execute)
         }
     }
 
@@ -405,24 +378,10 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
     }
 
     private companion object {
-        val COUNT_COLUMNS = listOf("entries", "body_bytes", "not_archived")
-
-        /** What keeps [COUNT_COLUMNS]: an upsert's update fires the update trigger, not the insert one. */
-        val TRIGGERS = listOf(
-            "CREATE TRIGGER IF NOT EXISTS entry_added AFTER INSERT ON entry BEGIN UPDATE epoch SET entries=entries+1 WHERE id=NEW.epoch_id; END",
-            "CREATE TRIGGER IF NOT EXISTS entry_removed AFTER DELETE ON entry BEGIN UPDATE epoch SET entries=entries-1 WHERE id=OLD.epoch_id; END",
-            """CREATE TRIGGER IF NOT EXISTS body_ref_added AFTER INSERT ON body_ref BEGIN
-               UPDATE epoch SET body_bytes=body_bytes+NEW.bytes, not_archived=not_archived+(NEW.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
-            """CREATE TRIGGER IF NOT EXISTS body_ref_changed AFTER UPDATE ON body_ref BEGIN
-               UPDATE epoch SET body_bytes=body_bytes+NEW.bytes-OLD.bytes,
-                 not_archived=not_archived+(NEW.not_archived IS NOT NULL)-(OLD.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
-            """CREATE TRIGGER IF NOT EXISTS body_ref_removed AFTER DELETE ON body_ref BEGIN
-               UPDATE epoch SET body_bytes=body_bytes-OLD.bytes, not_archived=not_archived-(OLD.not_archived IS NOT NULL) WHERE id=OLD.epoch_id; END""",
-        )
-
         const val EPOCH_COLUMNS = "e.id, e.installation_id, e.journal_id, e.opened_ms, e.closed_ms, e.close_reason"
 
-        val SCHEMA = listOf(
+        /** The archive's statements at [SCHEMA]'s version; an epoch's counts are kept by triggers, so no answer counts them. */
+        val CREATE = listOf(
             "CREATE TABLE IF NOT EXISTS device(key TEXT PRIMARY KEY, serial TEXT, model TEXT, release TEXT)",
             """CREATE TABLE IF NOT EXISTS installation(id INTEGER PRIMARY KEY, device_key TEXT NOT NULL REFERENCES device(key), package TEXT NOT NULL,
                version_name TEXT, version_code INTEGER, last_update_ms INTEGER, signing_sha256 TEXT, build_id TEXT,
@@ -437,7 +396,26 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
             "CREATE TABLE IF NOT EXISTS body(sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, ref_count INTEGER NOT NULL)",
             """CREATE TABLE IF NOT EXISTS body_ref(epoch_id TEXT NOT NULL, entry_id TEXT NOT NULL, part TEXT NOT NULL, sha256 TEXT, bytes INTEGER NOT NULL,
                not_archived TEXT, PRIMARY KEY(epoch_id, entry_id, part))""",
-            "CREATE TABLE IF NOT EXISTS cursor(device_key TEXT NOT NULL, package TEXT NOT NULL, journal_id TEXT NOT NULL, position TEXT, PRIMARY KEY(device_key, package))",
+            "CREATE TABLE IF NOT EXISTS cursor(device_key TEXT NOT NULL, package TEXT NOT NULL, journal_id TEXT NOT NULL, position TEXT, last_id TEXT, PRIMARY KEY(device_key, package))",
+            "CREATE TRIGGER IF NOT EXISTS entry_added AFTER INSERT ON entry BEGIN UPDATE epoch SET entries=entries+1 WHERE id=NEW.epoch_id; END",
+            "CREATE TRIGGER IF NOT EXISTS entry_removed AFTER DELETE ON entry BEGIN UPDATE epoch SET entries=entries-1 WHERE id=OLD.epoch_id; END",
+            """CREATE TRIGGER IF NOT EXISTS body_ref_added AFTER INSERT ON body_ref BEGIN
+               UPDATE epoch SET body_bytes=body_bytes+NEW.bytes, not_archived=not_archived+(NEW.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
+            """CREATE TRIGGER IF NOT EXISTS body_ref_changed AFTER UPDATE ON body_ref BEGIN
+               UPDATE epoch SET body_bytes=body_bytes+NEW.bytes-OLD.bytes,
+                 not_archived=not_archived+(NEW.not_archived IS NOT NULL)-(OLD.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
+            """CREATE TRIGGER IF NOT EXISTS body_ref_removed AFTER DELETE ON body_ref BEGIN
+               UPDATE epoch SET body_bytes=body_bytes-OLD.bytes, not_archived=not_archived-(OLD.not_archived IS NOT NULL) WHERE id=OLD.epoch_id; END""",
+        )
+
+        /**
+         * The archive's format. Version 1 (2026-11-20): an archive from before versions were kept
+         * is not converted (the user's call: nothing is released).
+         */
+        val SCHEMA = StoreSchema(
+            version = 1,
+            create = CREATE,
+            migrations = mapOf(1 to Migration.StartOver("the archive was in a format from before format versions (2026-11-20); it was cleared")),
         )
 
         fun ownerOnly(file: File, directory: Boolean) {

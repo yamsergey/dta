@@ -153,7 +153,7 @@ class EpochTest {
     }
 
     @Test
-    fun `a position from an earlier version keeps working, and one beyond the journal is a rollback`() = runBlocking<Unit> {
+    fun `a position with no record read at it keeps working, and one beyond the journal is a rollback`() = runBlocking<Unit> {
         val app = FakeJournalApp()
         repeat(5) { record(app, it + 1) }
         val s = store()
