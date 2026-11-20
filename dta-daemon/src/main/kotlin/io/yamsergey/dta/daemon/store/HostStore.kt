@@ -222,6 +222,11 @@ class HostStore(
     fun entry(epochId: String, entryId: String): NetworkEntry? =
         query("SELECT json FROM entry WHERE epoch_id=? AND entry_id=?", epochId, entryId) { DtaJson.decodeFromString(NetworkEntry.serializer(), it.getString(1)) }.firstOrNull()
 
+    /** Feature 069: of [epochIds], the last that holds [entryId] (its latest state). */
+    @Synchronized
+    fun epochOf(epochIds: List<String>, entryId: String): String? =
+        epochIds.asReversed().firstOrNull { e -> query("SELECT 1 FROM entry WHERE epoch_id=? AND entry_id=?", e, entryId) { 1 }.isNotEmpty() }
+
     /** Feature 069: the earliest and latest entry time of an epoch. */
     @Synchronized
     fun timeSpan(epochId: String): Pair<Long?, Long?> =

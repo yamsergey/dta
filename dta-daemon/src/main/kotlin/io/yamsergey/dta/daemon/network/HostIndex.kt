@@ -480,33 +480,35 @@ class HostIndex(
         info to bytes
     }
 
-    /** Archived epochs answer the same queries from the host alone (US4). */
+    /** Archived epochs answer the same queries from the host alone (US4), read from disk (feature 069). */
     private fun archived(query: NetworkQuery, scope: io.yamsergey.dta.protocol.network.ArchiveScope): NetworkPage {
         val epochs = store.epochs(device.key, packageName, scope)
         val page = archiveView(epochs).list(query)
-        val owner = HashMap<String, Epoch>()
-        epochs.forEach { e -> store.entries(e.id).forEach { owner[it.id] = e } }
+        val ids = epochs.map { it.id }
         val marks = epochs.associate { it.id to mark(it) }
-        return page.copy(archived = page.entries.associate { it.id to marks.getValue(owner.getValue(it.id).id) }.ifEmpty { null })
+        return page.copy(archived = page.entries.mapNotNull { e -> store.epochOf(ids, e.id)?.let { e.id to marks.getValue(it) } }.toMap().ifEmpty { null })
     }
 
+    /** [epochs] (in the order they were opened) as one answer reads them, from disk (feature 069). */
     private fun archiveView(epochs: List<Epoch>): NetworkHistoryView {
-        val entries = LinkedHashMap<String, NetworkEntry>()
-        val epochOf = HashMap<String, String>()
-        epochs.forEach { e -> store.entries(e.id).forEach { entries[it.id] = it; epochOf[it.id] = e.id } }
+        val ids = epochs.map { it.id }
+        val stored = ids.sumOf { store.entryCount(it) }
         val context = HistoryContext(
             runId = "",
-            coverage = io.yamsergey.dta.protocol.network.Coverage(searched = entries.size, stored = entries.size, persisted = true),
+            coverage = io.yamsergey.dta.protocol.network.Coverage(searched = stored, stored = stored, persisted = true),
             capture = io.yamsergey.dta.protocol.rpc.CapabilityStatus("network", io.yamsergey.dta.protocol.rpc.CapabilityStatus.Status.AVAILABLE),
         )
-        return NetworkHistoryView(
-            { entries.values.toList() }, { entries[it] }, { context },
+        fun byId(id: String): NetworkEntry? = store.epochOf(ids, id)?.let { store.entry(it, id) }
+        return NetworkHistoryView.over(
+            EntrySourceProvider { f -> store.readSource(ids, f) }, { context },
             { entry, part ->
                 val info = NetworkHistoryView.bodyOf(entry, part)
-                val raw = info?.let { rawBody(epochOf.getValue(entry.id), entry.id, part) }
+                // A preview that is all of the body is the body (as for the live epoch: no disk read).
+                info?.wholeText()?.let { return@over NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
+                val raw = info?.let { store.epochOf(ids, entry.id)?.let { e -> rawBody(e, entry.id, part) } }
                 raw?.let { BodyCodec.decode(it, info.encoding).let { d -> NetworkFilterEval.BodyBytes(d.bytes, d.decoded) } }
             },
-            { entry, part -> decodedJson(entry, part, epochOf[entry.id], entries::get) },
+            { entry, part -> decodedJson(entry, part, store.epochOf(ids, entry.id), ::byId) },
             readEnvelope,
         )
     }
