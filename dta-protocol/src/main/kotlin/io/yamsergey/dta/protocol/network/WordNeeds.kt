@@ -51,8 +51,66 @@ object WordNeeds {
     /** `body:` text: a case-insensitive substring of a body (never fuzzy). */
     fun exact(text: String): Need = key(text)?.let { Need.All(setOf(it)) } ?: Need.Any
 
-    /** Feature 053 patterns: the literals every match must contain (research R6); filled in by step B2. */
-    fun pattern(@Suppress("UNUSED_PARAMETER") p: String): Need = Need.Any
+    /**
+     * Feature 053 patterns (research R6): the literal runs every match must contain, read at the
+     * pattern's top level. Anything this reading is not sure of gives up a run, never adds one:
+     * an alternation at the top, inline flags or quoting give [Need.Any].
+     */
+    fun pattern(p: String): Need {
+        if ("(?" in p || "\\Q" in p) return Need.Any
+        val runs = ArrayList<StringBuilder>()
+        var run = StringBuilder()
+        fun cut() { if (run.isNotEmpty()) runs += run; run = StringBuilder() }
+        var depth = 0
+        var i = 0
+        while (i < p.length) {
+            val c = p[i]
+            when {
+                c == '\\' && i + 1 < p.length -> {
+                    val e = p[i + 1]
+                    i += 2
+                    when {
+                        !e.isLetterOrDigit() -> if (depth == 0) run.append(e)
+                        e in CLASS_ESCAPES -> cut()
+                        else -> {
+                            // \x41, \u0041, \0, \p{L}, \k<n>, back references: what follows is not literal.
+                            cut()
+                            while (i < p.length && (p[i].isLetterOrDigit() || p[i] in "{}<>")) i++
+                        }
+                    }
+                    continue
+                }
+                c == '[' -> {
+                    cut()
+                    i++
+                    if (i < p.length && p[i] == '^') i++
+                    if (i < p.length && p[i] == ']') i++
+                    while (i < p.length && p[i] != ']') { if (p[i] == '\\') i++; i++ }
+                }
+                c == '(' -> { cut(); depth++ }
+                c == ')' -> { cut(); depth-- }
+                c == '|' -> if (depth == 0) return Need.Any
+                c == '.' || c == '^' || c == '$' -> cut()
+                c == '*' || c == '?' || c == '{' -> {
+                    // The atom before may be absent (or repeated): it leaves its run.
+                    if (depth == 0 && (c != '{' || p.substring(i + 1).trimStart().startsWith("0") || p.substring(i + 1).startsWith(","))) {
+                        if (run.isNotEmpty()) run.setLength(run.length - 1)
+                    }
+                    cut()
+                    if (c == '{') while (i < p.length && p[i] != '}') i++
+                }
+                c == '+' -> cut()
+                depth == 0 -> run.append(c)
+            }
+            i++
+        }
+        cut()
+        val keys = runs.mapNotNull { key(it.toString()) }.toSet()
+        return if (keys.isEmpty()) Need.Any else Need.All(keys)
+    }
+
+    /** Escapes of one letter that match a class, a boundary or a control character. */
+    private const val CLASS_ESCAPES = "dDwWsSbBAzZGRhHvVXtnrfae"
 
     /**
      * The normalised key of [text], or null when it cannot narrow: under [MIN], or not all ASCII

@@ -85,7 +85,7 @@ class WordNeedsTest {
     /** Something to search for: words, pieces of what entries hold, typos, short and non-ASCII ones, phrases. */
     private fun term(r: Random, w: World): String {
         val source = w.entries.random(r).let { e -> (e as? HttpEntry)?.url ?: (e as? WsConnectionEntry)?.url ?: (e as? LinkEntry)?.uri ?: (w.bodies.values.randomOrNull(r)?.let { String(it.bytes, Charsets.UTF_8) }) ?: "order" }
-        return when (r.nextInt(8)) {
+        return when (r.nextInt(9)) {
             0 -> words.random(r)
             1 -> source.substring(r.nextInt(source.length)).take(r.nextInt(3, 12)).filter { it != '"' && it != ':' && !it.isWhitespace() }.ifEmpty { "x" }
             2 -> words.filter { it.length >= 6 }.random(r).let { word ->
@@ -96,7 +96,30 @@ class WordNeedsTest {
             4 -> "\"${words.random(r)} ${words.random(r)}\""
             5 -> "redacted"
             6 -> "body:${words.random(r).filter { it != ' ' }}"
+            7 -> "body:/${pattern(r)}/"
             else -> words.random(r).uppercase()
+        }
+    }
+
+    /** A body pattern from a small grammar over the history's words (feature 053). */
+    private fun pattern(r: Random): String {
+        val w = words.filter { it.all { c -> c.code < 128 && c != ' ' } }.random(r)
+        val v = words.filter { it.all { c -> c.code < 128 && c != ' ' } }.random(r)
+        return when (r.nextInt(14)) {
+            0 -> w
+            1 -> "$w\\d+"
+            2 -> "$w.*$v"
+            3 -> "($w|$v)"
+            4 -> "${w}?x"
+            5 -> "[a-z]+$w"
+            6 -> "$w{0,2}"
+            7 -> "\\b$w\\b"
+            8 -> "$w\\-12"
+            9 -> "(?i)$w"
+            10 -> "a|$w"
+            11 -> "\\x41$w"
+            12 -> "$w[0-9]{2,}"
+            else -> "${w.uppercase()}\\s*$v"
         }
     }
 
@@ -197,6 +220,16 @@ class WordNeedsTest {
         assertEquals(Need.Any, WordNeeds.of(null, listOf(Term("ab"), Term("x")), words = true))
         assertEquals(Need.Any, WordNeeds.of(null, listOf(Term("item-12")), words = false), "allRows: words do not leave rows out")
         assertEquals(Need.All(setOf("item12")), WordNeeds.of(NetworkFilter(bodyContains = "ITEM-12"), emptyList(), words = true))
+        assertEquals(Need.All(setOf("order")), WordNeeds.pattern("order-\\d+"))
+        assertEquals(Need.All(setOf("item12")), WordNeeds.pattern("(a|b)item-12"))
+        assertEquals(Need.Any, WordNeeds.pattern("a|item12"), "an alternation at the top")
+        assertEquals(Need.All(setOf("item")), WordNeeds.pattern("items?"), "an optional letter leaves the run")
+        assertEquals(Need.Any, WordNeeds.pattern("\\x41bcd"), "what follows \\x is not literal")
+        assertEquals(Need.All(setOf("def")), WordNeeds.pattern("[abc]def"))
+        assertEquals(Need.Any, WordNeeds.pattern("(?-i)abcdef"), "inline flags")
+        assertEquals(Need.Any, WordNeeds.pattern("abc{0,2}d"))
+        assertEquals(Need.All(setOf("abcd")), WordNeeds.pattern("abcd{2}e"))
+        assertEquals(Need.All(setOf("order", "item")), WordNeeds.pattern("order.*item"))
     }
 
     @Test
@@ -214,5 +247,25 @@ class WordNeedsTest {
         val notHere = IndexText.of(e.copy(responseBody = BodyInfo(BodyPart.RESPONSE, 900, completeness = Completeness.COMPLETE, preview = "first part")), { _, _ -> null })
         assertTrue(notHere.cut, "a body not copied yet may be read by the next answer")
         assertFalse(IndexText.of(e, { _, _ -> null }).cut)
+    }
+
+    @Test
+    fun `under a spent pattern budget the index finds what a whole read ran out of time for`() {
+        val entries = (0 until 30).map { n ->
+            val text = if (n == 0) "{\"order\":\"order-77\"}" else "{\"tick\":$n}"
+            HttpEntry("e$n", "r", n.toLong(), "okhttp3", method = "GET", url = "https://api.example.test/$n", state = HttpState.COMPLETE,
+                responseBody = BodyInfo(BodyPart.RESPONSE, text.length.toLong(), contentType = "application/json", completeness = Completeness.COMPLETE, preview = text))
+        }
+        val w = World(entries, entries.associate { (it.id to BodyPart.RESPONSE) to NetworkFilterEval.BodyBytes(it.responseBody!!.preview!!.toByteArray(), true) }, emptyMap())
+        // Each body read costs 10 ms of a 100 ms answer.
+        val budget = { var now = 0L; PatternBudget(perBodyMs = 50, totalMs = 100) { now += 5_000_000; now } }
+        val whole = NetworkHistoryView.over(EntrySourceProvider { ListEntrySource(entries) }, { context(w) }, w.bodyBytes, w.decode, patternBudget = budget)
+        val indexed = NetworkHistoryView.over(NeedsProvider(w), { context(w) }, w.bodyBytes, w.decode, patternBudget = budget)
+        val q = NetworkQuery(q = "body:/order-\\d+/", limit = 10)
+        val a = whole.list(q)
+        val b = indexed.list(q)
+        assertEquals(emptyList(), a.entries.map { it.id }, "the whole read spent its time on the newer bodies")
+        assertTrue(a.coverage.notSearched.orEmpty().isNotEmpty(), "and says so: ${a.coverage}")
+        assertEquals(listOf("e0"), b.entries.map { it.id })
     }
 }

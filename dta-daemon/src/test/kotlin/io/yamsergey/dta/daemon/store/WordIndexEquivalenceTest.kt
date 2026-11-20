@@ -88,7 +88,7 @@ class WordIndexEquivalenceTest {
             1 -> words.filter { it.length >= 6 }.random(r).let { it.substring(0, it.length - 1) + "z" }
             2 -> "\"${words.random(r)} ${words.random(r)}\""
             3 -> "body:${words.random(r)}"
-            4 -> listOf("ab", "x9", "12").random(r)
+            4 -> listOf("ab", "x9", "12", "body:/item-\\d+/", "body:/(tick|boom)/", "body:/pay.*ment/", "body:/orders?x/", "body:/[a-z]+beat/").random(r)
             else -> words.random(r).uppercase()
         }
     }
