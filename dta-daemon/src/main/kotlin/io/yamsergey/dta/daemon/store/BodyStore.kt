@@ -20,11 +20,11 @@ interface BodyStore {
     /** Removes the body; returns the bytes freed. */
     fun delete(sha256: String): Long
 
-    /** Removes every body: the archive they belonged to was made anew. */
+    /** Removes every body: the archive they belonged to was made anew. It may finish later; none is served from then on. */
     fun clear() {}
 }
 
-class FileBodyStore(private val root: File) : BodyStore {
+class FileBodyStore(private val root: File, private val remover: DirRemover = DirRemover()) : BodyStore {
     override fun put(input: InputStream): BodyStore.Stored {
         root.mkdirs()
         val temp = File.createTempFile("body-", ".part", root)
@@ -55,7 +55,7 @@ class FileBodyStore(private val root: File) : BodyStore {
     }
 
     override fun clear() {
-        root.deleteRecursively()
+        remover.removeLater(root)
     }
 
     private fun file(sha: String) = File(root, "${sha.take(2)}/$sha")

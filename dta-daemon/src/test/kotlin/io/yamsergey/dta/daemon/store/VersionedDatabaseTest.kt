@@ -128,4 +128,42 @@ class VersionedDatabaseTest {
             assertTrue(s.startedOver != null)
         }
     }
+
+    private fun oldHostArchive(root: File) {
+        HostStore(root).use { s ->
+            val e = s.openEpoch(DeviceIdentity("dev1"), "io.example", InstallationInfo(), "j1", 1)
+            s.putBody(e.id, "r1-1:1", BodyPart.RESPONSE, java.io.ByteArrayInputStream(ByteArray(10)))
+            s.partialFile(e.id, "r1-1:2", BodyPart.RESPONSE).writeBytes(ByteArray(10))
+        }
+        DriverManager.getConnection("jdbc:sqlite:${File(root, "dta.db").path}").use { c -> c.createStatement().use { it.execute("PRAGMA user_version=0") } }
+    }
+
+    @Test
+    fun `clearing the host archive does not wait for its body files to be removed`() {
+        val root = File(dir, "store")
+        oldHostArchive(root)
+        val held = mutableListOf<File>()
+        val remover = DirRemover { held += it }
+        HostStore(root, FileBodyStore(File(root, "bodies"), remover), remover).use { s ->
+            assertTrue(File(root, "bodies").walk().none { it.isFile }, "no body is served from the old archive")
+            assertTrue(File(root, "partial").walk().none { it.isFile })
+            assertEquals(2, held.size, "both left to be removed: $held")
+            assertTrue(held.all { it.exists() && it.parentFile == root })
+            val e = s.openEpoch(DeviceIdentity("dev1"), "io.example", InstallationInfo(), "j2", 2)
+            s.putBody(e.id, "r1-1:1", BodyPart.RESPONSE, java.io.ByteArrayInputStream(ByteArray(10)))
+            assertEquals(10, s.bodyRef(e.id, "r1-1:1", BodyPart.RESPONSE)?.sha256?.let(s::openBody)?.use { it.readBytes().size }, "new bodies are stored meanwhile")
+        }
+        HostStore(root, remover = DirRemover { it.deleteRecursively() }).use { }
+        assertEquals(emptyList(), root.list()!!.filter { DirRemover.REMOVING in it }, "a removal cut short is finished at the next start")
+    }
+
+    @Test
+    fun `body files are removed in the background`() {
+        val root = File(dir, "store")
+        oldHostArchive(root)
+        HostStore(root).use { }
+        val until = System.currentTimeMillis() + 5_000
+        while (root.list()!!.any { DirRemover.REMOVING in it } && System.currentTimeMillis() < until) Thread.sleep(20)
+        assertEquals(emptyList(), root.list()!!.filter { DirRemover.REMOVING in it })
+    }
 }

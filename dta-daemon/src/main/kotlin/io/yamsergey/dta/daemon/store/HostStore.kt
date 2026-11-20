@@ -68,7 +68,11 @@ class ArchivingStoppedException(message: String) : Exception(message)
  * device in one SQLite database, bodies by content in a [BodyStore]. The live epoch is the open
  * one; closed epochs are the archive, kept until deleted. Owner-only on disk (FR-021).
  */
-class HostStore(private val root: File, private val bodies: BodyStore = FileBodyStore(File(root, "bodies"))) : AutoCloseable {
+class HostStore(
+    private val root: File,
+    private val bodies: BodyStore = FileBodyStore(File(root, "bodies")),
+    private val remover: DirRemover = DirRemover(),
+) : AutoCloseable {
     private val db: Connection
 
     /** Feature 066: this DTA home's stable id, told to devices with what it archived. */
@@ -90,10 +94,11 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
     init {
         root.mkdirs()
         ownerOnly(root, directory = true)
+        remover.resume(root)
         val file = File(root, "dta.db")
         db = VersionedDatabase.open(file, SCHEMA) { why ->
             bodies.clear()
-            File(root, "partial").deleteRecursively()
+            remover.removeLater(File(root, "partial"))
             startedOver = why
         }
         ownerOnly(file, directory = false)
