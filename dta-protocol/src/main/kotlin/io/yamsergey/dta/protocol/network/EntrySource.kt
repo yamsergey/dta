@@ -26,9 +26,12 @@ interface EntrySource : AutoCloseable {
     override fun close() {}
 }
 
-/** Opens the history for one answer (one consistent view of it). */
+/**
+ * Opens the history for one answer (one consistent view of it). [filter] is the answer's resolved
+ * filter: a source may leave out entries it certainly drops, never one it may keep; null: none.
+ */
 fun interface EntrySourceProvider {
-    fun open(): EntrySource
+    fun open(filter: NetworkFilter?): EntrySource
 }
 
 /** A history held as a list (the app's, the tests'). */

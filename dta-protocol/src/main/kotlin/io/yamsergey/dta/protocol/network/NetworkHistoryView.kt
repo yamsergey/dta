@@ -87,9 +87,8 @@ class NetworkHistoryView private constructor(
         candidates: ((NetworkEntry) -> Boolean)? = null,
         stop: () -> Unit = {},
         onMatch: ((NetworkEntry, Int) -> Unit)? = null,
-    ): NetworkPage = sources.open().use { src ->
+    ): NetworkPage = query.resolved().let { (filter, terms) -> sources.open(filter).use { src ->
         val ctx = context()
-        val (filter, terms) = query.resolved()
         val newest = query.order == Order.NEWEST_FIRST
         // Links (012) are in the same history; network views show them only when kinds asks.
         val links = filter?.kinds != null
@@ -160,7 +159,7 @@ class NetworkHistoryView private constructor(
             hits = hits?.ifEmpty { null },
             counts = if (complete) null else Counts(complete = false, countedThrough = through, countedEntries = counted),
         )
-    }
+    } }
 
     /** Feature 065: the ids a query lets through and the ids it looked at. */
     data class Passing(val ids: Set<String>, val seen: Set<String>)
@@ -170,9 +169,8 @@ class NetworkHistoryView private constructor(
      * evaluator and search words (only the matches, as without `allRows`): the Timeline hides the
      * network rows Network hides. [Passing.seen] are the entries the history holds now.
      */
-    fun passing(query: NetworkQuery): Passing = sources.open().use { src ->
+    fun passing(query: NetworkQuery): Passing = query.resolved().let { (filter, terms) -> sources.open(null).use { src ->
         val ctx = context()
-        val (filter, terms) = query.resolved()
         val search = search(src, terms, query.redact)
         val eval = evaluator(src, filter, ctx)
         val seen = HashSet<String>()
@@ -185,7 +183,7 @@ class NetworkHistoryView private constructor(
             ids += entry.id
         }
         Passing(ids, seen)
-    }
+    } }
 
     /**
      * Feature 040: the entries the query's filters keep that hold every search word, in list
@@ -195,9 +193,8 @@ class NetworkHistoryView private constructor(
      *   others are still counted in [SearchPage.searched] when the filters keep them, which a caller
      *   may only allow for filters that read no bodies.
      */
-    fun search(query: NetworkQuery, candidates: ((NetworkEntry) -> Boolean)? = null, stop: () -> Unit = {}): SearchPage = sources.open().use { src ->
+    fun search(query: NetworkQuery, candidates: ((NetworkEntry) -> Boolean)? = null, stop: () -> Unit = {}): SearchPage = query.resolved().let { (filter, terms) -> sources.open(filter).use { src ->
         val ctx = context()
-        val (filter, terms) = query.resolved()
         val patterns = filter?.let { it.bodyPattern != null || it.requestPattern != null || it.responsePattern != null } == true
         if (terms.isEmpty() && !patterns) throw InvalidParamsException("query: no search words; give words, a \"phrase\" or a body:/pattern/ to find (filters alone are network.list)")
         val newest = query.order == Order.NEWEST_FIRST
@@ -250,13 +247,13 @@ class NetworkHistoryView private constructor(
             page, if (complete) total else maxOf(total, page.size + (if (more) 1 else 0)), if (more) page.last().id else null, searched, notSearched(eval, s),
             counts = if (complete) null else Counts(complete = false, countedThrough = through, countedEntries = counted),
         )
-    }
+    } }
 
     /**
      * Feature 067: [query]'s decision for one entry, with the same evaluators as [list] (filters,
      * then the search words): a live event is decided as a full pass would decide it.
      */
-    fun decide(query: NetworkQuery, entry: NetworkEntry): EntryDecision = sources.open().use { src ->
+    fun decide(query: NetworkQuery, entry: NetworkEntry): EntryDecision = sources.open(null).use { src ->
         val ctx = context()
         val (filter, terms) = query.resolved()
         if (entry is LinkEntry && filter?.kinds == null) return@use EntryDecision.NO
@@ -294,7 +291,7 @@ class NetworkHistoryView private constructor(
         search?.truncated?.takeIf { it > 0 }?.let { "bodies stored cut, searched as far as stored ($it)" },
     ).ifEmpty { null }
 
-    fun entry(id: String): NetworkEntryDetail = sources.open().use { src ->
+    fun entry(id: String): NetworkEntryDetail = sources.open(null).use { src ->
         val ctx = context()
         val entry = src.byId(id) ?: throw InvalidParamsException(
             "unknown entry id $id; it may have been evicted (earliest stored: ${ctx.coverage.earliestMs?.let(::iso) ?: "nothing stored"})",

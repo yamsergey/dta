@@ -345,7 +345,36 @@ class HostStore(
         return ArchiveDeleted(ids.size, entries, freed.size, bytes)
     }
 
-    override fun close() = db.close()
+    /**
+     * Feature 069 (research R6): connections that only read, so an answer neither waits for the
+     * writer nor holds it up; each answer reads one snapshot (a read transaction).
+     */
+    private val readers = java.util.concurrent.LinkedBlockingQueue<Connection>()
+    private val readersMade = java.util.concurrent.atomic.AtomicInteger()
+
+    private fun reader(): Connection {
+        readers.poll()?.let { return it }
+        if (readersMade.incrementAndGet() <= READERS) {
+            return DriverManager.getConnection("jdbc:sqlite:${File(root, "dta.db").path}").apply {
+                createStatement().use { it.execute("PRAGMA query_only=1") }
+                autoCommit = false
+            }
+        }
+        readersMade.decrementAndGet()
+        return readers.take()
+    }
+
+    /** Epochs [epochIds] (in the order their entries come) as one answer reads them; [filter] narrows the rows read. */
+    fun readSource(epochIds: List<String>, filter: io.yamsergey.dta.protocol.network.NetworkFilter?): StoreEntrySource =
+        StoreEntrySource(reader(), epochIds, PreSelection.of(filter)) { c ->
+            runCatching { c.rollback() }
+            readers.offer(c)
+        }
+
+    override fun close() {
+        generateSequence { readers.poll() }.forEach { runCatching { it.close() } }
+        db.close()
+    }
 
     // --- plumbing
 
@@ -402,6 +431,7 @@ class HostStore(
     }
 
     private companion object {
+        const val READERS = 4
         const val EPOCH_COLUMNS = "e.id, e.installation_id, e.journal_id, e.opened_ms, e.closed_ms, e.close_reason"
 
         /** The archive's statements at [SCHEMA]'s version; an epoch's counts are kept by triggers, so no answer counts them. */
