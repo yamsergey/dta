@@ -28,6 +28,8 @@ class AppConnectionWatcher(
         launch(start = CoroutineStart.UNDISPATCHED) {
             manager.changes.collect { if (serial == null || it.device == serial) send(it) }
         }
+        // Connected before this watcher came: no change will say so.
+        manager.connectedKeys().filter { serial == null || it.serial == serial }.forEach { send(AppConnectionEvent(it.serial, it.packageName, "connected")) }
         var known = emptySet<ConnectionKey>()
         while (isActive) {
             // A failed look (adb hiccup) keeps what we knew rather than ending every app.

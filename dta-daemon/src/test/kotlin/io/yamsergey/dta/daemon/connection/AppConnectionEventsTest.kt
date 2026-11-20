@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -67,6 +68,16 @@ class AppConnectionEventsTest {
     }
 
     private val key = ConnectionKey("emulator-5554", "com.example.shop")
+
+    @Test
+    fun `a watcher that comes later is told the apps already connected first`() = runBlocking {
+        val h = Harness()
+        h.manager.connect(key)
+        // An app the watcher's own look will not find: only what is held already is told.
+        val watcher = AppConnectionWatcher({ emptyList() }, h.manager, interval = 10.seconds)
+        val first = withTimeout(2.seconds) { watcher.events("emulator-5554").take(1).toList() }
+        assertEquals(listOf(AppConnectionEvent("emulator-5554", "com.example.shop", "connected")), first)
+    }
 
     @Test
     fun `a new connection is connected once, reuse says nothing`() = runBlocking {
@@ -147,9 +158,9 @@ class AppConnectionEventsTest {
         val watcher = AppConnectionWatcher(instances = { serial -> listOf(key, other).filter { serial == null || it.serial == serial } }, manager = h.manager, interval = 20.milliseconds)
         val firstForOther = async { withTimeout(5.seconds) { watcher.events("emulator-5556").take(1).toList() } }
         // A watcher of every device connects emulator-5554 meanwhile; the first must not see it.
-        // (emulator-5556 was connected before it started: a late watcher learns that from apps.list.)
-        val firstForAll = async { withTimeout(5.seconds) { watcher.events(null).take(1).toList() } }
+        // (It may first be told emulator-5556, connected before it came.)
+        val forAll = async { withTimeout(5.seconds) { watcher.events(null).first { it.device == "emulator-5554" } } }
         assertEquals(listOf("emulator-5556"), firstForOther.await().map { it.device })
-        assertEquals(listOf("emulator-5554"), firstForAll.await().map { it.device })
+        assertEquals("connected", forAll.await().state)
     }
 }

@@ -53,6 +53,8 @@ class ContextController(
                     is DaemonSession.State.Connected -> {
                         client = s.client
                         apply(ContextEvent.DaemonConnected(s.version))
+                        // A daemon started again: the device is the same, the watch on the old one went with it.
+                        followDevice()
                         refreshDevices()
                     }
                     is DaemonSession.State.Replaced -> { client = null; apply(ContextEvent.DaemonReplaced(s.by)) }

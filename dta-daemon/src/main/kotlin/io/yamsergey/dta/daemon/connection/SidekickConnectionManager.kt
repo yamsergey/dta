@@ -82,6 +82,9 @@ class SidekickConnectionManager(
      * released (and said so), but no failure is recorded: background work that finds the app
      * gone must not leave behind an error that a query right after the app restarts would get.
      */
+    /** Apps connected now, for a watcher that comes after they connected (a client reconnecting to a new daemon). */
+    fun connectedKeys(): List<ConnectionKey> = entries.filterValues { it.connection.isOpen }.keys.toList()
+
     suspend fun held(key: ConnectionKey): AppConnection? = lockFor(key).withLock {
         val entry = entries[key] ?: return null
         if (probe(entry.connection)) return entry.connection

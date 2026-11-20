@@ -48,6 +48,28 @@ class ContextControllerTest {
     }
 
     @Test
+    fun `after the daemon is started again, the apps are watched on it again`() = runBlocking<Unit> {
+        var current = TestDaemon()
+        val own = DaemonSession(connect = { current.connect(ClientKind.IDE) }, scope = scope)
+        val controller = ContextController(own.state, scope).also { own.start() }
+        controller.await { it.app != null }
+        withTimeout(5_000) { controller.watching.first { it } }
+        current.close()
+        controller.await { it.daemon.phase == DaemonPhase.FAILED }
+        withTimeout(5_000) { controller.watching.first { !it } }
+        current = TestDaemon()
+        try {
+            own.retry()
+            controller.await { it.daemon.phase == DaemonPhase.CONNECTED }
+            withTimeout(5_000) { controller.watching.first { it } }
+            current.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", "com.example.shop", "connected"))
+            controller.await { it.connection == Connection.CONNECTED }
+        } finally {
+            current.close()
+        }
+    }
+
+    @Test
     fun `choosing a device and an app is the person's choice`() = runBlocking<Unit> {
         daemon.ops.deviceList = listOf(DeviceInfo("emulator-5554", "online", "Pixel 8"), DeviceInfo("emulator-5556", "online", "Pixel Fold"))
         val controller = ContextController(session.state, scope).also { session.start() }
