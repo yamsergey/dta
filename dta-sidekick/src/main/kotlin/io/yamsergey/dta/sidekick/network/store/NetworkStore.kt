@@ -142,7 +142,9 @@ class NetworkStore(
     @Volatile
     private var persisted = this.storage != null
 
-    private val queue = ArrayBlockingQueue<EntryRecord>(queueCapacity)
+    /** A record waiting for the writer, with when the store took it (feature 068: how long it waited). */
+    private class Queued(val record: EntryRecord, val atMs: Long)
+    private val queue = ArrayBlockingQueue<Queued>(queueCapacity)
     private val writeLock = Any()
     private var writer: Thread? = null
     private var segment: File? = null
@@ -153,8 +155,8 @@ class NetworkStore(
     private var segmentLines = 0
 
     /** Feature 068: who gets each record once it is on disk, and those written but not flushed yet (under [writeLock]). */
-    private var liveListener: ((NetworkEntry, String) -> Unit)? = null
-    private val unflushed = ArrayList<Pair<NetworkEntry, String>>()
+    private var liveListener: ((NetworkEntry, String, Long) -> Unit)? = null
+    private val unflushed = ArrayList<Triple<NetworkEntry, String, Long>>()
     private var unflushedSinceMs = 0L
     private var liveEnded: (() -> Unit)? = null
     /** Highest segment index ever used; indices never repeat, so file order is time order. */
@@ -793,9 +795,10 @@ class NetworkStore(
      * Feature 068 (research R1): the journal read from [after] and kept open. Under the writer lock,
      * so nothing is written meanwhile, it reads what was written after [after] and registers
      * [listener], which then gets each record with its position once it is on disk, on the writer
-     * thread (it must not wait). Null when more than [limit] records follow [after]: read pages first.
+     * thread (it must not wait), and when the store took it ([now]'s clock). Null when more than
+     * [limit] records follow [after]: read pages first.
      */
-    fun startLive(after: String, limit: Int, onEnd: () -> Unit = {}, listener: (NetworkEntry, String) -> Unit): LiveStart? {
+    fun startLive(after: String, limit: Int, onEnd: () -> Unit = {}, listener: (NetworkEntry, String, Long) -> Unit): LiveStart? {
         if (!persisted || !awaitLoaded(FLUSH_WAIT_MS)) return null
         synchronized(writeLock) {
             val page = journal(after, limit)
@@ -821,11 +824,11 @@ class NetworkStore(
         val listener = liveListener
         val out = ArrayList(unflushed)
         unflushed.clear()
-        if (listener != null) for ((entry, at) in out) runCatching { listener(entry, at) }
+        if (listener != null) for ((entry, at, takenMs) in out) runCatching { listener(entry, at, takenMs) }
     }
 
     private fun flushQueued() = synchronized(writeLock) {
-        while (true) write(queue.poll() ?: break)
+        while (true) queue.poll()?.let { write(it.record, it.atMs) } ?: break
         flushWriter()
         Unit
     }
@@ -1062,7 +1065,7 @@ class NetworkStore(
 
     private fun enqueue(record: EntryRecord) {
         if (!persisted) return
-        if (!queue.offer(record)) synchronized(lock) { dropped++ }
+        if (!queue.offer(Queued(record, clock()))) synchronized(lock) { dropped++ }
     }
 
     /**
@@ -1078,7 +1081,7 @@ class NetworkStore(
                         (writeLock as Object).wait(100)
                         queue.poll()
                     }
-                    if (record != null) write(record)
+                    if (record != null) write(record.record, record.atMs)
                     // Feature 068: a live subscriber gets records once they are on disk, at least every 50 ms or 500 records.
                     if (queue.isEmpty() || unflushed.size >= LIVE_BATCH || (unflushed.isNotEmpty() && clock() - unflushedSinceMs >= LIVE_MS)) flushWriter()
                 }
@@ -1092,7 +1095,10 @@ class NetworkStore(
         }
     }
 
-    private fun write(record: EntryRecord) {
+    /** Now, on the store's clock (feature 068: a feed says how long a record waited). */
+    internal fun now(): Long = clock()
+
+    private fun write(record: EntryRecord, takenMs: Long = clock()) {
         if (!persisted) return
         if (synchronized(lock) { isEvicted(record.entry.id) }) return
         try {
@@ -1103,7 +1109,7 @@ class NetworkStore(
             segmentLines++
             if (liveListener != null) {
                 if (unflushed.isEmpty()) unflushedSinceMs = clock()
-                unflushed += record.entry to "${segmentIndex(segment!!)}:$segmentLines"
+                unflushed += Triple(record.entry, "${segmentIndex(segment!!)}:$segmentLines", takenMs)
             }
             diskBytes.addAndGet(bytes)
             segment?.let {

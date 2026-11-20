@@ -44,7 +44,7 @@ class NetworkFeed(
         current?.stop()
         current = null
         val sub = Sub("f${ids.incrementAndGet()}", identity.journalId, params.after)
-        val start = store.startLive(params.after, PAGE, onEnd = { sub.end(FeedEnded.CLOSED) }) { entry, at -> sub.offer(entry, at) }
+        val start = store.startLive(params.after, PAGE, onEnd = { sub.end(FeedEnded.CLOSED) }) { entry, at, takenMs -> sub.offer(entry, at, takenMs) }
             ?: return FeedOpenResult(refused = if (store.isReading) FeedOpenResult.READING else FeedOpenResult.BEHIND)
         sub.begin(start)
         current = sub
@@ -66,7 +66,7 @@ class NetworkFeed(
     }
 
     private inner class Sub(val id: String, val journalId: String, private var sentTo: String) {
-        private val queue = ArrayBlockingQueue<Pair<NetworkEntry, String>>(maxQueued)
+        private val queue = ArrayBlockingQueue<Triple<NetworkEntry, String, Long>>(maxQueued)
 
         @Volatile
         private var running = true
@@ -76,9 +76,9 @@ class NetworkFeed(
         private var first: NetworkStore.LiveStart? = null
 
         /** On the writer thread: never waits. */
-        fun offer(entry: NetworkEntry, at: String) {
+        fun offer(entry: NetworkEntry, at: String, takenMs: Long) {
             if (!running || ended != null) return
-            if (!queue.offer(entry to at)) {
+            if (!queue.offer(Triple(entry, at, takenMs))) {
                 ended = FeedEnded.OVERFLOW
                 store.stopLive()
             }
@@ -102,7 +102,7 @@ class NetworkFeed(
                 // What was written after the position, even none: it says where the live records start.
                 first?.let { batch(it.records, it.to) }
                 first = null
-                val chunk = ArrayList<Pair<NetworkEntry, String>>(BATCH)
+                val chunk = ArrayList<Triple<NetworkEntry, String, Long>>(BATCH)
                 while (running) {
                     val next = queue.poll(50, TimeUnit.MILLISECONDS)
                     if (next == null) {
@@ -111,7 +111,7 @@ class NetworkFeed(
                     }
                     chunk += next
                     queue.drainTo(chunk, BATCH - 1)
-                    batch(chunk.map { it.first }, chunk.last().second)
+                    batch(chunk.map { it.first }, chunk.last().second, waitedMs = store.now() - chunk.minOf { it.third })
                     chunk.clear()
                 }
                 val reason = ended
@@ -128,9 +128,9 @@ class NetworkFeed(
             }
         }
 
-        private fun batch(records: List<NetworkEntry>, to: String) {
+        private fun batch(records: List<NetworkEntry>, to: String, waitedMs: Long? = null) {
             if (!running) return
-            send(FeedBatch.EVENT, DtaJson.encodeToJsonElement(FeedBatch.serializer(), FeedBatch(id, journalId, sentTo, to, records, smallBodies(store, records))))
+            send(FeedBatch.EVENT, DtaJson.encodeToJsonElement(FeedBatch.serializer(), FeedBatch(id, journalId, sentTo, to, records, smallBodies(store, records), waitedMs?.coerceAtLeast(0))))
             sentTo = to
         }
     }

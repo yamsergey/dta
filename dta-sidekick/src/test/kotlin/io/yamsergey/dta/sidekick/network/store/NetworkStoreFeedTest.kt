@@ -41,7 +41,7 @@ class NetworkStoreFeedTest {
         s.flush()
         val at = s.journal(null, 3).next
         val live = Collections.synchronizedList(ArrayList<Pair<NetworkEntry, String>>())
-        val start = assertNotNull(s.startLive(at, limit = 100) { e, pos -> live += e to pos })
+        val start = assertNotNull(s.startLive(at, limit = 100) { e, pos, _ -> live += e to pos })
         assertEquals(s.journal(at, 100).records.map { it.id }, start.records.map { it.id }, "the tail after the position")
         assertEquals(s.journal(at, 100).next, start.to)
         repeat(3) { s.upsert(http(s)) }
@@ -58,7 +58,7 @@ class NetworkStoreFeedTest {
         val s = store()
         repeat(30) { s.upsert(http(s)) }
         s.flush()
-        assertNull(s.startLive("0:0", limit = 10) { _, _ -> })
+        assertNull(s.startLive("0:0", limit = 10) { _, _, _ -> })
     }
 
     @Test
@@ -85,7 +85,7 @@ class NetworkStoreFeedTest {
             var positions = ArrayList<String>()
             writer.start()
             Thread.sleep(r.nextLong(0, 3))
-            val start = assertNotNull(s.startLive(at, limit = 100_000) { e, pos -> got += e.id; synchronized(positions) { positions += pos } })
+            val start = assertNotNull(s.startLive(at, limit = 100_000) { e, pos, _ -> got += e.id; synchronized(positions) { positions += pos } })
             writer.join()
             s.flush()
             s.stopLive()

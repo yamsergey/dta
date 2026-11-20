@@ -23,6 +23,11 @@ data class FeedBatch(
     val records: List<NetworkEntry>,
     /** Bodies of up to [FeedBody.MAX_BYTES] of these records (none for one its preview holds whole). */
     val bodies: List<FeedBody>? = null,
+    /**
+     * A live batch: how long its oldest record waited on the device, from the store taking it to
+     * this batch being sent (the device's clock only). Null for what was written before it opened.
+     */
+    val waitedMs: Long? = null,
 ) {
     companion object {
         const val EVENT = "network.feed"

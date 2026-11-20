@@ -143,4 +143,24 @@ class HostIndexFeedTest {
             assertTrue(got.coverage.bodiesNotArchived == null, "run $run")
         }
     }
+
+    @Test
+    fun `the history says how far behind the app the archive is, the batch's wait on the device and its wait here`() = runBlocking<Unit> {
+        var now = 50_000L
+        val app = FakeJournalApp()
+        http(app)
+        val host = HostIndex(HostStore(dir).also { stores += it }, DeviceIdentity("dev1", "emulator-5554"), "io.example", clock = { now }) { app }
+        host.openFeed()
+        assertEquals(null, host.history().device?.feedLagMs, "nothing came by the feed yet")
+        http(app); http(app)
+        // Waited 700 ms on the device; here it waits 300 ms for the archive (another batch, a query).
+        val received = now
+        now += 300
+        host.apply(app.batch(1).copy(waitedMs = 700), receivedMs = received)
+        http(app)
+        host.apply(app.batch(3).copy(waitedMs = 20), receivedMs = now)
+        assertEquals(1_000L, host.history().device?.feedLagMs, "the most in the last 10 s")
+        now += 11_000
+        assertEquals(null, host.history().device?.feedLagMs, "nothing came in the last 10 s")
+    }
 }

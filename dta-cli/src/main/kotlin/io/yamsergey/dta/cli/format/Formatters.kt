@@ -536,6 +536,8 @@ class Formatters(private val style: Style) {
             val share = d.long("archivedEntries")?.takeIf { entries > 0 }?.let { "${it * 100 / entries}% archived" }
             appendLine(label.format("Device") + listOfNotNull("$entries entries", bytes(d.long("bytes") ?: 0), span(d.long("earliestMs"), d.long("latestMs")), share).joinToString(" · "))
             appendLine(label.format("") + "keeps ${bytes(d.long("keepBytes") ?: 0)}, warns above ${bytes(d.long("warnBytes") ?: 0)}")
+            // Feature 068: how far behind the app the archive was lately (the channel's own delay not in it).
+            d.long("feedLagMs")?.let { appendLine(label.format("") + style.paint("archived at most $it ms after the app wrote it (last 10 s)", Token.INK_MUTED)) }
             val reason = when (d.str("trimHeld")) {
                 "no-archive" -> "nothing archived yet"
                 "stale-archive" -> "nothing archived since ${time(d.long("lastArchivedMs"))}"

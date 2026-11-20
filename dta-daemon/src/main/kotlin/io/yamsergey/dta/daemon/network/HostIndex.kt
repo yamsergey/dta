@@ -65,6 +65,16 @@ class HostIndex(
     /** Feature 068: records still to read while a catch-up runs (read without the mutex by [history]). */
     @Volatile
     private var catchingUpNow = 0L
+
+    /** Feature 068: (when, how far behind) of each batch applied in the last [LAG_WINDOW_MS]. */
+    private val feedLags = java.util.concurrent.ConcurrentLinkedDeque<Pair<Long, Long>>()
+
+    /** The most any batch of the last [LAG_WINDOW_MS] was behind the app, or null when none came. */
+    private fun feedLag(): Long? {
+        val since = clock() - LAG_WINDOW_MS
+        while (feedLags.peekFirst()?.let { it.first < since } == true) feedLags.pollFirst()
+        return feedLags.filter { it.first >= since }.maxOfOrNull { it.second }
+    }
     /**
      * How long an answer copies the bodies it reads before it is given: the rest is read by its
      * preview and counted (coverage.bodiesPending), and the copy worker goes on. A large backlog
@@ -313,6 +323,7 @@ class HostIndex(
                 entries = deviceEntries, bytes = c.deviceBytes ?: 0, keepBytes = c.keepBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.KEEP_BYTES,
                 warnBytes = c.warnBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.WARN_BYTES, trimHeld = c.trimHeld, lastArchivedMs = c.lastArchivedMs,
                 overWarning = c.warnBytes != null && (c.deviceBytes ?: 0) > c.warnBytes!!, catchingUp = catchingUpNow.takeIf { it > 0 }, reading = c.deviceReading == true,
+                feedLagMs = feedLag(),
             ) else null
             return io.yamsergey.dta.protocol.network.HistorySummary(device, if (device == null) "this computer is reading the app's history" else null, archiveHistory())
         }
@@ -342,6 +353,7 @@ class HostIndex(
                     overWarning = (c.deviceBytes ?: 0) > c.warnBytes!!,
                     catchingUp = lag.takeIf { it > 0 },
                     reading = c.deviceReading == true,
+                    feedLagMs = feedLag(),
                 )
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -680,7 +692,7 @@ class HostIndex(
      * the position this computer holds; one it already has is skipped; a gap ends the subscription
      * (pages are read again); one of an earlier subscription is not taken.
      */
-    suspend fun apply(batch: io.yamsergey.dta.protocol.network.FeedBatch): Applied = mutex.withLock {
+    suspend fun apply(batch: io.yamsergey.dta.protocol.network.FeedBatch, receivedMs: Long = clock()): Applied = mutex.withLock {
         if (batch.subscription != feedSub) return Applied.STALE
         val saved = store.cursor(device.key, packageName)
         val current = epoch
@@ -700,6 +712,7 @@ class HostIndex(
         }
         store.setCursor(device.key, packageName, batch.journalId, batch.to, lastId)
         lag = 0
+        batch.waitedMs?.let { waited -> clock().let { now -> feedLags.addLast(now to waited + (now - receivedMs).coerceAtLeast(0)) } }
         runCatching { acknowledge(connection()) }
         Applied.APPLIED
     }
@@ -714,10 +727,12 @@ class HostIndex(
      * ends when the app ends it or says it dropped events (a batch may be among them).
      */
     suspend fun onAppEvent(event: io.yamsergey.dta.protocol.rpc.Event) {
+        // Before waiting for the archive: that wait is part of how far behind it is.
+        val received = clock()
         when (event.name) {
             io.yamsergey.dta.protocol.network.FeedBatch.EVENT -> event.data?.let {
                 runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedBatch.serializer(), it) }.getOrNull()
-            }?.let { apply(it) }
+            }?.let { apply(it, received) }
             io.yamsergey.dta.protocol.network.FeedEnded.EVENT -> event.data?.let {
                 runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedEnded.serializer(), it) }.getOrNull()
             }?.let { feedEnded(it) }
@@ -952,6 +967,8 @@ class HostIndex(
         const val APPLIED_BUFFER = 65_536
         /** The app's word that a session's events were dropped (its SessionHub). */
         const val EVENTS_DROPPED = "network.events-dropped"
+        /** How far back [DeviceHistory.feedLagMs] looks. */
+        const val LAG_WINDOW_MS = 10_000L
         /** How long a clear waits for the copy of what this computer does not have yet. */
         const val CLEAR_COPY_MS = 20_000L
         /** Feature 067: an answer's own body copying; measured, a backlog of 100k bodies took 871 s. */

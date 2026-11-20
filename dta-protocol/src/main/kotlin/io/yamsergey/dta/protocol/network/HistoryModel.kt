@@ -57,6 +57,12 @@ data class DeviceHistory(
     val catchingUp: Long? = null,
     /** Feature 068: the app is still reading its earlier runs after it started. */
     val reading: Boolean = false,
+    /**
+     * Feature 068: how far behind the app this computer's archive was in the last 10 s, the most of
+     * any batch: its wait on the device plus its wait here until archived (each on its own clock;
+     * the channel's own delay is not in it). Null when nothing came by the feed in that time.
+     */
+    val feedLagMs: Long? = null,
 )
 
 /** This computer's part of an app's history (`network.history`). */

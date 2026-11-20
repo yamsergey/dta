@@ -147,4 +147,28 @@ class NetworkFeedTest {
         waitFor("the body") { sink.batches.any { b -> b.bodies.orEmpty().any { it.entryId == e.id } } }
         assertEquals("[1,2,3]", sink.batches.flatMap { it.bodies.orEmpty() }.single { it.entryId == e.id }.text)
     }
+
+    @Test
+    fun `a live batch says how long its oldest record waited since the store took it`() {
+        val s = store()
+        val sink = Sink()
+        val f = feed(s, sink)
+        s.flush()
+        val at = s.journal("0:0", 1_000).next
+        assertNotNull(f.open(FeedOpenParams(s.identity().journalId, at)).subscription)
+        waitFor("the first batch") { sink.batches.size == 1 }
+        assertNull(sink.batches[0].waitedMs, "what was written before it opened did not wait for it")
+        // The sender is held (a slow channel) while more is written.
+        val gate = CountDownLatch(1)
+        sink.gate = gate
+        s.upsert(http(s)); s.flush()
+        Thread.sleep(100)
+        val held = http(s)
+        s.upsert(held); s.flush()
+        Thread.sleep(400)
+        gate.countDown()
+        waitFor("the held record") { sink.batches.any { b -> b.records.any { it.id == held.id } } }
+        val batch = sink.batches.first { b -> b.records.any { it.id == held.id } }
+        assertTrue((batch.waitedMs ?: 0) >= 400, "waited ${batch.waitedMs} ms")
+    }
 }
