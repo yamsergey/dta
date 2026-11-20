@@ -144,7 +144,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
                     if (at !in cutLines && records[at].id !in evicted) page += records[at]
                 }
                 val next = if (line == 0) after ?: "0:0" else "0:$line"
-                RpcResult(DtaJson.encodeToJsonElement(JournalPageResult.serializer(), JournalPageResult(journalId, page, next, line >= records.size, smallBodies(page))))
+                RpcResult(DtaJson.encodeToJsonElement(JournalPageResult.serializer(), JournalPageResult(journalId, page, next, line >= records.size, smallBodies(page), remaining = records.size - line)))
             }
             "network_feed_open" -> {
                 val open = DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedOpenParams.serializer(), params!!)

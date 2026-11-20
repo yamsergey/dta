@@ -19,10 +19,11 @@ data class JournalIdentityResult(
 
 /**
  * `network_journal`: records in write order after a cursor; [next] resumes; [end] when caught up.
- * Feature 068: [bodies] carries their bodies of up to [FeedBody.MAX_BYTES].
+ * Feature 068: [bodies] carries their bodies of up to [FeedBody.MAX_BYTES]; [remaining] is how many
+ * journal lines are after [next] (how far a reader is behind, whatever the device removed before).
  */
 @Serializable
-data class JournalPageResult(val journalId: String, val records: List<NetworkEntry>, val next: String, val end: Boolean, val bodies: List<FeedBody>? = null)
+data class JournalPageResult(val journalId: String, val records: List<NetworkEntry>, val next: String, val end: Boolean, val bodies: List<FeedBody>? = null, val remaining: Int = 0)
 
 /** `network_body_range`: the range is the binary attachment; [totalBytes] is the whole stored body. */
 @Serializable

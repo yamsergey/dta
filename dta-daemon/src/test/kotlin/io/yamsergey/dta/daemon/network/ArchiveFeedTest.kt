@@ -141,4 +141,21 @@ class ArchiveFeedTest {
         assertEquals(null, host.history().device?.catchingUp, "and it ended by itself")
         assertEquals(6_000, host.list(NetworkQuery(limit = 1)).total)
     }
+
+    @Test
+    fun `how far the catch-up is comes from the device, also when it removed what was archived`() = runBlocking<Unit> {
+        val app = SlowPages(ms = 300)
+        repeat(1_000) { http(app, 10) }
+        val host = index(app)
+        host.pageSize = 500
+        host.list(NetworkQuery(limit = 1))
+        repeat(3_000) { http(app, 10) }
+        // The device removed what this computer archived: it holds fewer entries than were read.
+        app.entriesOverride = 2_500
+        val catching = this.async(kotlinx.coroutines.Dispatchers.IO) { host.list(NetworkQuery(limit = 1)) }
+        kotlinx.coroutines.delay(800)
+        val behind = host.history().device?.catchingUp
+        assertTrue(behind != null && behind in 1_500..2_500, "records left after the page read: $behind")
+        catching.await()
+    }
 }

@@ -66,6 +66,8 @@ class HostIndex(
     /** Feature 068: records still to read while a catch-up runs (read without the mutex by [history]). */
     @Volatile
     private var catchingUpNow = 0L
+    /** Records the device said were left after the last page read. */
+    private var behindNow = 0L
 
     /** Feature 068: (when, how far behind) of each batch applied in the last [LAG_WINDOW_MS]. */
     private val feedLags = java.util.concurrent.ConcurrentLinkedDeque<Pair<Long, Long>>()
@@ -637,14 +639,15 @@ class HostIndex(
             }
             position = next
             store.setCursor(device.key, packageName, identity.journalId, position, lastId)
-            catchingUpNow = if (page.end) 0 else (identity.entries - live.size).toLong().coerceAtLeast(1)
+            catchingUpNow = if (page.end) 0 else page.remaining.toLong().coerceAtLeast(1)
+            behindNow = catchingUpNow
             if (page.end) {
                 lag = 0
                 acknowledge(app)
                 return true
             }
         }
-        lag = (identity.entries - live.size).toLong().coerceAtLeast(0)
+        lag = behindNow
         return true
     }
 

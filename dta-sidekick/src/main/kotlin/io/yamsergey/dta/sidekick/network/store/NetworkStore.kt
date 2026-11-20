@@ -55,8 +55,11 @@ internal data class StoreState(
 /** The journal's identity; [reason] says why it is new in this process (`cleared`, `storage-new`). */
 data class JournalIdentity(val journalId: String, val reason: String?, val entries: Int, val persisted: Boolean)
 
-/** A page of the journal: records in write order; [next] resumes after them; [end] when nothing more is written yet. */
-data class JournalPage(val journalId: String, val records: List<NetworkEntry>, val next: String, val end: Boolean)
+/**
+ * A page of the journal: records in write order; [next] resumes after them; [end] when nothing more
+ * is written yet; [remaining] lines are after [next] (feature 068: how far the reader is behind).
+ */
+data class JournalPage(val journalId: String, val records: List<NetworkEntry>, val next: String, val end: Boolean, val remaining: Int = 0)
 
 /**
  * Storage bounds (data-model §Bounds); stated in the capability and coverage. None by default:
@@ -153,6 +156,8 @@ class NetworkStore(
     private var segmentBytes = 0L
     /** Lines written to [segment]: a record's position is `segment:line` after it (feature 068). */
     private var segmentLines = 0
+    /** Feature 068: lines of each segment, counted once for those of earlier processes; for [JournalPage.remaining]. */
+    private val segmentLineCounts = java.util.concurrent.ConcurrentHashMap<Int, Int>()
 
     /** Feature 068: who gets each record once it is on disk, and those written but not flushed yet (under [writeLock]). */
     private var liveListener: ((NetworkEntry, String, Long) -> Unit)? = null
@@ -649,7 +654,8 @@ class NetworkStore(
         val records = ArrayList<NetworkEntry>()
         var next = after ?: "0:0"
         var end = true
-        for (file in segmentFiles()) {
+        val files = segmentFiles()
+        for (file in files) {
             val index = segmentIndex(file) ?: continue
             if (index < fromSegment) continue
             var line = 0
@@ -668,7 +674,17 @@ class NetworkStore(
             next = "$index:$line"
             if (full) { end = false; break }
         }
-        return JournalPage(journalId, records, next, end)
+        return JournalPage(journalId, records, next, end, if (end) 0 else linesAfter(next, files))
+    }
+
+    private fun linesAfter(cursor: String, files: List<File>): Int {
+        val (atSegment, atLine) = parseCursor(cursor)
+        return files.sumOf { file ->
+            val index = segmentIndex(file) ?: return@sumOf 0
+            if (index < atSegment) return@sumOf 0
+            val lines = segmentLineCounts.getOrPut(index) { runCatching { file.bufferedReader().useLines { it.count() } }.getOrDefault(0) }
+            if (index == atSegment) (lines - atLine).coerceAtLeast(0) else lines
+        }
     }
 
     /** Null when bodies cannot be stored (memory-only history). */
@@ -1107,6 +1123,7 @@ class NetworkStore(
             writerFor(bytes).write(line)
             segmentBytes += bytes
             segmentLines++
+            segmentLineCounts.merge(lastSegmentIndex, 1, Int::plus)
             if (liveListener != null) {
                 if (unflushed.isEmpty()) unflushedSinceMs = clock()
                 unflushed += Triple(record.entry, "${segmentIndex(segment!!)}:$segmentLines", takenMs)
@@ -1132,6 +1149,7 @@ class NetworkStore(
         segment = file
         segmentBytes = 0
         segmentLines = 0
+        segmentLineCounts[lastSegmentIndex] = 0
         return file.bufferedWriter().also { segmentWriter = it }
     }
 

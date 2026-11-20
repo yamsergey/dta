@@ -46,7 +46,7 @@ class FeedModelTest {
 
     @Test
     fun `a journal page carries small bodies too`() {
-        val page = JournalPageResult("j1", listOf(message), "3:12", end = true, bodies = listOf(FeedBody.of("r1-1:2", BodyPart.MESSAGE, "hi".toByteArray(), false)))
+        val page = JournalPageResult("j1", listOf(message), "3:12", end = false, bodies = listOf(FeedBody.of("r1-1:2", BodyPart.MESSAGE, "hi".toByteArray(), false)), remaining = 7)
         assertEquals(page, DtaJson.decodeFromString(JournalPageResult.serializer(), DtaJson.encodeToString(JournalPageResult.serializer(), page)))
         assertTrue(FeedBody.MAX_BYTES == 64L * 1024)
     }

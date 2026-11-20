@@ -54,6 +54,23 @@ class NetworkStoreFeedTest {
     }
 
     @Test
+    fun `a journal page says how many records are left after it, across segments`() {
+        val s = store(segmentBytes = 2_000)
+        repeat(40) { s.upsert(http(s)) }
+        s.flush()
+        var page = s.journal(null, 15)
+        assertEquals(25, page.remaining, "40 written, 15 read")
+        page = s.journal(page.next, 15)
+        assertEquals(10, page.remaining)
+        page = s.journal(page.next, 15)
+        assertEquals(0, page.remaining)
+        assertTrue(page.end)
+        repeat(3) { s.upsert(http(s)) }
+        s.flush()
+        assertEquals(3, s.journal(null, 40).remaining, "the segment being written counts too")
+    }
+
+    @Test
     fun `more than a page written after the position is not opened, pages are read first`() {
         val s = store()
         repeat(30) { s.upsert(http(s)) }
