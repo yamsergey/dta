@@ -35,4 +35,7 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // Feature 069: the scale benchmark (DTA_BENCH) needs room for today's in-memory copy.
+    maxHeapSize = System.getenv("DTA_TEST_HEAP") ?: "1g"
+    testLogging { if (System.getenv("DTA_BENCH") != null) showStandardStreams = true }
 }

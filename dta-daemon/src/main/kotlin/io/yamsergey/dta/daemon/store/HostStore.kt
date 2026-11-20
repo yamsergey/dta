@@ -144,9 +144,16 @@ class HostStore(
     fun putEntries(epochId: String, entries: List<NetworkEntry>) = tx {
         entries.forEach { e ->
             update(
-                """INSERT INTO entry(epoch_id, entry_id, seq, time_ms, kind, url, status, json) VALUES (?,?,(SELECT coalesce(max(seq),0)+1 FROM entry WHERE epoch_id=?),?,?,?,?,?)
-                   ON CONFLICT(epoch_id, entry_id) DO UPDATE SET time_ms=excluded.time_ms, kind=excluded.kind, url=excluded.url, status=excluded.status, json=excluded.json""",
-                epochId, e.id, epochId, e.timeMs, kindOf(e), urlOf(e), (e as? HttpEntry)?.status, DtaJson.encodeToString(NetworkEntry.serializer(), e),
+                """INSERT INTO entry(epoch_id, entry_id, seq, time_ms, kind, url, status, method, host, connection_id, direction, library, run_id, state, has_body, json)
+                   VALUES (?,?,(SELECT coalesce(max(seq),0)+1 FROM entry WHERE epoch_id=?),?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(epoch_id, entry_id) DO UPDATE SET time_ms=excluded.time_ms, kind=excluded.kind, url=excluded.url, status=excluded.status,
+                     method=excluded.method, host=excluded.host, connection_id=excluded.connection_id, direction=excluded.direction, library=excluded.library,
+                     run_id=excluded.run_id, state=excluded.state, has_body=excluded.has_body, json=excluded.json""",
+                epochId, e.id, epochId, e.timeMs, kindOf(e), urlOf(e), (e as? HttpEntry)?.status,
+                (e as? HttpEntry)?.method, urlOf(e)?.takeUnless { e is WsMessageEntry }?.let(io.yamsergey.dta.protocol.network.NetworkFilterEval::hostOf),
+                connectionOf(e), (e as? WsMessageEntry)?.direction?.name, e.library, e.runId, stateOf(e),
+                if (io.yamsergey.dta.protocol.network.NetworkHistoryView.bodiesOf(e).isNotEmpty()) 1 else 0,
+                DtaJson.encodeToString(NetworkEntry.serializer(), e),
             )
         }
     }
@@ -375,6 +382,18 @@ class HostStore(
         is io.yamsergey.dta.protocol.network.LinkEntry -> "link"
     }
 
+    private fun connectionOf(e: NetworkEntry): String? = when (e) {
+        is WsMessageEntry -> e.connectionId
+        is WsConnectionEntry -> e.id
+        else -> null
+    }
+
+    private fun stateOf(e: NetworkEntry): String? = when (e) {
+        is HttpEntry -> e.state.name
+        is WsConnectionEntry -> e.state.name
+        else -> null
+    }
+
     private fun urlOf(e: NetworkEntry): String? = when (e) {
         is HttpEntry -> e.url
         is WsConnectionEntry -> e.url
@@ -393,17 +412,40 @@ class HostStore(
                UNIQUE(device_key, package, version_name, version_code, last_update_ms, signing_sha256))""",
             """CREATE TABLE IF NOT EXISTS epoch(id TEXT PRIMARY KEY, installation_id INTEGER NOT NULL REFERENCES installation(id), journal_id TEXT NOT NULL,
                opened_ms INTEGER NOT NULL, closed_ms INTEGER, close_reason TEXT, never_received INTEGER NOT NULL DEFAULT 0,
-               entries INTEGER NOT NULL DEFAULT 0, body_bytes INTEGER NOT NULL DEFAULT 0, not_archived INTEGER NOT NULL DEFAULT 0)""",
+               entries INTEGER NOT NULL DEFAULT 0, links INTEGER NOT NULL DEFAULT 0, body_bytes INTEGER NOT NULL DEFAULT 0, not_archived INTEGER NOT NULL DEFAULT 0)""",
             """CREATE TABLE IF NOT EXISTS entry(epoch_id TEXT NOT NULL REFERENCES epoch(id), entry_id TEXT NOT NULL, seq INTEGER NOT NULL,
-               time_ms INTEGER NOT NULL, kind TEXT NOT NULL, url TEXT, status INTEGER, json TEXT NOT NULL, PRIMARY KEY(epoch_id, entry_id))""",
+               time_ms INTEGER NOT NULL, kind TEXT NOT NULL, url TEXT, status INTEGER,
+               method TEXT, host TEXT, connection_id TEXT, direction TEXT, library TEXT, run_id TEXT, state TEXT, has_body INTEGER NOT NULL DEFAULT 0,
+               change_seq INTEGER NOT NULL DEFAULT 0, json TEXT NOT NULL, PRIMARY KEY(epoch_id, entry_id))""",
             "CREATE INDEX IF NOT EXISTS entry_seq ON entry(epoch_id, seq)",
             "CREATE INDEX IF NOT EXISTS entry_time ON entry(epoch_id, time_ms)",
+            // Feature 069: what a query narrows by before each entry is decided, newest first by seq.
+            "CREATE INDEX IF NOT EXISTS entry_kind ON entry(epoch_id, kind, seq)",
+            "CREATE INDEX IF NOT EXISTS entry_host ON entry(epoch_id, host, seq)",
+            "CREATE INDEX IF NOT EXISTS entry_status ON entry(epoch_id, status, seq)",
+            "CREATE INDEX IF NOT EXISTS entry_connection ON entry(epoch_id, connection_id, seq)",
+            "CREATE INDEX IF NOT EXISTS entry_change ON entry(epoch_id, change_seq)",
+            "CREATE TABLE IF NOT EXISTS change_counter(n INTEGER NOT NULL)",
+            "INSERT INTO change_counter(n) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM change_counter)",
             "CREATE TABLE IF NOT EXISTS body(sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, ref_count INTEGER NOT NULL)",
             """CREATE TABLE IF NOT EXISTS body_ref(epoch_id TEXT NOT NULL, entry_id TEXT NOT NULL, part TEXT NOT NULL, sha256 TEXT, bytes INTEGER NOT NULL,
                not_archived TEXT, PRIMARY KEY(epoch_id, entry_id, part))""",
             "CREATE TABLE IF NOT EXISTS cursor(device_key TEXT NOT NULL, package TEXT NOT NULL, journal_id TEXT NOT NULL, position TEXT, last_id TEXT, PRIMARY KEY(device_key, package))",
-            "CREATE TRIGGER IF NOT EXISTS entry_added AFTER INSERT ON entry BEGIN UPDATE epoch SET entries=entries+1 WHERE id=NEW.epoch_id; END",
-            "CREATE TRIGGER IF NOT EXISTS entry_removed AFTER DELETE ON entry BEGIN UPDATE epoch SET entries=entries-1 WHERE id=OLD.epoch_id; END",
+            """CREATE TRIGGER IF NOT EXISTS entry_added AFTER INSERT ON entry BEGIN
+               UPDATE epoch SET entries=entries+1, links=links+(NEW.kind='link') WHERE id=NEW.epoch_id;
+               UPDATE change_counter SET n=n+1;
+               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE rowid=NEW.rowid; END""",
+            """CREATE TRIGGER IF NOT EXISTS entry_rewritten AFTER UPDATE OF json ON entry BEGIN
+               UPDATE change_counter SET n=n+1;
+               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE rowid=NEW.rowid; END""",
+            "CREATE TRIGGER IF NOT EXISTS entry_removed AFTER DELETE ON entry BEGIN UPDATE epoch SET entries=entries-1, links=links-(OLD.kind='link') WHERE id=OLD.epoch_id; END",
+            // A body copied or lost changes what its entry answers (067 live views).
+            """CREATE TRIGGER IF NOT EXISTS body_ref_change_added AFTER INSERT ON body_ref BEGIN
+               UPDATE change_counter SET n=n+1;
+               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE epoch_id=NEW.epoch_id AND entry_id=NEW.entry_id; END""",
+            """CREATE TRIGGER IF NOT EXISTS body_ref_change_changed AFTER UPDATE ON body_ref BEGIN
+               UPDATE change_counter SET n=n+1;
+               UPDATE entry SET change_seq=(SELECT n FROM change_counter) WHERE epoch_id=NEW.epoch_id AND entry_id=NEW.entry_id; END""",
             """CREATE TRIGGER IF NOT EXISTS body_ref_added AFTER INSERT ON body_ref BEGIN
                UPDATE epoch SET body_bytes=body_bytes+NEW.bytes, not_archived=not_archived+(NEW.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
             """CREATE TRIGGER IF NOT EXISTS body_ref_changed AFTER UPDATE ON body_ref BEGIN
@@ -415,12 +457,17 @@ class HostStore(
 
         /**
          * The archive's format. Version 1 (2026-11-20): an archive from before versions were kept
-         * is not converted (the user's call: nothing is released).
+         * is not converted (the user's call: nothing is released). Version 2 (069): columns each
+         * query narrows by, change numbers, link counts; format 1 is not converted either.
          */
         val SCHEMA = StoreSchema(
-            version = 1,
+            version = 2,
             create = CREATE,
-            migrations = mapOf(1 to Migration.StartOver("the archive was in a format from before format versions (2026-11-20); it was cleared")),
+            migrations = mapOf(
+                1 to Migration.StartOver("the archive was in a format from before format versions (2026-11-20); it was cleared"),
+                // Feature 069 (the user's call, 2026-11-20): columns queries narrow by and change numbers; not converted.
+                2 to Migration.StartOver("the archive was in format 1, from before queries read it from disk (2026-11-20); it was cleared"),
+            ),
         )
 
         fun ownerOnly(file: File, directory: Boolean) {
