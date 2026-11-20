@@ -34,6 +34,8 @@ import io.yamsergey.dta.protocol.network.NetworkFilter
 import io.yamsergey.dta.protocol.network.SearchPage
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
 import kotlinx.coroutines.async
+import io.yamsergey.dta.daemon.store.StoreEntrySource
+import io.yamsergey.dta.protocol.network.EntrySourceProvider
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
@@ -57,6 +59,8 @@ class HostIndex(
     /** Feature 051: a text message's envelope by the app's format rules, for `type:` and `topic:`. */
     private val readEnvelope: (io.yamsergey.dta.protocol.network.WsMessageEntry, String) -> io.yamsergey.dta.protocol.network.Envelope? =
         { _, text -> io.yamsergey.dta.protocol.network.WsFormats.detect(text) },
+    /** Feature 069: how long an answer counts its matches after its page, unless the query says (research R3). */
+    private val countBudgetMs: Long? = DEFAULT_COUNT_BUDGET_MS,
     private val connection: suspend () -> AppConnection,
 ) {
     /** Journal records per request, and requests per answer before the rest is left to the next one. */
@@ -89,7 +93,6 @@ class HostIndex(
     /** Feature 068: catch-ups an answer started and did not wait for. */
     private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     @Volatile private var epoch: Epoch? = null
-    private val live = LinkedHashMap<String, NetworkEntry>()
     @Volatile private var context: HistoryContext? = null
     private var lag = 0L
     /** Entries the device cleared that the host never read, known when the clear went through the daemon. */
@@ -99,8 +102,27 @@ class HostIndex(
     private var lastAckMs: Long? = null
     private var archiveHeld: String? = null
 
-    private val view = NetworkHistoryView({ live.values.toList() }, { live[it] }, { context!! }, { e, p -> hostBodyBytes(epoch?.id, e, p) },
-        { entry, part -> decodedJson(entry, part, epoch?.id, live::get) }, readEnvelope)
+    /**
+     * Feature 069 (research R1): the live epoch as one answer reads it, from disk; [held] is a read
+     * already open (a view's pass reads its change numbers from it too).
+     */
+    private fun liveView(epochId: String?, ctx: HistoryContext, held: StoreEntrySource? = null) = NetworkHistoryView.over(
+        EntrySourceProvider { f -> held?.let(::Held) ?: store.readSource(listOfNotNull(epochId), f) }, { ctx },
+        { e, p -> hostBodyBytes(epochId, e, p) }, { entry, part -> decodedJson(entry, part, epochId) { socketOf(epochId, it) } }, readEnvelope,
+        countBudgetMs = countBudgetMs,
+    )
+
+    /** A read the caller closes. */
+    private class Held(private val source: StoreEntrySource) : io.yamsergey.dta.protocol.network.EntrySource by source {
+        override fun close() {}
+    }
+
+    /** A socket of the live epoch: kept once seen (few per run), else read from disk. */
+    private fun socketOf(epochId: String?, id: String): WsConnectionEntry? = liveSockets[id]
+        ?: (epochId?.let { store.entry(it, id) } as? WsConnectionEntry)?.also { liveSockets.putIfAbsent(id, it) }
+
+    private fun emptyContext() = HistoryContext("", io.yamsergey.dta.protocol.network.Coverage(searched = 0, stored = 0, persisted = true),
+        io.yamsergey.dta.protocol.rpc.CapabilityStatus(NetworkHistoryView.CAPABILITY, io.yamsergey.dta.protocol.rpc.CapabilityStatus.Status.AVAILABLE))
 
     /**
      * Feature 067: bodies of finished live entries not copied yet, kept as records arrive and copies
@@ -109,15 +131,9 @@ class HostIndex(
     /** Feature 067: an entry whose body was just copied here — a live view decides it again (it was decided by its preview). */
     val copied = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1024, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
 
-    private val pendingCopies = java.util.concurrent.ConcurrentHashMap<Pair<String, BodyPart>, PendingBody>()
     /** Bodies being copied now: an answer and the copy worker never append to one partial file at once. */
     private val copying = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<String, BodyPart>>()
 
-    /** Feature 067: each live entry's change number (new or updated record), and the last one given. */
-    private val changeSeq = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val seqs = java.util.concurrent.atomic.AtomicLong()
-    private fun nextSeq() = seqs.incrementAndGet()
-    private val lastSeq: Long get() = seqs.get()
     /** Feature 067: bumped whenever live entries are dropped (a new epoch, a rollback). */
     var removals = 0L
         private set
@@ -155,7 +171,8 @@ class HostIndex(
             val (kind, candidates) = if (reusable(query)) views.candidates(view, query, state) else LiveViews.Kind.FULL to null
             val ids = HashSet<String>()
             val page = v.list(query, candidates = candidates, stop = stop, onMatch = { e, _ -> ids += e.id })
-            if (reusable(query)) views.record(view, query, state, ids) else views.drop(view)
+            // A set is only what a complete pass matched (feature 069: counting may stop at its budget).
+            if (reusable(query) && page.counts == null) views.record(view, query, state, ids) else views.drop(view)
             lastPass = kind
             page
         }
@@ -190,9 +207,8 @@ class HostIndex(
     fun decide(view: String, query: NetworkQuery, entry: NetworkEntry, socketUrl: (String) -> String?): Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean> {
         (entry as? WsConnectionEntry)?.let { liveSockets.putIfAbsent(it.id, it) }
         val epochId = epoch?.id
-        val ctx = context ?: HistoryContext("", io.yamsergey.dta.protocol.network.Coverage(searched = 0, stored = 0, persisted = true),
-            io.yamsergey.dta.protocol.rpc.CapabilityStatus(NetworkHistoryView.CAPABILITY, io.yamsergey.dta.protocol.rpc.CapabilityStatus.Status.AVAILABLE))
-        fun socket(id: String): NetworkEntry? = liveSockets[id]
+        val ctx = context ?: emptyContext()
+        fun socket(id: String): NetworkEntry? = socketOf(epochId, id)
             ?: socketUrl(id)?.let { WsConnectionEntry(id, entry.runId, 0, entry.library, url = it, state = WsState.OPEN) }
         val v = NetworkHistoryView({ emptyList() }, ::socket, { ctx }, { e, p -> hostBodyBytes(epochId, e, p) },
             { e, p -> decodedJson(e, p, epochId, ::socket) }, readEnvelope)
@@ -201,52 +217,47 @@ class HostIndex(
     }
 
     /** Feature 067: a live entry as this computer holds it now (after its body was copied). */
-    suspend fun liveEntry(id: String): NetworkEntry? = mutex.withLock { live[id] }
+    suspend fun liveEntry(id: String): NetworkEntry? = epoch?.let { store.entry(it.id, id) }
 
     private fun resetLive() {
         liveSockets.clear()
-        live.clear()
-        changeSeq.clear()
-        pendingCopies.clear()
         removals++
     }
 
-    private fun putLive(epochId: String, records: List<NetworkEntry>, emit: Boolean = true) {
+    /**
+     * After [records] went into the store ([created]: the ids that were new there): watchers are told,
+     * and each finished entry's bodies are archived from its preview when it holds them whole, else
+     * noted as still to copy (feature 069: on disk, not in memory).
+     */
+    private fun putLive(epochId: String, records: List<NetworkEntry>, created: Set<String>) {
+        val told = HashSet<String>()
         for (r in records) {
-            val created = !live.containsKey(r.id)
-            live[r.id] = r
-            if (emit) emitApplied(r, created)
+            emitApplied(r, r.id in created && told.add(r.id))
             if (r is WsConnectionEntry) liveSockets[r.id] = r
-            changeSeq[r.id] = nextSeq()
-            BodyPart.entries.forEach { pendingCopies.remove(r.id to it) }
-            if (inFlight(r)) continue
-            for (part in BodyPart.entries) {
+            val pendingParts = ArrayList<Pair<BodyPart, Long>>()
+            if (!inFlight(r)) for (part in BodyPart.entries) {
                 val info = NetworkHistoryView.bodyOf(r, part) ?: continue
                 if (info.storedBytes <= 0 || store.bodyRef(epochId, r.id, part) != null) continue
                 // Feature 068: a body its preview holds whole (a small text message) is archived with its record.
                 val whole = info.wholeText()
                 if (whole != null) whole.toByteArray(Charsets.UTF_8).inputStream().use { store.putBody(epochId, r.id, part, it) }
-                else pendingCopies[r.id to part] = PendingBody(r.id, part, info.storedBytes)
+                else pendingParts += part to info.storedBytes
             }
+            store.setPending(epochId, r.id, pendingParts)
         }
     }
 
     /**
-     * Feature 067: what a pass over the live history needs, taken under the mutex and read without it,
-     * so that opening an entry never waits for a search.
+     * Feature 069: a pass over the live history on one read of the disk, outside the mutex: the view,
+     * and what a live view needs from the same read (change numbers, bodies not copied).
      */
-    private class Snapshot(
-        val entries: List<NetworkEntry>, val byId: Map<String, NetworkEntry>, val epochId: String?, val context: HistoryContext,
-        val seq: Long, val removals: Long, val changes: Map<String, Long>, val pending: Set<String>,
-    )
-
-    private fun snapshot() = Snapshot(ArrayList(live.values), HashMap(live), epoch?.id, context!!, lastSeq, removals, HashMap(changeSeq),
-        pendingCopies.keys.filter { (id, part) -> !whole(live[id], part) }.mapTo(HashSet()) { it.first })
-
-    private fun Snapshot.state() = LiveState(epochId, seq, removals, entries, changes, pending)
-
-    private fun viewOf(s: Snapshot) = NetworkHistoryView({ s.entries }, { s.byId[it] }, { s.context }, { e, p -> hostBodyBytes(s.epochId, e, p) },
-        { entry, part -> decodedJson(entry, part, s.epochId, s.byId::get) }, readEnvelope)
+    private fun <T> livePass(query: NetworkQuery, epochId: String?, ctx: HistoryContext, pass: (NetworkHistoryView, LiveState) -> T): T {
+        val filter = runCatching { query.resolved().first }.getOrNull()
+        return store.readSource(listOfNotNull(epochId), filter).use { src ->
+            val state = LiveState(epochId, src.changeNow(), removals, src::changeOf, epochId?.let(store::pendingIds).orEmpty())
+            pass(liveView(epochId, ctx, src), state)
+        }
+    }
 
     suspend fun list(query: NetworkQuery): NetworkPage = list(query, pass = { v, _ -> v.list(query) })
 
@@ -259,22 +270,22 @@ class HostIndex(
         val toCopy = mutex.withLock {
             val app = connection()
             if (!sync(app)) return appAnswers(app, query)
-            if (needsBodies(query)) pending().filterNot { whole(live[it.entryId], it.part) } else emptyList()
+            if (needsBodies(query)) pending() else emptyList()
         }
         // Copied outside the mutex: opening an entry does not wait for the bodies a search needs.
         copyAll(toCopy)
-        val (snap, extra) = mutex.withLock {
-            snapshot() to Extra(
+        val (at, extra) = mutex.withLock {
+            Triple(epoch?.id, context!!, removals) to Extra(
                 hostLagRecords = lag.takeIf { it > 0 },
-                bodiesPending = pendingCopies.size.takeIf { it > 0 },
+                bodiesPending = epoch?.let { store.pendingBodies(it.id).size }?.takeIf { it > 0 },
                 bodiesNotArchived = epoch?.let { store.countNotArchived(it.id) }?.takeIf { it > 0 },
                 archivedEpochs = store.archivedCount(device.key, packageName).takeIf { it > 0 },
                 archivingStopped = store.archivingStopped,
-                hostOnly = (live.size - deviceEntries).toLong().takeIf { lag == 0L && it > 0 },
+                hostOnly = (liveCount() - deviceEntries).toLong().takeIf { lag == 0L && it > 0 },
                 archiveHeld = archiveHeld,
             )
         }
-        val page = pass(viewOf(snap), snap.state())
+        val page = livePass(query, at.first, at.second, pass)
         return page.copy(
             coverage = page.coverage.copy(
                 hostLagRecords = extra.hostLagRecords,
@@ -303,11 +314,10 @@ class HostIndex(
         val epochId: String?,
         val seq: Long,
         val removals: Long,
-        val entries: List<NetworkEntry>,
-        private val changes: Map<String, Long>,
+        private val changeOf: (String) -> Long?,
         private val pending: Set<String>,
     ) {
-        fun changedSince(seq: Long): (NetworkEntry) -> Boolean = { (changes[it.id] ?: Long.MAX_VALUE) > seq }
+        fun changedSince(seq: Long): (NetworkEntry) -> Boolean = { (changeOf(it.id) ?: Long.MAX_VALUE) > seq }
 
         /** Read in part by a pass: some body is not here whole as text, so the counts it adds depend on the query. */
         fun partial(entry: NetworkEntry): Boolean = entry.id in pending || NetworkHistoryView.bodiesOf(entry).any { b ->
@@ -350,12 +360,13 @@ class HostIndex(
                 unknown = "this app's DTA library is older and does not report its history's size; update it"
                 null
             } else {
-                val waiting = (pending().map { it.entryId } + live.values.filter(::inFlight).map { it.id }).toSet().size
+                val waiting = epoch?.let { store.waitingCount(it.id) } ?: 0
+                val (earliest, latest) = epoch?.let { store.timeSpan(it.id) } ?: (null to null)
                 io.yamsergey.dta.protocol.network.DeviceHistory(
                     entries = deviceEntries,
                     bytes = c.deviceBytes ?: 0,
-                    earliestMs = c.earliestMs ?: live.values.minOfOrNull { it.timeMs },
-                    latestMs = live.values.maxOfOrNull { it.timeMs },
+                    earliestMs = c.earliestMs ?: earliest,
+                    latestMs = latest,
                     archivedEntries = (deviceEntries - waiting).coerceAtLeast(0).takeIf { lag == 0L },
                     keepBytes = c.keepBytes!!,
                     warnBytes = c.warnBytes!!,
@@ -374,7 +385,7 @@ class HostIndex(
             null
         }
         return io.yamsergey.dta.protocol.network.HistorySummary(deviceHistory, unknown, archiveHistory(),
-            hostOnly = (live.size - deviceEntries).toLong().takeIf { deviceHistory != null && lag == 0L && it > 0 })
+            hostOnly = (liveCount() - deviceEntries).toLong().takeIf { deviceHistory != null && lag == 0L && it > 0 })
     }
 
     /** This app's epochs on this device, live and archived, with their totals. */
@@ -462,11 +473,11 @@ class HostIndex(
             if (!sync(app)) {
                 return SearchPage(emptyList(), 0, searched = 0, degraded = listOf(DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)))
             }
-            pending().filterNot { whole(live[it.entryId], it.part) }
+            pending()
         }
         copyAll(toCopy)
-        val snap = mutex.withLock { snapshot() }
-        return pass(viewOf(snap), snap.state())
+        val (epochId, ctx) = mutex.withLock { epoch?.id to context!! }
+        return livePass(query, epochId, ctx, pass)
     }
 
     /**
@@ -477,11 +488,11 @@ class HostIndex(
         val toCopy = mutex.withLock {
             val app = connection()
             check(sync(app)) { "this app's network history is not copied to this computer, so Network's filters cannot be applied to its timeline" }
-            if (needsBodies(query)) pending().filterNot { whole(live[it.entryId], it.part) } else emptyList()
+            if (needsBodies(query)) pending() else emptyList()
         }
         copyAll(toCopy)
-        val snap = mutex.withLock { snapshot() }
-        return viewOf(snap).passing(query)
+        val (epochId, ctx) = mutex.withLock { epoch?.id to context!! }
+        return liveView(epochId, ctx).passing(query)
     }
 
     private fun needsBodies(query: NetworkQuery): Boolean {
@@ -500,7 +511,7 @@ class HostIndex(
 
     /** The device cleared [clearedEntries]: those the host never read are counted on the archived epoch. */
     suspend fun cleared(clearedEntries: Int) = mutex.withLock {
-        neverReceived = (clearedEntries - live.size).coerceAtLeast(0)
+        neverReceived = (clearedEntries - liveCount()).coerceAtLeast(0)
     }
 
     /** An entry of the live history, else of the archive (marked); the archive answers with the app gone. */
@@ -508,18 +519,18 @@ class HostIndex(
         val app = runCatching { connection() }.getOrNull()
         if (app != null) {
             if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), app.request("network_entry", buildJsonObject { put("id", id) }))
-            if (live.containsKey(id)) return view.entry(id)
+            if (epoch?.let { store.entry(it.id, id) } != null) return liveView(epoch?.id, context ?: emptyContext()).entry(id)
         }
         val (archivedEpoch, _) = store.findArchived(device.key, packageName, id) ?: run {
             if (app == null) connection() // the app is gone and the archive has nothing: say why the app cannot answer
-            return view.entry(id)
+            return liveView(epoch?.id, context ?: emptyContext()).entry(id)
         }
         archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch))
     }
 
     /** A body as the host holds it (live or archived), or null when it has not been copied. */
     suspend fun storedBody(id: String, part: BodyPart): Pair<BodyInfo, ByteArray>? = mutex.withLock {
-        val (epochId, entry) = epoch?.takeIf { live.containsKey(id) }?.let { it.id to live.getValue(id) }
+        val (epochId, entry) = epoch?.let { e -> store.entry(e.id, id)?.let { e.id to it } }
             ?: store.findArchived(device.key, packageName, id)?.let { (e, entry) -> e.id to entry }
             ?: return null
         val info = NetworkHistoryView.bodyOf(entry, part) ?: return null
@@ -631,10 +642,10 @@ class HostIndex(
                 }
             }
             if (records.isNotEmpty()) {
-                store.putEntries(current.id, records)
+                val created = store.putEntries(current.id, records)
                 // Feature 068: small bodies come with their records; nothing is asked for them.
                 storeBodies(current.id, page.bodies)
-                putLive(current.id, records)
+                putLive(current.id, records, created)
                 lastId = records.last().id
             }
             position = next
@@ -717,9 +728,9 @@ class HostIndex(
         }
         var lastId = saved.lastId
         if (batch.records.isNotEmpty()) {
-            store.putEntries(current.id, batch.records)
+            val created = store.putEntries(current.id, batch.records)
             storeBodies(current.id, batch.bodies)
-            putLive(current.id, batch.records)
+            putLive(current.id, batch.records, created)
             lastId = batch.records.last().id
         }
         store.setCursor(device.key, packageName, batch.journalId, batch.to, lastId)
@@ -777,7 +788,7 @@ class HostIndex(
         if (first == lastId) return Continuity.SAME
         // Feature 066: the device removed what this computer archived up to there; a missing line is that, not a rollback.
         coverage.archivedThrough?.let { through -> if (cursorAtOrBefore(line, through)) return Continuity.GOES_ON }
-        val time = live[lastId]?.timeMs
+        val time = epoch?.let { store.entry(it.id, lastId) }?.timeMs
         val evicted = removed > 0 && (coverage.earliestMs == null || time == null || time <= coverage.earliestMs!!)
         if (evicted) return Continuity.GOES_ON
         // That line was cut when read (being written, or a crash): the record is one line earlier.
@@ -818,10 +829,8 @@ class HostIndex(
 
     /** The open epoch of this journal; a different journal closes the old one (the archive) and opens one. */
     private suspend fun currentEpoch(app: AppConnection, identity: JournalIdentityResult): Epoch {
-        val known = epoch ?: store.liveEpoch(device.key, packageName)?.also { e ->
-            resetLive()
-            putLive(e.id, store.entries(e.id), emit = false)
-        }
+        // Feature 069: nothing of the epoch is read here; answers read it from disk.
+        val known = epoch ?: store.liveEpoch(device.key, packageName)?.also { resetLive() }
         val cursor = store.cursor(device.key, packageName)
         if (known != null && cursor?.journalId == identity.journalId && known.journalId == identity.journalId) return known.also { epoch = it }
         val installation = installation(app)
@@ -860,10 +869,10 @@ class HostIndex(
     /** Bodies of finished entries in the live epoch that the host has not copied (US7). */
     suspend fun pendingBodies(): List<PendingBody> = mutex.withLock { pending() }
 
-    private fun pending(): List<PendingBody> {
-        val order = live.keys.withIndex().associate { it.value to it.index }
-        return pendingCopies.values.sortedWith(compareBy({ order[it.entryId] ?: Int.MAX_VALUE }, { it.part.ordinal }))
-    }
+    private fun pending(): List<PendingBody> = epoch?.let { e -> store.pendingBodies(e.id).map { (id, part, bytes) -> PendingBody(id, part, bytes) } }.orEmpty()
+
+    /** Entries of the live epoch on this computer. */
+    private fun liveCount(): Int = epoch?.let { store.entryCount(it.id) } ?: 0
 
     private fun inFlight(entry: NetworkEntry): Boolean = when (entry) {
         is HttpEntry -> entry.state == HttpState.PENDING
@@ -893,7 +902,7 @@ class HostIndex(
     suspend fun copyBody(entryId: String, part: BodyPart, paced: suspend (bytes: Long, ms: Long) -> Unit = { _, _ -> }) {
         val e = epoch ?: return
         val key = entryId to part
-        if (!pendingCopies.containsKey(key) || !copying.add(key)) return
+        if (!store.isPending(e.id, entryId, part) || !copying.add(key)) return
         try {
             copyOne(e, entryId, part, paced)
         } finally {
@@ -903,10 +912,8 @@ class HostIndex(
 
     private suspend fun copyOne(e: Epoch, entryId: String, part: BodyPart, paced: suspend (bytes: Long, ms: Long) -> Unit) {
         // A body all in its preview (a small text message): archived from the record; the device keeps no file for it.
-        live[entryId]?.let { NetworkHistoryView.bodyOf(it, part)?.wholeText() }?.let { text ->
+        store.entry(e.id, entryId)?.let { NetworkHistoryView.bodyOf(it, part)?.wholeText() }?.let { text ->
             text.toByteArray(Charsets.UTF_8).inputStream().use { store.putBody(e.id, entryId, part, it) }
-            pendingCopies.remove(entryId to part)
-            changeSeq[entryId] = nextSeq()
             copied.tryEmit(entryId)
             return
         }
@@ -933,8 +940,6 @@ class HostIndex(
             }
             partial.inputStream().use { store.putBody(e.id, entryId, part, it) }
             partial.delete()
-            pendingCopies.remove(entryId to part)
-            changeSeq[entryId] = nextSeq()
             copied.tryEmit(entryId)
         } catch (lost: ConnectionLostException) {
             throw lost
@@ -946,7 +951,6 @@ class HostIndex(
             // Only the app saying it has no such body makes it lost: the archive acknowledgement then lets the device drop it.
             partial.delete()
             store.markNotArchived(e.id, entryId, part, "the app no longer had it: ${gone.message ?: "no body"}")
-            pendingCopies.remove(entryId to part)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             // The answer gave way or the daemon stops: the partial copy resumes later.
             throw cancelled
@@ -988,6 +992,8 @@ class HostIndex(
         /** Feature 067: an answer's own body copying; measured, a backlog of 100k bodies took 871 s. */
         const val SEARCH_COPY_MS = 2_000L
         const val MAX_KEEP = 2_000
+        /** Feature 069 (research R3): an answer's time to count its matches after its page. */
+        const val DEFAULT_COUNT_BUDGET_MS = 300L
 
         /**
          * Feature 040: the app answers a list itself — given the filters every app version knows;

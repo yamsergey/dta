@@ -125,7 +125,10 @@ class NetworkHistoryView private constructor(
         var through: String? = null
         var complete = true
         val matches = if (onMatch != null) ArrayList<Pair<NetworkEntry, Int>>() else null
-        for (entry in src.walk(newest, links, null)!!) {
+        // Every entry matches: the source knows how many without walking them (feature 069).
+        val everyEntry = filter == null && terms.isEmpty() && candidates == null && onMatch == null
+        if (everyEntry) { total = src.count(links); counted = total }
+        if (!everyEntry) for (entry in src.walk(newest, links, null)!!) {
             if (deadline != null && nanoTime() >= deadline) { complete = false; break }
             stop()
             counted++

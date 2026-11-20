@@ -139,10 +139,12 @@ class HostStore(
         update("UPDATE epoch SET closed_ms=?, close_reason=?, never_received=? WHERE id=? AND closed_ms IS NULL", closedMs, reason.name, neverReceived, epochId)
     }
 
-    /** Adds or replaces entries of [epochId]; a new entry gets the next sequence number. */
+    /** Adds or replaces entries of [epochId]; a new entry gets the next sequence number. Returns the ids that were new. */
     @Synchronized
-    fun putEntries(epochId: String, entries: List<NetworkEntry>) = tx {
+    fun putEntries(epochId: String, entries: List<NetworkEntry>): Set<String> = tx {
+        val created = HashSet<String>()
         entries.forEach { e ->
+            if (e.id !in created && query("SELECT 1 FROM entry WHERE epoch_id=? AND entry_id=?", epochId, e.id) { 1 }.isEmpty()) created += e.id
             update(
                 """INSERT INTO entry(epoch_id, entry_id, seq, time_ms, kind, url, status, method, host, connection_id, direction, library, run_id, state, has_body, json)
                    VALUES (?,?,(SELECT coalesce(max(seq),0)+1 FROM entry WHERE epoch_id=?),?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -156,6 +158,7 @@ class HostStore(
                 DtaJson.encodeToString(NetworkEntry.serializer(), e),
             )
         }
+        created
     }
 
     @Synchronized
@@ -188,13 +191,15 @@ class HostStore(
                     "INSERT INTO body_ref(epoch_id, entry_id, part, sha256, bytes, not_archived) VALUES (?,?,?,?,?,NULL) ON CONFLICT(epoch_id, entry_id, part) DO UPDATE SET sha256=excluded.sha256, bytes=excluded.bytes, not_archived=NULL",
                     epochId, entryId, part.name, stored.sha256, stored.bytes,
                 )
+                update("DELETE FROM pending_body WHERE epoch_id=? AND entry_id=? AND part=?", epochId, entryId, part.name)
             }
         }
         return BodyRef(stored.sha256, stored.bytes)
     }
 
     @Synchronized
-    fun markNotArchived(epochId: String, entryId: String, part: BodyPart, reason: String) {
+    fun markNotArchived(epochId: String, entryId: String, part: BodyPart, reason: String) = tx {
+        update("DELETE FROM pending_body WHERE epoch_id=? AND entry_id=? AND part=?", epochId, entryId, part.name)
         update(
             "INSERT INTO body_ref(epoch_id, entry_id, part, sha256, bytes, not_archived) VALUES (?,?,?,NULL,0,?) ON CONFLICT(epoch_id, entry_id, part) DO UPDATE SET not_archived=excluded.not_archived",
             epochId, entryId, part.name, reason,
@@ -211,6 +216,45 @@ class HostStore(
     /** Where a body being copied in chunks collects until it is whole (a disconnect resumes from its size). */
     fun partialFile(epochId: String, entryId: String, part: BodyPart): File =
         File(root, "partial/" + "$epochId-$entryId-${part.name}".replace(Regex("[^A-Za-z0-9_.-]"), "_")).apply { parentFile.mkdirs() }
+
+    /** Feature 069: one entry of an epoch, read from disk. */
+    @Synchronized
+    fun entry(epochId: String, entryId: String): NetworkEntry? =
+        query("SELECT json FROM entry WHERE epoch_id=? AND entry_id=?", epochId, entryId) { DtaJson.decodeFromString(NetworkEntry.serializer(), it.getString(1)) }.firstOrNull()
+
+    /** Feature 069: the earliest and latest entry time of an epoch. */
+    @Synchronized
+    fun timeSpan(epochId: String): Pair<Long?, Long?> =
+        query("SELECT min(time_ms), max(time_ms) FROM entry WHERE epoch_id=?", epochId) { r -> r.getLong(1).takeUnless { r.wasNull() } to r.getLong(2).takeUnless { r.wasNull() } }.first()
+
+    /** Feature 069: entries of an epoch still waiting: a body to copy, or not finished (a call in flight, a socket open). */
+    @Synchronized
+    fun waitingCount(epochId: String): Int = query(
+        """SELECT count(*) FROM (SELECT entry_id FROM pending_body WHERE epoch_id=? UNION
+           SELECT entry_id FROM entry WHERE epoch_id=? AND ((kind='http' AND state='PENDING') OR (kind='ws-connection' AND state IN ('OPEN','CONNECTING'))))""",
+        epochId, epochId,
+    ) { it.getInt(1) }.first()
+
+    /** Feature 069: the bodies of [entryId] still to copy (replacing what was said before). */
+    @Synchronized
+    fun setPending(epochId: String, entryId: String, parts: List<Pair<BodyPart, Long>>) = tx {
+        update("DELETE FROM pending_body WHERE epoch_id=? AND entry_id=?", epochId, entryId)
+        parts.forEach { (part, bytes) -> update("INSERT INTO pending_body(epoch_id, entry_id, part, bytes) VALUES (?,?,?,?)", epochId, entryId, part.name, bytes) }
+    }
+
+    @Synchronized
+    fun isPending(epochId: String, entryId: String, part: BodyPart): Boolean =
+        query("SELECT 1 FROM pending_body WHERE epoch_id=? AND entry_id=? AND part=?", epochId, entryId, part.name) { 1 }.isNotEmpty()
+
+    /** Feature 069: bodies still to copy, in first-record order, then by part. */
+    @Synchronized
+    fun pendingBodies(epochId: String): List<Triple<String, BodyPart, Long>> = query(
+        "SELECT p.entry_id, p.part, p.bytes, e.seq FROM pending_body p JOIN entry e ON e.epoch_id=p.epoch_id AND e.entry_id=p.entry_id WHERE p.epoch_id=?", epochId,
+    ) { r -> Triple(r.getString(1), BodyPart.valueOf(r.getString(2)), r.getLong(3)) to r.getLong(4) }
+        .sortedWith(compareBy({ it.second }, { it.first.second.ordinal })).map { it.first }
+
+    @Synchronized
+    fun pendingIds(epochId: String): Set<String> = query("SELECT DISTINCT entry_id FROM pending_body WHERE epoch_id=?", epochId) { it.getString(1) }.toSet()
 
     @Synchronized
     fun countNotArchived(epochId: String): Int = query("SELECT not_archived FROM epoch WHERE id=?", epochId) { it.getInt(1) }.firstOrNull() ?: 0
@@ -335,6 +379,7 @@ class HostStore(
                     update("UPDATE body SET ref_count=ref_count-1 WHERE sha256=?", sha)
                 }
                 update("DELETE FROM body_ref WHERE epoch_id=?", id)
+                update("DELETE FROM pending_body WHERE epoch_id=?", id)
                 update("DELETE FROM entry WHERE epoch_id=?", id)
                 update("DELETE FROM epoch WHERE id=?", id)
             }
@@ -456,6 +501,8 @@ class HostStore(
             "CREATE INDEX IF NOT EXISTS entry_connection ON entry(epoch_id, connection_id, seq)",
             "CREATE INDEX IF NOT EXISTS entry_change ON entry(epoch_id, change_seq)",
             "CREATE TABLE IF NOT EXISTS change_counter(n INTEGER NOT NULL)",
+            // Feature 069: bodies of finished entries not copied yet (large ones; small ones come with their records).
+            "CREATE TABLE IF NOT EXISTS pending_body(epoch_id TEXT NOT NULL, entry_id TEXT NOT NULL, part TEXT NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY(epoch_id, entry_id, part))",
             "INSERT INTO change_counter(n) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM change_counter)",
             "CREATE TABLE IF NOT EXISTS body(sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, ref_count INTEGER NOT NULL)",
             """CREATE TABLE IF NOT EXISTS body_ref(epoch_id TEXT NOT NULL, entry_id TEXT NOT NULL, part TEXT NOT NULL, sha256 TEXT, bytes INTEGER NOT NULL,

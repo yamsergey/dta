@@ -108,7 +108,8 @@ class EntrySourceTest {
                 assertEquals(a.next, b.next)
                 assertEquals(a.fields, b.fields)
                 assertEquals(a.coverage.searched, b.coverage.searched, "how many were searched is known without counting")
-                if (a.total > b.entries.size) {
+                if (b.counts == null) assertEquals(a.total, b.total, "exact when it says nothing")
+                else if (a.total > b.entries.size) {
                     val counts = b.counts!!
                     assertEquals(false, counts.complete)
                     assertTrue(b.total in b.entries.size..a.total, "a lower bound: ${b.total} of ${a.total}")
@@ -133,5 +134,14 @@ class EntrySourceTest {
         val v = sourceView(entries, bodies, budgetMs = null)
         assertFailsWith<InvalidParamsException> { v.list(NetworkQuery(before = "r1:nope")) }
         assertFailsWith<InvalidParamsException> { v.search(NetworkQuery(q = "tick", before = "r1:nope")) }
+    }
+
+    @Test
+    fun `with no filter and no words, the total is known without counting`() {
+        val (entries, bodies) = history(5, size = 300)
+        val exact = listView(entries, bodies).list(NetworkQuery(limit = 10))
+        val pageOnly = sourceView(entries, bodies, budgetMs = 0).list(NetworkQuery(limit = 10))
+        assertEquals(exact, pageOnly)
+        assertNull(pageOnly.counts)
     }
 }

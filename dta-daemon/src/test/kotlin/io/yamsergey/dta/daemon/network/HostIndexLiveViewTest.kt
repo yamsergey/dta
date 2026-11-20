@@ -279,7 +279,7 @@ class HostIndexLiveViewTest {
     @Test
     fun `match sets are bounded per view and in all`() {
         val views = LiveViews(perView = 2, total = 3)
-        val state = HostIndex.LiveState("e1", 0, 0, emptyList(), emptyMap(), emptySet())
+        val state = HostIndex.LiveState("e1", 0, 0, { null }, emptySet())
         for (v in listOf("a", "b")) for (q in listOf("x", "y", "z")) views.record(v, NetworkQuery(q = q), state, setOf("1"))
         assertTrue(views.size() <= 3)
     }
