@@ -463,11 +463,25 @@ class HostStore(
     }
 
     /** Epochs [epochIds] (in the order their entries come) as one answer reads them; [filter] narrows the rows read. */
-    fun readSource(epochIds: List<String>, filter: io.yamsergey.dta.protocol.network.NetworkFilter?): StoreEntrySource =
-        StoreEntrySource(reader(), epochIds, PreSelection.of(filter)) { c ->
+    fun readSource(
+        epochIds: List<String>,
+        filter: io.yamsergey.dta.protocol.network.NetworkFilter?,
+        /** Feature 070: what an entry's words must hold; rows the word index knows lack it are not read. */
+        need: io.yamsergey.dta.protocol.network.Need = io.yamsergey.dta.protocol.network.Need.Any,
+    ): StoreEntrySource =
+        StoreEntrySource(reader(), epochIds, PreSelection.of(filter), { c ->
             runCatching { c.rollback() }
             readers.offer(c)
-        }
+        }, WordIndexSql.match(need), readPage)
+
+    /** Rows an answer reads at a time; tests make it small. */
+    internal var readPage: Int = StoreEntrySource.PAGE
+
+    /** Feature 070: epochs [epochIds] as answers open them, narrowed by the query's filter and its words' need. */
+    fun sources(epochIds: () -> List<String>): io.yamsergey.dta.protocol.network.EntrySourceProvider = object : io.yamsergey.dta.protocol.network.EntrySourceProvider {
+        override fun open(filter: io.yamsergey.dta.protocol.network.NetworkFilter?) = readSource(epochIds(), filter)
+        override fun open(filter: io.yamsergey.dta.protocol.network.NetworkFilter?, need: io.yamsergey.dta.protocol.network.Need) = readSource(epochIds(), filter, need)
+    }
 
     override fun close() {
         generateSequence { readers.poll() }.forEach { runCatching { it.close() } }

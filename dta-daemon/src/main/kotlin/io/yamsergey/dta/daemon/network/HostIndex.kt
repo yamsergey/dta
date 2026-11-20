@@ -124,18 +124,13 @@ class HostIndex(
     private var archiveHeld: String? = null
 
     /**
-     * Feature 069 (research R1): the live epoch as one answer reads it, from disk; [held] is a read
-     * already open.
+     * Feature 069 (research R1): the live epoch as one answer reads it, from disk (each answer opens
+     * one read); feature 070: narrowed by the query's filter and its words' need.
      */
-    private fun liveView(epochId: String?, ctx: HistoryContext, held: StoreEntrySource? = null) = NetworkHistoryView.over(
-        EntrySourceProvider { f -> held?.let(::Held) ?: store.readSource(listOfNotNull(epochId), f) }, { ctx },
+    private fun liveView(epochId: String?, ctx: HistoryContext) = NetworkHistoryView.over(
+        store.sources { listOfNotNull(epochId) }, { ctx },
         { e, p -> hostBodyBytes(epochId, e, p) }, { entry, part -> decodedJson(entry, part, epochId) { socketOf(epochId, it) } }, readEnvelope,
     )
-
-    /** A read the caller closes. */
-    private class Held(private val source: StoreEntrySource) : io.yamsergey.dta.protocol.network.EntrySource by source {
-        override fun close() {}
-    }
 
     /** A socket of the live epoch: kept once seen (few per run), else read from disk. */
     private fun socketOf(epochId: String?, id: String): WsConnectionEntry? = liveSockets[id]
@@ -238,10 +233,8 @@ class HostIndex(
     }
 
     /** Feature 069: a pass over the live history on one read of the disk (one transaction), outside the mutex. */
-    private fun <T> livePass(query: NetworkQuery, epochId: String?, ctx: HistoryContext, pass: (NetworkHistoryView) -> T): T {
-        val filter = runCatching { query.resolved().first }.getOrNull()
-        return store.readSource(listOfNotNull(epochId), filter).use { src -> pass(liveView(epochId, ctx, src)) }
-    }
+    private fun <T> livePass(@Suppress("UNUSED_PARAMETER") query: NetworkQuery, epochId: String?, ctx: HistoryContext, pass: (NetworkHistoryView) -> T): T =
+        pass(liveView(epochId, ctx))
 
     suspend fun list(query: NetworkQuery): NetworkPage = list(query, pass = { v -> v.list(query) })
 
@@ -523,7 +516,7 @@ class HostIndex(
         )
         fun byId(id: String): NetworkEntry? = store.epochOf(ids, id)?.let { store.entry(it, id) }
         return NetworkHistoryView.over(
-            EntrySourceProvider { f -> store.readSource(ids, f) }, { context },
+            store.sources { ids }, { context },
             { entry, part ->
                 val info = NetworkHistoryView.bodyOf(entry, part)
                 // A preview that is all of the body is the body (as for the live epoch: no disk read).
