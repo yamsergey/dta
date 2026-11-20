@@ -146,15 +146,17 @@ class HostStore(
         entries.forEach { e ->
             if (e.id !in created && query("SELECT 1 FROM entry WHERE epoch_id=? AND entry_id=?", epochId, e.id) { 1 }.isEmpty()) created += e.id
             update(
-                """INSERT INTO entry(epoch_id, entry_id, seq, time_ms, kind, url, status, method, host, connection_id, direction, library, run_id, state, has_body, json)
-                   VALUES (?,?,(SELECT coalesce(max(seq),0)+1 FROM entry WHERE epoch_id=?),?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO entry(epoch_id, entry_id, seq, time_ms, kind, url, status, method, host, connection_id, direction, library, run_id, state, has_body, derived, json)
+                   VALUES (?,?,(SELECT coalesce(max(seq),0)+1 FROM entry WHERE epoch_id=?),?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(epoch_id, entry_id) DO UPDATE SET time_ms=excluded.time_ms, kind=excluded.kind, url=excluded.url, status=excluded.status,
                      method=excluded.method, host=excluded.host, connection_id=excluded.connection_id, direction=excluded.direction, library=excluded.library,
-                     run_id=excluded.run_id, state=excluded.state, has_body=excluded.has_body, json=excluded.json""",
+                     run_id=excluded.run_id, state=excluded.state, has_body=excluded.has_body, derived=excluded.derived, json=excluded.json""",
                 epochId, e.id, epochId, e.timeMs, kindOf(e), urlOf(e), (e as? HttpEntry)?.status,
                 (e as? HttpEntry)?.method, urlOf(e)?.takeUnless { e is WsMessageEntry }?.let(io.yamsergey.dta.protocol.network.NetworkFilterEval::hostOf),
                 connectionOf(e), (e as? WsMessageEntry)?.direction?.name, e.library, e.runId, stateOf(e),
                 if (io.yamsergey.dta.protocol.network.NetworkHistoryView.bodiesOf(e).isNotEmpty()) 1 else 0,
+                // Feature 070 (research R8): a binary body is searched as the app's schemas decode it, so its words follow them.
+                if (io.yamsergey.dta.protocol.network.NetworkHistoryView.bodiesOf(e).any { it.binary }) 1 else 0,
                 DtaJson.encodeToString(NetworkEntry.serializer(), e),
             )
         }
@@ -392,6 +394,55 @@ class HostStore(
         return ArchiveDeleted(ids.size, entries, freed.size, bytes)
     }
 
+    // --- Feature 070: the word index (research R5, R8)
+
+    /** Entries of [epochIds] whose words are to be (re)written, newest first, with the change mark read. */
+    @Synchronized
+    fun pendingWords(epochIds: List<String>, limit: Int): List<PendingWords> {
+        if (epochIds.isEmpty()) return emptyList()
+        return query(
+            "SELECT p.rowid, p.mark, e.epoch_id, e.json FROM word_pending p JOIN entry e ON e.rowid=p.rowid WHERE e.epoch_id IN (${epochIds.joinToString(",") { "?" }}) ORDER BY p.rowid DESC LIMIT ?",
+            *epochIds.toTypedArray(), limit,
+        ) { PendingWords(it.getLong(1), it.getInt(2), it.getString(3), DtaJson.decodeFromString(NetworkEntry.serializer(), it.getString(4))) }
+    }
+
+    /** Writes the words read; a pending row changed since it was read stays pending, its words written again later. */
+    @Synchronized
+    fun putWords(writes: List<WordWrite>) = tx {
+        writes.forEach { w ->
+            if (update("DELETE FROM word_pending WHERE rowid=? AND mark=?", w.rowid, w.mark) == 0) return@forEach
+            update("DELETE FROM entry_words WHERE rowid=?", w.rowid)
+            if (w.text.isNotEmpty()) update("INSERT INTO entry_words(rowid, t) VALUES (?,?)", w.rowid, w.text)
+            if (w.cut) update("INSERT OR IGNORE INTO word_partial(rowid) VALUES (?)", w.rowid) else update("DELETE FROM word_partial WHERE rowid=?", w.rowid)
+        }
+    }
+
+    @Synchronized
+    fun pendingWordCount(epochIds: List<String>): Int = if (epochIds.isEmpty()) 0 else query(
+        "SELECT count(*) FROM word_pending p JOIN entry e ON e.rowid=p.rowid WHERE e.epoch_id IN (${epochIds.joinToString(",") { "?" }})", *epochIds.toTypedArray(),
+    ) { it.getInt(1) }.single()
+
+    /** Entries whose words depend on the app's schemas (binary bodies), pending again: the schemas changed. */
+    @Synchronized
+    fun markDerivedPending(epochIds: List<String>) = tx {
+        epochIds.forEach { e ->
+            update("INSERT INTO word_pending(rowid, mark) SELECT rowid, 0 FROM entry WHERE epoch_id=? AND derived=1 AND true ON CONFLICT(rowid) DO UPDATE SET mark=mark+1", e)
+        }
+    }
+
+    @Synchronized
+    fun wordFingerprint(deviceKey: String, packageName: String): String? =
+        query("SELECT fingerprint FROM word_generation WHERE device_key=? AND package=?", deviceKey, packageName) { it.getString(1) }.firstOrNull()
+
+    @Synchronized
+    fun setWordFingerprint(deviceKey: String, packageName: String, fingerprint: String) {
+        update("INSERT INTO word_generation(device_key, package, fingerprint) VALUES (?,?,?) ON CONFLICT(device_key, package) DO UPDATE SET fingerprint=excluded.fingerprint", deviceKey, packageName, fingerprint)
+    }
+
+    /** Bytes the word index takes on disk (its FTS tables), for measurements. */
+    @Synchronized
+    fun wordIndexBytes(): Long = runCatching { query("SELECT coalesce(sum(pgsize),0) FROM dbstat WHERE name LIKE 'entry_words%'") { it.getLong(1) }.single() }.getOrDefault(-1)
+
     /**
      * Feature 069 (research R6): connections that only read, so an answer neither waits for the
      * writer nor holds it up; each answer reads one snapshot (a read transaction).
@@ -493,7 +544,7 @@ class HostStore(
             """CREATE TABLE IF NOT EXISTS entry(epoch_id TEXT NOT NULL REFERENCES epoch(id), entry_id TEXT NOT NULL, seq INTEGER NOT NULL,
                time_ms INTEGER NOT NULL, kind TEXT NOT NULL, url TEXT, status INTEGER,
                method TEXT, host TEXT, connection_id TEXT, direction TEXT, library TEXT, run_id TEXT, state TEXT, has_body INTEGER NOT NULL DEFAULT 0,
-               json TEXT NOT NULL, PRIMARY KEY(epoch_id, entry_id))""",
+               derived INTEGER NOT NULL DEFAULT 0, json TEXT NOT NULL, PRIMARY KEY(epoch_id, entry_id))""",
             "CREATE INDEX IF NOT EXISTS entry_seq ON entry(epoch_id, seq)",
             "CREATE INDEX IF NOT EXISTS entry_time ON entry(epoch_id, time_ms)",
             // Feature 069: what a query narrows by before each entry is decided, newest first by seq.
@@ -516,20 +567,40 @@ class HostStore(
                  not_archived=not_archived+(NEW.not_archived IS NOT NULL)-(OLD.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
             """CREATE TRIGGER IF NOT EXISTS body_ref_removed AFTER DELETE ON body_ref BEGIN
                UPDATE epoch SET body_bytes=body_bytes-OLD.bytes, not_archived=not_archived-(OLD.not_archived IS NOT NULL) WHERE id=OLD.epoch_id; END""",
+            // Feature 070 (research R1, R5): the word index. FTS holds normalised text only (contentless). What changed since its
+            // row was written is pending (each change bumps the mark, so the indexer never takes a change it did not read);
+            // what it holds only in part is partial. Both are always read: nothing is missed while the index catches up.
+            "CREATE VIRTUAL TABLE IF NOT EXISTS entry_words USING fts5(t, content='', contentless_delete=1, detail=none, tokenize='trigram case_sensitive 1')",
+            "CREATE TABLE IF NOT EXISTS word_pending(rowid INTEGER PRIMARY KEY, mark INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS word_partial(rowid INTEGER PRIMARY KEY)",
+            "CREATE TABLE IF NOT EXISTS word_generation(device_key TEXT NOT NULL, package TEXT NOT NULL, fingerprint TEXT NOT NULL, PRIMARY KEY(device_key, package))",
+            "CREATE TRIGGER IF NOT EXISTS entry_words_added AFTER INSERT ON entry BEGIN INSERT INTO word_pending(rowid, mark) VALUES (NEW.rowid, 0) ON CONFLICT(rowid) DO UPDATE SET mark=mark+1; END",
+            "CREATE TRIGGER IF NOT EXISTS entry_words_changed AFTER UPDATE ON entry BEGIN INSERT INTO word_pending(rowid, mark) VALUES (NEW.rowid, 0) ON CONFLICT(rowid) DO UPDATE SET mark=mark+1; END",
+            """CREATE TRIGGER IF NOT EXISTS entry_words_removed AFTER DELETE ON entry BEGIN
+               DELETE FROM entry_words WHERE rowid=OLD.rowid; DELETE FROM word_pending WHERE rowid=OLD.rowid; DELETE FROM word_partial WHERE rowid=OLD.rowid; END""",
+            """CREATE TRIGGER IF NOT EXISTS body_words_added AFTER INSERT ON body_ref BEGIN
+               INSERT INTO word_pending(rowid, mark) SELECT rowid, 0 FROM entry WHERE epoch_id=NEW.epoch_id AND entry_id=NEW.entry_id AND true
+               ON CONFLICT(rowid) DO UPDATE SET mark=mark+1; END""",
+            """CREATE TRIGGER IF NOT EXISTS body_words_changed AFTER UPDATE ON body_ref BEGIN
+               INSERT INTO word_pending(rowid, mark) SELECT rowid, 0 FROM entry WHERE epoch_id=NEW.epoch_id AND entry_id=NEW.entry_id AND true
+               ON CONFLICT(rowid) DO UPDATE SET mark=mark+1; END""",
         )
 
         /**
          * The archive's format. Version 1 (2026-11-20): an archive from before versions were kept
          * is not converted (the user's call: nothing is released). Version 2 (069): columns each
-         * query narrows by and link counts; format 1 is not converted either.
+         * query narrows by and link counts; format 1 is not converted either. Version 3 (070): the word
+         * index; format 2 is not converted.
          */
         val SCHEMA = StoreSchema(
-            version = 2,
+            version = 3,
             create = CREATE,
             migrations = mapOf(
                 1 to Migration.StartOver("the archive was in a format from before format versions (2026-11-20); it was cleared"),
                 // Feature 069 (the user's call, 2026-11-20): columns queries narrow by; not converted.
                 2 to Migration.StartOver("the archive was in format 1, from before queries read it from disk (2026-11-20); it was cleared"),
+                // Feature 070 (the user's call, 2026-11-21: «давай (а)»): the word index; not converted.
+                3 to Migration.StartOver("the archive was in format 2, from before the word index (2026-11-21); it was cleared"),
             ),
         )
 
@@ -540,3 +611,9 @@ class HostStore(
         }
     }
 }
+
+/** Feature 070: an entry whose words are to be written; [mark] is the change read. */
+class PendingWords(val rowid: Long, val mark: Int, val epochId: String, val entry: NetworkEntry)
+
+/** Feature 070: the words of one pending entry ([text] normalised; [cut] when it holds only part of them). */
+data class WordWrite(val rowid: Long, val mark: Int, val text: String, val cut: Boolean)
