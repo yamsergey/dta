@@ -52,6 +52,9 @@ class HostIndexScaleTest {
         assertEquals(n, first.coverage.searched, "how many the history holds is known without counting matches")
         println("SCALE n=$n first=${startMs}ms filtered=${filterMs}ms history=${first.coverage.searched}")
         repeat(3) { host.list(NetworkQuery(limit = 100, q = "host:api.example.test method:POST")) }
+        host.history()
+        val (_, historyMs) = ms { runBlocking { host.history() } }
+        assertTrue(historyMs < 30, "the history's summary in $historyMs ms")
         val held = heapMb() - before
         assertTrue(held < 30, "memory held after answers over $n entries: $held MB")
     }
