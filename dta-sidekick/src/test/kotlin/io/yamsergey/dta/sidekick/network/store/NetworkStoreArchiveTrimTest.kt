@@ -392,4 +392,76 @@ class NetworkStoreArchiveTrimTest {
         assertTrue(gone.all { s.bodySize(it, BodyPart.RESPONSE) == null })
         assertTrue(s.diskBytes() <= s.settings().keepBytes, "fits: ${s.diskBytes()} > ${s.settings().keepBytes}")
     }
+
+    // ---- found on the emulator (2026-11-20): the deleting thread at 100% CPU -----------------
+
+    /** The deleting thread's work, kept to look at: what each task was given. */
+    private fun deferredStore(later: ArrayDeque<Runnable>) =
+        NetworkStore(StorageDir(dir), pid = 42, clock = { now++ }, bounds = StoreBounds(segmentBytes = 1), bodyDeleter = { later += it })
+            .also { opened += it; assertTrue(it.awaitLoaded()) }
+
+    @Test
+    fun `entries with no body files give the deleting thread nothing to look for`() {
+        // Socket messages kept in their records and requests with no body: no file was ever made, and
+        // a file looked for and not found costs a lookup in what can be a very large directory.
+        val later = ArrayDeque<Runnable>()
+        val s = deferredStore(later)
+        repeat(10) { s.upsert(http(s)) }
+        s.flush()
+        s.setBudgetForTest(s.diskBytes() / 2)
+        assertTrue(ack(s, through = "8:0").accepted)
+        s.flush()
+        s.trimArchived()
+        assertTrue(s.coverage().stored < 10, "something was trimmed")
+        assertTrue(later.isEmpty(), "no body file to delete, no task: ${later.size}")
+    }
+
+    @Test
+    fun `a body written before its entry says so still leaves with the entry`() {
+        val later = ArrayDeque<Runnable>()
+        val s = deferredStore(later)
+        val ids = List(10) {
+            val e = http(s).also(s::upsert)
+            // The record does not name the body (it was written before the entry was updated).
+            s.openBodySink(e.id, BodyPart.REQUEST)!!.apply { write(ByteArray(1000), 0, 1000); close() }
+            e.id
+        }
+        s.flush()
+        s.setBudgetForTest(s.diskBytes() - 20_000)
+        assertTrue(ack(s, through = "8:0").accepted)
+        s.flush()
+        s.trimArchived()
+        val gone = ids.filter { s.get(it) == null }
+        assertTrue(gone.isNotEmpty())
+        while (later.isNotEmpty()) later.removeFirst().run()
+        val left = File(dir, "bodies").list()!!.toSet()
+        gone.forEach { assertFalse("${it.replace(':', '_')}.request" in left, it) }
+        assertTrue(s.diskBytes() <= s.settings().keepBytes, "fits: ${s.diskBytes()} > ${s.settings().keepBytes}")
+    }
+
+    @Test
+    fun `a body directory much larger than its files is made anew at start, its files kept`() {
+        val s = store(pid = 1)
+        val kept = withBody(s)
+        s.flush()
+        val size = s.diskBytes()
+        s.close(); opened.clear()
+        val bodies = File(dir, "bodies")
+        val inode = java.nio.file.Files.getAttribute(bodies.toPath(), "unix:ino")
+        val again = NetworkStore(StorageDir(dir), pid = 2, clock = { now++ }, bodyDeleter = { it.run() }, bodiesDirTooLarge = { _, _ -> true })
+            .also { opened += it; assertTrue(it.awaitLoaded()) }
+        assertTrue(java.nio.file.Files.getAttribute(bodies.toPath(), "unix:ino") != inode, "a new directory")
+        assertEquals(1000L, again.bodySize(kept.id, BodyPart.RESPONSE))
+        assertEquals(size, again.diskBytes())
+        assertEquals(listOf("bodies", "segments", "state.json"), dir.list()!!.sorted(), "nothing of the old one left")
+    }
+
+    @Test
+    fun `a body directory is too large when it is mostly empty blocks`() {
+        // ext4 never shrinks a directory: seen on the emulator, 20 MB with no file in it.
+        assertTrue(NetworkStore.bodiesDirTooLarge(20_942_848, 0))
+        assertFalse(NetworkStore.bodiesDirTooLarge(4096, 0))
+        assertFalse(NetworkStore.bodiesDirTooLarge(4_000_000, 100_000), "a full directory of that size")
+        assertTrue(NetworkStore.bodiesDirTooLarge(20_942_848, 1_000))
+    }
 }

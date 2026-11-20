@@ -115,6 +115,8 @@ class NetworkStore(
      * the writer thread filled the queue and records were dropped).
      */
     bodyDeleter: ((Runnable) -> Unit)? = null,
+    /** Whether the body directory (its size on disk, its files) is to be made anew at start ([Companion.bodiesDirTooLarge]). */
+    private val bodiesDirTooLarge: (dirBytes: Long, files: Int) -> Boolean = Companion::bodiesDirTooLarge,
 ) {
     private val storage: StorageDir? = storage?.takeIf { it.prepare() }
 
@@ -163,6 +165,14 @@ class NetworkStore(
 
     /** Bytes of body files a trim pass gave to [bodyDeleter] and not deleted yet: counted gone already. */
     private val deleting = AtomicLong()
+
+    /**
+     * The body files there are, by name, with what each takes on disk (0 while being written). Only
+     * these are looked at or deleted: a file looked for and not there costs a directory lookup, and
+     * on the emulator (2026-11-20) a trim pass looking for every part of every entry kept a thread
+     * at 100% CPU in the kernel, the directory being 20 MB with no file in it.
+     */
+    private val bodyFiles = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val deletes = AtomicLong()
     private val ownDeleter = bodyDeleter == null
     private val bodyDeleter: (Runnable) -> Unit = bodyDeleter ?: run {
@@ -510,11 +520,10 @@ class NetworkStore(
                         write(EntryRecord(held ?: entry))
                         continue
                     }
-                    // Every part kind: a body file can exist before its entry says so. Counted gone by
-                    // what the entry says it stored; the deleting thread counts the files exactly.
+                    // Every part kind: a body file can exist before its entry says so; only files there are.
                     for (part in BodyPart.entries) {
-                        val info = io.yamsergey.dta.protocol.network.NetworkHistoryView.bodyOf(held ?: entry, part)
-                        bodyFile(id, part)?.let { bodies += it to (info?.let { b -> onDisk(b.storedBytes) } ?: 0L) }
+                        val file = existingBody(id, part) ?: continue
+                        bodies += file to (bodyFiles[file.name] ?: 0L)
                     }
                     synchronized(lock) { entries.remove(id)?.let { if (!inFlight(it)) finishedInMemory-- } }
                     removed++
@@ -554,10 +563,11 @@ class NetworkStore(
         val generation = deletes.get()
         deleting.addAndGet(counted)
         bodyDeleter(Runnable {
-            for ((body, _) in bodies) {
-                if (!body.isFile) continue
-                val size = onDisk(body.length())
+            for ((body, size) in bodies) {
+                // A clear meanwhile deleted it and started the count over.
+                if (deletes.get() != generation) break
                 if (body.delete()) diskBytes.addAndGet(-size)
+                bodyFiles.remove(body.name)
             }
             // A clear meanwhile started the count over.
             if (deletes.get() == generation) deleting.addAndGet(-counted)
@@ -663,6 +673,8 @@ class NetworkStore(
     fun openBodySink(id: String, part: BodyPart): BodySink? {
         if (!persisted) return null
         val file = bodyFile(id, part) ?: return null
+        // Known before the file is made: a trim pass that removes the entry meanwhile deletes it too.
+        bodyFiles[file.name] = bodyFiles[file.name] ?: 0L
         return try {
             val out = BufferedOutputStream(FileOutputStream(file), 64 * 1024)
             object : BodySink {
@@ -673,16 +685,19 @@ class NetworkStore(
                 }
                 override fun close() {
                     out.close()
-                    diskBytes.addAndGet(onDisk(written))
+                    val size = onDisk(written)
+                    diskBytes.addAndGet(size)
+                    bodyFiles[file.name] = size
                 }
             }
         } catch (_: Throwable) {
+            if (!file.exists()) bodyFiles.remove(file.name)
             null
         }
     }
 
     fun openBody(id: String, part: BodyPart): InputStream? {
-        val file = bodyFile(id, part)?.takeIf { it.isFile } ?: return inRecord(id, part)?.let { java.io.ByteArrayInputStream(it) }
+        val file = existingBody(id, part) ?: return inRecord(id, part)?.let { java.io.ByteArrayInputStream(it) }
         return try {
             FileInputStream(file)
         } catch (_: Throwable) {
@@ -708,7 +723,7 @@ class NetworkStore(
     }
 
     /** Bytes of a stored body, or null when there is none. */
-    fun bodySize(id: String, part: BodyPart): Long? = bodyFile(id, part)?.takeIf { it.isFile }?.length() ?: inRecord(id, part)?.size?.toLong()
+    fun bodySize(id: String, part: BodyPart): Long? = existingBody(id, part)?.takeIf { it.isFile }?.length() ?: inRecord(id, part)?.size?.toLong()
 
     /** A body with no file that its entry's preview holds whole (a small text message). */
     private fun inRecord(id: String, part: BodyPart): ByteArray? =
@@ -751,6 +766,8 @@ class NetworkStore(
             segmentIds.clear()
             storage?.segments?.listFiles()?.forEach { it.delete() }
             storage?.bodies?.listFiles()?.forEach { it.delete() }
+            bodyFiles.clear()
+            storage?.let(::renewBodiesIfLarge)
             deletes.incrementAndGet()
             deleting.set(0)
             diskBytes.set(0)
@@ -853,9 +870,10 @@ class NetworkStore(
                     earliestMs = oldestFirst.firstOrNull()?.timeMs
                 }
                 for (part in BodyPart.entries) {
-                    bodyFile(oldest.id, part)?.takeIf { it.isFile }?.let { file ->
-                        val size = onDisk(file.length())
+                    existingBody(oldest.id, part)?.let { file ->
+                        val size = bodyFiles[file.name] ?: 0L
                         if (file.delete()) diskBytes.addAndGet(-size)
+                        bodyFiles.remove(file.name)
                     }
                 }
                 deleteEvictedSegments()
@@ -988,10 +1006,16 @@ class NetworkStore(
             // A body whose entry is not in the journal of an earlier run is removed (a trim pass
             // ended by the process being killed between a segment and its bodies); this run's
             // bodies may be written before their records, so they are kept.
+            renewBodiesIfLarge(dir)
             dir.bodies.listFiles()?.forEach { body ->
                 val (run, n) = bodyId(body.name)?.let(::idParts) ?: (null to 0L)
                 if (run != null && run != runId && seen[run]?.get(n.toInt()) != true) body.delete()
-                else diskBytes.addAndGet(onDisk(body.length()))
+                else {
+                    val size = onDisk(body.length())
+                    diskBytes.addAndGet(size)
+                    // A body this run is writing meanwhile is counted when its sink closes.
+                    bodyFiles.putIfAbsent(body.name, size)
+                }
             }
             // The process that owned them is gone (FR-027): the journal says so for the host too.
             pending.values.forEach { enqueue(EntryRecord(endedByProcessDeath(it))) }
@@ -1158,6 +1182,36 @@ class NetworkStore(
     private fun bodyFile(id: String, part: BodyPart): File? =
         storage?.let { File(it.bodies, "${id.replace(':', '_')}.${part.name.lowercase()}") }
 
+    /** The body file when there is one ([bodyFiles]): no lookup on disk for a body never written. */
+    private fun existingBody(id: String, part: BodyPart): File? = bodyFile(id, part)?.takeIf { bodyFiles.containsKey(it.name) }
+
+    /**
+     * ext4 never shrinks a directory: one that held hundreds of thousands of small bodies stays as
+     * large with none left, and every lookup in it is slow. Made anew when [bodiesDirTooLarge] says
+     * so: the files are moved to a fresh directory (a body being written keeps its open file). Also
+     * finishes a renewal a killed process left half done.
+     */
+    private fun renewBodiesIfLarge(dir: StorageDir) {
+        val bodies = dir.bodies
+        val fresh = File(dir.root, "bodies.new")
+        val old = File(dir.root, "bodies.old")
+        runCatching {
+            if (!old.exists()) {
+                val files = bodies.list()?.size ?: return
+                if (!bodiesDirTooLarge(bodies.length(), files)) return
+                fresh.deleteRecursively()
+                if (!fresh.mkdir()) return
+                if (!bodies.renameTo(old)) { fresh.delete(); return }
+                if (!fresh.renameTo(bodies)) { old.renameTo(bodies); return }
+            } else if (!bodies.isDirectory) {
+                if (!(fresh.isDirectory && fresh.renameTo(bodies)) && !bodies.mkdir()) return
+            }
+            old.listFiles()?.forEach { it.renameTo(File(bodies, it.name)) }
+            old.deleteRecursively()
+            fresh.deleteRecursively()
+        }
+    }
+
     private fun stateFile(): File? = storage?.let { File(it.root, "state.json") }
 
     /** The entry id of a body file's name (`run_seq.part`, see [bodyFile]). */
@@ -1173,6 +1227,12 @@ class NetworkStore(
     private fun segmentIndex(file: File): Int? = SEGMENT.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull()
 
     internal companion object {
+        /**
+         * A body directory is made anew when it takes over 1 MB and more than 256 bytes a file: an
+         * ext4 name entry takes well under that, so the rest is blocks left by files long gone.
+         */
+        fun bodiesDirTooLarge(dirBytes: Long, files: Int): Boolean = dirBytes > (1L shl 20) + files * 256L
+
         /** The disk block a body file takes at least (ext4 and f2fs on Android: 4 KB). */
         const val BODY_BLOCK = 4096L
         /** A count alone is written at most this often per entry ([upsertCount]). */
