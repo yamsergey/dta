@@ -77,7 +77,7 @@ class NetworkHistoryView private constructor(
      *
      * @param stop feature 067: called once per entry; throws to abandon a pass a newer query replaced.
      */
-    fun list(query: NetworkQuery, stop: () -> Unit = {}): NetworkPage = query.resolved().let { (filter, terms) -> sources.open(filter).use { src ->
+    fun list(query: NetworkQuery, stop: () -> Unit = {}): NetworkPage = query.resolved().let { (filter, terms) -> sources.open(filter, WordNeeds.of(filter, terms, words = terms.isNotEmpty() && !query.allRows)).use { src ->
         val ctx = context()
         val newest = query.order == Order.NEWEST_FIRST
         // Links (012) are in the same history; network views show them only when kinds asks.
@@ -151,7 +151,7 @@ class NetworkHistoryView private constructor(
      * order, [NetworkQuery.limit] per page after [NetworkQuery.before] (an entry with hits).
      * Feature 069: only the page is read.
      */
-    fun search(query: NetworkQuery, stop: () -> Unit = {}): SearchPage = query.resolved().let { (filter, terms) -> sources.open(filter).use { src ->
+    fun search(query: NetworkQuery, stop: () -> Unit = {}): SearchPage = query.resolved().let { (filter, terms) -> sources.open(filter, WordNeeds.of(filter, terms, words = true)).use { src ->
         val ctx = context()
         val patterns = filter?.let { it.bodyPattern != null || it.requestPattern != null || it.responsePattern != null } == true
         if (terms.isEmpty() && !patterns) throw InvalidParamsException("query: no search words; give words, a \"phrase\" or a body:/pattern/ to find (filters alone are network.list)")

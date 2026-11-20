@@ -32,6 +32,12 @@ interface EntrySource : AutoCloseable {
  */
 fun interface EntrySourceProvider {
     fun open(filter: NetworkFilter?): EntrySource
+
+    /**
+     * Feature 070: as [open], and [need] is what an entry's words must hold for the answer to keep
+     * it ([WordNeeds]); a source with a word index may leave out the entries it knows lack it.
+     */
+    fun open(filter: NetworkFilter?, need: Need): EntrySource = open(filter)
 }
 
 /** A history held as a list (the app's, the tests'). */
