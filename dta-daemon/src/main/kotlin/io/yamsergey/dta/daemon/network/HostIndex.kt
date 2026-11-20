@@ -33,6 +33,7 @@ import io.yamsergey.dta.protocol.layout.DegradationCodes
 import io.yamsergey.dta.protocol.network.NetworkFilter
 import io.yamsergey.dta.protocol.network.SearchPage
 import io.yamsergey.dta.protocol.rpc.DegradationMarker
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.buildJsonObject
@@ -83,6 +84,8 @@ class HostIndex(
     var searchCopyMs = SEARCH_COPY_MS
 
     private val mutex = Mutex()
+    /** Feature 068: catch-ups an answer started and did not wait for. */
+    private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     @Volatile private var epoch: Epoch? = null
     private val live = LinkedHashMap<String, NetworkEntry>()
     @Volatile private var context: HistoryContext? = null
@@ -317,17 +320,23 @@ class HostIndex(
      */
     suspend fun history(): io.yamsergey.dta.protocol.network.HistorySummary {
         // Feature 068: while this computer catches up (the mutex held for a long read), say how far at once.
-        if (mutex.isLocked) {
-            val c = context?.coverage
-            val device = if (c != null) io.yamsergey.dta.protocol.network.DeviceHistory(
-                entries = deviceEntries, bytes = c.deviceBytes ?: 0, keepBytes = c.keepBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.KEEP_BYTES,
-                warnBytes = c.warnBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.WARN_BYTES, trimHeld = c.trimHeld, lastArchivedMs = c.lastArchivedMs,
-                overWarning = c.warnBytes != null && (c.deviceBytes ?: 0) > c.warnBytes!!, catchingUp = catchingUpNow.takeIf { it > 0 }, reading = c.deviceReading == true,
-                feedLagMs = feedLag(),
-            ) else null
-            return io.yamsergey.dta.protocol.network.HistorySummary(device, if (device == null) "this computer is reading the app's history" else null, archiveHistory())
-        }
-        return mutex.withLock { historyLocked() }
+        if (mutex.isLocked) return historyMeanwhile()
+        // The full answer reads the journal first; asked first after a gap, that is the whole catch-up
+        // (found in the robot IDE: the plugin learned of the wait once it was over). It goes on here.
+        val full = background.async { mutex.withLock { historyLocked() } }
+        return kotlinx.coroutines.withTimeoutOrNull(HISTORY_WAIT_MS) { full.await() } ?: historyMeanwhile()
+    }
+
+    /** What is known without reading the journal: the device's last coverage and how far the catch-up is. */
+    private fun historyMeanwhile(): io.yamsergey.dta.protocol.network.HistorySummary {
+        val c = context?.coverage
+        val device = if (c != null) io.yamsergey.dta.protocol.network.DeviceHistory(
+            entries = deviceEntries, bytes = c.deviceBytes ?: 0, keepBytes = c.keepBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.KEEP_BYTES,
+            warnBytes = c.warnBytes ?: io.yamsergey.dta.protocol.network.HistoryDefaults.WARN_BYTES, trimHeld = c.trimHeld, lastArchivedMs = c.lastArchivedMs,
+            overWarning = c.warnBytes != null && (c.deviceBytes ?: 0) > c.warnBytes!!, catchingUp = catchingUpNow.takeIf { it > 0 }, reading = c.deviceReading == true,
+            feedLagMs = feedLag(),
+        ) else null
+        return io.yamsergey.dta.protocol.network.HistorySummary(device, if (device == null) "this computer is reading the app's history" else null, archiveHistory())
     }
 
     private suspend fun historyLocked(): io.yamsergey.dta.protocol.network.HistorySummary {
@@ -969,6 +978,8 @@ class HostIndex(
         const val EVENTS_DROPPED = "network.events-dropped"
         /** How far back [DeviceHistory.feedLagMs] looks. */
         const val LAG_WINDOW_MS = 10_000L
+        /** How long [history] waits for its full answer before it answers with what is known. */
+        const val HISTORY_WAIT_MS = 300L
         /** How long a clear waits for the copy of what this computer does not have yet. */
         const val CLEAR_COPY_MS = 20_000L
         /** Feature 067: an answer's own body copying; measured, a backlog of 100k bodies took 871 s. */

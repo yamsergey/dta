@@ -117,4 +117,28 @@ class ArchiveFeedTest {
         repeat(5) { host.list(NetworkQuery(limit = 1)) }
         assertEquals(null, host.history().device?.catchingUp, "caught up")
     }
+
+    @Test
+    fun `the history asked first does not wait for the catch-up it starts`() = runBlocking<Unit> {
+        val app = SlowPages(ms = 300)
+        repeat(3_000) { http(app, 10) }
+        val host = index(app)
+        host.pageSize = 500
+        host.list(NetworkQuery(limit = 1))
+        repeat(3_000) { http(app, 10) }
+        val started = System.currentTimeMillis()
+        host.history()
+        assertTrue(System.currentTimeMillis() - started < 1_000, "answered without the catch-up: ${System.currentTimeMillis() - started} ms")
+        var seen: Long? = null
+        val until = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < until) {
+            val behind = host.history().device?.catchingUp
+            if (behind != null) seen = behind
+            if (seen != null && behind == null) break
+            kotlinx.coroutines.delay(100)
+        }
+        assertTrue(seen != null && seen in 1..3_000, "how far was said while it ran: $seen")
+        assertEquals(null, host.history().device?.catchingUp, "and it ended by itself")
+        assertEquals(6_000, host.list(NetworkQuery(limit = 1)).total)
+    }
 }
