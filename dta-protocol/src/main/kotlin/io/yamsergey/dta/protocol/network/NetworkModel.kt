@@ -565,6 +565,8 @@ data class NetworkPage(
     val hits: Map<String, List<SearchHit>>? = null,
     /** Feature 043: the saved filters behind this page and what they hid. */
     val saved: SavedFiltersApplied? = null,
+    /** Feature 069: absent when every number is exact; else how far counting got within the answer's time. */
+    val counts: Counts? = null
 )
 
 /** One entry's search hits (feature 040). */
@@ -584,7 +586,17 @@ data class SearchPage(
     val degraded: List<DegradationMarker>? = null,
     /** Feature 043: the saved filters behind this page and what they hid. */
     val saved: SavedFiltersApplied? = null,
+    /** Feature 069: absent when [total], [searched] and [notSearched] are exact. */
+    val counts: Counts? = null
 )
+
+/**
+ * Feature 069: counts an answer gave before its time to count ran out. Its numbers are "at least":
+ * they cover the [countedEntries] entries walked, the last being [countedThrough] (newest first by
+ * default). A live view finishes counting and tells the exact numbers later.
+ */
+@Serializable
+data class Counts(val complete: Boolean, val countedThrough: String? = null, val countedEntries: Int)
 
 /** Result of `network_entry`. */
 @Serializable
