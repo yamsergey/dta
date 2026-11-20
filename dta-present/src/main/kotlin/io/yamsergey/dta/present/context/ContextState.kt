@@ -16,7 +16,7 @@ enum class DaemonPhase { STARTING, CONNECTED, REPLACED, CONFLICT, FAILED }
 /** The connection as the context line shows it: a dot and a word in [token]'s colour, the reason as its tooltip. */
 data class ConnectionLine(val text: String, val token: String, val reason: String?)
 
-data class DaemonInfo(val phase: DaemonPhase = DaemonPhase.STARTING, val version: String? = null, val message: String? = null)
+data class DaemonInfo(val phase: DaemonPhase = DaemonPhase.STARTING, val version: String? = null, val message: String? = null, val action: String? = null)
 
 /**
  * What injection did for the app's module in the last IDE build (contracts/injection.md); OFF
@@ -32,7 +32,8 @@ sealed interface ContextEvent {
     data class DaemonConnected(val version: String) : ContextEvent
     data class DaemonReplaced(val by: String) : ContextEvent
     data class DaemonConflict(val message: String) : ContextEvent
-    data class DaemonFailed(val message: String) : ContextEvent
+    /** [action] names what the banner offers: "Start" when the daemon was stopped, else "Retry". */
+    data class DaemonFailed(val message: String, val action: String = "Retry") : ContextEvent
     data class Devices(val devices: List<DeviceInfo>) : ContextEvent
     data class Apps(val apps: AppList) : ContextEvent
     data class DeviceChosen(val serial: String) : ContextEvent
@@ -78,7 +79,11 @@ data class ContextState(
         is ContextEvent.DaemonConnected -> copy(daemon = DaemonInfo(DaemonPhase.CONNECTED, event.version))
         is ContextEvent.DaemonReplaced -> copy(daemon = daemon.copy(phase = DaemonPhase.REPLACED, message = event.by))
         is ContextEvent.DaemonConflict -> copy(daemon = daemon.copy(phase = DaemonPhase.CONFLICT, message = event.message))
-        is ContextEvent.DaemonFailed -> copy(daemon = daemon.copy(phase = DaemonPhase.FAILED, message = event.message))
+        // The app's connection was the daemon's: none is known until a daemon reports one again.
+        is ContextEvent.DaemonFailed -> copy(
+            daemon = daemon.copy(phase = DaemonPhase.FAILED, message = event.message, action = event.action),
+            connection = if (connection == Connection.NO_DTA) connection else Connection.UNKNOWN, connectionReason = null, knownConnections = emptyMap(),
+        )
         is ContextEvent.Devices -> devicesChanged(event.devices)
         is ContextEvent.Apps -> appsChanged(event.apps)
         is ContextEvent.DeviceChosen -> if (event.serial == device) copy(deviceRule = DeviceRule.NAMED) else
@@ -164,7 +169,7 @@ data class ContextState(
 
     val banner: Banner?
         get() = when (daemon.phase) {
-            DaemonPhase.FAILED -> Banner(StatementKind.FAILED, daemon.message ?: "The DTA daemon did not start.", action = "Retry")
+            DaemonPhase.FAILED -> Banner(StatementKind.FAILED, daemon.message ?: "The DTA daemon did not start.", action = daemon.action ?: "Retry")
             DaemonPhase.CONFLICT -> Banner(StatementKind.FAILED, daemon.message ?: "The running DTA daemon is a different version.", action = "Retry")
             DaemonPhase.REPLACED -> Banner(StatementKind.DEGRADED, "The DTA daemon was replaced by ${daemon.message ?: "a newer version"}; reconnecting.")
             DaemonPhase.STARTING -> Banner(StatementKind.PENDING, "Starting the DTA daemon…")

@@ -57,7 +57,7 @@ class ContextController(
                     }
                     is DaemonSession.State.Replaced -> { client = null; apply(ContextEvent.DaemonReplaced(s.by)) }
                     is DaemonSession.State.Conflict -> { client = null; apply(ContextEvent.DaemonConflict(s.message)) }
-                    is DaemonSession.State.Failed -> { client = null; apply(ContextEvent.DaemonFailed(s.message)) }
+                    is DaemonSession.State.Failed -> { client = null; apply(ContextEvent.DaemonFailed(s.message, s.action)) }
                     DaemonSession.State.Starting -> Unit
                 }
             }

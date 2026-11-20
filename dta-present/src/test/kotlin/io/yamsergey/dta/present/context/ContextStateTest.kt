@@ -103,6 +103,17 @@ class ContextStateTest {
     }
 
     @Test
+    fun `a stopped daemon is started from the banner, and no app connection is shown under it`() {
+        val connected = ready(ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", "com.example.shop", "connected")))
+        assertEquals("● connected", connected.connectionLine?.text)
+        val stopped = connected.reduce(ContextEvent.DaemonFailed("The DTA daemon stopped: stopped by a client (cli).", action = "Start"))
+        assertEquals("Start", stopped.banner!!.action)
+        assertNull(stopped.connectionLine, "the app's connection went with the daemon")
+        val again = stopped.reduce(ContextEvent.DaemonConnected("0.10.0 (build 2026-10-29T10:00:00Z)"))
+        assertNull(again.connectionLine, "known again only when the daemon says so")
+    }
+
+    @Test
     fun `changing device or app resets what depended on the old one`() {
         val before = ready(
             ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", "com.example.shop", "connected")),
