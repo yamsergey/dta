@@ -91,13 +91,13 @@ class DtaDaemon(
 
     private fun hostIndex(serial: String, pkg: String): io.yamsergey.dta.daemon.network.HostIndex =
         hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
-            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }, readEnvelope = { m, text -> formats.envelope(pkg, m.url, m.direction, text) }) {
+            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }, readEnvelope = { m, text -> formats.envelope(pkg, m.url, m.direction, text) }, wordsFingerprint = { schemas.fingerprint(pkg) }) {
                 if (kotlinx.coroutines.currentCoroutineContext()[HeldOnly] != null) {
                     connections.held(key) ?: throw io.yamsergey.dta.daemon.connection.ConnectionLostException("${key.packageName} is not connected")
                 } else {
                     connections.connect(key)
                 }
-            }.also { startCopying(key, it) }
+            }.also { startCopying(key, it); startIndexing(it) }
         }
 
     /** Marks background work: it uses the held connection only and never dials (see [startCopying]). */
@@ -111,6 +111,22 @@ class DtaDaemon(
      * attempts on an app that is gone would leave a failure behind that a query right after
      * the app restarts would get.
      */
+    /** Feature 070 (research R5): the app's word index, written in small batches beside the feed, never ahead of it. */
+    private fun startIndexing(index: io.yamsergey.dta.daemon.network.HostIndex) {
+        background.launch {
+            while (isActive) {
+                val written = try {
+                    index.indexWords()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    0
+                }
+                delay(if (written == 0) 1_000 else 10)
+            }
+        }
+    }
+
     private fun startCopying(key: ConnectionKey, index: io.yamsergey.dta.daemon.network.HostIndex) {
         val worker = io.yamsergey.dta.daemon.network.CopyWorker(index)
         // Feature 068: the app's events of the connection held now; another connection ends the subscription.

@@ -177,6 +177,17 @@ class SchemaRegistry(
     @Synchronized
     fun typeNames(pkg: String): List<String> = state(pkg).sets.values.flatMap { it.types.keys }.sorted()
 
+    /**
+     * Feature 070 (research R8): names what [rules] decode with now (schema sets and mappings); the
+     * word index writes decoded bodies' words again when it changes.
+     */
+    @Synchronized
+    fun fingerprint(pkg: String): String {
+        val state = state(pkg)
+        val sets = state.sets.values.sortedBy { it.set.name }.joinToString("|") { json.encodeToString(SchemaSet.serializer(), it.set) }
+        return sha(sets + "#" + json.encodeToString(MappingsFile.serializer(), state.mappings))
+    }
+
     fun rules(pkg: String): List<DecodingRule> = listOf(DecodingRule { target -> selectUser(pkg, target) }) + Otlp.rules
 
     @Synchronized

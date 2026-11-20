@@ -573,6 +573,7 @@ class HostStore(
             "CREATE VIRTUAL TABLE IF NOT EXISTS entry_words USING fts5(t, content='', contentless_delete=1, detail=none, tokenize='trigram case_sensitive 1')",
             "CREATE TABLE IF NOT EXISTS word_pending(rowid INTEGER PRIMARY KEY, mark INTEGER NOT NULL DEFAULT 0)",
             "CREATE TABLE IF NOT EXISTS word_partial(rowid INTEGER PRIMARY KEY)",
+            "CREATE INDEX IF NOT EXISTS entry_derived ON entry(epoch_id) WHERE derived=1",
             "CREATE TABLE IF NOT EXISTS word_generation(device_key TEXT NOT NULL, package TEXT NOT NULL, fingerprint TEXT NOT NULL, PRIMARY KEY(device_key, package))",
             "CREATE TRIGGER IF NOT EXISTS entry_words_added AFTER INSERT ON entry BEGIN INSERT INTO word_pending(rowid, mark) VALUES (NEW.rowid, 0) ON CONFLICT(rowid) DO UPDATE SET mark=mark+1; END",
             "CREATE TRIGGER IF NOT EXISTS entry_words_changed AFTER UPDATE ON entry BEGIN INSERT INTO word_pending(rowid, mark) VALUES (NEW.rowid, 0) ON CONFLICT(rowid) DO UPDATE SET mark=mark+1; END",

@@ -59,8 +59,31 @@ class HostIndex(
     /** Feature 051: a text message's envelope by the app's format rules, for `type:` and `topic:`. */
     private val readEnvelope: (io.yamsergey.dta.protocol.network.WsMessageEntry, String) -> io.yamsergey.dta.protocol.network.Envelope? =
         { _, text -> io.yamsergey.dta.protocol.network.WsFormats.detect(text) },
+    /** Feature 070: names the app's schemas now; decoded bodies' words are written again when it changes. */
+    private val wordsFingerprint: () -> String = { "" },
     private val connection: suspend () -> AppConnection,
 ) {
+    /** Feature 070 (research R5): the app's word index, written in the background ([indexWords]). */
+    private val words = WordIndexer(store, device.key, packageName, ::wordEpochs, wordsFingerprint, ::indexText)
+
+    /** Every epoch of the app, archived and live: what the indexer writes words for. */
+    private fun wordEpochs(): List<String> =
+        store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true)).map { it.id } +
+            listOfNotNull(store.liveEpoch(device.key, packageName)?.id)
+
+    /** An entry's words as the answers read it: bodies held here, binary ones as the app's schemas decode them. */
+    private fun indexText(epochId: String, entry: NetworkEntry): io.yamsergey.dta.protocol.network.IndexText.Result =
+        io.yamsergey.dta.protocol.network.IndexText.of(
+            entry, { e, p -> hostBodyBytes(epochId, e, p) },
+            { e, p -> decodedJson(e, p, epochId) { id -> store.entry(epochId, id) ?: store.epochOf(wordEpochs(), id)?.let { store.entry(it, id) } } },
+        )
+
+    /** Feature 070: writes one batch of pending words; how many were written (0: none waits). */
+    fun indexWords(): Int = words.step()
+
+    /** Feature 070: entries whose words are not written yet. */
+    fun wordsPending(): Int = words.pending()
+
     /** Journal records per request, and requests per answer before the rest is left to the next one. */
     var pageSize = 500
     var catchUpBudgetPages = 40
