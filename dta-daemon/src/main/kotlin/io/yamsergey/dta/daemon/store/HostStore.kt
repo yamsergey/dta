@@ -96,6 +96,37 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
             // Feature 046: stores from before it have no last_id on their cursors.
             val columns = st.executeQuery("PRAGMA table_info(cursor)").use { r -> generateSequence { if (r.next()) r.getString("name") else null }.toList() }
             if ("last_id" !in columns) st.execute("ALTER TABLE cursor ADD COLUMN last_id TEXT")
+            keepCounts(st)
+        }
+    }
+
+    /**
+     * An epoch's entries, body bytes and bodies not archived are kept in its row by triggers, so no
+     * answer counts them (found 2026-11-20: 19 s for network.history, 11 s for network list on an
+     * archive of 4 million entries, the app's feed waiting meanwhile). A store from before them
+     * counts them once here.
+     */
+    private fun keepCounts(st: java.sql.Statement) {
+        val columns = st.executeQuery("PRAGMA table_info(epoch)").use { r -> generateSequence { if (r.next()) r.getString("name") else null }.toList() }
+        if ("entries" !in columns) {
+            db.autoCommit = false
+            try {
+                COUNT_COLUMNS.forEach { st.execute("ALTER TABLE epoch ADD COLUMN $it INTEGER NOT NULL DEFAULT 0") }
+                st.execute(
+                    """UPDATE epoch SET entries=(SELECT count(*) FROM entry WHERE epoch_id=epoch.id),
+                       body_bytes=(SELECT coalesce(sum(bytes),0) FROM body_ref WHERE epoch_id=epoch.id),
+                       not_archived=(SELECT count(*) FROM body_ref WHERE epoch_id=epoch.id AND not_archived IS NOT NULL)""",
+                )
+                TRIGGERS.forEach(st::execute)
+                db.commit()
+            } catch (e: Exception) {
+                db.rollback()
+                throw e
+            } finally {
+                db.autoCommit = true
+            }
+        } else {
+            TRIGGERS.forEach(st::execute)
         }
     }
 
@@ -148,7 +179,7 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
     ) { DtaJson.decodeFromString(NetworkEntry.serializer(), it.getString(1)) }
 
     @Synchronized
-    fun entryCount(epochId: String): Int = query("SELECT count(*) FROM entry WHERE epoch_id=?", epochId) { it.getInt(1) }.single()
+    fun entryCount(epochId: String): Int = query("SELECT entries FROM epoch WHERE id=?", epochId) { it.getInt(1) }.firstOrNull() ?: 0
 
     /** Stores a body's bytes by content and refers [entryId]'s [part] to it. */
     fun putBody(epochId: String, entryId: String, part: BodyPart, input: InputStream): BodyRef {
@@ -197,7 +228,7 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
         File(root, "partial/" + "$epochId-$entryId-${part.name}".replace(Regex("[^A-Za-z0-9_.-]"), "_")).apply { parentFile.mkdirs() }
 
     @Synchronized
-    fun countNotArchived(epochId: String): Int = query("SELECT count(*) FROM body_ref WHERE epoch_id=? AND not_archived IS NOT NULL", epochId) { it.getInt(1) }.single()
+    fun countNotArchived(epochId: String): Int = query("SELECT not_archived FROM epoch WHERE id=?", epochId) { it.getInt(1) }.firstOrNull() ?: 0
 
     @Synchronized
     fun cursor(deviceKey: String, packageName: String): Cursor? =
@@ -258,8 +289,7 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
         val rows = query(
             """SELECT d.key, d.serial, d.model, i.package, i.id, i.version_name, i.version_code, i.last_update_ms,
                       e.id, e.opened_ms, e.closed_ms, e.close_reason, e.never_received,
-                      (SELECT count(*) FROM entry WHERE epoch_id=e.id),
-                      (SELECT coalesce(sum(b.bytes),0) FROM body_ref b WHERE b.epoch_id=e.id)
+                      e.entries, e.body_bytes
                FROM epoch e JOIN installation i ON e.installation_id=i.id JOIN device d ON i.device_key=d.key ORDER BY d.key, i.package, i.id, e.opened_ms""",
         ) { r ->
             Row(
@@ -375,6 +405,21 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
     }
 
     private companion object {
+        val COUNT_COLUMNS = listOf("entries", "body_bytes", "not_archived")
+
+        /** What keeps [COUNT_COLUMNS]: an upsert's update fires the update trigger, not the insert one. */
+        val TRIGGERS = listOf(
+            "CREATE TRIGGER IF NOT EXISTS entry_added AFTER INSERT ON entry BEGIN UPDATE epoch SET entries=entries+1 WHERE id=NEW.epoch_id; END",
+            "CREATE TRIGGER IF NOT EXISTS entry_removed AFTER DELETE ON entry BEGIN UPDATE epoch SET entries=entries-1 WHERE id=OLD.epoch_id; END",
+            """CREATE TRIGGER IF NOT EXISTS body_ref_added AFTER INSERT ON body_ref BEGIN
+               UPDATE epoch SET body_bytes=body_bytes+NEW.bytes, not_archived=not_archived+(NEW.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
+            """CREATE TRIGGER IF NOT EXISTS body_ref_changed AFTER UPDATE ON body_ref BEGIN
+               UPDATE epoch SET body_bytes=body_bytes+NEW.bytes-OLD.bytes,
+                 not_archived=not_archived+(NEW.not_archived IS NOT NULL)-(OLD.not_archived IS NOT NULL) WHERE id=NEW.epoch_id; END""",
+            """CREATE TRIGGER IF NOT EXISTS body_ref_removed AFTER DELETE ON body_ref BEGIN
+               UPDATE epoch SET body_bytes=body_bytes-OLD.bytes, not_archived=not_archived-(OLD.not_archived IS NOT NULL) WHERE id=OLD.epoch_id; END""",
+        )
+
         const val EPOCH_COLUMNS = "e.id, e.installation_id, e.journal_id, e.opened_ms, e.closed_ms, e.close_reason"
 
         val SCHEMA = listOf(
@@ -383,7 +428,8 @@ class HostStore(private val root: File, private val bodies: BodyStore = FileBody
                version_name TEXT, version_code INTEGER, last_update_ms INTEGER, signing_sha256 TEXT, build_id TEXT,
                UNIQUE(device_key, package, version_name, version_code, last_update_ms, signing_sha256))""",
             """CREATE TABLE IF NOT EXISTS epoch(id TEXT PRIMARY KEY, installation_id INTEGER NOT NULL REFERENCES installation(id), journal_id TEXT NOT NULL,
-               opened_ms INTEGER NOT NULL, closed_ms INTEGER, close_reason TEXT, never_received INTEGER NOT NULL DEFAULT 0)""",
+               opened_ms INTEGER NOT NULL, closed_ms INTEGER, close_reason TEXT, never_received INTEGER NOT NULL DEFAULT 0,
+               entries INTEGER NOT NULL DEFAULT 0, body_bytes INTEGER NOT NULL DEFAULT 0, not_archived INTEGER NOT NULL DEFAULT 0)""",
             """CREATE TABLE IF NOT EXISTS entry(epoch_id TEXT NOT NULL REFERENCES epoch(id), entry_id TEXT NOT NULL, seq INTEGER NOT NULL,
                time_ms INTEGER NOT NULL, kind TEXT NOT NULL, url TEXT, status INTEGER, json TEXT NOT NULL, PRIMARY KEY(epoch_id, entry_id))""",
             "CREATE INDEX IF NOT EXISTS entry_seq ON entry(epoch_id, seq)",

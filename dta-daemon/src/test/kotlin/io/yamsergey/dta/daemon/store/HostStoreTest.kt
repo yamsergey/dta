@@ -188,4 +188,73 @@ class HostStoreTest {
         assertFailsWith<ArchivingStoppedException> { s.putBody(a.id, "r1-1:1", BodyPart.RESPONSE, ByteArray(5).inputStream()) }
         assertTrue("No space left" in s.archivingStopped!!, s.archivingStopped)
     }
+
+    // ---- found under load (2026-11-20): counting the archive on every answer -------------------
+    // network.history took 19 s and network list 11 s on an archive of 4 million entries, each
+    // counting an epoch's entries and bodies, and the app's feed waited for them meanwhile.
+
+    private fun counts(s: HostStore, epochId: String) =
+        Triple(s.listing().devices.flatMap { it.apps }.flatMap { it.installations }.flatMap { it.epochs }.single { it.id == epochId }.let { it.entries to it.bytes },
+            s.countNotArchived(epochId), s.entryCount(epochId))
+
+    private fun bytes(n: Int) = java.io.ByteArrayInputStream(ByteArray(n) { (it % 7).toByte() })
+
+    @Test
+    fun `an epoch's counts follow every write`() {
+        val s = store()
+        val a = s.openEpoch(device, "io.example", v14, "j1", 1)
+        val b = s.openEpoch(device, "io.other", v14, "j2", 1)
+        s.putEntries(a.id, listOf(http("r1-1:1"), http("r1-1:2"), http("r1-1:3")))
+        s.putEntries(a.id, listOf(http("r1-1:2").copy(status = 500)))
+        s.putBody(a.id, "r1-1:1", BodyPart.RESPONSE, bytes(100))
+        s.putBody(a.id, "r1-1:1", BodyPart.RESPONSE, bytes(40))
+        s.putBody(a.id, "r1-1:2", BodyPart.REQUEST, bytes(10))
+        s.markNotArchived(a.id, "r1-1:3", BodyPart.RESPONSE, "lost")
+        s.markNotArchived(a.id, "r1-1:2", BodyPart.RESPONSE, "lost")
+        s.putBody(a.id, "r1-1:2", BodyPart.RESPONSE, bytes(5))
+        s.putEntries(b.id, listOf(http("r1-1:1")))
+        s.putBody(b.id, "r1-1:1", BodyPart.RESPONSE, bytes(1000))
+        assertEquals(Triple(3 to 55L, 1, 3), counts(s, a.id))
+        s.closeEpoch(b.id, 5, EpochCloseReason.CLEARED, 0)
+        s.delete(DeleteTarget.Epoch(b.id))
+        assertEquals(Triple(3 to 55L, 1, 3), counts(s, a.id), "another epoch's delete changes nothing here")
+    }
+
+    private fun epochColumns(epochId: String) = java.sql.DriverManager.getConnection("jdbc:sqlite:${File(dir, "dta.db").path}").use { c ->
+        c.prepareStatement("SELECT entries, body_bytes, not_archived FROM epoch WHERE id=?").use { st ->
+            st.setString(1, epochId)
+            st.executeQuery().use { r -> r.next(); Triple(r.getInt(1), r.getLong(2), r.getInt(3)) }
+        }
+    }
+
+    @Test
+    fun `an epoch's counts are kept with it, not counted on each answer`() {
+        val s = store()
+        val a = s.openEpoch(device, "io.example", v14, "j1", 1)
+        s.putEntries(a.id, listOf(http("r1-1:1"), http("r1-1:2")))
+        s.putBody(a.id, "r1-1:1", BodyPart.RESPONSE, bytes(30))
+        s.markNotArchived(a.id, "r1-1:2", BodyPart.RESPONSE, "lost")
+        assertEquals(Triple(2, 30L, 1), epochColumns(a.id))
+    }
+
+    @Test
+    fun `a store from before the counts were kept counts them once when opened`() {
+        val s = store()
+        val a = s.openEpoch(device, "io.example", v14, "j1", 1)
+        s.putEntries(a.id, listOf(http("r1-1:1"), http("r1-1:2")))
+        s.putBody(a.id, "r1-1:1", BodyPart.RESPONSE, bytes(30))
+        s.markNotArchived(a.id, "r1-1:2", BodyPart.RESPONSE, "lost")
+        s.close(); stores.clear()
+        java.sql.DriverManager.getConnection("jdbc:sqlite:${File(dir, "dta.db").path}").use { c ->
+            c.createStatement().use { st ->
+                val triggers = st.executeQuery("SELECT name FROM sqlite_master WHERE type='trigger'").use { r -> generateSequence { if (r.next()) r.getString(1) else null }.toList() }
+                triggers.forEach { st.execute("DROP TRIGGER $it") }
+                listOf("entries", "body_bytes", "not_archived").forEach { st.execute("ALTER TABLE epoch DROP COLUMN $it") }
+            }
+        }
+        val again = store()
+        assertEquals(Triple(2 to 30L, 1, 2), counts(again, a.id))
+        again.putEntries(a.id, listOf(http("r1-1:3")))
+        assertEquals(Triple(3 to 30L, 1, 3), counts(again, a.id), "and kept from then on")
+    }
 }
