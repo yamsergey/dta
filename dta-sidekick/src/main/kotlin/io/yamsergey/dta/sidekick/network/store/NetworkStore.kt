@@ -649,7 +649,10 @@ class NetworkStore(
     fun journal(after: String?, limit: Int): JournalPage {
         val journalId = synchronized(lock) { state.journalId!! }
         if (!persisted) return JournalPage(journalId, emptyList(), after ?: "0:0", end = true)
-        flush()
+        // 070: while the earlier runs are read nothing is written: the page is what the disk holds,
+        // at once (flush waited up to FLUSH_WAIT_MS per page), and it is not the end meanwhile.
+        val reading = reading()
+        if (!reading) flush()
         val (fromSegment, fromLine) = after?.let(::parseCursor) ?: (0 to 0)
         val records = ArrayList<NetworkEntry>()
         var next = after ?: "0:0"
@@ -674,6 +677,7 @@ class NetworkStore(
             next = "$index:$line"
             if (full) { end = false; break }
         }
+        if (reading) return JournalPage(journalId, records, next, end = false, linesAfter(next, files) + queue.size.coerceAtLeast(1))
         return JournalPage(journalId, records, next, end, if (end) 0 else linesAfter(next, files))
     }
 

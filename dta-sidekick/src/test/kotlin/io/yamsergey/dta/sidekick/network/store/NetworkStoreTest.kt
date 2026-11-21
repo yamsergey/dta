@@ -275,6 +275,39 @@ class NetworkStoreTest {
         assertEquals(listOf(old.id, unfinished.id, fresh.id), third.list(order = Order.OLDEST_FIRST, limit = 10).entries.map { it.id })
     }
 
+    /**
+     * 070: after the app restarted, each journal page waited FLUSH_WAIT_MS (2 s) for the earlier
+     * runs to be read, and the host's list waited for it. A page answers from the disk at once,
+     * and says it is not the end while the read goes on (what is queued is still to come).
+     */
+    @Test
+    fun `a journal page does not wait for the earlier runs to be read, and is not the end meanwhile`() {
+        val first = store()
+        val old = http(first, state = HttpState.COMPLETE)
+        first.upsert(old)
+        first.close()
+        now += 1000
+        val reading = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val second = NetworkStore(StorageDir(dir), pid = 43, clock = { now++ }, beforeLoad = { reading.countDown(); release.await() })
+            .also { opened += it }
+        assertTrue(reading.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        val fresh = http(second, state = HttpState.COMPLETE)
+        second.upsert(fresh)
+        val t0 = System.nanoTime()
+        val page = second.journal(null, 10)
+        val ms = (System.nanoTime() - t0) / 1_000_000
+        assertTrue(ms < 500, "answered from the disk at once, not after the wait: $ms ms")
+        assertEquals(listOf(old.id), page.records.map { it.id })
+        assertFalse(page.end, "the queued record is still to come")
+        assertTrue(page.remaining >= 1, "said how much is still to come: ${page.remaining}")
+        release.countDown()
+        assertTrue(second.awaitLoaded(5_000))
+        val rest = second.journal(page.next, 10)
+        assertEquals(listOf(fresh.id), rest.records.map { it.id })
+        assertTrue(rest.end)
+    }
+
     @Test
     fun `in-flight entries of a finished run become process-ended`() {
         val first = store()
