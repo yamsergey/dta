@@ -295,11 +295,12 @@ class NetworkPanel(
             add(strip.component, BorderLayout.WEST)
             add(scroll, BorderLayout.CENTER)
             // Feature 043: what the list shows and what the filters hid sit under it.
-            add(JPanel(BorderLayout(JBUI.scale(12), 0)).apply {
+            // In one line when it fits, else "N new below" under the caption: never over it.
+            add(JPanel(LineOrStack(JBUI.scale(12))).apply {
                 border = JBUI.Borders.empty(2, 6, 0, 4)
-                add(caption, BorderLayout.WEST)
-                add(empty, BorderLayout.CENTER)
-                add(newBar, BorderLayout.EAST)
+                add(caption)
+                add(empty)
+                add(newBar)
             }, BorderLayout.SOUTH)
         }
         splitter.firstComponent = master

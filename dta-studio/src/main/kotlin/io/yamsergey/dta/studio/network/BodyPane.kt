@@ -45,7 +45,7 @@ class BodyPane(
     private val marks: List<String> = emptyList(),
 ) : JPanel(BorderLayout()) {
     private val header = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
-    private val modes = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0))
+    private val modes = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
     private val content = JPanel(BorderLayout())
     private val actions = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
     private val editor = BodyEditor(project)
@@ -58,10 +58,11 @@ class BodyPane(
 
     init {
         // The header stays put above the one scroll of the content; it lines up with the tab's other pages.
-        add(JPanel(BorderLayout()).apply {
+        // Title and view modes in one line when they fit, else the modes under the title (never squeezing it).
+        add(JPanel(io.yamsergey.dta.studio.toolwindow.LineOrStack(JBUI.scale(8))).apply {
             border = JBUI.Borders.compound(JBUI.Borders.customLineBottom(com.intellij.ui.JBColor.border()), JBUI.Borders.empty(4, 6, 4, 12))
-            add(header, BorderLayout.CENTER)
-            add(modes, BorderLayout.EAST)
+            add(header)
+            add(modes)
         }, BorderLayout.NORTH)
         add(JPanel(BorderLayout()).apply { add(actions, BorderLayout.NORTH); add(content, BorderLayout.CENTER) }, BorderLayout.CENTER)
         header.add(JBLabel("Loading ${ref.part} body…"))
