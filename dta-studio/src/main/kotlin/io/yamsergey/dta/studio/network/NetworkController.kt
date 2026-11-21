@@ -94,7 +94,9 @@ class NetworkController(private val context: ContextController, private val scop
         val before = mutable.value.line
         val line = before.withText(text)
         if (line.parsed.problems.isNotEmpty()) { mutable.update { it.copy(line = line) }; return }
-        mutable.update { it.copy(line = line) }
+        // New words are being searched from now on: never "No matches" (or the old words' hits) while the list loads.
+        val newWords = before.parsed.terms != line.parsed.terms
+        mutable.update { if (newWords && line.hasSearch) it.copy(line = line, hits = HitNavigator(), searching = true) else it.copy(line = line) }
         val sameFilters = before.parsed.problems.isEmpty() && before.parsed.filter == line.parsed.filter && before.parsed.exclude == line.parsed.exclude
         // Feature 041: only the matches are listed, so other words are other rows.
         if (sameFilters && before.parsed.terms == line.parsed.terms) search() else requery()
@@ -452,7 +454,7 @@ class NetworkController(private val context: ContextController, private val scop
                 mutable.update { it.copy(loading = true) }
                 runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
                     .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false) }; search() }
-                    .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false) } }
+                    .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false, searching = false) } }
             }
             return
         }
@@ -500,7 +502,8 @@ class NetworkController(private val context: ContextController, private val scop
             } catch (e: Exception) {
                 mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName) }
             } finally {
-                mutable.update { it.copy(loading = false, watching = false) }
+                // A list that never came starts no search: nothing is being searched.
+                mutable.update { it.copy(loading = false, watching = false, searching = if (searchJob?.isActive == true) it.searching else false) }
             }
         }
     }

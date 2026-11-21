@@ -161,6 +161,21 @@ class NetworkControllerTest {
         assertTrue(daemon.ops.views.all { it?.endsWith(":network-tab") == true }, "the tab lists as its live view: ${daemon.ops.views}")
     }
 
+    @Test
+    fun `new search words say Searching at once, never No matches before the search starts`() = runBlocking<Unit> {
+        pagedHistory(listOf(3, 2, 1), firstPage = 3)
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("api")
+        network.state.value.let { assertTrue(it.searching && it.hits.total == 0, "searching from the moment the words change: ${it.searching} ${it.hits.label}") }
+        await { it.hits.total == 3 && !it.searching }
+        network.setQuery("api other")
+        network.state.value.let { assertTrue(it.searching && it.hits.total == 0, "the old words' hits are not shown for the new ones: ${it.hits.label}") }
+        await { !it.searching }
+        network.setQuery("")
+        assertTrue(!network.state.value.searching, "no words, no search")
+    }
+
     /** A history of [ids] newest first that match "api"; the list pages after [firstPage] rows, the search by its limit. */
     private fun pagedHistory(ids: List<Int>, firstPage: Int) {
         val byId = ids.associateWith { http(it) }
