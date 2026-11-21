@@ -222,6 +222,26 @@ class NetworkControllerTest {
         assertEquals(listOf("r1-1:1", "r1-1:2", "r1-1:3"), s.hits.entries.map { it.id }.sorted(), "every loaded row has its hits")
     }
 
+    @Test
+    fun `an older page brings its rows' hits, and nothing is searched again (070)`() = runBlocking<Unit> {
+        pagedHistory(listOf(3, 2, 1, -1, -2), firstPage = 3)
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("api")
+        await { it.hits.total == 3 && !it.searching }
+        network.nextHit()
+        val current = await { it.hits.index >= 0 }.hits.current!!.id
+        val searches = daemon.ops.searches.size
+        network.loadOlder()
+        val s = await { it.list.rows.size == 5 && it.hits.total == 5 }
+        assertEquals("1 / 5", s.hits.label, "the hit stepped onto stays current: ${s.hits.label}")
+        assertEquals(current, s.hits.current?.id)
+        val newestFirst = listOf("r1-1:3", "r1-1:2", "r1-1:1", "r1-1:-1", "r1-1:-2")
+        assertEquals(if (s.hitsNewestFirst) newestFirst else newestFirst.asReversed(), s.hits.entries.map { it.id }, "in the list's order")
+        kotlinx.coroutines.delay(300)
+        assertEquals(searches, daemon.ops.searches.size, "the page's own hits, no search of every loaded row")
+    }
+
     /** A history of [ids] newest first that match "api"; the list pages after [firstPage] rows, the search by its limit. */
     private fun pagedHistory(ids: List<Int>, firstPage: Int) {
         val byId = ids.associateWith { http(it) }
@@ -230,6 +250,7 @@ class NetworkControllerTest {
             ids.drop(from).take(if (q.before == null) firstPage else q.limit).map { byId.getValue(it) }
         }
         daemon.ops.listNext = { q -> if (q.before == null && ids.size > firstPage) "l$firstPage" else null }
+        daemon.ops.listHits = { q, page -> if (q.q?.contains("api") == true) page.associate { it.id to listOf(hit(it.id)) } else null }
         daemon.ops.searchPage = { q ->
             val from = q.before?.removePrefix("s")?.toInt() ?: 0
             val slice = ids.drop(from).take(q.limit)

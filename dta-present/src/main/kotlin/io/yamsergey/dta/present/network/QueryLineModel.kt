@@ -224,6 +224,18 @@ data class HitNavigator(val entries: List<EntryHits> = emptyList(), val index: I
     }
 
     /** The same position by entry id after a refresh; [order] is the list's ids top to bottom, for the nearest. */
+    /**
+     * Feature 070: an older page's hits (its rows' own, as `network.list` gives them) join at the
+     * oldest end — the bottom when newest first, the top when newest at the bottom; the current hit stays.
+     */
+    fun withOlder(older: List<EntryHits>, newestFirst: Boolean, more: Boolean): HitNavigator {
+        val have = entries.mapTo(HashSet()) { it.id }
+        val add = older.filter { it.id !in have }.sortedWith(compareByDescending<EntryHits> { it.timeMs }.thenByDescending { it.id })
+        val next = if (newestFirst) entries + add else add.asReversed() + entries
+        val was = current?.id
+        return HitNavigator(next, was?.let { w -> next.indexOfFirst { it.id == w } } ?: -1, more)
+    }
+
     fun refreshed(fresh: List<EntryHits>, order: List<String> = emptyList(), more: Boolean = this.more): HitNavigator {
         val was = current?.id ?: return HitNavigator(fresh, more = more)
         fresh.indexOfFirst { it.id == was }.takeIf { it >= 0 }?.let { return HitNavigator(fresh, it, more) }

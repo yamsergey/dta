@@ -84,8 +84,10 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     var listed: (NetworkQuery) -> List<io.yamsergey.dta.protocol.network.NetworkEntry> = { entries }
     /** The cursor of the page after a network.list answer (null: everything listed). */
     var listNext: (NetworkQuery) -> String? = { null }
+    /** Feature 070: the search hits a network.list page carries for its entries (null: none). */
+    var listHits: (NetworkQuery, List<io.yamsergey.dta.protocol.network.NetworkEntry>) -> Map<String, List<io.yamsergey.dta.protocol.network.SearchHit>>? = { _, _ -> null }
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) =
-        listed(query).let { NetworkPage(it.sortedByDescending { e -> e.timeMs }, next = listNext(query), coverage = Coverage(searched = 3, stored = 3, persisted = true)) }.also { queries += pkg to query }
+        listed(query).let { NetworkPage(it.sortedByDescending { e -> e.timeMs }, next = listNext(query), coverage = Coverage(searched = 3, stored = 3, persisted = true), hits = listHits(query, it)) }.also { queries += pkg to query }
     /** Feature 040: network.search calls, and the hits they answer with. */
     val searches = java.util.concurrent.CopyOnWriteArrayList<NetworkQuery>()
     var searchHits: List<io.yamsergey.dta.protocol.network.EntryHits> = emptyList()

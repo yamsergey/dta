@@ -245,6 +245,27 @@ class NetworkController(private val context: ContextController, private val scop
         moved.current?.id?.let(::selectLoaded)
     }
 
+    /**
+     * Feature 070: an older page shown above, with its rows' hits as `network.list` gives them (the line's
+     * search words) — no search of every loaded row again. False when the page brought no hits to join
+     * (no search words, or none given): the caller searches as before.
+     */
+    private fun older(page: JsonObject): Boolean {
+        val hits = page["hits"] as? JsonObject
+        if (!mutable.value.line.hasSearch || hits == null) { list(LiveEvent.Older(page)); return false }
+        val times = (page["entries"] as? kotlinx.serialization.json.JsonArray).orEmpty().associate { e ->
+            val o = e.jsonObject
+            (o["id"] as JsonPrimitive).content to ((o["timeMs"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L)
+        }
+        val list = kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer())
+        val joined = hits.map { (id, h) -> io.yamsergey.dta.protocol.network.EntryHits(id, times[id] ?: 0L, DtaJson.decodeFromJsonElement(list, h)) }
+        mutable.update {
+            val rows = it.list.reduce(LiveEvent.Older(page))
+            it.copy(list = rows, hits = it.hits.withOlder(joined, it.hitsNewestFirst, more = rows.older != null))
+        }
+        return true
+    }
+
     private var stepJob: Job? = null
 
     /** Loads the list's next older page, searches the rows loaded again, then steps onto the first hit it brought. */
@@ -255,9 +276,7 @@ class NetworkController(private val context: ContextController, private val scop
             val s = mutable.value
             val cursor = s.list.older ?: return@launch
             val r = runCatching { c.call("network.list", params(s, before = cursor)) }.getOrNull() ?: return@launch
-            list(LiveEvent.Older(r.result.jsonObject))
-            searchJob?.cancel()
-            runSearch(mutable.value, c)
+            if (!older(r.result.jsonObject)) { searchJob?.cancel(); runSearch(mutable.value, c) }
             val moved = mutable.value.hits.let { if (forward) it.next() else it.previous() }
             mutable.update { it.copy(hits = moved) }
             moved.current?.id?.let(::selectLoaded)
@@ -270,13 +289,14 @@ class NetworkController(private val context: ContextController, private val scop
         if (mutable.value.list.rows.any { it.id == id } || c == null) { list(LiveEvent.Selected(id)); return }
         scope.launch {
             var pages = 0
+            var unsearched = false
             while (mutable.value.list.rows.none { it.id == id } && pages++ < REVEAL_PAGES) {
                 val cursor = mutable.value.list.older ?: break
                 val r = runCatching { c.call("network.list", params(mutable.value, before = cursor)) }.getOrNull() ?: break
-                list(LiveEvent.Older(r.result.jsonObject))
+                if (!older(r.result.jsonObject)) unsearched = true
             }
             list(LiveEvent.Selected(id))
-            if (pages > 0 && mutable.value.line.hasSearch) search()
+            if (unsearched && mutable.value.line.hasSearch) search()
         }
     }
 
@@ -403,7 +423,7 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return
         scope.launch {
             runCatching { c.call("network.list", params(s, before = cursor)) }
-                .onSuccess { r -> list(LiveEvent.Older(r.result.jsonObject)); if (mutable.value.line.hasSearch) search() }
+                .onSuccess { r -> if (!older(r.result.jsonObject) && mutable.value.line.hasSearch) search() }
         }
     }
 

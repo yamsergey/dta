@@ -225,4 +225,19 @@ class QueryLineModelTest {
         assertEquals(listOf(HitTab.HEADERS, HitTab.HEADERS, HitTab.RESPONSE), found.map { it.tab })
     }
 
+
+    @Test
+    fun `an older page's hits join at the oldest end and the current hit stays (070)`() {
+        fun e(n: Int) = io.yamsergey.dta.protocol.network.EntryHits("e$n", n.toLong(), listOf(io.yamsergey.dta.protocol.network.SearchHit("e$n", io.yamsergey.dta.protocol.network.SearchPlace.URL, "x", 0, 1, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("x", 0, 1))))
+        // Newest at the bottom: the list's order is oldest first.
+        val bottom = HitNavigator(listOf(e(3), e(4)), index = 0, more = true)
+        val b = bottom.withOlder(listOf(e(2), e(1), e(3)), newestFirst = false, more = false)
+        assertEquals(listOf("e1", "e2", "e3", "e4"), b.entries.map { it.id })
+        assertEquals("e3", b.current?.id)
+        assertEquals("3 / 4", b.label)
+        val top = HitNavigator(listOf(e(4), e(3)), index = 1, more = true)
+        val t = top.withOlder(listOf(e(2), e(1)), newestFirst = true, more = true)
+        assertEquals(listOf("e4", "e3", "e2", "e1"), t.entries.map { it.id })
+        assertEquals("2 / 4 loaded", t.label)
+    }
 }
