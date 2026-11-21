@@ -220,7 +220,7 @@ data class HitNavigator(val entries: List<EntryHits> = emptyList(), val index: I
             else -> entries + EntryHits(id, timeMs, hits)
         }
         val index = was?.let { w -> next.indexOfFirst { it.id == w } } ?: -1
-        return HitNavigator(next, index)
+        return HitNavigator(next, index, more)
     }
 
     /** The same position by entry id after a refresh; [order] is the list's ids top to bottom, for the nearest. */

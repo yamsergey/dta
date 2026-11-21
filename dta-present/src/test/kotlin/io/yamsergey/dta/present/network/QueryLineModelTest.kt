@@ -190,6 +190,19 @@ class QueryLineModelTest {
     }
 
     @Test
+    fun `a live hit keeps saying that more hits follow the loaded ones`() {
+        val loaded = HitNavigator(entries("b", "c"), more = true)
+        val arrived = loaded.live("a", 0, listOf(hit("a")), newestFirst = true)
+        assertEquals("– / 3 loaded", arrived.label)
+        val changed = arrived.next().live("a", 0, listOf(hit("a", start = 2)), newestFirst = true)
+        assertEquals("1 / 3 loaded", changed.label)
+        val left = changed.live("c", 0, null, newestFirst = true)
+        assertEquals("1 / 2 loaded", left.label)
+        // Everything loaded: a live hit does not invent more.
+        assertEquals("– / 3", HitNavigator(entries("b", "c")).live("a", 0, listOf(hit("a")), newestFirst = true).label)
+    }
+
+    @Test
     fun `highlights and the tab of a hit`() {
         val hits = listOf(hit("a", start = 5), hit("a", start = 1), hit("a", SearchPlace.REQUEST_HEADER, null, "X-Order-Id"), hit("a", SearchPlace.URL, null))
         assertEquals(listOf(1..1, 5..5), Highlights.body(hits, BodyPart.RESPONSE))
