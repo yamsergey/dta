@@ -180,14 +180,16 @@ class HostIndex(
     /** Feature 067: what each live view (a plugin tab, a CLI watch) was shown. */
     internal val views = LiveViews()
 
-    /** Feature 067: a newer query of a view abandons its running pass. */
-    private val viewPasses = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val passIds = java.util.concurrent.atomic.AtomicLong()
+    /**
+     * Feature 067: a different query of a view abandons its running pass. 070: the same query (its
+     * next page, a relist) does not: each of them abandoned the other's pass, and the tab said so.
+     */
+    private val viewQueries = java.util.concurrent.ConcurrentHashMap<String, NetworkQuery>()
 
-    private fun stopperFor(view: String): () -> Unit {
-        val mine = passIds.incrementAndGet()
-        viewPasses[view] = mine
-        return { if (viewPasses[view] != mine) throw SupersededException(view) }
+    private fun stopperFor(view: String, query: NetworkQuery): () -> Unit {
+        val mine = views.key(query)
+        viewQueries[view] = mine
+        return { if (viewQueries[view] != mine) throw SupersededException(view) }
     }
 
     /** A view's pass replaced by a newer query of the same view; the answer is not needed any more. */
@@ -195,13 +197,13 @@ class HostIndex(
 
     /** Feature 067: the list for a live [view]; what it shows is remembered for its live decisions. */
     suspend fun list(query: NetworkQuery, view: String): NetworkPage {
-        val stop = stopperFor(view)
+        val stop = stopperFor(view, query)
         return list(query) { v -> v.list(query, stop = stop).also { page -> views.shown(view, query, page.entries.map { it.id }) } }
     }
 
     /** Feature 067: the search for a live [view]. */
     suspend fun search(query: NetworkQuery, view: String): SearchPage {
-        val stop = stopperFor("$view#search")
+        val stop = stopperFor("$view#search", query)
         return search(query) { v -> v.search(query, stop = stop) }
     }
 

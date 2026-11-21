@@ -161,6 +161,35 @@ class HostIndexLiveViewTest {
         assertTrue(e is HostIndex.SupersededException, "the older pass gave way: $e")
     }
 
+    /**
+     * 070 (EAP .133 on another machine): the tab's next page and its relist of the same query share
+     * the view; each abandoned the other's pass, and the tab said «SupersededException». Only a
+     * different query of the view abandons a running pass.
+     */
+    @Test
+    fun `the same query of a view — a next page, a relist — does not abandon the running pass`() = runBlocking<Unit> {
+        val inPass = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val app = FakeJournalApp().apply { record(socket) }
+        var block = true
+        val host = index(app, readEnvelope = { _, text ->
+            if (block) { inPass.countDown(); release.await(10, TimeUnit.SECONDS) }
+            io.yamsergey.dta.protocol.network.WsFormats.detect(text)
+        })
+        val r = Random(3)
+        repeat(20) { message(app, r) }
+        host.copyAllPending()
+        val q = NetworkQuery(q = "type:tick", limit = 5)
+        val first = async(Dispatchers.IO) { runCatching { host.list(q, "v") } }
+        assertTrue(inPass.await(10, TimeUnit.SECONDS))
+        block = false
+        val next = host.list(q.copy(limit = 5, before = "r1-1:10"), "v")
+        assertTrue(next.entries.size <= 5)
+        release.countDown()
+        val e = first.await().exceptionOrNull()
+        assertTrue(e == null, "the first page is answered: $e")
+    }
+
     @Test
     fun `a live decision is what the list says, and an entry that stops matching has left`() = runBlocking<Unit> {
         val app = FakeJournalApp().apply { record(socket) }

@@ -349,7 +349,7 @@ class NetworkController(private val context: ContextController, private val scop
                 if (got.size >= need && reached) break
             }
         }
-        done.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; mutable.update { it.copy(searching = false, error = e.message) }; return }
+        done.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; if (superseded(e)) return; mutable.update { it.copy(searching = false, error = e.message) }; return }
         val page = first!!.copy(entries = got, notSearched = notSearched.toList().ifEmpty { null })
         mutable.update {
             val byId = HashMap<String, io.yamsergey.dta.protocol.network.EntryHits>()
@@ -482,7 +482,7 @@ class NetworkController(private val context: ContextController, private val scop
                 mutable.update { it.copy(loading = true) }
                 runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
                     .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false) }; search() }
-                    .onFailure { e -> mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, loading = false, searching = false) } }
+                    .onFailure { e -> mutable.update { it.copy(error = if (superseded(e)) it.error else e.message ?: e.javaClass.simpleName, loading = false, searching = false) } }
             }
             return
         }
@@ -529,7 +529,7 @@ class NetworkController(private val context: ContextController, private val scop
                 throw e
             } catch (e: Exception) {
                 // A list that never came starts no search: nothing is being searched.
-                mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, searching = if (searchJob?.isActive == true) it.searching else false) }
+                mutable.update { it.copy(error = if (superseded(e)) it.error else e.message ?: e.javaClass.simpleName, searching = if (searchJob?.isActive == true) it.searching else false) }
             } finally {
                 // Cancelled by a new query, the next list's search goes on: searching is left as it is.
                 mutable.update { it.copy(loading = false, watching = false) }
@@ -586,6 +586,9 @@ class NetworkController(private val context: ContextController, private val scop
             if (s.line.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
         }
     }
+
+    /** 070: an answer the daemon abandoned for a newer query of this tab: nobody needs it, nothing is said. */
+    private fun superseded(e: Throwable) = e is io.yamsergey.dta.client.DaemonCallException && e.code == io.yamsergey.dta.protocol.ops.ClientErrorCodes.SUPERSEDED
 
     companion object {
         /** Feature 067: this tab's live view at the daemon (its match sets make the next query cheap). */

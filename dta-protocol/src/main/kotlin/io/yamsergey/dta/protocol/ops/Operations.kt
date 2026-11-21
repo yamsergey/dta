@@ -156,6 +156,8 @@ object ClientErrorCodes {
     const val NO_APP = -32012
     const val NOT_FOUND = -32013
     const val NOT_AVAILABLE = -32014
+    /** 070: the answer was abandoned for a newer query of the same view; nobody waits for it. */
+    const val SUPERSEDED = -32015
 }
 
 private val STORE = ParamSpec("store", ParamType.STRING, "The store as data list shows it: db:<file>, prefs:<name>, datastore:<file>.", required = true, positional = true)

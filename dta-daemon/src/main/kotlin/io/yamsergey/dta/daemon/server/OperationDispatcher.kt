@@ -508,6 +508,8 @@ class OperationDispatcher(
         )
         is ConnectionLostException, is RequestTimeoutException ->
             ClientException(ClientErrorCodes.NOT_AVAILABLE, e.message ?: "app connection lost", unavailable("connection", e.message ?: "lost"))
+        // 070: not a failure: a newer query of the same view replaced this one.
+        is io.yamsergey.dta.daemon.network.HostIndex.SupersededException -> ClientException(ClientErrorCodes.SUPERSEDED, e.message ?: "superseded")
         is AdbUnavailableException -> ClientException(ClientErrorCodes.NOT_AVAILABLE, e.message ?: "adb not available", unavailable("adb", e.message ?: "not found"))
         else -> ClientException(ErrorCodes.INTERNAL, "${e.javaClass.simpleName}: ${e.message?.lineSequence()?.firstOrNull() ?: "internal error"}")
     }

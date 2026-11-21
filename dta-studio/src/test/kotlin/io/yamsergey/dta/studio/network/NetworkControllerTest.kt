@@ -55,6 +55,22 @@ class NetworkControllerTest {
         assertEquals(4, updated.list.rows.size)
     }
 
+    /**
+     * 070 (EAP .133 on another machine): a list the daemon abandoned for a newer query of the tab
+     * said «SupersededException: superseded by a newer query of view …» and ended the live list.
+     * Its answer is not needed: nothing is said.
+     */
+    @Test
+    fun `a list abandoned for a newer query of the tab is not an error`() = runBlocking<Unit> {
+        val entries = daemon.ops.listed
+        var first = true
+        daemon.ops.listed = { q -> if (first) { first = false; throw io.yamsergey.dta.daemon.network.HostIndex.SupersededException(NetworkController.VIEW) } else entries(q) }
+        session.start()
+        until { !first }
+        kotlinx.coroutines.delay(300)
+        assertEquals(null, network.state.value.error, "nothing said for an answer nobody needs")
+    }
+
     @Test
     fun `reveal leaves an archive scope and selects the entry (from the Timeline tab)`() = runBlocking<Unit> {
         session.start()
