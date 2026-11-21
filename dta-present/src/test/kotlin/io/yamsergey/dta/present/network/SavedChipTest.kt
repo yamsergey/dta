@@ -29,4 +29,13 @@ class SavedChipTest {
         assertEquals("12 shown · 9 in the history · 1 saved filter on", SavedChip.caption(12, 9, SavedFiltersApplied(listOf("a:1")), filtered = true))
         assertEquals("9 entries", SavedChip.caption(9, 9, SavedFiltersApplied(listOf("a:1"), ignored = true), filtered = false))
     }
+
+    @Test
+    fun `the caption says when more rows can load, so the rows shown are not read as all matches (070)`() {
+        assertEquals("500 shown, more to load · 650 312 in the history", SavedChip.caption(500, 650_312, null, filtered = true, more = true))
+        assertEquals("500 shown, more to load · 650 312 in the history · 1 saved filter on", SavedChip.caption(500, 650_312, SavedFiltersApplied(listOf("a:1")), filtered = true, more = true))
+        assertEquals("12 shown · 650 312 in the history", SavedChip.caption(12, 650_312, null, filtered = true, more = false))
+        // No filter: the history's size says it all.
+        assertEquals("650 312 entries", SavedChip.caption(500, 650_312, null, filtered = false, more = true))
+    }
 }

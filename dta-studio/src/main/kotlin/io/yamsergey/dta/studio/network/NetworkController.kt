@@ -233,9 +233,33 @@ class NetworkController(private val context: ContextController, private val scop
     fun previousHit() = moveHit(forward = false)
 
     private fun moveHit(forward: Boolean) {
-        val moved = mutable.value.hits.let { if (forward) it.next() else it.previous() }
+        val s = mutable.value
+        val h = s.hits
+        // Feature 070: the hits are those of the rows loaded; past the oldest loaded one the list's next page loads (no wrap while more can load).
+        val pastOldest = h.total > 0 && s.list.older != null && if (s.hitsNewestFirst) forward && h.index == h.total - 1 else !forward && h.index == 0
+        if (pastOldest) { loadOlderThenStep(forward); return }
+        val moved = h.let { if (forward) it.next() else it.previous() }
         mutable.update { it.copy(hits = moved) }
         moved.current?.id?.let(::selectLoaded)
+    }
+
+    private var stepJob: Job? = null
+
+    /** Loads the list's next older page, searches the rows loaded again, then steps onto the first hit it brought. */
+    private fun loadOlderThenStep(forward: Boolean) {
+        if (stepJob?.isActive == true) return
+        val c = context.client ?: return
+        stepJob = scope.launch {
+            val s = mutable.value
+            val cursor = s.list.older ?: return@launch
+            val r = runCatching { c.call("network.list", params(s, before = cursor)) }.getOrNull() ?: return@launch
+            list(LiveEvent.Older(r.result.jsonObject))
+            searchJob?.cancel()
+            runSearch(mutable.value, c)
+            val moved = mutable.value.hits.let { if (forward) it.next() else it.previous() }
+            mutable.update { it.copy(hits = moved) }
+            moved.current?.id?.let(::selectLoaded)
+        }
     }
 
     /** Selects [id], loading older pages (at most [REVEAL_PAGES]) while it is not loaded yet. */
@@ -250,6 +274,7 @@ class NetworkController(private val context: ContextController, private val scop
                 list(LiveEvent.Older(r.result.jsonObject))
             }
             list(LiveEvent.Selected(id))
+            if (pages > 0 && mutable.value.line.hasSearch) search()
         }
     }
 
@@ -266,21 +291,45 @@ class NetworkController(private val context: ContextController, private val scop
         }
         searchJob = scope.launch {
             if (debounceMs > 0) kotlinx.coroutines.delay(debounceMs)
-            mutable.update { it.copy(searching = true) }
-            val params = JsonObject(
-                target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive(SEARCH_LIMIT), "order" to JsonPrimitive(if (s.hitsNewestFirst) "newest-first" else "oldest-first")) +
-                    (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
+            runSearch(mutable.value, c)
+        }
+    }
+
+    /**
+     * Feature 070: the hits of the rows the list has loaded — the newest as many as it holds, as the list
+     * loads them (in search pages of at most [SEARCH_PAGE]) — stepped through in the list's order.
+     */
+    private suspend fun runSearch(s: NetworkViewState, c: io.yamsergey.dta.client.DaemonClient) {
+        mutable.update { it.copy(searching = true) }
+        val need = s.list.rows.size.coerceAtLeast(1)
+        val got = mutableListOf<io.yamsergey.dta.protocol.network.EntryHits>()
+        var first: SearchPage? = null
+        var before: String? = null
+        val notSearched = linkedSetOf<String>()
+        val done = runCatching {
+            while (true) {
+                val params = JsonObject(
+                    target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive((need - got.size).coerceIn(1, SEARCH_PAGE)), "order" to JsonPrimitive("newest-first")) +
+                        (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) +
+                        (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
+                )
+                val page = DtaJson.decodeFromJsonElement(SearchPage.serializer(), c.call("network.search", params).result)
+                first = first ?: page
+                got += page.entries
+                page.notSearched?.let(notSearched::addAll)
+                before = page.next ?: break
+                if (got.size >= need) break
+            }
+        }
+        done.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; mutable.update { it.copy(searching = false, error = e.message) }; return }
+        val page = first!!.copy(entries = got, notSearched = notSearched.toList().ifEmpty { null })
+        mutable.update {
+            val loaded = it.list.rows.mapTo(HashSet()) { r -> r.id }
+            val mine = got.filter { e -> e.id in loaded }.let { hits -> if (it.hitsNewestFirst) hits else hits.asReversed() }
+            it.copy(
+                hits = it.hits.refreshed(mine, order = it.list.rows.map { r -> r.id }.let { ids -> if (it.hitsNewestFirst) ids.asReversed() else ids }, more = it.list.older != null),
+                searching = false, searchStatements = Statements.forSearch(page),
             )
-            runCatching { DtaJson.decodeFromJsonElement(SearchPage.serializer(), c.call("network.search", params).result) }
-                .onSuccess { page ->
-                    mutable.update {
-                        it.copy(
-                            hits = it.hits.refreshed(page.entries, order = it.list.rows.map { r -> r.id }.let { ids -> if (it.hitsNewestFirst) ids.asReversed() else ids }, more = page.next != null),
-                            searching = false, searchStatements = Statements.forSearch(page),
-                        )
-                    }
-                }
-                .onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) mutable.update { it.copy(searching = false, error = e.message) } }
         }
     }
 
@@ -344,7 +393,7 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return
         scope.launch {
             runCatching { c.call("network.list", params(s, before = cursor)) }
-                .onSuccess { r -> list(LiveEvent.Older(r.result.jsonObject)) }
+                .onSuccess { r -> list(LiveEvent.Older(r.result.jsonObject)); if (mutable.value.line.hasSearch) search() }
         }
     }
 
@@ -510,7 +559,8 @@ class NetworkController(private val context: ContextController, private val scop
         /** Feature 067: this tab's live view at the daemon (its match sets make the next query cheap). */
         const val VIEW = "network-tab"
         const val PAGE = 500
-        const val SEARCH_LIMIT = 1000
+        /** At most this many entries with hits per `network.search` call (the protocol's page limit). */
+        const val SEARCH_PAGE = 1000
         const val SEARCH_SETTLE_MS = 1000L
         const val REVEAL_PAGES = 10
         const val SAVED_POLL_MS = 5000L

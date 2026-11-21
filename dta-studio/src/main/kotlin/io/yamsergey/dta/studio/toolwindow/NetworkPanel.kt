@@ -399,7 +399,7 @@ class NetworkPanel(
         if (s.line != previous.line || s.list.history < previous.list.history) caption.reset()
         // Feature 069: rows shown and the history's size; matches are not counted.
         val filtered = s.line.text.isNotBlank() || s.kind != io.yamsergey.dta.present.network.KindChoice.ALL
-        caption.text = io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.history, s.savedApplied, filtered)
+        caption.text = io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.history, s.savedApplied, filtered, more = s.list.older != null)
         if (s.hits != previous.hits) table.repaint()
         statements.removeAll()
         s.saved.problem?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.text(io.yamsergey.dta.present.StatementKind.DEGRADED) }) }

@@ -161,6 +161,76 @@ class NetworkControllerTest {
         assertTrue(daemon.ops.views.all { it?.endsWith(":network-tab") == true }, "the tab lists as its live view: ${daemon.ops.views}")
     }
 
+    /** A history of [ids] newest first that match "api"; the list pages after [firstPage] rows, the search by its limit. */
+    private fun pagedHistory(ids: List<Int>, firstPage: Int) {
+        val byId = ids.associateWith { http(it) }
+        daemon.ops.listed = { q ->
+            val from = q.before?.removePrefix("l")?.toInt() ?: 0
+            ids.drop(from).take(if (q.before == null) firstPage else q.limit).map { byId.getValue(it) }
+        }
+        daemon.ops.listNext = { q -> if (q.before == null && ids.size > firstPage) "l$firstPage" else null }
+        daemon.ops.searchPage = { q ->
+            val from = q.before?.removePrefix("s")?.toInt() ?: 0
+            val slice = ids.drop(from).take(q.limit)
+            io.yamsergey.dta.protocol.network.SearchPage(
+                slice.map { io.yamsergey.dta.protocol.network.EntryHits("r1-1:$it", 0, listOf(hit("r1-1:$it"))) },
+                next = if (from + slice.size < ids.size) "s${from + slice.size}" else null,
+            )
+        }
+    }
+
+    @Test
+    fun `hits are those of the rows loaded, and Next past the last loads the next page (070)`() = runBlocking<Unit> {
+        pagedHistory(listOf(3, 2, 1, -1, -2), firstPage = 3)
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("api")
+        val first = await { it.hits.total == 3 && !it.searching }
+        assertEquals("– / 3 loaded", first.hits.label)
+        daemon.ops.searches.last().let {
+            assertEquals(3, it.limit, "as many as the list has loaded")
+            assertEquals(io.yamsergey.dta.protocol.network.Order.NEWEST_FIRST, it.order, "the newest, as the list loads them")
+        }
+        repeat(3) { network.nextHit() }
+        assertEquals("3 / 3 loaded", await { it.hits.index == 2 }.hits.label)
+        network.nextHit()
+        val more = await { it.hits.total == 5 && it.hits.current?.id == "r1-1:-1" }
+        assertEquals("4 / 5", more.hits.label, "the next page loaded: everything matching is in")
+        assertTrue(daemon.ops.queries.any { it.second.before == "l3" }, "the list's next page was asked")
+        assertEquals("r1-1:-1", await { it.list.selectedId == "r1-1:-1" }.list.selectedId)
+        network.nextHit(); network.nextHit()
+        assertEquals("1 / 5", await { it.hits.index == 0 }.hits.label, "all loaded: Next wraps")
+    }
+
+    @Test
+    fun `newest at the bottom, Previous past the first hit loads the older page above (070)`() = runBlocking<Unit> {
+        pagedHistory(listOf(3, 2, 1, -1, -2), firstPage = 3)
+        network.setHitsNewestFirst(false)
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("api")
+        await { it.hits.total == 3 && !it.searching }
+        assertEquals(io.yamsergey.dta.protocol.network.Order.NEWEST_FIRST, daemon.ops.searches.last().order)
+        network.nextHit()
+        assertEquals("r1-1:1", await { it.hits.index == 0 }.hits.current?.id, "top to bottom: the oldest loaded first")
+        network.previousHit()
+        val more = await { it.hits.total == 5 && it.hits.current?.id == "r1-1:-1" }
+        assertEquals("2 / 5", more.hits.label)
+    }
+
+    @Test
+    fun `more rows loaded than one search page holds are searched page by page (070)`() = runBlocking<Unit> {
+        pagedHistory((1200 downTo 1).toList(), firstPage = 1200)
+        session.start()
+        await { it.list.rows.size == 1200 && it.watching }
+        network.setQuery("api")
+        val s = await { it.hits.total == 1200 && !it.searching }
+        assertEquals("– / 1200", s.hits.label)
+        val pages = daemon.ops.searches.takeLast(2)
+        assertEquals(listOf(1000, 200), pages.map { it.limit })
+        assertEquals(listOf(null, "s1000"), pages.map { it.before })
+    }
+
     @Test
     fun `an entry that stops matching leaves the list (067)`() = runBlocking<Unit> {
         daemon.ops.decide = { _, e -> if (e.id == "r1-1:2") io.yamsergey.dta.protocol.network.EntryDecision(false) to true else io.yamsergey.dta.protocol.network.EntryDecision(true) to false }

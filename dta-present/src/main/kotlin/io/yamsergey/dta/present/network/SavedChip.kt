@@ -27,10 +27,11 @@ data class SavedChip(val word: String, val key: String, val value: String) {
          * shown and the history's size, and the saved filters that apply. Feature 069: matches are
          * not counted (it would read the whole history).
          */
-        fun caption(shown: Int, history: Int, saved: SavedFiltersApplied?, filtered: Boolean): String {
+        fun caption(shown: Int, history: Int, saved: SavedFiltersApplied?, filtered: Boolean, more: Boolean = false): String {
             val savedOn = saved?.takeIf { !it.ignored && it.words.isNotEmpty() }?.words?.size
             if (!filtered && savedOn == null) return "${grouped(history)} entries"
-            val base = "${grouped(shown)} shown · ${grouped(history)} in the history"
+            // Feature 070: rows loaded so far, not every match — said while more can load.
+            val base = "${grouped(shown)} shown${if (more) ", more to load" else ""} · ${grouped(history)} in the history"
             return if (savedOn == null) base else "$base · $savedOn saved filter${if (savedOn == 1) "" else "s"} on"
         }
 
