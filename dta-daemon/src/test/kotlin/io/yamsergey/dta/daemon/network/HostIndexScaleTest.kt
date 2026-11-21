@@ -82,4 +82,27 @@ class HostIndexScaleTest {
         val held = heapMb() - before
         assertTrue(held < 30, "memory held after archive answers over $n entries: $held MB")
     }
+
+    @Test
+    fun `a word finds its page at once once the index is written`() = runBlocking<Unit> {
+        val n = 100_000
+        HostStore(dir).use { ArchiveFixtures.fill(it, n) }
+        val store = HostStore(dir).also { stores += it }
+        val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, ArchiveFixtures.entry(n - 1, Random(0))) }
+        val (_, indexMs) = ms { while (host.indexWords() > 0) Unit }
+        assertEquals(0, host.wordsPending())
+        host.list(NetworkQuery(limit = 100))
+        // Common, rare (a few entries of 100,000), absent; a body filter and a pattern.
+        val cases = listOf("tick" to true, "item-12340-0" to true, "nowhere-xyz" to false, "body:item-12340" to true, "body:/item-1234\\d-0/" to true)
+        val times = cases.map { (q, some) ->
+            host.list(NetworkQuery(limit = 100, q = q))
+            val (page, t) = ms { runBlocking { host.list(NetworkQuery(limit = 100, q = q)) } }
+            assertEquals(some, page.entries.isNotEmpty(), q)
+            assertTrue(t < 300, "«$q» first page in $t ms")
+            q to t
+        }
+        val (hits, searchMs) = ms { runBlocking { host.search(NetworkQuery(limit = 20, q = "item-12340-0")) } }
+        assertTrue(hits.entries.isNotEmpty() && searchMs < 300, "search in $searchMs ms")
+        println("SCALE words n=$n index=${indexMs}ms ${times.joinToString { "${it.first}=${it.second}ms" }} search=${searchMs}ms")
+    }
 }

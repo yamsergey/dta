@@ -40,6 +40,17 @@ object Redactor {
         return lower in SECRET_HEADERS || SENSITIVE_PARTS.any { it in lower }
     }
 
+    /**
+     * Feature 070: false when [body] of [text] cannot differ from [text] but in characters that are
+     * neither letters nor digits (no sensitive name in it, no `\u` escape to resolve): the word
+     * index then keeps one rendering.
+     */
+    fun mayChangeWords(text: String): Boolean {
+        if ("\\u" in text) return true
+        val lower = text.lowercase()
+        return SENSITIVE_PARTS.any { it in lower }
+    }
+
     fun headers(headers: List<Header>, location: String): Pair<List<Header>, List<String>> {
         val masked = mutableListOf<String>()
         val result = headers.map { h ->

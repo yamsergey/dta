@@ -401,7 +401,8 @@ class HostStore(
     fun pendingWords(epochIds: List<String>, limit: Int): List<PendingWords> {
         if (epochIds.isEmpty()) return emptyList()
         return query(
-            "SELECT p.rowid, p.mark, e.epoch_id, e.json FROM word_pending p JOIN entry e ON e.rowid=p.rowid WHERE e.epoch_id IN (${epochIds.joinToString(",") { "?" }}) ORDER BY p.rowid DESC LIMIT ?",
+            // CROSS JOIN: the queue drives (newest first), not a scan of the epoch.
+            "SELECT p.rowid, p.mark, e.epoch_id, e.json FROM word_pending p CROSS JOIN entry e ON e.rowid=p.rowid WHERE e.epoch_id IN (${epochIds.joinToString(",") { "?" }}) ORDER BY p.rowid DESC LIMIT ?",
             *epochIds.toTypedArray(), limit,
         ) { PendingWords(it.getLong(1), it.getInt(2), it.getString(3), DtaJson.decodeFromString(NetworkEntry.serializer(), it.getString(4))) }
     }

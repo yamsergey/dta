@@ -90,20 +90,26 @@ class StoreEntrySource internal constructor(
                 query("SELECT rowid FROM entry WHERE epoch_id=? AND seq=?", listOf(epoch, start.second)) { it.getLong(1) }.single()
             } else if (newestFirst) hi + 1 else lo - 1
             while (true) {
-                val found = if (newestFirst) {
-                    query("SELECT rowid FROM entry_words WHERE entry_words MATCH ? AND rowid < ? AND rowid >= ? ORDER BY rowid DESC LIMIT $page", listOf(match, cursor, lo)) { it.getLong(1) }
+                // Three streams in rowid order, a page of each: the index's matches, and the rows whose words are
+                // not (all) written. The batch covers up to the nearest edge a full page reached.
+                fun stream(sql: String, args: List<Any?>): List<Long> = if (newestFirst) {
+                    query("$sql AND rowid < ? AND rowid >= ? ORDER BY rowid DESC LIMIT $page", args + listOf(cursor, lo)) { it.getLong(1) }
                 } else {
-                    query("SELECT rowid FROM entry_words WHERE entry_words MATCH ? AND rowid > ? AND rowid <= ? ORDER BY rowid LIMIT $page", listOf(match, cursor, hi)) { it.getLong(1) }
+                    query("$sql AND rowid > ? AND rowid <= ? ORDER BY rowid LIMIT $page", args + listOf(cursor, hi)) { it.getLong(1) }
                 }
-                val full = found.size == page
-                // The range this batch covers: up to the last row the index gave, or the epoch's end.
-                val edge = if (full) found.last() else if (newestFirst) lo else hi
-                val (from, to) = if (newestFirst) edge to cursor - 1 else cursor + 1 to edge
-                val unwritten = query(
-                    "SELECT rowid FROM word_pending WHERE rowid BETWEEN ? AND ? UNION SELECT rowid FROM word_partial WHERE rowid BETWEEN ? AND ?",
-                    listOf(from, to, from, to),
-                ) { it.getLong(1) }
-                val ids = (found + unwritten).distinct().let { if (newestFirst) it.sortedDescending() else it.sorted() }
+                val streams = listOf(
+                    stream("SELECT rowid FROM entry_words WHERE entry_words MATCH ?", listOf(match)),
+                    stream("SELECT rowid FROM word_pending WHERE 1=1", emptyList()),
+                    stream("SELECT rowid FROM word_partial WHERE 1=1", emptyList()),
+                )
+                val ends = streams.filter { it.size == page }.map { it.last() }
+                val full = ends.isNotEmpty()
+                val edge = when {
+                    !full -> if (newestFirst) lo else hi
+                    newestFirst -> ends.max()
+                    else -> ends.min()
+                }
+                val ids = streams.flatten().filter { if (newestFirst) it >= edge else it <= edge }.distinct().let { if (newestFirst) it.sortedDescending() else it.sorted() }
                 for (chunk in ids.chunked(page)) {
                     val conditions = buildList {
                         add("rowid IN (${chunk.joinToString(",")})")
@@ -111,7 +117,8 @@ class StoreEntrySource internal constructor(
                         if (!links) add("kind <> 'link'")
                         pre?.let { add(it.sql) }
                     }
-                    val rows = query("SELECT rowid, json FROM entry WHERE ${conditions.joinToString(" AND ")}", buildList { add(epoch); pre?.let { addAll(it.args) } }) { it.getLong(1) to it.getString(2) }
+                    // NOT INDEXED: by rowid, not a scan of the epoch's index (on a million rows, 10 ms against 0.2 ms a batch).
+                    val rows = query("SELECT rowid, json FROM entry NOT INDEXED WHERE ${conditions.joinToString(" AND ")}", buildList { add(epoch); pre?.let { addAll(it.args) } }) { it.getLong(1) to it.getString(2) }
                         .toMap()
                     for (id in chunk) rows[id]?.let { yield(decode(it)) }
                 }

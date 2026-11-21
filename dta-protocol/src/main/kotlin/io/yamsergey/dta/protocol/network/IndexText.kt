@@ -87,7 +87,9 @@ object IndexText {
         }
         val text = bytes?.let { String(it.bytes, Charsets.UTF_8) } ?: info.preview ?: return cut
         if (append(out, text, PART_CHARS)) cut = true
-        Redactor.body(text, info.contentType, "").text?.takeIf { it != text }?.let { if (append(out, it, PART_CHARS)) cut = true }
+        if (Redactor.mayChangeWords(text)) {
+            Redactor.body(text, info.contentType, "").text?.takeIf { it != text }?.let { if (append(out, it, PART_CHARS)) cut = true }
+        }
         return cut
     }
 
