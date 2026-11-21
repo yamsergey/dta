@@ -204,7 +204,10 @@ data class HitNavigator(val entries: List<EntryHits> = emptyList(), val index: I
     fun next() = if (entries.isEmpty()) this else copy(index = (index + 1).mod(total))
     fun previous() = if (entries.isEmpty()) this else copy(index = if (index < 0) total - 1 else (index - 1).mod(total))
 
-    fun hitsOf(id: String): List<SearchHit>? = entries.firstOrNull { it.id == id }?.hits
+    /** By id, built once per navigator: the list asks for every cell it paints (070: tens of thousands of hits). */
+    private val byId: Map<String, EntryHits> by lazy { this@HitNavigator.entries.associateByTo(HashMap(this@HitNavigator.entries.size * 2)) { it.id } }
+
+    fun hitsOf(id: String): List<SearchHit>? = byId[id]?.hits
 
     /**
      * Feature 067: a live entry's hits (a subscription's decision), in place when known, else at the

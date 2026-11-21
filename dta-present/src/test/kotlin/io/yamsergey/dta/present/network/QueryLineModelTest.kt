@@ -240,4 +240,17 @@ class QueryLineModelTest {
         assertEquals(listOf("e4", "e3", "e2", "e1"), t.entries.map { it.id })
         assertEquals("2 / 4 loaded", t.label)
     }
+
+    @Test
+    fun `a row's hits are found without walking every hit, as the list paints each cell (070)`() {
+        val hit = io.yamsergey.dta.protocol.network.SearchHit("x", io.yamsergey.dta.protocol.network.SearchPlace.URL, "x", 0, 1, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("x", 0, 1))
+        val nav = HitNavigator((0 until 50_000).map { io.yamsergey.dta.protocol.network.EntryHits("e$it", it.toLong(), listOf(hit)) })
+        val t = System.nanoTime()
+        // A second of painting: 10 frames of 200 cells, 50 times over.
+        repeat(100_000) { nav.hitsOf("e${49_999 - it % 50_000}") }
+        val ms = (System.nanoTime() - t) / 1_000_000
+        assertEquals(listOf(hit), nav.hitsOf("e7"))
+        assertEquals(null, nav.hitsOf("none"))
+        kotlin.test.assertTrue(ms < 500, "100 000 lookups over 50 000 hits took $ms ms")
+    }
 }
