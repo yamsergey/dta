@@ -45,7 +45,8 @@ class BodyPane(
     private val marks: List<String> = emptyList(),
 ) : JPanel(BorderLayout()) {
     private val header = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
-    private val modes = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+    /** The view modes: given the row's width, so they can turn into a list (070). */
+    private val modes = JPanel(BorderLayout())
     private val content = JPanel(BorderLayout())
     private val actions = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
     private val editor = BodyEditor(project)
@@ -103,12 +104,28 @@ class BodyPane(
                 header.add(ActionLink("Open in editor") { openInEditor(file.path) })
                 setContent(JBLabel("This body is ${io.yamsergey.dta.present.Units.bytes(file.bytes)}: too large to show here. It was written to ${file.path} (sha256 ${file.sha256}).").apply { border = JBUI.Borders.empty(8, 12) })
             } else {
+                // 070 (mockup B): the modes as buttons while they fit, else as a list; Save… beside either.
                 lateinit var switch: com.intellij.ui.dsl.builder.SegmentedButton<BodyMode>
-                modes.add(com.intellij.ui.dsl.builder.panel {
-                    row { switch = segmentedButton(loaded.modes) { text = it.label }.whenItemSelectedFromUi { render(it) } }
-                }.apply { isOpaque = false })
+                val list = com.intellij.openapi.ui.ComboBox(loaded.modes.toTypedArray()).apply {
+                    renderer = com.intellij.ui.SimpleListCellRenderer.create("") { it.label }
+                    selectedItem = loaded.defaultMode
+                }
+                val buttons = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    isOpaque = false
+                    add(com.intellij.ui.dsl.builder.panel {
+                        row { switch = segmentedButton(loaded.modes) { text = it.label }.whenItemSelectedFromUi { list.selectedItem = it; render(it) } }
+                    }.apply { isOpaque = false })
+                    add(ActionLink("Save…") { save() }.apply { border = JBUI.Borders.emptyLeft(8) })
+                }
                 switch.selectedItem = loaded.defaultMode
-                modes.add(ActionLink("Save…") { save() }.apply { border = JBUI.Borders.emptyLeft(8) })
+                list.addActionListener { (list.selectedItem as? BodyMode)?.takeIf { it != switch.selectedItem }?.let { switch.selectedItem = it; render(it) } }
+                val asList = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
+                    isOpaque = false
+                    add(JBLabel("View").apply { foreground = com.intellij.util.ui.UIUtil.getContextHelpForeground() })
+                    add(list)
+                    add(ActionLink("Save…") { save() })
+                }
+                modes.add(JPanel(io.yamsergey.dta.studio.toolwindow.FirstThatFits()).apply { isOpaque = false; add(buttons); add(asList) }, BorderLayout.CENTER)
                 render(loaded.defaultMode)
             }
         }
