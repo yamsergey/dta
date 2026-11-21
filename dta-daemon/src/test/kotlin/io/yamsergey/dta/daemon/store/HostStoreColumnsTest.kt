@@ -82,6 +82,26 @@ class HostStoreColumnsTest {
         entries.forEach { e -> assertEquals(expected(e), stored.getValue(e.id), e.id) }
     }
 
+    /**
+     * 070 (found after D1): an entry still waiting (a call in flight, a socket open) was looked for
+     * with OR over kinds, and the planner walked the whole epoch by `entry_status` — 3.5 s over
+     * 1.2 million messages, with the store held, on every history summary. Each kind is looked
+     * up by its own index now.
+     */
+    @Test
+    fun `entries still waiting are looked up by kind, not by walking the epoch`() {
+        val s = store()
+        val epoch = s.openEpoch(device, "io.example", v14, "j1", 1)
+        val random = Random(3)
+        s.putEntries(epoch.id, (0 until 200).map { ArchiveFixtures.entry(it, random) })
+        val plan = sql("EXPLAIN QUERY PLAN $WAITING_SQL", epoch.id) { it.getString(4) }
+        val onEntry = plan.filter { Regex("^(SEARCH|SCAN) (e|entry)\\b").containsMatchIn(it) }
+        assertTrue(onEntry.isNotEmpty() && onEntry.all { "kind=?" in it }, "every look into entry goes by kind: $plan")
+        val expected = sql("SELECT count(*) FROM entry WHERE epoch_id=? AND ((kind='http' AND state='PENDING') OR (kind='ws-connection' AND state IN ('OPEN','CONNECTING')))", epoch.id) { it.getInt(1) }.single() +
+            sql("SELECT count(*) FROM pending_body p WHERE epoch_id=? AND NOT EXISTS (SELECT 1 FROM entry e WHERE e.epoch_id=p.epoch_id AND e.entry_id=p.entry_id AND ((e.kind='http' AND e.state='PENDING') OR (e.kind='ws-connection' AND e.state IN ('OPEN','CONNECTING'))))", epoch.id) { it.getInt(1) }.single()
+        assertEquals(expected, s.waitingCount(epoch.id))
+    }
+
     @Test
     fun `an epoch keeps how many of its entries are links`() {
         val s = store()

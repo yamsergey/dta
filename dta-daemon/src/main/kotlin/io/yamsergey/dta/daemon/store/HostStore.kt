@@ -64,6 +64,18 @@ class LiveEpochException(message: String) : Exception(message)
 class ArchivingStoppedException(message: String) : Exception(message)
 
 /**
+ * Feature 069: entries of an epoch still waiting — a body to copy, or not finished (a call in
+ * flight, a socket open). 070: one look per kind, by `entry_kind`; with OR over kinds the planner
+ * walked the whole epoch (3.5 s over 1.2 million messages, the store held meanwhile).
+ */
+internal const val WAITING_SQL =
+    """SELECT (SELECT count(DISTINCT entry_id) FROM pending_body WHERE epoch_id=?1)
+            + (SELECT count(*) FROM entry e WHERE e.epoch_id=?1 AND e.kind='http' AND e.state='PENDING'
+                 AND NOT EXISTS (SELECT 1 FROM pending_body p WHERE p.epoch_id=e.epoch_id AND p.entry_id=e.entry_id))
+            + (SELECT count(*) FROM entry e WHERE e.epoch_id=?1 AND e.kind='ws-connection' AND e.state IN ('OPEN','CONNECTING')
+                 AND NOT EXISTS (SELECT 1 FROM pending_body p WHERE p.epoch_id=e.epoch_id AND p.entry_id=e.entry_id))"""
+
+/**
  * The daemon's network store (feature 011, research R2): every epoch of every app on every
  * device in one SQLite database, bodies by content in a [BodyStore]. The live epoch is the open
  * one; closed epochs are the archive, kept until deleted. Owner-only on disk (FR-021).
@@ -236,11 +248,7 @@ class HostStore(
 
     /** Feature 069: entries of an epoch still waiting: a body to copy, or not finished (a call in flight, a socket open). */
     @Synchronized
-    fun waitingCount(epochId: String): Int = query(
-        """SELECT count(*) FROM (SELECT entry_id FROM pending_body WHERE epoch_id=? UNION
-           SELECT entry_id FROM entry WHERE epoch_id=? AND ((kind='http' AND state='PENDING') OR (kind='ws-connection' AND state IN ('OPEN','CONNECTING'))))""",
-        epochId, epochId,
-    ) { it.getInt(1) }.first()
+    fun waitingCount(epochId: String): Int = query(WAITING_SQL, epochId) { it.getInt(1) }.first()
 
     /** Feature 069: the bodies of [entryId] still to copy (replacing what was said before). */
     @Synchronized
