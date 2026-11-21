@@ -88,6 +88,27 @@ class HostIndex(
     var pageSize = 500
     var catchUpBudgetPages = 40
 
+    /**
+     * Set once the feed reads the journal in the background ([openFeed]): from then on a query reads
+     * one page at most before it answers, saying how far behind, instead of catching up itself
+     * (found in the robot IDE, 070: a search waited ~15 s while 600k entries were caught up).
+     */
+    @Volatile
+    private var readsInBackground = false
+
+    /** The daemon reads this app's journal in the background from the start: a query never waits for a whole catch-up. */
+    fun readInBackground() { readsInBackground = true }
+
+    /** True while [openFeed] reads pages: a query then reads none, the catch-up beside it brings them. */
+    @Volatile
+    private var catchingUpInBackground = false
+
+    private fun queryPages(): Int = when {
+        catchingUpInBackground -> 0
+        readsInBackground -> 1
+        else -> catchUpBudgetPages
+    }
+
     /** Feature 068: records still to read while a catch-up runs (read without the mutex by [history]). */
     @Volatile
     private var catchingUpNow = 0L
@@ -244,24 +265,16 @@ class HostIndex(
      */
     internal suspend fun list(query: NetworkQuery, pass: (NetworkHistoryView) -> NetworkPage): NetworkPage {
         query.archive?.let { return archived(query, it) }
+        // One hold of the mutex when there are no bodies to copy: beside a catch-up, each hold waits for a page.
+        var snapshot: Pair<Triple<String?, HistoryContext, Long>, Extra>? = null
         val toCopy = mutex.withLock {
             val app = connection()
             if (!sync(app)) return appAnswers(app, query)
-            if (needsBodies(query)) pending() else emptyList()
+            (if (needsBodies(query)) pending() else emptyList()).also { if (it.isEmpty()) snapshot = liveSnapshot() }
         }
         // Copied outside the mutex: opening an entry does not wait for the bodies a search needs.
         copyAll(toCopy)
-        val (at, extra) = mutex.withLock {
-            Triple(epoch?.id, context!!, removals) to Extra(
-                hostLagRecords = lag.takeIf { it > 0 },
-                bodiesPending = epoch?.let { store.pendingBodies(it.id).size }?.takeIf { it > 0 },
-                bodiesNotArchived = epoch?.let { store.countNotArchived(it.id) }?.takeIf { it > 0 },
-                archivedEpochs = store.archivedCount(device.key, packageName).takeIf { it > 0 },
-                archivingStopped = store.archivingStopped,
-                hostOnly = (liveCount() - deviceEntries).toLong().takeIf { lag == 0L && it > 0 },
-                archiveHeld = archiveHeld,
-            )
-        }
+        val (at, extra) = snapshot ?: mutex.withLock { liveSnapshot() }
         val page = livePass(query, at.first, at.second, pass)
         return page.copy(
             coverage = page.coverage.copy(
@@ -276,6 +289,17 @@ class HostIndex(
             ),
         )
     }
+
+    /** Under the mutex: the live epoch and context, and the coverage this computer adds to an answer. */
+    private fun liveSnapshot() = Triple(epoch?.id, context!!, removals) to Extra(
+        hostLagRecords = lag.takeIf { it > 0 },
+        bodiesPending = epoch?.let { store.pendingBodies(it.id).size }?.takeIf { it > 0 },
+        bodiesNotArchived = epoch?.let { store.countNotArchived(it.id) }?.takeIf { it > 0 },
+        archivedEpochs = store.archivedCount(device.key, packageName).takeIf { it > 0 },
+        archivingStopped = store.archivingStopped,
+        hostOnly = (liveCount() - deviceEntries).toLong().takeIf { lag == 0L && it > 0 },
+        archiveHeld = archiveHeld,
+    )
 
     private class Extra(
         val hostLagRecords: Long?, val bodiesPending: Int?, val bodiesNotArchived: Int?, val archivedEpochs: Int?,
@@ -369,7 +393,8 @@ class HostIndex(
         try {
             mutex.withLock {
                 val app = connection()
-                while (sync(app) && lag > 0 && clock() < deadline) Unit
+                // The whole journal before a clear, whoever else reads it.
+                while (sync(app, pages = catchUpBudgetPages) && lag > 0 && clock() < deadline) Unit
             }
             for (body in pendingBodies()) {
                 if (clock() >= deadline) break
@@ -425,15 +450,17 @@ class HostIndex(
     /** The search through [pass] on a snapshot outside the mutex (feature 067). */
     internal suspend fun search(query: NetworkQuery, pass: (NetworkHistoryView) -> SearchPage): SearchPage {
         query.archive?.let { scope -> return mutex.withLock { archiveView(store.epochs(device.key, packageName, scope)) }.search(query) }
+        var at: Pair<String?, HistoryContext>? = null
         val toCopy = mutex.withLock {
             val app = connection()
             if (!sync(app)) {
                 return SearchPage(emptyList(), degraded = listOf(DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)))
             }
-            pending()
+            // One hold when nothing is to copy (see [list]).
+            pending().also { if (it.isEmpty()) at = epoch?.id to context!! }
         }
         copyAll(toCopy)
-        val (epochId, ctx) = mutex.withLock { epoch?.id to context!! }
+        val (epochId, ctx) = at ?: mutex.withLock { epoch?.id to context!! }
         return livePass(query, epochId, ctx, pass)
     }
 
@@ -559,7 +586,12 @@ class HostIndex(
     private fun mark(e: Epoch) = io.yamsergey.dta.protocol.network.ArchivedMark(e.id, e.reason ?: EpochCloseReason.UNKNOWN, e.closedMs ?: 0, store.versionOf(e.id))
 
     /** Catches up with the journal; false when the app keeps no journal (it answers itself). */
-    private suspend fun sync(app: AppConnection): Boolean {
+    /**
+     * [between]: called under the mutex after each page but the last; it may let others hold the
+     * mutex meanwhile (the background catch-up). If the cursor or the epoch moved meanwhile, the
+     * round ends there, and the next one reads from where the store is.
+     */
+    private suspend fun sync(app: AppConnection, pages: Int = queryPages(), between: (suspend () -> Unit)? = null): Boolean {
         val identity = DtaJson.decodeFromJsonElement(JournalIdentityResult.serializer(), app.request("network_identity"))
         archiving = identity.persisted
         if (!identity.persisted) return false
@@ -576,7 +608,9 @@ class HostIndex(
         var lastId = saved?.lastId
         // The first page starts on the line of the last record read, so reading it also checks it (feature 046).
         var check = previousLine(position)
-        repeat(catchUpBudgetPages) {
+        // A page that only finds the journal rolled back does not count: the next one reads from its start.
+        var read = 0
+        while (read < pages) run page@{
             val params = buildJsonObject {
                 (check ?: position)?.let { put("after", it) }
                 // One more for the record checked, so that every page moves on.
@@ -596,10 +630,11 @@ class HostIndex(
                         current = reopen(app, current, identity)
                         position = null
                         lastId = null
-                        return@repeat
+                        return@page
                     }
                 }
             }
+            read++
             if (records.isNotEmpty()) {
                 val created = store.putEntries(current.id, records)
                 // Feature 068: small bodies come with their records; nothing is asked for them.
@@ -615,6 +650,13 @@ class HostIndex(
                 lag = 0
                 acknowledge(app)
                 return true
+            }
+            if (between != null && read < pages) {
+                between()
+                if (epoch?.id != current.id || store.cursor(device.key, packageName)?.position != position) {
+                    lag = behindNow
+                    return true
+                }
             }
         }
         lag = behindNow
@@ -657,16 +699,38 @@ class HostIndex(
      * that arrives before the answer waits for it. Null when there is no journal or it is not read
      * to its end yet.
      */
-    suspend fun openFeed(): io.yamsergey.dta.protocol.network.FeedOpenResult? = mutex.withLock {
-        val app = connection()
-        feedSub = null
-        if (!sync(app) || lag > 0) return null
+    suspend fun openFeed(): io.yamsergey.dta.protocol.network.FeedOpenResult? {
+        readsInBackground = true
+        catchingUpInBackground = true
+        try {
+            mutex.lock()
+            try {
+                val app = connection()
+                feedSub = null
+                // One round reads up to the budget of pages, but lets go of the mutex between them:
+                // a query beside the catch-up waits for a page, not for the round.
+                val read = sync(app, pages = catchUpBudgetPages, between = {
+                    mutex.unlock()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { mutex.lock() }
+                })
+                if (!read || lag > 0) return null
+                return subscribe(app)
+            } finally {
+                mutex.unlock()
+            }
+        } finally {
+            catchingUpInBackground = false
+        }
+    }
+
+    /** Subscribes from the position this computer holds; under the mutex, read to the journal's end. */
+    private suspend fun subscribe(app: AppConnection): io.yamsergey.dta.protocol.network.FeedOpenResult? {
         val saved = store.cursor(device.key, packageName) ?: return null
         val params = DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.FeedOpenParams.serializer(),
             io.yamsergey.dta.protocol.network.FeedOpenParams(saved.journalId, saved.position ?: "0:0")).jsonObject
         val result = DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedOpenResult.serializer(), app.request("network_feed_open", params))
         feedSub = result.subscription
-        result
+        return result
     }
 
     /**

@@ -97,7 +97,7 @@ class DtaDaemon(
                 } else {
                     connections.connect(key)
                 }
-            }.also { startCopying(key, it); startIndexing(it) }
+            }.also { it.readInBackground(); startCopying(key, it); startIndexing(it) }
         }
 
     /** Marks background work: it uses the held connection only and never dials (see [startCopying]). */

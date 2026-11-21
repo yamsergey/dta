@@ -142,6 +142,60 @@ class ArchiveFeedTest {
         assertEquals(6_000, host.list(NetworkQuery(limit = 1)).coverage.searched, "every entry is in the history")
     }
 
+    /**
+     * Found in the robot IDE (070): while the feed caught up 600k entries, a search waited for the
+     * catch-up's 40 pages and then read 40 more itself (~15 s). The catch-up holds the archive one
+     * page at a time, and a query beside it reads one page at most: it answers from what is archived,
+     * saying how far behind.
+     */
+    @Test
+    fun `a query while the feed catches up answers after a page or two, saying how far behind`() = runBlocking<Unit> {
+        val app = SlowPages(ms = 100)
+        // Ticks, as on the emulator: each message's body is its preview, archived with its record.
+        repeat(20_000) {
+            val id = "r1-1:${++n}"
+            app.record(io.yamsergey.dta.protocol.network.WsMessageEntry(id, "r1-1", 1_000L + n, "okhttp3-ws", connectionId = "r1-1:0",
+                direction = io.yamsergey.dta.protocol.network.Direction.IN, opcode = io.yamsergey.dta.protocol.network.MessageOpcode.TEXT,
+                payload = BodyInfo(BodyPart.MESSAGE, 9, completeness = Completeness.COMPLETE, preview = "tick $n".padEnd(9).take(9))))
+        }
+        val host = index(app)
+        host.pageSize = 500
+        val catching = this.async(kotlinx.coroutines.Dispatchers.IO) { host.openFeed() }
+        kotlinx.coroutines.delay(450)
+        for (ask in listOf<suspend () -> Unit>(
+            { assertTrue((host.list(NetworkQuery(limit = 1)).coverage.hostLagRecords ?: 0) in 1..19_999, "behind is said") },
+            { host.search(NetworkQuery(q = "tick", limit = 1)) },
+        )) {
+            val started = System.currentTimeMillis()
+            ask()
+            val took = System.currentTimeMillis() - started
+            assertTrue(took < 700, "answered beside the catch-up in $took ms")
+        }
+        catching.await()
+        while (host.openFeed() == null) Unit
+        assertTrue(host.feedLive)
+        assertEquals(20_000, host.list(NetworkQuery(limit = 1)).coverage.searched, "every entry is archived")
+    }
+
+    @Test
+    fun `a clear while the feed catches up still copies the whole journal first`() = runBlocking<Unit> {
+        val app = SlowPages(ms = 20)
+        repeat(5_000) {
+            val id = "r1-1:${++n}"
+            app.record(io.yamsergey.dta.protocol.network.WsMessageEntry(id, "r1-1", 1_000L + n, "okhttp3-ws", connectionId = "r1-1:0",
+                direction = io.yamsergey.dta.protocol.network.Direction.IN, opcode = io.yamsergey.dta.protocol.network.MessageOpcode.TEXT,
+                payload = BodyInfo(BodyPart.MESSAGE, 4, completeness = Completeness.COMPLETE, preview = "tick")))
+        }
+        val host = index(app)
+        host.pageSize = 100
+        host.catchUpBudgetPages = 5
+        val catching = this.async(kotlinx.coroutines.Dispatchers.IO) { host.openFeed() }
+        kotlinx.coroutines.delay(50)
+        assertEquals(null, host.copyBeforeClear(timeoutMs = 20_000), "nothing left behind")
+        catching.await()
+        assertEquals(5_000, host.list(NetworkQuery(limit = 1)).coverage.searched)
+    }
+
     @Test
     fun `how far the catch-up is comes from the device, also when it removed what was archived`() = runBlocking<Unit> {
         val app = SlowPages(ms = 300)
