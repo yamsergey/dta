@@ -303,7 +303,12 @@ class NetworkController(private val context: ContextController, private val scop
      */
     private suspend fun runSearch(s: NetworkViewState, c: io.yamsergey.dta.client.DaemonClient) {
         mutable.update { it.copy(searching = true) }
+        // Rows that arrive while it runs are decided live (067): their hits are kept, not lost to this answer.
+        val searched = s.list.rows.mapTo(HashSet()) { it.id }
         val need = s.list.rows.size.coerceAtLeast(1)
+        // The search counts from the newest: matches newer than the list's rows push its oldest out of
+        // the first `need`, so it goes on until it reaches the oldest row loaded.
+        val oldest = s.list.rows.firstOrNull()
         val got = mutableListOf<io.yamsergey.dta.protocol.network.EntryHits>()
         var first: SearchPage? = null
         var before: String? = null
@@ -311,7 +316,7 @@ class NetworkController(private val context: ContextController, private val scop
         val done = runCatching {
             while (true) {
                 val params = JsonObject(
-                    target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive((need - got.size).coerceIn(1, SEARCH_PAGE)), "order" to JsonPrimitive("newest-first")) +
+                    target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive((need - got.size).let { if (it > 0) it.coerceAtMost(SEARCH_PAGE) else CATCH_UP_PAGE }), "order" to JsonPrimitive("newest-first")) +
                         (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) +
                         (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
                 )
@@ -320,14 +325,17 @@ class NetworkController(private val context: ContextController, private val scop
                 got += page.entries
                 page.notSearched?.let(notSearched::addAll)
                 before = page.next ?: break
-                if (got.size >= need) break
+                val reached = oldest == null || page.entries.any { it.id == oldest.id } || (page.entries.lastOrNull()?.timeMs ?: Long.MAX_VALUE) < oldest.timeMs
+                if (got.size >= need && reached) break
             }
         }
         done.onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; mutable.update { it.copy(searching = false, error = e.message) }; return }
         val page = first!!.copy(entries = got, notSearched = notSearched.toList().ifEmpty { null })
         mutable.update {
-            val loaded = it.list.rows.mapTo(HashSet()) { r -> r.id }
-            val mine = got.filter { e -> e.id in loaded }.let { hits -> if (it.hitsNewestFirst) hits else hits.asReversed() }
+            val byId = HashMap<String, io.yamsergey.dta.protocol.network.EntryHits>()
+            it.hits.entries.forEach { e -> if (e.id !in searched) byId[e.id] = e }
+            got.forEach { e -> byId[e.id] = e }
+            val mine = (if (it.hitsNewestFirst) it.list.rows.asReversed() else it.list.rows).mapNotNull { r -> byId[r.id] }
             it.copy(
                 hits = it.hits.refreshed(mine, order = it.list.rows.map { r -> r.id }.let { ids -> if (it.hitsNewestFirst) ids.asReversed() else ids }, more = it.list.older != null),
                 searching = false, searchStatements = Statements.forSearch(page),
@@ -566,6 +574,9 @@ class NetworkController(private val context: ContextController, private val scop
         /** At most this many entries with hits per `network.search` call (the protocol's page limit). */
         const val SEARCH_PAGE = 1000
         const val SEARCH_SETTLE_MS = 1000L
+
+        /** Search page size past the rows' count: the matches that arrived while the list loaded. */
+        const val CATCH_UP_PAGE = 200
         const val REVEAL_PAGES = 10
         const val SAVED_POLL_MS = 5000L
     }

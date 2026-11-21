@@ -181,6 +181,47 @@ class NetworkControllerTest {
         assertTrue(!network.state.value.searching, "no words, no search")
     }
 
+    @Test
+    fun `matches decided while a search runs keep their hits when it answers (070)`() = runBlocking<Unit> {
+        daemon.ops.decide = { q, e -> io.yamsergey.dta.protocol.network.EntryDecision(true, hits = if (q.q?.contains("api") == true) listOf(hit(e.id)) else null) to false }
+        pagedHistory(listOf(3, 2, 1), firstPage = 3)
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("api")
+        await { it.hits.total == 3 && !it.searching && it.watching }
+        // The next search is slow; traffic decided meanwhile has hits the search never saw.
+        val fast = daemon.ops.searchPage!!
+        daemon.ops.searchPage = { q -> Thread.sleep(800); fast(q) }
+        network.search()
+        await { it.searching }
+        repeat(4) { daemon.ops.events.emit(NetworkEntryEvent(http(100 + it), EntryChange.CREATED)) }
+        await { it.list.rows.size == 7 }
+        val s = await { !it.searching }
+        assertEquals(7, s.hits.total, "every loaded match has its hits: ${s.hits.entries.map { it.id }}")
+        assertEquals("– / 7", s.hits.label)
+    }
+
+    @Test
+    fun `a search reaches the oldest loaded row though newer matches arrived since the list loaded (070)`() = runBlocking<Unit> {
+        val listed = listOf(3, 2, 1)
+        // The history the search reads already holds 5 and 4, newer than the rows listed.
+        val history = listOf(5, 4, 3, 2, 1)
+        daemon.ops.listed = { _ -> listed.map { http(it) } }
+        daemon.ops.searchPage = { q ->
+            val from = q.before?.removePrefix("s")?.toInt() ?: 0
+            val slice = history.drop(from).take(q.limit)
+            io.yamsergey.dta.protocol.network.SearchPage(
+                slice.map { io.yamsergey.dta.protocol.network.EntryHits("r1-1:$it", 1_700_000_000_000 + it * 1000L, listOf(hit("r1-1:$it"))) },
+                next = if (from + slice.size < history.size) "s${from + slice.size}" else null,
+            )
+        }
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("api")
+        val s = await { !it.searching && it.hits.total > 0 }
+        assertEquals(listOf("r1-1:1", "r1-1:2", "r1-1:3"), s.hits.entries.map { it.id }.sorted(), "every loaded row has its hits")
+    }
+
     /** A history of [ids] newest first that match "api"; the list pages after [firstPage] rows, the search by its limit. */
     private fun pagedHistory(ids: List<Int>, firstPage: Int) {
         val byId = ids.associateWith { http(it) }
