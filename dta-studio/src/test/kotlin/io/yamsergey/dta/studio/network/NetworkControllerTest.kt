@@ -169,8 +169,13 @@ class NetworkControllerTest {
         network.setQuery("api")
         network.state.value.let { assertTrue(it.searching && it.hits.total == 0, "searching from the moment the words change: ${it.searching} ${it.hits.label}") }
         await { it.hits.total == 3 && !it.searching }
+        // The new words' list is slow: all the while it loads (the old subscription cancelled), the line says Searching.
+        val slow = daemon.ops.listed
+        daemon.ops.listed = { q -> if (q.q?.contains("other") == true) Thread.sleep(800); slow(q) }
         network.setQuery("api other")
         network.state.value.let { assertTrue(it.searching && it.hits.total == 0, "the old words' hits are not shown for the new ones: ${it.hits.label}") }
+        kotlinx.coroutines.delay(500)
+        network.state.value.let { assertTrue(it.searching, "still searching while the new list loads, not No matches") }
         await { !it.searching }
         network.setQuery("")
         assertTrue(!network.state.value.searching, "no words, no search")

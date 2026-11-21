@@ -500,10 +500,11 @@ class NetworkController(private val context: ContextController, private val scop
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName) }
-            } finally {
                 // A list that never came starts no search: nothing is being searched.
-                mutable.update { it.copy(loading = false, watching = false, searching = if (searchJob?.isActive == true) it.searching else false) }
+                mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName, searching = if (searchJob?.isActive == true) it.searching else false) }
+            } finally {
+                // Cancelled by a new query, the next list's search goes on: searching is left as it is.
+                mutable.update { it.copy(loading = false, watching = false) }
             }
         }
     }
