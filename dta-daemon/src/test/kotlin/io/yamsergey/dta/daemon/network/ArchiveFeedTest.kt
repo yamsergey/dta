@@ -19,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Feature 068 (research R6): the app's events drive the archive; only large bodies are copied by range. */
@@ -90,6 +91,10 @@ class ArchiveFeedTest {
         host.onAppEvent(event(app.batch(0)))
         assertEquals(emptyList(), host.pendingBodies())
         assertEquals("tick", host.storedBody(id, BodyPart.MESSAGE)?.second?.decodeToString())
+        // 070 E13: the record holds it; no file is written for it (a hash, a file and two rows per message held the catch-up).
+        val store = stores.single()
+        assertNull(store.bodyRef(store.liveEpoch("dev1", "io.example")!!.id, id, BodyPart.MESSAGE), "no copy beside the record")
+        assertEquals(0, File(dir, "bodies").walkTopDown().count { it.isFile }, "no body file")
     }
 
     /** A channel whose journal pages take [ms] each: catching up takes a while. */

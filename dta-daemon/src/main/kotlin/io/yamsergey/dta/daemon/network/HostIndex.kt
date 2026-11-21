@@ -232,8 +232,8 @@ class HostIndex(
 
     /**
      * After [records] went into the store ([created]: the ids that were new there): watchers are told,
-     * and each finished entry's bodies are archived from its preview when it holds them whole, else
-     * noted as still to copy (feature 069: on disk, not in memory).
+     * and each finished entry's bodies are noted as still to copy (feature 069: on disk, not in
+     * memory), but for one its preview holds whole: the record is its copy (070 E13).
      */
     private fun putLive(epochId: String, records: List<NetworkEntry>, created: Set<String>) {
         val told = HashSet<String>()
@@ -243,11 +243,10 @@ class HostIndex(
             val pendingParts = ArrayList<Pair<BodyPart, Long>>()
             if (!inFlight(r)) for (part in BodyPart.entries) {
                 val info = NetworkHistoryView.bodyOf(r, part) ?: continue
-                if (info.storedBytes <= 0 || store.bodyRef(epochId, r.id, part) != null) continue
-                // Feature 068: a body its preview holds whole (a small text message) is archived with its record.
-                val whole = info.wholeText()
-                if (whole != null) whole.toByteArray(Charsets.UTF_8).inputStream().use { store.putBody(epochId, r.id, part, it) }
-                else pendingParts += part to info.storedBytes
+                // 070 E13: a body its preview holds whole (a small text message) is archived in its record: no file,
+                // no hash, no rows (they held the catch-up: ~39k messages of 5 min, each written as a file).
+                if (info.storedBytes <= 0 || info.wholeText() != null || store.bodyRef(epochId, r.id, part) != null) continue
+                pendingParts += part to info.storedBytes
             }
             store.setPending(epochId, r.id, pendingParts)
         }
@@ -518,6 +517,8 @@ class HostIndex(
             ?: store.findArchived(device.key, packageName, id)?.let { (e, entry) -> e.id to entry }
             ?: return null
         val info = NetworkHistoryView.bodyOf(entry, part) ?: return null
+        // 070 E13: a body its preview holds whole is in the record, not in a file.
+        info.wholeText()?.let { return info to it.toByteArray(Charsets.UTF_8) }
         val sha = store.bodyRef(epochId, id, part)?.sha256 ?: return null
         val bytes = store.openBody(sha)?.use { it.readBytes() } ?: return null
         info to bytes
@@ -934,9 +935,9 @@ class HostIndex(
     }
 
     private suspend fun copyOne(e: Epoch, entryId: String, part: BodyPart, paced: suspend (bytes: Long, ms: Long) -> Unit) {
-        // A body all in its preview (a small text message): archived from the record; the device keeps no file for it.
-        store.entry(e.id, entryId)?.let { NetworkHistoryView.bodyOf(it, part)?.wholeText() }?.let { text ->
-            text.toByteArray(Charsets.UTF_8).inputStream().use { store.putBody(e.id, entryId, part, it) }
+        // A body all in its preview (a small text message): its record is its copy (070 E13); nothing to fetch.
+        if (store.entry(e.id, entryId)?.let { NetworkHistoryView.bodyOf(it, part)?.wholeText() } != null) {
+            store.dropPending(e.id, entryId, part)
             copied.tryEmit(entryId)
             return
         }

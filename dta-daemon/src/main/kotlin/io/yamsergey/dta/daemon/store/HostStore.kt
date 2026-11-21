@@ -250,6 +250,11 @@ class HostStore(
     @Synchronized
     fun waitingCount(epochId: String): Int = query(WAITING_SQL, epochId) { it.getInt(1) }.first()
 
+    /** 070 E13: [part] of [entryId] is not to be copied (its record holds it). */
+    @Synchronized
+    fun dropPending(epochId: String, entryId: String, part: BodyPart) =
+        update("DELETE FROM pending_body WHERE epoch_id=? AND entry_id=? AND part=?", epochId, entryId, part.name)
+
     /** Feature 069: the bodies of [entryId] still to copy (replacing what was said before). */
     @Synchronized
     fun setPending(epochId: String, entryId: String, parts: List<Pair<BodyPart, Long>>) = tx {

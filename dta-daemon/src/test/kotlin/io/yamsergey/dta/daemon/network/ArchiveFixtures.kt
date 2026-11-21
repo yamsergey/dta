@@ -64,14 +64,7 @@ object ArchiveFixtures {
         (0 until count).chunked(batch).forEach { chunk ->
             val entries = chunk.map { entry(it, random) }
             store.putEntries(epoch.id, entries)
-            // As the archive does when a record comes: a body its preview holds whole is stored at once.
-            entries.forEach { e ->
-                BodyPart.entries.forEach { part ->
-                    io.yamsergey.dta.protocol.network.NetworkHistoryView.bodyOf(e, part)?.wholeText()?.let { text ->
-                        store.putBody(epoch.id, e.id, part, text.toByteArray(Charsets.UTF_8).inputStream())
-                    }
-                }
-            }
+            // As the archive does (070 E13): a body its preview holds whole is in its record; nothing else is written.
             last = entries.last().id
         }
         store.setCursor(DEVICE, PACKAGE, JOURNAL, "0:$count", last)
