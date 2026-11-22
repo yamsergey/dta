@@ -51,6 +51,9 @@ class Formatters(private val style: Style) {
             "Exported ${o.long("entries")} entries, ${o.long("webSocketMessages")} WebSocket messages and ${o.long("bodies")} bodies to ${o.str("file")}" +
                 (o.long("bodiesOmitted")?.takeIf { it > 0 }?.let { "; $it bodies left out (the file says why)" } ?: "") +
                 (o.long("messagesNotExported")?.takeIf { it > 0 }?.let { "; $it messages beyond a connection's first 1000 not exported" } ?: "") + "." +
+                // Feature 071 (FR-004): what the export covered, as the list's caption says it.
+                (o["scope"]?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }
+                    ?.let { "\n" + io.yamsergey.dta.present.network.ScopeCaption.cli(io.yamsergey.dta.present.network.ScopeCaption.of(it, 0, filtered = false)) } ?: "") +
                 (savedLine(o)?.let { "\n" + it } ?: "")
         }
         "network.script.set", "network.script.status" -> scriptStatus(result.obj)

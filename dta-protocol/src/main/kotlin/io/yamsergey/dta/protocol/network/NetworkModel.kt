@@ -670,6 +670,8 @@ data class NetworkExportResult(
     val messagesNotExported: Int = 0,
     /** Feature 043: the saved filters behind what was written. */
     val saved: SavedFiltersApplied? = null,
+    /** Feature 071 (FR-004): the scope the list answered, what lies outside it included. */
+    val scope: HistoryScope? = null,
 )
 
 /** Result of `network_clear`. */
