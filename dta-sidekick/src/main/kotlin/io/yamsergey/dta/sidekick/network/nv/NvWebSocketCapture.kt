@@ -16,13 +16,17 @@ import io.yamsergey.dta.sidekick.network.WsInjector
 import io.yamsergey.dta.sidekick.network.WsScripting
 import io.yamsergey.dta.sidekick.network.WsSockets
 import io.yamsergey.dta.shim.HookDispatcher
+import io.yamsergey.dta.sidekick.hooks.Hooks
+import io.yamsergey.dta.sidekick.network.HookSignature
 import java.lang.ref.WeakReference
+import java.util.Collections
+import java.util.WeakHashMap
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 
 /**
- * nv-websocket-client capture: entry hooks on `WebSocket#connect`, `WebSocket#sendFrame`
- * and the `ListenerManager` callbacks. The library is not a compile dependency: its
+ * nv-websocket-client capture: entry hooks on `WebSocket#connect`, `WebSocket#sendFrame`,
+ * `HandshakeReader#parseHttpHeader` (the response head in wire order) and the `ListenerManager` callbacks. The library is not a compile dependency: its
  * objects are read reflectively.
  */
 internal object NvWebSocketCapture {
@@ -31,6 +35,7 @@ internal object NvWebSocketCapture {
     private const val LISTENERS = "com.neovisionaries.ws.client.ListenerManager"
     private const val FRAME = "Lcom/neovisionaries/ws/client/WebSocketFrame;"
     private const val FRAME_CLASS = "com.neovisionaries.ws.client.WebSocketFrame"
+    private const val READER = "com.neovisionaries.ws.client.HandshakeReader"
 
     fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting, injector: WsInjector): LibraryState {
         val socketClass = EntryHooks.load(SOCKET, loader)
@@ -70,12 +75,39 @@ internal object NvWebSocketCapture {
             EntryHooks.PROCEED
         }
 
-        val listenerHooks = EntryHooks(listenersClass)
-        listenerHooks.on(NetworkEvents.OPEN, "callOnConnected", "(Ljava/util/Map;)V") { self, params ->
-            val id = idOfListeners(self) ?: return@on
-            val headers = (params[0] as? Map<*, *>)?.flatMap { (name, values) ->
-                if (name == null) emptyList() else (values as? List<*>).orEmpty().map { Header(name.toString(), it.toString()) }
+        // The handshake response head in wire order: nv-websocket keeps it in a map sorted by name,
+        // so each line is taken as HandshakeReader parses it, by the socket it reads for.
+        val heads: MutableMap<Any, MutableList<Header>> = Collections.synchronizedMap(WeakHashMap())
+        val readerHooks = EntryHooks.load(READER, loader)?.let { readerClass ->
+            val reading: Field? = runCatching { readerClass.getDeclaredField("mWebSocket").apply { isAccessible = true } }.getOrNull()
+            EntryHooks(readerClass).apply {
+                if (reading == null) {
+                    missing(NetworkEvents.HANDSHAKE_ORDER, HookSignature("parseHttpHeader", "(Ljava/util/Map;Ljava/lang/String;)V"),
+                        Hooks.Install.Failed("HandshakeReader has no mWebSocket field in this nv-websocket version"))
+                } else {
+                    on(NetworkEvents.HANDSHAKE_ORDER, "parseHttpHeader", "(Ljava/util/Map;Ljava/lang/String;)V") { self, params ->
+                        val socket = reading.get(self) ?: return@on
+                        val pair = (params[1] as? String)?.split(":", limit = 2)?.takeIf { it.size == 2 } ?: return@on
+                        val name = pair[0].trim().takeIf { it.isNotEmpty() } ?: return@on
+                        synchronized(heads) { heads.getOrPut(socket) { mutableListOf() } += Header(name, pair[1].trim()) }
+                    }
+                }
             }
+        }
+
+        val listenerHooks = EntryHooks(listenersClass)
+        // connect() sets OPEN on the app's thread before it returns; callOnConnected comes later, from
+        // the reading or writing thread, possibly after the app's first sends: the open time is the former.
+        listenerHooks.on(NetworkEvents.OPEN, "callOnStateChanged", "(Lcom/neovisionaries/ws/client/WebSocketState;)V") { self, params ->
+            if ((params[0] as? Enum<*>)?.name != "OPEN") return@on
+            idOfListeners(self)?.let { recorder.wsOpened(it) }
+        }
+        listenerHooks.on(NetworkEvents.HANDSHAKE, "callOnConnected", "(Ljava/util/Map;)V") { self, params ->
+            val id = idOfListeners(self) ?: return@on
+            val inOrder = heads.remove(owner.get(self))
+            val headers = inOrder ?: (params[0] as? Map<*, *>)?.flatMap { (name, values) ->
+                if (name == null) emptyList() else (values as? List<*>).orEmpty().map { Header(name.toString(), it.toString()) }
+            }.orEmpty()
             recorder.wsOpened(id, headers)
         }
         listenerHooks.control(NetworkEvents.RECEIVED_TEXT, "callOnTextMessage", "(Ljava/lang/String;)V") { self, params ->
@@ -112,7 +144,7 @@ internal object NvWebSocketCapture {
             idOfListeners(self)?.let(injector::flush)
         }
 
-        return EntryHooks.state(NetworkLibraries.NV_WEBSOCKET, socketHooks, listenerHooks)
+        return EntryHooks.state(NetworkLibraries.NV_WEBSOCKET, *listOfNotNull(socketHooks, readerHooks, listenerHooks).toTypedArray())
     }
 
     /** `ListenerManager.callOnTextMessage/callOnBinaryMessage`, as ReadingThread calls them; ping by `sendPing()`. */

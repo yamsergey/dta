@@ -30,6 +30,8 @@ data class EventResult(val event: String, val installed: HookSignature?, val tri
 object NetworkEvents {
     const val CONNECTIONS = "connections"
     const val HANDSHAKE = "handshake headers"
+    /** A library that keeps the handshake head sorted by name: each line as it is read. */
+    const val HANDSHAKE_ORDER = "handshake headers in wire order"
     const val OPEN = "connection open"
     const val SENT = "sent messages"
     const val SENT_TEXT = "sent text messages"

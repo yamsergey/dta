@@ -150,8 +150,16 @@ class NetworkRecorder(
         updateWs(id) { it.copy(handshakeHeaders = responseHeaders) }
     }
 
+    /**
+     * The connection opened; called again (a library that tells the open and the head apart), the
+     * first open time stays and only the head is taken. A connection already ended is not reopened.
+     */
     fun wsOpened(id: String, handshakeHeaders: List<Header>? = null, atMs: Long? = null) = guard {
-        updateWs(id) { it.copy(state = WsState.OPEN, openedAtMs = atMs ?: clock(), handshakeHeaders = handshakeHeaders ?: it.handshakeHeaders) }
+        updateWs(id) {
+            val headers = handshakeHeaders ?: it.handshakeHeaders
+            if (it.state == WsState.CONNECTING) it.copy(state = WsState.OPEN, openedAtMs = atMs ?: clock(), handshakeHeaders = headers)
+            else it.copy(handshakeHeaders = headers)
+        }
     }
 
     /** Stores the payload (bounded) and returns the message id; null if the connection is unknown. */

@@ -184,6 +184,31 @@ class NetworkRecorderTest {
         assertContentEquals(byteArrayOf(9, 9, 9), store.openBody(inbound, BodyPart.MESSAGE)!!.readBytes())
     }
 
+    /** NET-WS-002: nv-websocket tells the open on the app's thread and the head later, from its own threads. */
+    @Test
+    fun `a second open keeps the first open time and takes the head`() {
+        val id = recorder.wsStarted("nv-websocket", "ws://h/ws", emptyList(), initiator)
+        recorder.wsOpened(id)
+        val openedAt = now
+        now += 5
+        recorder.wsMessage(id, Direction.OUT, MessageOpcode.TEXT, "hi".toByteArray(), initiator)
+        now += 5
+        recorder.wsOpened(id, listOf(Header("Upgrade", "websocket")))
+        val c = entry(id) as WsConnectionEntry
+        assertEquals(openedAt, c.openedAtMs)
+        assertEquals(listOf(Header("Upgrade", "websocket")), c.handshakeHeaders)
+    }
+
+    /** The twin: a late open on a connection already closed does not reopen it. */
+    @Test
+    fun `an open after the close does not reopen the connection`() {
+        val id = recorder.wsStarted("nv-websocket", "ws://h/ws", emptyList(), initiator)
+        recorder.wsOpened(id)
+        recorder.wsClosed(id, 1000, "done")
+        recorder.wsOpened(id, listOf(Header("Upgrade", "websocket")))
+        assertEquals(WsState.CLOSED, (entry(id) as WsConnectionEntry).state)
+    }
+
     /** D-002 (NET-WS-001/002): the close frame that started the closing handshake is the connection's close. */
     @Test
     fun `the app's close frame is the connection's close, not the server's empty echo`() {
