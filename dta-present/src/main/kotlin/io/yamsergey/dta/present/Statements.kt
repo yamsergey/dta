@@ -152,9 +152,10 @@ object Statements {
             add(Statement(StatementKind.PENDING, code = "bodies-copying", detail = "$it bodies not copied to this computer yet", explanation = "$it bodies are still on the device only; they are copied in the background."))
         }
         coverage?.let { addAll(history(it)) }
-        coverage?.long("archivedEpochs")?.takeIf { it > 0 }?.let {
-            add(Statement(StatementKind.NOT_CAPTURED, word = "archived", detail = "$it archived epochs not shown (archive list; --archive all)",
-                explanation = "This computer keeps $it earlier histories of the app (cleared, reinstalled, older builds). List them with dta archive list; query them with --archive."))
+        // Feature 071: an answer that states its scope says what lies outside in its caption ("earlier runs are in the archive").
+        coverage?.long("archivedEpochs")?.takeIf { it > 0 && page["scope"] == null }?.let {
+            add(Statement(StatementKind.NOT_CAPTURED, word = "archived", detail = "$it archived epochs not shown (archive list; --archive)",
+                explanation = "This computer keeps $it earlier histories of the app (cleared, reinstalled, older builds). List them with dta archive list; include them with --archive."))
         }
     }.ordered()
 

@@ -357,7 +357,7 @@ class HostIndex(
                 hostLagRecords = extra.hostLagRecords,
                 bodiesPending = extra.bodiesPending,
                 bodiesNotArchived = extra.bodiesNotArchived,
-                archivedEpochs = extra.archivedEpochs,
+                archivedEpochs = extra.archivedEpochs.takeUnless { query.archive },
                 archivingStopped = extra.archivingStopped,
                 hostOnly = extra.hostOnly,
                 archivedByOther = page.coverage.archivedOnly?.filterKeys { it != store.hostId }?.values?.sum()?.takeIf { it > 0 },

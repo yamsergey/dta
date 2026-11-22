@@ -133,7 +133,7 @@ class StatementsTest {
         assertEquals("2 bodies not archived", s[1].detail)
         assertEquals("120 entries not read from the device yet", s[2].detail)
         assertEquals("3 bodies not copied to this computer yet", s[3].detail)
-        assertEquals("4 archived epochs not shown (archive list; --archive all)", s[4].detail)
+        assertEquals("4 archived epochs not shown (archive list; --archive)", s[4].detail)
     }
 
     @Test
