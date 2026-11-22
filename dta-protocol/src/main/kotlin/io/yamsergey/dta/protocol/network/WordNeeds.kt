@@ -36,10 +36,10 @@ object WordNeeds {
         return and(parts)
     }
 
-    /** A search word or phrase: found exactly, or (letters only, [Fuzzy.EDIT_FROM]+) one edit away. */
+    /** A search word or phrase: found exactly, or one edit away when it has a word that may take one ([Fuzzy.editable]). */
     fun term(t: Term): Need {
         val k = key(t.text) ?: return Need.Any
-        if (k.any { it.isDigit() } || k.length < Fuzzy.EDIT_FROM) return Need.All(setOf(k))
+        if (Fuzzy.editable(t.text).isEmpty()) return Need.All(setOf(k))
         // One edit leaves one half untouched (as Fuzzy.Text.near looks for it); a half under MIN cannot narrow.
         val half = k.length / 2
         val left = k.substring(0, half)

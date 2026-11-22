@@ -27,6 +27,19 @@ class FuzzyTest {
     }
 
     @Test
+    fun `in a phrase the edit is allowed only inside a word of five letters or more (040 US1-4)`() {
+        assertEquals(emptyList(), spans("the token expired", "tokn expired"), "tokn has four letters: exact only, inside a phrase too")
+        assertEquals(listOf("token expired"), spans("the token expired", "tokan expired"))
+        assertEquals(listOf("token expired"), spans("the token expired", "token expird"))
+        assertEquals(emptyList(), spans("the cart expired", "cort expired"), "four letters")
+        assertEquals(emptyList(), spans("the token expired", "tokan expird"), "one edit per phrase")
+        // Numbers and ids stay exact; a word of letters beside them still takes one edit.
+        assertEquals(emptyList(), spans("order 42 failed", "order 43 failed"))
+        assertEquals(listOf("order 42 failed"), spans("order 42 failed", "order 42 faild"))
+        assertEquals(emptyList(), spans("item-15 item-20", "item 10"))
+    }
+
+    @Test
     fun `every occurrence, in order`() {
         assertEquals(listOf("ACME", "acme"), spans("ACME and acme", "acme"))
     }

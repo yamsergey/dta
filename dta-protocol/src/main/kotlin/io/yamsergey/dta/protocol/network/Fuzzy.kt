@@ -4,8 +4,10 @@ import kotlinx.serialization.Serializable
 
 /**
  * Feature 040: the fuzzy match of network search. Letters and digits only, lower case
- * (`orderId` = `order_id` = `order-id` = `order id`); a term of 5+ letters (no digits) also
- * matches with one edit. Spans are given in the original text, for highlighting.
+ * (`orderId` = `order_id` = `order-id` = `order id`); a term also matches with one edit when the
+ * edit falls inside one of its words of 5+ letters (no digits): in a phrase too, so `"tokn expired"`
+ * stays exact while `"tokan expired"` finds `token expired` (040 FR-003, US1-4). Spans are given in
+ * the original text, for highlighting.
  */
 object Fuzzy {
     const val EDIT_FROM = 5
@@ -32,6 +34,30 @@ object Fuzzy {
     /** The term as compared: letters and digits, lower case. */
     fun key(term: String): String = buildString { term.forEach { if (it.isLetterOrDigit()) append(it.lowercaseChar()) } }
 
+    /**
+     * The words of [term] that may take one edit, as ranges of its [key]: runs of letters and digits
+     * between separators, at least [EDIT_FROM] long, without digits. None: the term matches exactly.
+     */
+    fun editable(term: String): List<IntRange> {
+        val out = ArrayList<IntRange>()
+        var n = 0
+        var start = -1
+        var letters = true
+        fun close() {
+            if (start >= 0 && letters && n - start >= EDIT_FROM) out += start until n
+            start = -1
+            letters = true
+        }
+        for (c in term) {
+            if (!c.isLetterOrDigit()) { close(); continue }
+            if (start < 0) start = n
+            if (c.isDigit()) letters = false
+            n++
+        }
+        close()
+        return out
+    }
+
     /** [source] normalised once, searched for several terms. */
     class Text(private val source: String) {
         private val norm: String
@@ -53,8 +79,9 @@ object Fuzzy {
             if (k.isEmpty() || norm.isEmpty()) return emptyList()
             val exact = exact(k)
             // Numbers and ids must match exactly: a typo is allowed only in words of letters.
-            if (exact.isNotEmpty() || k.length < EDIT_FROM || k.any { it.isDigit() }) return exact.map(::span)
-            return near(k).map(::span)
+            val words = if (exact.isEmpty()) editable(term) else emptyList()
+            if (words.isEmpty()) return exact.map(::span)
+            return near(k, words).map(::span)
         }
 
         fun contains(term: String): Boolean = find(term).isNotEmpty()
@@ -77,8 +104,11 @@ object Fuzzy {
             return out
         }
 
-        /** Matches one edit away: one half of the term occurs exactly (pigeonhole), the window around it is checked. */
-        private fun near(k: String): List<IntRange> {
+        /**
+         * Matches one edit away: one half of the term occurs exactly (pigeonhole), the window around
+         * it is checked; the edit must fall inside one of the [words] (ranges of [k]).
+         */
+        private fun near(k: String, words: List<IntRange>): List<IntRange> {
             val m = k.length
             val half = m / 2
             val left = k.substring(0, half)
@@ -102,7 +132,8 @@ object Fuzzy {
                 var bestEdges = -1
                 for (len in intArrayOf(m, m - 1, m + 1)) {
                     if (s + len > norm.length) continue
-                    val cost = QueryLine.distance(norm.substring(s, s + len), k)
+                    val window = norm.substring(s, s + len)
+                    val cost = QueryLine.distance(window, k).let { d -> if (d <= 1 && !editIn(window, k, words)) 2 else d }
                     val edges = edges(s, s + len - 1)
                     // Fewer edits first; at a tie the one that starts and ends where words do.
                     if (cost < bestCost || cost == bestCost && edges > bestEdges) { bestCost = cost; bestEdges = edges; best = s until s + len }
@@ -114,6 +145,16 @@ object Fuzzy {
                 }
             }
             return out
+        }
+
+        /** Whether [window] (one edit from [k]) differs from it only inside one of [words]. */
+        private fun editIn(window: String, k: String, words: List<IntRange>): Boolean = words.any { w ->
+            val before = w.first
+            val after = k.length - (w.last + 1)
+            window.length >= before + after &&
+                window.regionMatches(0, k, 0, before) &&
+                window.regionMatches(window.length - after, k, w.last + 1, after) &&
+                QueryLine.distance(window.substring(before, window.length - after), k.substring(w.first, w.last + 1)) <= 1
         }
     }
 }

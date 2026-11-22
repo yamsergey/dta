@@ -82,6 +82,12 @@ class WordNeedsTest {
         return World(out, bodies, decoded)
     }
 
+    /** [word] one edit off: a letter removed, replaced or added (short words and ids too). */
+    private fun typo(r: Random, word: String): String {
+        val i = r.nextInt(word.length)
+        return when (r.nextInt(3)) { 0 -> word.removeRange(i, i + 1); 1 -> word.replaceRange(i, i + 1, "z"); else -> word.substring(0, i) + "q" + word.substring(i) }
+    }
+
     /** Something to search for: words, pieces of what entries hold, typos, short and non-ASCII ones, phrases. */
     private fun term(r: Random, w: World): String {
         val source = w.entries.random(r).let { e -> (e as? HttpEntry)?.url ?: (e as? WsConnectionEntry)?.url ?: (e as? LinkEntry)?.uri ?: (w.bodies.values.randomOrNull(r)?.let { String(it.bytes, Charsets.UTF_8) }) ?: "order" }
@@ -93,7 +99,7 @@ class WordNeedsTest {
                 when (r.nextInt(3)) { 0 -> word.removeRange(i, i + 1); 1 -> word.replaceRange(i, i + 1, "z"); else -> word.substring(0, i) + "q" + word.substring(i) }
             }
             3 -> listOf("ab", "x", "or", "12").random(r)
-            4 -> "\"${words.random(r)} ${words.random(r)}\""
+            4 -> "\"${words.random(r)} ${words.random(r).let { word -> if (r.nextBoolean()) word else typo(r, word) }}\""
             5 -> "redacted"
             6 -> "body:${words.random(r).filter { it != ' ' }}"
             7 -> "body:/${pattern(r)}/"
@@ -217,6 +223,8 @@ class WordNeedsTest {
         assertEquals(Need.Any, WordNeeds.term(Term("naïve")), "not ASCII")
         assertEquals(Need.Any, WordNeeds.term(Term("x—y")), "its bytes read as Latin-1 hold letters the word does not")
         assertEquals(Need.All(setOf("orderid")).strings, (WordNeeds.term(Term("order id", phrase = true)) as Need.Or).parts.first().let { (it as Need.All).strings })
+        assertEquals(Need.All(setOf("tokncart")), WordNeeds.term(Term("tokn cart", phrase = true)), "a phrase of words under five letters: exact only")
+        assertEquals(Need.Or(listOf(Need.All(setOf("order42failed")), Need.All(setOf("order4")), Need.All(setOf("2failed")))), WordNeeds.term(Term("order 42 failed", phrase = true)), "failed may take one edit beside a number")
         assertEquals(Need.Any, WordNeeds.of(null, listOf(Term("ab"), Term("x")), words = true))
         assertEquals(Need.Any, WordNeeds.of(null, listOf(Term("item-12")), words = false), "allRows: words do not leave rows out")
         assertEquals(Need.All(setOf("item12")), WordNeeds.of(NetworkFilter(bodyContains = "ITEM-12"), emptyList(), words = true))
