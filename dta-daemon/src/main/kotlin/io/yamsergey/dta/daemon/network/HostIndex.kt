@@ -647,22 +647,26 @@ class HostIndex(
         store.findArchived(device.key, packageName, id)?.let { (archivedEpoch, _) ->
             if (epoch?.let { store.entry(it.id, id) } == null) return archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch))
         }
-        return entryLocked(id)
+        // D-033: what only the app can answer is asked after the mutex is let go: it reads its whole journal.
+        val (detail, askApp) = entryLocked(id)
+        detail?.let { return it }
+        return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), askApp!!.request("network_entry", buildJsonObject { put("id", id) }))
     }
 
-    private suspend fun entryLocked(id: String): NetworkEntryDetail = mutex.withLock {
+    /** Under the mutex: the answer this computer has, or the app to ask (outside it). */
+    private suspend fun entryLocked(id: String): Pair<NetworkEntryDetail?, AppConnection?> = mutex.withLock {
         val app = runCatching { connection() }.getOrNull()
         if (app != null) {
-            if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), app.request("network_entry", buildJsonObject { put("id", id) }))
-            if (epoch?.let { store.entry(it.id, id) } != null) return liveView(epoch?.id, context ?: emptyContext()).entry(id)
+            if (!sync(app)) return null to app
+            if (epoch?.let { store.entry(it.id, id) } != null) return liveView(epoch?.id, context ?: emptyContext()).entry(id) to null
         }
         val (archivedEpoch, _) = store.findArchived(device.key, packageName, id) ?: run {
             if (app == null) connection() // the app is gone and the archive has nothing: say why the app cannot answer
             // D-009: subscribed, a record the app wrote may still be on its way in a batch; the app answers for it.
-            if (app != null && feedSub != null) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), app.request("network_entry", buildJsonObject { put("id", id) }))
-            return liveView(epoch?.id, context ?: emptyContext()).entry(id)
+            if (app != null && feedSub != null) return null to app
+            return liveView(epoch?.id, context ?: emptyContext()).entry(id) to null
         }
-        archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch))
+        archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch)) to null
     }
 
     /** A body as the host holds it (live or archived), or null when it has not been copied. */

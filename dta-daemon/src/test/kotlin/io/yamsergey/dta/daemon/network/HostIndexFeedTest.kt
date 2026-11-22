@@ -280,4 +280,23 @@ class HostIndexFeedTest {
         http(app) // written by the app, its batch not here yet
         assertEquals("r1-1:4", host.entry("r1-1:4").entry.id)
     }
+
+    /** D-033 (as measured: the CLI asked for an id that is not an entry): the app's own lookup never holds the feed. */
+    @Test
+    fun `asking the app for an entry this computer lacks does not hold the feed`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        repeat(3) { http(app) }
+        val host = index(app)
+        assertNotNull(host.openFeed()?.subscription)
+        http(app) // its batch not here yet: the app is asked
+        app.entryDelayMs = 3_000
+        val asking = async(kotlinx.coroutines.Dispatchers.Default) { host.entry("r1-1:4") }
+        kotlinx.coroutines.delay(300)
+        http(app)
+        val t = System.nanoTime()
+        assertEquals(HostIndex.Applied.APPLIED, host.apply(app.batch(3)))
+        val applyMs = (System.nanoTime() - t) / 1_000_000
+        assertTrue(applyMs < 500, "the batch waited $applyMs ms for the app's lookup")
+        assertEquals("r1-1:4", asking.await().entry.id)
+    }
 }

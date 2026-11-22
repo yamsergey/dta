@@ -58,6 +58,8 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     var runId = "r1-1"
     /** D-033: how long the app takes to say its journal's identity (a busy app with a large journal). */
     @Volatile var identityDelayMs = 0L
+    /** D-033: how long the app takes to look an entry up in its journal (it reads the whole journal). */
+    @Volatile var entryDelayMs = 0L
     /** Feature 071: the app's process runs as its context reports them. */
     var processRuns: List<io.yamsergey.dta.protocol.network.ProcessRun> = emptyList()
     var reason: String? = "storage-new"
@@ -172,8 +174,8 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
                 val slice = bytes.copyOfRange(offset, minOf(bytes.size, offset + str("length")!!.toInt()))
                 RpcResult(DtaJson.encodeToJsonElement(BodyRangeResult.serializer(), BodyRangeResult(bytes.size.toLong(), offset.toLong(), slice.size.toLong())), listOf(slice))
             }
-            "network_entry" -> RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.NetworkEntryDetail.serializer(),
-                deviceView().entry(str("id")!!)))
+            "network_entry" -> { if (entryDelayMs > 0) kotlinx.coroutines.delay(entryDelayMs); RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.NetworkEntryDetail.serializer(),
+                deviceView().entry(str("id")!!))) }
             "network_list" -> {
                 listCalls++
                 RpcResult(DtaJson.encodeToJsonElement(NetworkPage.serializer(), deviceAnswer(NetworkQuery.parse(params))))
