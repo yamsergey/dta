@@ -74,19 +74,37 @@ data class TimelineTabState(
  * selected event, `timeline.causes` in both directions. A device or app change starts over.
  * The tab only reduces and draws; causes are never decided here.
  */
-class TimelineController(private val context: ContextController, private val scope: CoroutineScope) {
+class TimelineController(
+    private val context: ContextController,
+    private val scope: CoroutineScope,
+    /** Decision 2026-11-22: the Network tab's Redact Secrets setting, which redacts this tab's answers too. */
+    private val redact: kotlinx.coroutines.flow.Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false),
+) {
     private val mutable = MutableStateFlow(TimelineTabState())
     val state: StateFlow<TimelineTabState> = mutable.asStateFlow()
     private var source: Job? = null
     private var chainJob: Job? = null
     @Volatile private var active = false
 
+    @Volatile private var redacting = false
+    @Volatile private var lastTarget: Target? = null
+
     init {
         scope.launch {
             context.state
                 .map { Target(it.device, it.app, it.connection != Connection.NO_DTA, it.generation, context.client) }
                 .distinctUntilChanged()
-                .collect { reload(it) }
+                .collect { lastTarget = it; reload(it) }
+        }
+        // What was read unredacted is read again redacted (and back): the list starts over.
+        scope.launch {
+            redact.distinctUntilChanged().collect { on ->
+                if (on == redacting) return@collect
+                redacting = on
+                // Read again; the filter, the selection and what is shown are kept.
+                mutable.update { it.copy(view = it.view.copy(events = emptyList(), current = emptyList(), dropped = 0), chain = ChainView.EMPTY, sequence = it.sequence) }
+                lastTarget?.let { reload(it) }
+            }
         }
     }
 
@@ -180,7 +198,7 @@ class TimelineController(private val context: ContextController, private val sco
     private suspend fun readSequence(client: DaemonClient) {
         val view = mutable.value.sequence
         val query = view.query.trim()
-        val params = target(mutable.value) + buildMap {
+        val params = reads(mutable.value) + buildMap {
             put("limit", JsonPrimitive(SEQUENCE))
             put("ignoreSavedFilters", JsonPrimitive(mutable.value.showHidden))
             if (query.isNotEmpty()) put("q", JsonPrimitive(query))
@@ -222,7 +240,7 @@ class TimelineController(private val context: ContextController, private val sco
         chainJob = scope.launch {
             try {
                 fun params(direction: String) = JsonObject(
-                    target(s) + mapOf(
+                    reads(s) + mapOf(
                         "event" to JsonPrimitive(id), "direction" to JsonPrimitive(direction), "inferred" to JsonPrimitive(s.inferred),
                         "ignoreSavedFilters" to JsonPrimitive(s.showHidden),
                     ),
@@ -272,7 +290,7 @@ class TimelineController(private val context: ContextController, private val sco
                 }
             }
             try {
-                client.timelineEvents(JsonObject(target(mutable.value) + ("history" to JsonPrimitive("none")) + ("ignoreSavedFilters" to JsonPrimitive(true)))).collect { data ->
+                client.timelineEvents(JsonObject(reads(mutable.value) + ("history" to JsonPrimitive("none")) + ("ignoreSavedFilters" to JsonPrimitive(true)))).collect { data ->
                     if (data["selection"] != null) {
                         // Subscribed first, then paged: nothing between the two is missed; overlap merges by id.
                         pageAll(client)
@@ -301,7 +319,7 @@ class TimelineController(private val context: ContextController, private val sco
     private suspend fun pageAll(client: DaemonClient) {
         var since: String? = null
         while (true) {
-            val params = target(mutable.value) + listOfNotNull(since?.let { "since" to JsonPrimitive(it) }, "limit" to JsonPrimitive(PAGE), "ignoreSavedFilters" to JsonPrimitive(true)).toMap()
+            val params = reads(mutable.value) + listOfNotNull(since?.let { "since" to JsonPrimitive(it) }, "limit" to JsonPrimitive(PAGE), "ignoreSavedFilters" to JsonPrimitive(true)).toMap()
             val page = DtaJson.decodeFromJsonElement(TimelinePage.serializer(), client.call("timeline.events", JsonObject(params)).result)
             change(TimelineChange.Loaded(page.events))
             if (page.sources.isNotEmpty()) change(TimelineChange.Sources(page.sources))
@@ -311,13 +329,16 @@ class TimelineController(private val context: ContextController, private val sco
     }
 
     private suspend fun readState(client: DaemonClient) {
-        val state = DtaJson.decodeFromJsonElement(CurrentState.serializer(), client.call("state.current", JsonObject(target(mutable.value))).result)
+        val state = DtaJson.decodeFromJsonElement(CurrentState.serializer(), client.call("state.current", JsonObject(reads(mutable.value))).result)
         change(TimelineChange.State(state.facets))
         if (state.sources.isNotEmpty()) change(TimelineChange.Sources(state.sources))
     }
 
     private fun target(s: TimelineTabState) =
         listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap()
+
+    /** What reads the timeline and the state: with redact while Network's Redact Secrets is on. */
+    private fun reads(s: TimelineTabState) = if (redacting) target(s) + ("redact" to JsonPrimitive(true)) else target(s)
 
     companion object {
         const val PAGE = 500

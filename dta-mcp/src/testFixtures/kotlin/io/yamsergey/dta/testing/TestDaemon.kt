@@ -155,6 +155,8 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     /** Feature 065: the opt-out each timeline call was made with. */
     val timelineIgnored = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
     val sequenceIgnored = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+    /** Whether each `timeline.sequence` was asked redacted. */
+    val sequenceRedacted = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
     val hiddenAsks = java.util.concurrent.atomic.AtomicInteger()
     /** When set, `timeline.events` fails with it (the summary must never fail a tool). */
     @Volatile var timelineFailure: Exception? = null
@@ -199,6 +201,7 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     }
     override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean, redact: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage {
         sequenceIgnored += ignoreSavedFilters
+        sequenceRedacted += redact
         return sequence
     }
     private val flowStore by lazy { io.yamsergey.dta.daemon.timeline.FlowStore(java.nio.file.Files.createTempDirectory("test-flows").toFile()) }

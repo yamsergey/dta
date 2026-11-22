@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.map
 
 /** One project's context over the IDE's daemon connection (FR-001, FR-002). */
 @Service(Service.Level.PROJECT)
@@ -14,8 +15,8 @@ class DtaProjectService(private val project: Project, scope: CoroutineScope) : D
     val layout = io.yamsergey.dta.studio.layout.LayoutController(context, scope, io.yamsergey.dta.studio.layout.LayoutSettings.get(project))
     /** The app's layout selection shared with agents (feature 055). */
     val selection = io.yamsergey.dta.studio.layout.SharedSelection(context, scope)
-    /** The app's timeline (feature 017). */
-    val timeline = io.yamsergey.dta.studio.timeline.TimelineController(context, scope)
+    /** The app's timeline (feature 017); Network's Redact Secrets redacts it too (decision 2026-11-22). */
+    val timeline = io.yamsergey.dta.studio.timeline.TimelineController(context, scope, network.state.map { it.redact })
     /** The app's protobuf schemas and mappings from this project (feature 013). */
     val schemaSync = io.yamsergey.dta.studio.schemas.SchemaSync(project, context, scope, this)
     val scope: CoroutineScope = scope
