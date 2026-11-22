@@ -180,6 +180,12 @@ class HostStore(
         "SELECT json FROM entry WHERE epoch_id=? AND seq>? ORDER BY seq LIMIT ?", epochId, afterSeq, limit,
     ) { DtaJson.decodeFromString(NetworkEntry.serializer(), it.getString(1)) }
 
+    /** Feature 071: the runs of [epochId] with their kept counts, newest first (by where they start). */
+    @Synchronized
+    fun runs(epochId: String): List<RunCount> = query(
+        "SELECT run_id, entries, links, first_seq, first_ms FROM run WHERE epoch_id=? ORDER BY first_seq DESC", epochId,
+    ) { RunCount(it.getString(1), it.getInt(2), it.getInt(3), it.getLong(4), it.getLong(5)) }
+
     @Synchronized
     fun entryCount(epochId: String): Int = query("SELECT entries FROM epoch WHERE id=?", epochId) { it.getInt(1) }.firstOrNull() ?: 0
 
@@ -560,6 +566,18 @@ class HostStore(
         const val READERS = 4
         const val EPOCH_COLUMNS = "e.id, e.installation_id, e.journal_id, e.opened_ms, e.closed_ms, e.close_reason"
 
+        /** Feature 071 (research R2): entries per process run, kept like the epoch's counts; where the run starts (seq). */
+        val RUN_STATEMENTS = listOf(
+            """CREATE TABLE IF NOT EXISTS run(epoch_id TEXT NOT NULL, run_id TEXT NOT NULL, entries INTEGER NOT NULL DEFAULT 0,
+               links INTEGER NOT NULL DEFAULT 0, first_seq INTEGER NOT NULL, first_ms INTEGER NOT NULL, PRIMARY KEY(epoch_id, run_id))""",
+            """CREATE TRIGGER IF NOT EXISTS run_added AFTER INSERT ON entry BEGIN
+               INSERT INTO run(epoch_id, run_id, entries, links, first_seq, first_ms) VALUES (NEW.epoch_id, coalesce(NEW.run_id, ''), 1, NEW.kind='link', NEW.seq, NEW.time_ms)
+               ON CONFLICT(epoch_id, run_id) DO UPDATE SET entries=entries+1, links=links+(NEW.kind='link'), first_seq=min(first_seq, NEW.seq), first_ms=min(first_ms, NEW.time_ms); END""",
+            """CREATE TRIGGER IF NOT EXISTS run_removed AFTER DELETE ON entry BEGIN
+               UPDATE run SET entries=entries-1, links=links-(OLD.kind='link') WHERE epoch_id=OLD.epoch_id AND run_id=coalesce(OLD.run_id, '');
+               DELETE FROM run WHERE epoch_id=OLD.epoch_id AND run_id=coalesce(OLD.run_id, '') AND entries<=0; END""",
+        )
+
         /** The archive's statements at [SCHEMA]'s version; an epoch's counts are kept by triggers, so no answer counts them. */
         val CREATE = listOf(
             "CREATE TABLE IF NOT EXISTS device(key TEXT PRIMARY KEY, serial TEXT, model TEXT, release TEXT)",
@@ -613,16 +631,16 @@ class HostStore(
             """CREATE TRIGGER IF NOT EXISTS body_words_changed AFTER UPDATE ON body_ref BEGIN
                INSERT INTO word_pending(rowid, mark) SELECT rowid, 0 FROM entry WHERE epoch_id=NEW.epoch_id AND entry_id=NEW.entry_id AND true
                ON CONFLICT(rowid) DO UPDATE SET mark=mark+1; END""",
-        )
+        ) + RUN_STATEMENTS
 
         /**
          * The archive's format. Version 1 (2026-11-20): an archive from before versions were kept
          * is not converted (the user's call: nothing is released). Version 2 (069): columns each
          * query narrows by and link counts; format 1 is not converted either. Version 3 (070): the word
-         * index; format 2 is not converted.
+         * index; format 2 is not converted. Version 4 (071): entries per run; format 3 is kept and counted.
          */
         val SCHEMA = StoreSchema(
-            version = 3,
+            version = 4,
             create = CREATE,
             migrations = mapOf(
                 1 to Migration.StartOver("the archive was in a format from before format versions (2026-11-20); it was cleared"),
@@ -630,6 +648,9 @@ class HostStore(
                 2 to Migration.StartOver("the archive was in format 1, from before queries read it from disk (2026-11-20); it was cleared"),
                 // Feature 070 (the user's call, 2026-11-21: «давай (а)»): the word index; not converted.
                 3 to Migration.StartOver("the archive was in format 2, from before the word index (2026-11-21); it was cleared"),
+                // Feature 071 (research R2): the runs' counters, counted once from what is kept.
+                4 to Migration.Steps(RUN_STATEMENTS + ("INSERT INTO run(epoch_id, run_id, entries, links, first_seq, first_ms) " +
+                    "SELECT epoch_id, coalesce(run_id, ''), count(*), sum(kind='link'), min(seq), min(time_ms) FROM entry GROUP BY epoch_id, coalesce(run_id, '')")),
             ),
         )
 
@@ -646,3 +667,6 @@ class PendingWords(val rowid: Long, val mark: Int, val epochId: String, val entr
 
 /** Feature 070: the words of one pending entry ([text] normalised; [cut] when it holds only part of them). */
 data class WordWrite(val rowid: Long, val mark: Int, val text: String, val cut: Boolean)
+
+/** Feature 071: one process run of an epoch as counted by the store. */
+data class RunCount(val runId: String, val entries: Int, val links: Int, val firstSeq: Long, val firstMs: Long)

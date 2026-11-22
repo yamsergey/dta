@@ -122,6 +122,6 @@ class HostStoreColumnsTest {
         }
         val s = store()
         assertTrue(s.startedOver != null)
-        assertEquals(listOf(3), sql("PRAGMA user_version") { it.getInt(1) })
+        assertEquals(listOf(4), sql("PRAGMA user_version") { it.getInt(1) })
     }
 }

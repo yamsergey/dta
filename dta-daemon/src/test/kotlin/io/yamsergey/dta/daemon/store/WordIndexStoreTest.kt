@@ -124,6 +124,6 @@ class WordIndexStoreTest {
         }
         val s = store()
         assertTrue(s.startedOver?.contains("word index") == true, "${s.startedOver}")
-        assertEquals(listOf(3), sql("PRAGMA user_version") { it.getInt(1) })
+        assertEquals(listOf(4), sql("PRAGMA user_version") { it.getInt(1) })
     }
 }
