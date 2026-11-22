@@ -20,6 +20,7 @@ import javax.net.ssl.HttpsURLConnection
  * `URL#openConnection(Proxy)` return a tracking wrapper (Android Studio's model).
  * The initiator is the stack of the app code that opened the connection.
  * Non-HTTP connections (file:, jar:, the self-test marker) pass through untouched.
+ * The heads as sent and received come from the platform's HTTP stream ([UrlConnectionWire]).
  */
 internal object UrlConnectionCapture {
 
@@ -50,7 +51,7 @@ internal object UrlConnectionCapture {
         val events = listOf(
             EventResult.of(NetworkEvents.CONNECTIONS, direct, Hooks.exit(URL::class.java, direct.method, direct.descriptor, handler)),
             EventResult.of(NetworkEvents.PROXY_CONNECTIONS, proxied, Hooks.exit(URL::class.java, proxied.method, proxied.descriptor, handler)),
-        )
+        ) + UrlConnectionWire.install()
         return LibraryState(NetworkLibraries.URLCONNECTION, present = true, installFailure = null, events = events)
     }
 }

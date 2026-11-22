@@ -39,9 +39,13 @@ class NetworkRecorder(
     private val observe: (NetworkEntry) -> Unit = {},
     private val publish: (String, JsonElement?) -> Unit,
 ) {
-    private companion object {
+    companion object {
+        /** The Content-Length a head states, if any. */
+        fun contentLength(headers: List<Header>): Long? =
+            headers.lastOrNull { it.name.equals("Content-Length", ignoreCase = true) }?.value?.trim()?.toLongOrNull()?.takeIf { it >= 0 }
+
         /** Decoded bytes read for sniffing and the ≤256-char preview (UTF-8 needs up to 4 per char). */
-        const val PREVIEW_HEAD_BYTES = 1024
+        private const val PREVIEW_HEAD_BYTES = 1024
     }
 
     private val errors = AtomicLong()
@@ -64,10 +68,23 @@ class NetworkRecorder(
         return id
     }
 
+    /** A body without a declared size takes the Content-Length of the request head, when the head has one. */
     fun httpRequestBody(id: String, contentType: String?, declaredBytes: Long?, encoding: String? = null): BodyRecorder =
         bodyRecorder(id, BodyPart.REQUEST, contentType, encoding, declaredBytes) { info, _ ->
-            updateHttp(id) { it.copy(requestBody = info) }
+            updateHttp(id) { it.copy(requestBody = if (info.declaredBytes == null) info.copy(declaredBytes = it.requestHeaders?.let(::contentLength)) else info) }
         }
+
+    /**
+     * The request head as the library wrote it on the wire (HttpURLConnection adds its own headers
+     * when it sends, D-001): it replaces the headers recorded at the start, and its Content-Length
+     * is the request body's declared size.
+     */
+    fun httpWireRequest(id: String, headers: List<Header>) = guard {
+        updateHttp(id) { e ->
+            val length = contentLength(headers)
+            e.copy(requestHeaders = headers, requestBody = e.requestBody?.let { b -> if (b.declaredBytes == null && length != null) b.copy(declaredBytes = length) else b })
+        }
+    }
 
     fun httpResponse(id: String, status: Int, headers: List<Header>, protocol: String?) = guard {
         updateHttp(id) { it.copy(status = status, responseHeaders = headers, protocol = protocol ?: it.protocol) }

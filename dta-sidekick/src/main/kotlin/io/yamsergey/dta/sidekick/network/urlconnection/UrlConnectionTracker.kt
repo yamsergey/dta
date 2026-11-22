@@ -29,6 +29,25 @@ internal class UrlConnectionTracker(
     private var bodyStarted = false
     private var failed = false
 
+    /** The request head as the platform wrote it (D-001); the first one, the head of the URL recorded. */
+    private var wireRequest: List<Header>? = null
+    /** The last response head the platform read (after redirects and 100-continue, the one of the status). */
+    @Volatile
+    private var wireResponse: List<Header>? = null
+
+    /** The platform wrote the request head: it replaces the app's request properties. */
+    @Synchronized
+    fun wireRequest(headers: List<Header>) {
+        if (wireRequest != null) return
+        wireRequest = headers
+        val exchange = id ?: return
+        safe { recorder.httpWireRequest(exchange, headers) }
+    }
+
+    fun wireResponse(headers: List<Header>) {
+        wireResponse = headers
+    }
+
     /** Before the delegate connects: request headers are unreadable afterwards. */
     @Synchronized
     fun start() {
@@ -44,7 +63,8 @@ internal class UrlConnectionTracker(
     fun requestBody(stream: OutputStream): OutputStream {
         val exchange = id ?: return stream
         val body = safe {
-            recorder.httpRequestBody(exchange, delegate.getRequestProperty("Content-Type"), null, delegate.getRequestProperty("Content-Encoding"))
+            val declared = synchronized(this) { wireRequest }?.let(NetworkRecorder::contentLength)
+            recorder.httpRequestBody(exchange, delegate.getRequestProperty("Content-Type"), declared, delegate.getRequestProperty("Content-Encoding"))
         } ?: return stream
         return TeeOutputStream(stream, body)
     }
@@ -56,8 +76,10 @@ internal class UrlConnectionTracker(
         if (responseRecorded) return
         responseRecorded = true
         safe {
-            val headers = delegate.headerFields.flatMap { (name, values) ->
-                if (name == null) emptyList() else values.map { Header(name, it) }
+            // Reading the fields makes the platform read the response head, if it has not yet.
+            val fields = UrlConnectionWire.during(this) { delegate.headerFields }
+            val headers = wireResponse ?: fields.flatMap { (name, values) ->
+                if (name == null || name in PSEUDO_HEADERS) emptyList() else values.map { Header(name, it) }
             }
             recorder.httpResponse(exchange, delegate.responseCode, headers, null)
         }
@@ -94,6 +116,11 @@ internal class UrlConnectionTracker(
     fun finish() {
         val exchange = id ?: return
         if (responseRecorded && !bodyStarted && !failed) safe { recorder.httpComplete(exchange) }
+    }
+
+    private companion object {
+        /** What the platform adds to the response fields that was never on the wire (OkHttp 2's OkHeaders). */
+        val PSEUDO_HEADERS = setOf("X-Android-Sent-Millis", "X-Android-Received-Millis", "X-Android-Response-Source", "X-Android-Selected-Protocol")
     }
 
     private inline fun <T> safe(block: () -> T): T? = try {

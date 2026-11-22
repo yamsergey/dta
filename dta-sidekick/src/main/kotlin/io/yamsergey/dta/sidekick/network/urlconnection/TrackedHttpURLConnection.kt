@@ -219,7 +219,10 @@ internal class TrackedHttpURLConnection(
         target.errorStream?.let { tracker.responseBody(it) }
     }
 
-    private inline fun <T> responding(block: () -> T): T {
+    /** A call that may make the platform write the request or read the response: its heads go to this exchange. */
+    private inline fun <T> onWire(block: () -> T): T = UrlConnectionWire.during(tracker, block)
+
+    private inline fun <T> responding(block: () -> T): T = onWire {
         try {
             respond()
         } catch (e: IOException) {
@@ -233,12 +236,12 @@ internal class TrackedHttpURLConnection(
             throw e
         }
         tracker.response()
-        return value
+        value
     }
 
     // ---- HttpURLConnection -------------------------------------------------------------
 
-    override fun connect() {
+    override fun connect(): Unit = onWire {
         if (requestScripted && !committed && target.doOutput) return // body still to come; commit later
         commit()
         if (served != null) return
@@ -257,7 +260,7 @@ internal class TrackedHttpURLConnection(
 
     override fun usingProxy(): Boolean = target.usingProxy()
 
-    override fun getOutputStream(): OutputStream {
+    override fun getOutputStream(): OutputStream = onWire {
         if (requestScripted && !committed) {
             return buffered ?: ByteArrayOutputStream().also { buffered = it }
         }
@@ -269,10 +272,10 @@ internal class TrackedHttpURLConnection(
             tracker.failed(e)
             throw e
         }
-        return tracker.requestBody(stream)
+        tracker.requestBody(stream)
     }
 
-    override fun getInputStream(): InputStream {
+    override fun getInputStream(): InputStream = onWire {
         respond()
         served?.let { s ->
             if (s.status >= 400) throw java.io.FileNotFoundException(url.toString())
@@ -288,7 +291,7 @@ internal class TrackedHttpURLConnection(
             throw e
         }
         tracker.response()
-        return tracker.responseBody(stream)!!
+        tracker.responseBody(stream)!!
     }
 
     override fun getErrorStream(): InputStream? {
