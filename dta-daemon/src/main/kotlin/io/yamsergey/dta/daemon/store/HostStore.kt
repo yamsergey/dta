@@ -649,7 +649,7 @@ class HostStore(
          * The archive's format. Version 1 (2026-11-20): an archive from before versions were kept
          * is not converted (the user's call: nothing is released). Version 2 (069): columns each
          * query narrows by and link counts; format 1 is not converted either. Version 3 (070): the word
-         * index; format 2 is not converted. Version 4 (071): entries per run; format 3 is kept and counted.
+         * index; format 2 is not converted. Version 4 (071): entries per run; format 3 is not converted.
          */
         val SCHEMA = StoreSchema(
             version = 4,
@@ -660,9 +660,8 @@ class HostStore(
                 2 to Migration.StartOver("the archive was in format 1, from before queries read it from disk (2026-11-20); it was cleared"),
                 // Feature 070 (the user's call, 2026-11-21: «давай (а)»): the word index; not converted.
                 3 to Migration.StartOver("the archive was in format 2, from before the word index (2026-11-21); it was cleared"),
-                // Feature 071 (research R2): the runs' counters, counted once from what is kept.
-                4 to Migration.Steps(RUN_STATEMENTS + ("INSERT INTO run(epoch_id, run_id, entries, links, first_seq, first_ms) " +
-                    "SELECT epoch_id, coalesce(run_id, ''), count(*), sum(kind='link'), min(seq), min(time_ms) FROM entry GROUP BY epoch_id, coalesce(run_id, '')")),
+                // Feature 071 (the user's call, 2026-11-22: StartOver): the runs' counters; format 3 is not converted.
+                4 to Migration.StartOver("the archive was in format 3, from before the runs' counters (2026-11-22); it was cleared"),
             ),
         )
 

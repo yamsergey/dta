@@ -123,7 +123,7 @@ class WordIndexStoreTest {
             c.createStatement().use { it.execute("CREATE TABLE entry(x)"); it.execute("PRAGMA user_version=2") }
         }
         val s = store()
-        assertTrue(s.startedOver?.contains("word index") == true, "${s.startedOver}")
+        assertTrue(s.startedOver?.contains("cleared") == true, "the latest rule on the way says why: ${s.startedOver}")
         assertEquals(listOf(4), sql("PRAGMA user_version") { it.getInt(1) })
     }
 }

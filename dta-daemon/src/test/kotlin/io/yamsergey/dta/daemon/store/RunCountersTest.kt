@@ -61,10 +61,10 @@ class RunCountersTest {
     }
 
     @Test
-    fun `an archive of format 3 keeps its entries and gets its run counts`() {
+    fun `an archive of format 3 is started over (the user's call, 2026-11-22)`() {
         val s = store()
         val e = s.openEpoch(device, "io.example", v14, "j1", 1)
-        s.putEntries(e.id, (1..50).map { http(if (it <= 20) "r1" else "r2", it) } + link("r2", 99))
+        s.putEntries(e.id, (1..50).map { http(if (it <= 20) "r1" else "r2", it) })
         s.close(); stores.clear()
         DriverManager.getConnection("jdbc:sqlite:${File(dir, "dta.db").path}").use { c ->
             c.createStatement().use { st ->
@@ -73,12 +73,9 @@ class RunCountersTest {
             }
         }
         val again = store()
-        assertNull(again.startedOver)
-        assertEquals(51, again.entryCount(e.id))
-        val runs = again.runs(e.id).associateBy { it.runId }
-        assertEquals(20, runs.getValue("r1").entries)
-        assertEquals(31, runs.getValue("r2").entries)
-        assertEquals(1, runs.getValue("r2").links)
-        assertEquals(21L, runs.getValue("r2").firstMs)
+        assertEquals("the archive was in format 3, from before the runs' counters (2026-11-22); it was cleared", again.startedOver)
+        assertEquals(0, again.entryCount(e.id))
+        assertEquals(emptyList(), again.runs(e.id))
+        assertNull(again.liveEpoch("dev1", "io.example"))
     }
 }

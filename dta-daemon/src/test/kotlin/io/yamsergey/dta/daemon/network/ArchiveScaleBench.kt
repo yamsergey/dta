@@ -113,12 +113,6 @@ class ArchiveScaleBench {
                 println("BENCH n=$n find archive=on «tick» every row: $all rows in ${allMs}ms, heap before=${heap0}MB peak sampled=${peak}MB after=${heapMb()}MB")
             }
             store.close()
-            // Feature 071 (research R2): format 3 → 4, the runs counted once from what is kept.
-            java.sql.DriverManager.getConnection("jdbc:sqlite:${File(root, "dta.db").path}").use { c ->
-                c.createStatement().use { st -> st.execute("DROP TRIGGER run_added"); st.execute("DROP TRIGGER run_removed"); st.execute("DROP TABLE run"); st.execute("PRAGMA user_version=3") }
-            }
-            val (_, migrateMs) = ms { HostStore(root).close() }
-            println("BENCH n=$n format 3→4 (run counters backfilled) in ${migrateMs}ms")
         }
     }
 }
