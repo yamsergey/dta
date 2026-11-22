@@ -358,8 +358,10 @@ class NetworkStoreTest {
         val first = http(s, "http://h/first")
         s.upsert(first)
         s.openBodySink(first.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(5_000), 0, 5_000); close() }
-        repeat(5) { i -> s.upsert(http(s, "http://h/filler-$i")); s.flush() }
-        val big = http(s, "http://h/big")
+        // Finished, so the restart adds no process-ended records: nothing more is over the bound
+        // and the count read after it is the one the earlier run left (D-036).
+        repeat(5) { i -> s.upsert(http(s, "http://h/filler-$i", HttpState.COMPLETE)); s.flush() }
+        val big = http(s, "http://h/big", HttpState.COMPLETE)
         s.upsert(big)
         s.openBodySink(big.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(3_000), 0, 3_000); close() }
         s.flush()
@@ -367,9 +369,40 @@ class NetworkStoreTest {
         assertNull(s.get(first.id))
         s.upsert(first.copy(state = HttpState.COMPLETE)) // a late update for an evicted entry
         val evicted = s.coverage().evicted
+        assertEquals(1, evicted)
         val again = restart(s, bounds = bounds)
         assertNull(again.get(first.id), "evicted entry must not come back")
         assertEquals(evicted, again.coverage().evicted)
+        // Settled: what the new run's writer would do on its own is done here, and changes nothing.
+        again.flush()
+        again.evictIfNeeded()
+        assertNull(again.get(first.id), "evicted entry must not come back")
+        assertEquals(evicted, again.coverage().evicted)
+    }
+
+    @Test
+    fun `a restart's process-ended records count toward the bound, evicting more but never bringing one back`() {
+        // D-036: the entries left pending get a process-ended record in the new run; the history
+        // is then over its bound and the oldest are evicted until a segment can go.
+        val bounds = StoreBounds(historyBytes = 6_000, segmentBytes = 1_000)
+        val s = store(bounds = bounds)
+        val first = http(s, "http://h/first")
+        s.upsert(first)
+        s.openBodySink(first.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(5_000), 0, 5_000); close() }
+        val fillers = (0 until 5).map { i -> http(s, "http://h/filler-$i").also { s.upsert(it); s.flush() } }
+        val big = http(s, "http://h/big")
+        s.upsert(big)
+        s.openBodySink(big.id, BodyPart.RESPONSE)!!.apply { write(ByteArray(3_000), 0, 3_000); close() }
+        s.flush()
+        s.evictIfNeeded()
+        assertEquals(1, s.coverage().evicted)
+        val again = restart(s, bounds = bounds)
+        again.flush()
+        again.evictIfNeeded()
+        assertTrue(again.diskBytes() <= 6_000, "within the bound: ${again.diskBytes()}")
+        assertEquals(6, again.coverage().evicted, "first plus the five fillers of its segment")
+        (listOf(first) + fillers).forEach { assertNull(again.get(it.id), "${it.id} stays evicted") }
+        assertEquals(HttpState.PROCESS_ENDED, (again.get(big.id) as HttpEntry).state)
     }
 
     @Test
