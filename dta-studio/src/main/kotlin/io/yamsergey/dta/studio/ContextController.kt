@@ -103,16 +103,25 @@ class ContextController(
         watch?.cancel()
         watchingFlow.value = false
         val c = client ?: return
-        val device = mutable.value.device ?: return
+        val device = mutable.value.device
+        // D-038: with no device chosen (none online when the devices were read: a hung emulator, adb
+        // restarting), every device is watched; an app connecting on one says the devices changed.
         watch = scope.launch {
             runCatching {
-                c.appEvents(buildJsonObject { put("device", device) }).collect { data -> onAppEvent(data) }
+                c.appEvents(buildJsonObject { device?.let { put("device", it) } }).collect { data -> onAppEvent(data, device) }
             }
             watchingFlow.value = false
         }
     }
 
-    private fun onAppEvent(data: JsonObject) {
+    private fun onAppEvent(data: JsonObject, watched: String?) {
+        if (watched == null) {
+            if (data["selection"] == null) {
+                apply(ContextEvent.AppConnection(DtaJson.decodeFromJsonElement(AppConnectionEvent.serializer(), JsonObject(data - "subscription"))))
+                refreshDevices()
+            }
+            return
+        }
         val selection = data["selection"]
         if (selection != null) {
             val selected = DtaJson.decodeFromJsonElement(Selected.serializer(), selection)
