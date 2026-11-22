@@ -177,4 +177,53 @@ class OperationCatalogTest {
         assertTrue("archive_list" in agentEpoch, agentEpoch)
         assertEquals(Catalog.all.map { it.name }, Catalog.cliCommands.map { it.name })
     }
+
+    private fun agent(tool: String) = Catalog.agentTools.single { it.toolName == tool }
+
+    /**
+     * D-018 (005 contract §6, FR-001/004/005/006, 020 FR-007/009): an agent that knows DTA only
+     * through its tools learns the script API from them — handler names with their arguments, how
+     * an effect is returned, the runtime it runs in, persistence, and where silent failures show.
+     */
+    @Test
+    fun `network_script_set teaches the script api`() {
+        val set = agent("network_script_set").description
+        val needed = listOf(
+            "onRequest(req)", "onResponse(res, req)", "onWsSend(msg, conn)", "onWsReceive(msg, conn)",
+            "sleep(ms)", "throttle(bytesPerSecond)", "respond({status, headers, body})", "drop()", "description(text)", "log(",
+            "text()", "json()", "return",
+            "replaces", "persists across app restarts", "network_script_clear", "network_script_status", "network_script_logs",
+            "function onRequest(req)",
+        )
+        assertEquals(emptyList(), needed.filter { it !in set }, set)
+        assertTrue("{delayMs" in set && "null" in set, "says that returning {delayMs} or null does nothing: $set")
+        assertTrue("URL" in set && "async" in set, "names what the runtime lacks: $set")
+    }
+
+    @Test
+    fun `network_script_status describes ScriptStatus and nothing else`() {
+        val status = agent("network_script_status").description
+        val fields = listOf("active", "id", "installedAtMs", "persisted", "source", "handlers", "invocations", "changes", "errors", "unavailable")
+        assertEquals(emptyList(), fields.filter { it !in status }, status)
+        assertTrue("last error" !in status.lowercase(), "ScriptStatus has an error count, no last error: $status")
+    }
+
+    @Test
+    fun `network_script_logs and clear say what they hold and stop`() {
+        val logs = agent("network_script_logs").description
+        assertTrue("log(" in logs && "error" in logs && "entry" in logs && "next" in logs, logs)
+        val clear = agent("network_script_clear").description
+        assertTrue("timers" in clear && "restart" in clear, clear)
+    }
+
+    /** D-018 task 9: how to see what a rule changed, and the original. */
+    @Test
+    fun `entry and body say where a script's change and the original are`() {
+        val entry = agent("network_entry").description
+        listOf("intervention", "changed", "delayMs", "mocked", "dropped", "error", "description").forEach { assertTrue(it in entry, "$it: $entry") }
+        val part = agent("network_body").param("part")!!.description
+        assertTrue("app-request" in part && "app-response" in part && "mocked" in part, part)
+        val list = agent("network_list").param("intervened")!!.description
+        assertTrue("network script" in list, list)
+    }
 }

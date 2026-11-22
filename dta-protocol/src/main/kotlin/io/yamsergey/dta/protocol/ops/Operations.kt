@@ -62,12 +62,17 @@ data class OperationSpec(
     /** Not offered to agents. */
     val cliOnly: Boolean = false,
     private val cliPathOverride: List<String>? = null,
+    /** Appended to the description agents read (what only an agent can use, e.g. an MCP resource). */
+    private val agentNote: String? = null,
 ) {
     val toolName: String get() = name.replace('.', '_')
 
     /** This operation with its description and its params' descriptions passed through [f]. */
     internal fun mapTexts(f: (String) -> String): OperationSpec =
         copy(description = f(description), params = params.map { it.copy(description = f(it.description)) })
+
+    /** As agents read it: [agentNote] appended. */
+    internal fun forAgents(): OperationSpec = if (agentNote == null) this else copy(description = "$description $agentNote", agentNote = null)
     val cliPath: List<String> get() = cliPathOverride ?: name.split('.')
 
     fun param(name: String): ParamSpec? = params.firstOrNull { it.name == name }
@@ -216,7 +221,9 @@ object Catalog {
 
     private val PART = ParamSpec(
         "part", ParamType.ENUM,
-        "Which body: request, response or message; app-* is what the app saw when a script changed it. Default response (message for WebSocket messages).",
+        "Which body. request, response, message: the wire side (the request as sent, the response as the server sent it). " +
+            "app-request: the request as the app built it; app-response: the response as the app received it; app-message: the message as the app sent or received it — they differ only where the network script changed it. " +
+            "A mocked entry has no wire side: request and response hold the app's request and the scripted answer. Default response (message for WebSocket messages).",
         enumValues = listOf("request", "response", "message", "app-request", "app-response", "app-message"),
     )
 
@@ -319,7 +326,9 @@ object Catalog {
             ),
         ),
         OperationSpec(
-            "network.entry", "One entry in full: request and response headers, timing, initiator stack, script intervention, body summaries; for a WebSocket connection its messages.",
+            "network.entry",
+            "One entry in full: request and response headers, timing, initiator stack, body summaries; for a WebSocket connection its messages. " +
+                "An entry the network script touched carries intervention (handlers, changed fields, delayMs, throttleBytesPerSecond, mocked, dropped, error, and the script's description) and the app's side of what changed in appRequest / appResponse (appPayload for a message).",
             Scope.APP,
             listOf(
                 ParamSpec("id", ParamType.STRING, "Entry id from network.list.", required = true, positional = true),
@@ -379,17 +388,43 @@ object Catalog {
         ),
         OperationSpec(
             "network.script.set",
-            "Install the app's network script (JavaScript with request/response/ws handlers that can delay, rewrite, answer or drop traffic, and say what they did with description(text), a short line stored on the entry). It persists until cleared. Give source or path.",
+            "Install the app's network script, which replaces any active one (one per app). " +
+                "JavaScript, an ES6 subset (Rhino): no async/Promise, URL, console or setTimeout. " +
+                "Define any of onRequest(req), onResponse(res, req), onWsSend(msg, conn), onWsReceive(msg, conn); a script with none is rejected. " +
+                "req: url, method, headers (an object, names spelled as the library sends them), library, id; res: status, headers; both read their body with text(), bytes() or json(). " +
+                "msg: text, binary, bytes(); conn: url, library, id, push(message, {delayMs}). " +
+                "Effects: sleep(ms) delays (it blocks the thread making the call); to change traffic set fields (req.url/method/headers/body, res.status/headers/body, msg.text/bytes) and return the object; " +
+                "return respond({status, headers, body}) answers without the network (onRequest only); return drop() fails the call (the app sees a network failure) or drops the message; " +
+                "throttle(bytesPerSecond) slows a response body (onResponse only). " +
+                "Returning nothing changes nothing; returning null, or a plain object such as {delayMs: 2000} or {respond: …}, does nothing either. " +
+                "Also: description(text) (a short line stored on the entry), log(...), state.get/set/delete/clear (kept between calls), push(conn, message), connections(), every(ms, fn), after(ms, fn), cancel(id). " +
+                "Bodies are raw bytes: protobuf is not decoded for the script. " +
+                "Example: function onRequest(req) { if (req.url.includes(\"/login\")) { description(\"login down\"); return respond({status: 503, body: \"down\"}); } } " +
+                "It persists across app restarts (it applies from the first request, before any client connects) until network.script.clear; an app update or a data clear removes it. " +
+                "Calls already in flight keep the script they started with. A handler error never breaks traffic: the call passes unchanged and the error goes to network.script.logs; " +
+                "after installing, check errors in network.script.status and read network.script.logs. Give source or path.",
             Scope.APP,
             listOf(
                 ParamSpec("source", ParamType.STRING, "Script source text."),
                 ParamSpec("path", ParamType.STRING, "Script file on this machine.", positional = true, path = true),
             ),
         ),
-        OperationSpec("network.script.clear", "Remove the app's network script; traffic flows untouched again.", Scope.APP),
-        OperationSpec("network.script.status", "Whether a network script is active, its handlers and its last error.", Scope.APP),
         OperationSpec(
-            "network.script.logs", "Log lines the network script wrote.", Scope.APP,
+            "network.script.clear",
+            "Remove the app's network script: new traffic flows untouched, its timers stop, and it does not come back after a restart. Calls already in flight finish under it.",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "network.script.status",
+            "The active network script: active, id (a hash of the source), installedAtMs, persisted (false: it will not survive a restart), source (edit it and set it again to change one rule), handlers, " +
+                "this process run's counts of invocations, changes and errors (the errors themselves are in network.script.logs), and unavailable (why it cannot apply).",
+            Scope.APP,
+        ),
+        OperationSpec(
+            "network.script.logs",
+            "The script's log(...) lines and its handler errors, each error naming the handler and the entry id, oldest first; pass the result's next as since for newer lines (skipped counts lines lost). " +
+                "Read it after installing: a handler that throws, returns null, or describes a call it did not change leaves traffic as it was and says so only here.",
+            Scope.APP,
             listOf(ParamSpec("since", ParamType.LONG, "Only lines after this sequence number (the next value of a previous call).")),
         ),
         OperationSpec(
@@ -894,7 +929,7 @@ object Catalog {
      * The operations offered to agents, their texts naming other operations by tool name
      * (`network_list`): an agent has no `network.list` to call.
      */
-    val agentTools: List<OperationSpec> by lazy { all.filterNot { it.cliOnly }.map { op -> op.mapTexts { textFor(Surface.AGENT, it) } } }
+    val agentTools: List<OperationSpec> by lazy { all.filterNot { it.cliOnly }.map { op -> op.forAgents().mapTexts { textFor(Surface.AGENT, it) } } }
 
     /** Every operation as the CLI shows it, its texts naming other operations by command (`dta network list`). */
     val cliCommands: List<OperationSpec> by lazy { all.map { op -> op.mapTexts { textFor(Surface.CLI, it) } } }
