@@ -20,8 +20,8 @@ class ArchiveModelTest {
 
     @Test
     fun `a query without a scope is live only, and one with a scope reads back`() {
-        assertNull(NetworkQuery.parse(JsonObject(emptyMap())).archive)
-        val q = NetworkQuery(archive = ArchiveScope(version = "1.4.0"))
+        assertNull(NetworkQuery.parse(JsonObject(emptyMap())).archiveScope)
+        val q = NetworkQuery(archiveScope = ArchiveScope(version = "1.4.0"))
         assertEquals(q, NetworkQuery.parse(q.toJson()))
     }
 

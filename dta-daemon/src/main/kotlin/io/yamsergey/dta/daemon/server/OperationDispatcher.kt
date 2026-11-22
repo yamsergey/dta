@@ -360,7 +360,7 @@ class OperationDispatcher(
 
     private fun query(params: JsonObject): NetworkQuery {
         val filterKeys = NetworkFilter.serializer().descriptor.let { d -> (0 until d.elementsCount).map { d.getElementName(it) } }
-        val archive = (params["archive"] as? JsonPrimitive)?.content?.let { text ->
+        val archive = (params["archiveScope"] as? JsonPrimitive)?.content?.let { text ->
             try {
                 DtaJson.encodeToJsonElement(ArchiveScope.serializer(), ArchiveScope.parse(text))
             } catch (e: IllegalArgumentException) {
@@ -369,8 +369,8 @@ class OperationDispatcher(
         }
         val raw = buildJsonObject {
             put("filter", JsonObject(params.filterKeys { it in filterKeys }))
-            params.filterKeys { it !in filterKeys && it != "archive" }.forEach { (k, v) -> put(k, v) }
-            archive?.let { put("archive", it) }
+            params.filterKeys { it !in filterKeys && it != "archiveScope" }.forEach { (k, v) -> put(k, v) }
+            archive?.let { put("archiveScope", it) }
         }
         return NetworkQuery.parse(raw).also { it.resolved() } // a bad query line is refused here, naming each problem
     }

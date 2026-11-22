@@ -75,18 +75,18 @@ class ArchiveQueryTest {
     @Test
     fun `each scope gives its epochs, every entry marked`() = runBlocking<Unit> {
         val (_, store, host) = history()
-        val all = host.list(NetworkQuery(archive = ArchiveScope(all = true), filter = NetworkFilter(url = "cart")))
+        val all = host.list(NetworkQuery(archiveScope = ArchiveScope(all = true), filter = NetworkFilter(url = "cart")))
         assertEquals(setOf("r1-1:1", "r2-1:1"), all.entries.map { it.id }.toSet())
         val marks = assertNotNull(all.archived)
         assertEquals(EpochCloseReason.CLEARED, marks.getValue("r1-1:1").reason)
         assertEquals(EpochCloseReason.NEW_BUILD, marks.getValue("r2-1:1").reason)
         assertEquals("1.4.0", marks.getValue("r1-1:1").version)
 
-        val v14 = host.list(NetworkQuery(archive = ArchiveScope(version = "1.4.0")))
+        val v14 = host.list(NetworkQuery(archiveScope = ArchiveScope(version = "1.4.0")))
         assertEquals(3, v14.entries.size)
         assertEquals(null, v14.next)
         val epoch = store.epochs("dev1", "io.example", ArchiveScope(all = true)).first().id
-        assertEquals(2, host.list(NetworkQuery(archive = ArchiveScope(epoch = epoch))).entries.size)
+        assertEquals(2, host.list(NetworkQuery(archiveScope = ArchiveScope(epoch = epoch))).entries.size)
     }
 
     @Test
@@ -103,7 +103,7 @@ class ArchiveQueryTest {
     @Test
     fun `a body search covers the archive too`() = runBlocking<Unit> {
         val (_, _, host) = history()
-        val found = host.list(NetworkQuery(archive = ArchiveScope(all = true), filter = NetworkFilter(bodyContains = "old cart")))
+        val found = host.list(NetworkQuery(archiveScope = ArchiveScope(all = true), filter = NetworkFilter(bodyContains = "old cart")))
         assertEquals(listOf("r1-1:1"), found.entries.map { it.id })
     }
 
@@ -116,7 +116,7 @@ class ArchiveQueryTest {
         assertEquals(1, preview.bodiesFreed)
         assertEquals(2, store.epochs("dev1", "io.example", ArchiveScope(all = true)).size, "a preview deletes nothing")
         store.delete(DeleteTarget.Epoch(first))
-        assertEquals(1, host.list(NetworkQuery(archive = ArchiveScope(all = true))).entries.size)
+        assertEquals(1, host.list(NetworkQuery(archiveScope = ArchiveScope(all = true))).entries.size)
         assertEquals(1, store.delete(DeleteTarget.Package("io.example")).epochs, "an app's archive, on every device, its live epoch kept")
         assertTrue(host.list(NetworkQuery()).entries.size == 1)
         assertFailsWith<io.yamsergey.dta.daemon.store.LiveEpochException> { store.delete(DeleteTarget.Epoch(store.liveEpoch("dev1", "io.example")!!.id)) }

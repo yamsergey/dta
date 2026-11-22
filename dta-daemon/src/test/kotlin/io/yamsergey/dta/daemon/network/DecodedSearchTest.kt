@@ -74,7 +74,7 @@ class DecodedSearchTest {
         host.list(NetworkQuery(filter = NetworkFilter(bodyContains = "x"))) // copies the bodies
         app.reset("j2", "cleared")
         host.list(NetworkQuery())
-        val page = host.list(NetworkQuery(archive = ArchiveScope(all = true), filter = NetworkFilter(bodyContains = "item-42")))
+        val page = host.list(NetworkQuery(archiveScope = ArchiveScope(all = true), filter = NetworkFilter(bodyContains = "item-42")))
         assertEquals(listOf("name"), page.fields!!.getValue("r1-1:1"))
     }
 }

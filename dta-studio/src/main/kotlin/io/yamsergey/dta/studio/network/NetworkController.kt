@@ -393,7 +393,7 @@ class NetworkController(private val context: ContextController, private val scop
                 val params = JsonObject(
                     target(s) + s.applied.params(s.kind) + mapOf("limit" to JsonPrimitive((need - got.size).let { if (it > 0) it.coerceAtMost(SEARCH_PAGE) else CATCH_UP_PAGE }), "order" to JsonPrimitive("newest-first")) +
                         (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) +
-                        (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
+                        (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
                 )
                 val page = DtaJson.decodeFromJsonElement(SearchPage.serializer(), c.call("network.search", params).result)
                 first = first ?: page
@@ -513,7 +513,7 @@ class NetworkController(private val context: ContextController, private val scop
         scope.launch {
             val params = JsonObject(
                 target(s) + s.applied.params(s.kind) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
-                    (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
+                    (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
             )
             val result = runCatching { c.call("network.export", params).result.jsonObject }
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { done(result) }
@@ -634,7 +634,7 @@ class NetworkController(private val context: ContextController, private val scop
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
         target(s) + s.applied.params(s.kind) + mapOf("limit" to JsonPrimitive(PAGE)) +
             (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
-            (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
+            (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
     )
 
     /** Feature 067: the daemon decides each live entry with the whole line (an older daemon does not: the list is asked again). */

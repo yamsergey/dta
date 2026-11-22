@@ -52,7 +52,7 @@ class NetworkServiceClearTest {
         assertNull(result.notKept, "everything was kept")
         assertEquals(4, result.clearedEntries)
         service.list(NetworkQuery()) // the next answer sees the new journal and archives the old one
-        val archived = service.list(NetworkQuery(archive = ArchiveScope(all = true)))
+        val archived = service.list(NetworkQuery(archiveScope = ArchiveScope(all = true)))
         assertEquals(4, archived.entries.size)
         assertNotNull(service.body("r1-1:2", BodyPart.RESPONSE).text?.takeIf { it == "body-1" }, "the body is on this computer")
     }
@@ -81,7 +81,7 @@ class NetworkServiceClearTest {
         assertEquals(2, epochs.size, "both cleared histories are archived as soon as they are cleared: $epochs")
         val (older, newer) = epochs
         store.delete(io.yamsergey.dta.daemon.store.DeleteTarget.Epoch(older.id))
-        val left = service.list(NetworkQuery(archive = ArchiveScope(epoch = newer.id)))
+        val left = service.list(NetworkQuery(archiveScope = ArchiveScope(epoch = newer.id)))
         assertEquals(listOf("r2-1:1"), left.entries.map { it.id }, "the newer epoch is untouched")
         assertEquals(shared, service.body("r2-1:1", BodyPart.RESPONSE).text, "the body both shared is still here")
     }

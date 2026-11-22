@@ -545,6 +545,45 @@ enum class MatchLocation {
     @SerialName("payload-decoded") PAYLOAD_DECODED,
 }
 
+/** Feature 071: one process run as an answer's scope names it, with its kept count. */
+@Serializable
+data class ScopeRun(
+    val runId: String,
+    val entries: Long,
+    val startedMs: Long? = null,
+    val endedMs: Long? = null,
+    /** Set when the run has ended (the app's process stopped). */
+    val ended: RunEnd? = null,
+)
+
+/** Feature 071: an archived epoch as an answer's scope names it. */
+@Serializable
+data class ScopeEpoch(val id: String, val entries: Long, val closedMs: Long? = null, val reason: EpochCloseReason? = null)
+
+/**
+ * Feature 071 (FR-004, FR-014): what an answer covered. With the switch off it is the app's current run,
+ * and [outside] says how much this computer keeps besides it; with it on, the whole history.
+ */
+@Serializable
+data class HistoryScope(
+    /** The archive switch as answered. */
+    val archive: Boolean,
+    /** Entries in the scope, from kept counters (the caption's M). */
+    val entries: Long,
+    /** The app's current run (the last one received when the app is gone); null when none was received. */
+    val run: ScopeRun? = null,
+    /** Entries kept on this computer outside the scope (earlier runs, archived epochs); null when none. */
+    val outside: Long? = null,
+    /** With the switch on: the live history's runs, newest first. */
+    val runs: List<ScopeRun>? = null,
+    /** With the switch on: the archived epochs, newest first. */
+    val epochs: List<ScopeEpoch>? = null,
+    /** An explicit archived scope answered instead (`archiveScope`), as given. */
+    val explicit: String? = null,
+    /** `run:all` was in the query while the switch was off: it widened nothing. */
+    val runAllIgnored: Boolean = false,
+)
+
 /** Result of `network_list`. */
 @Serializable
 data class NetworkPage(
@@ -563,6 +602,8 @@ data class NetworkPage(
     val hits: Map<String, List<SearchHit>>? = null,
     /** Feature 043: the saved filters behind this page. */
     val saved: SavedFiltersApplied? = null,
+    /** Feature 071: what the page covered. */
+    val scope: HistoryScope? = null,
 )
 
 /** One entry's search hits (feature 040). */
@@ -580,6 +621,8 @@ data class SearchPage(
     val degraded: List<DegradationMarker>? = null,
     /** Feature 043: the saved filters behind this page. */
     val saved: SavedFiltersApplied? = null,
+    /** Feature 071: what the search covered. */
+    val scope: HistoryScope? = null,
 )
 
 /** Result of `network_entry`. */

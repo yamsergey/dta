@@ -78,14 +78,14 @@ class HostIndexScaleTest {
         val before = heapMb()
         val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { error("the app is gone") }
         val all = io.yamsergey.dta.protocol.network.ArchiveScope(all = true)
-        val (first, firstMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, archive = all)) } }
+        val (first, firstMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, archiveScope = all)) } }
         assertEquals(100, first.entries.size)
         assertEquals(100, first.archived?.size, "every entry marked with its epoch")
         assertTrue(firstMs < 150, "first archived page in $firstMs ms")
-        val (filtered, filterMs) = best { runBlocking { host.list(NetworkQuery(limit = 100, archive = all, filter = NetworkFilter(status = "4xx"))) } }
+        val (filtered, filterMs) = best { runBlocking { host.list(NetworkQuery(limit = 100, archiveScope = all, filter = NetworkFilter(status = "4xx"))) } }
         assertTrue(filtered.entries.isNotEmpty())
         assertTrue(filterMs < 100, "an archived page by recorded fields in $filterMs ms")
-        val (_, searchMs) = ms { runBlocking { host.search(NetworkQuery(limit = 20, archive = all, q = "item-12")) } }
+        val (_, searchMs) = ms { runBlocking { host.search(NetworkQuery(limit = 20, archiveScope = all, q = "item-12")) } }
         println("SCALE archive n=$n first=${firstMs}ms filtered=${filterMs}ms search=${searchMs}ms")
         val held = heapMb() - before
         assertTrue(held < 30, "memory held after archive answers over $n entries: $held MB")

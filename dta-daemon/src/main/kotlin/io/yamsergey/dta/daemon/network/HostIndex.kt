@@ -265,7 +265,7 @@ class HostIndex(
      * snapshot outside the mutex; the coverage this computer adds is read under it, before.
      */
     internal suspend fun list(query: NetworkQuery, pass: (NetworkHistoryView) -> NetworkPage): NetworkPage {
-        query.archive?.let { return archived(query, it) }
+        query.archiveScope?.let { return archived(query, it) }
         // One hold of the mutex when there are no bodies to copy: beside a catch-up, each hold waits for a page.
         var snapshot: Pair<Triple<String?, HistoryContext, Long>, Extra>? = null
         val toCopy = mutex.withLock {
@@ -462,7 +462,7 @@ class HostIndex(
 
     /** The search through [pass] on a snapshot outside the mutex (feature 067). */
     internal suspend fun search(query: NetworkQuery, pass: (NetworkHistoryView) -> SearchPage): SearchPage {
-        query.archive?.let { scope -> return mutex.withLock { archiveView(store.epochs(device.key, packageName, scope)) }.search(query) }
+        query.archiveScope?.let { scope -> return mutex.withLock { archiveView(store.epochs(device.key, packageName, scope)) }.search(query) }
         var at: Pair<String?, HistoryContext>? = null
         val toCopy = mutex.withLock {
             val app = connection()

@@ -130,8 +130,13 @@ data class NetworkQuery(
     val before: String? = null,
     /** Applied by the daemon; the sidekick never redacts. */
     val redact: Boolean = false,
-    /** Archived history to cover; null is the live history only (feature 011). */
-    val archive: ArchiveScope? = null,
+    /**
+     * Feature 071: the archive switch — the whole history this computer keeps for the app (every run,
+     * every archived epoch). Off (default): the app's current run only.
+     */
+    val archive: Boolean = false,
+    /** An explicit archived scope instead (feature 011 FR-015; was `archive`): it wins over [archive]. */
+    val archiveScope: ArchiveScope? = null,
     /** Feature 040: the query line — filters and search words ([QueryLine]). */
     val q: String? = null,
     /** Feature 041: with search words, list every entry the filters keep (hits marked), not only those with hits. */
@@ -153,10 +158,19 @@ data class NetworkQuery(
         return merged.takeIf { it != NetworkFilter() } to p.terms
     }
 
+    /**
+     * Feature 071: `run:all` widens nothing while the switch is off: said with the answer's scope and
+     * under the plugin's line, so the scope has one control (constitution VI).
+     */
+    fun runAllIgnored(): Boolean = !archive && archiveScope == null && runCatching { resolved().first?.runs == RunScope.ALL }.getOrDefault(false)
+
     fun toJson(): JsonObject = DtaJson.encodeToJsonElement(serializer(), this).jsonObject
 
     companion object {
         const val DEFAULT_LIMIT = 100
+
+        /** Feature 071: what the line says about `run:all` while the switch is off (research R11, board 5). */
+        const val RUN_ALL_HINT = "run:all reads only this run while Archive is off."
         const val MAX_LIMIT = 1000
         private val STATUS = Regex("""[1-5]\d\d|[1-5]xx|failed|pending""")
 

@@ -190,6 +190,22 @@ object Catalog {
         cliHidden = true,
     )
 
+    /** Feature 071: the archive switch; off, answers cover the app's current run. */
+    private val ARCHIVE = ParamSpec(
+        "archive", ParamType.BOOLEAN,
+        "Include the archive: every earlier run and archived history this computer keeps for the app, newest first, archived entries marked with their epoch. " +
+            "Without it, only the app's current run (since its process last started); the answer's scope says how much more is kept.",
+    )
+
+    /** Feature 071: `runs` narrows within the scope; it never widens it (the switch does). */
+    private val RUNS = ParamSpec("runs", ParamType.ENUM, "current: only the app's current run; all: every run. Without archive the answer covers the current run either way.", enumValues = listOf("current", "all"))
+
+    /** Feature 011's explicit archived scopes (was `archive`); wins over the switch. */
+    private val ARCHIVE_SCOPE = ParamSpec(
+        "archiveScope", ParamType.STRING,
+        "One archived part instead: all (every archived epoch), version:<name>, <fromMs>..<toMs>, or an epoch id from archive.list. Entries come marked with their epoch.",
+    )
+
     private val NETWORK_FILTERS = listOf(
         ParamSpec("url", ParamType.STRING, "Case-insensitive URL substring; WebSocket messages match by their connection's URL."),
         ParamSpec("method", ParamType.STRING, "HTTP method, case-insensitive."),
@@ -301,15 +317,13 @@ object Catalog {
                 ParamSpec("sinceMs", ParamType.LONG, "Only entries at or after this epoch millisecond."),
                 ParamSpec("untilMs", ParamType.LONG, "Only entries at or before this epoch millisecond."),
                 ParamSpec("bodyContains", ParamType.STRING, "Text inside a body or payload, case ignored (as body: in q); a protobuf body decoded by a schema is searched in its fields, another binary body for the exact bytes."),
-                ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
+                RUNS,
                 ParamSpec("limit", ParamType.INT, "Page size, 1..1000 (default 100)."),
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets (tokens, cookies, passwords) in URLs and headers."),
-                ParamSpec(
-                    "archive", ParamType.STRING,
-                    "Archived history instead of the live one (what the device cleared, or earlier installs): all, version:<name>, <fromMs>..<toMs>, or an epoch id from archive.list. Entries come marked with their epoch.",
-                ),
+                ARCHIVE,
+                ARCHIVE_SCOPE,
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
                 ParamSpec("allRows", ParamType.BOOLEAN, "With search words: list every entry the filters keep, hits marked, instead of only the matches.", cliName = "all-rows"),
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
@@ -326,7 +340,8 @@ object Catalog {
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
                 ParamSpec("redact", ParamType.BOOLEAN, "Search URLs, headers and bodies as redacted: masked secrets are not found."),
-                ParamSpec("archive", ParamType.STRING, "Search the archived history: all, version:<name>, <fromMs>..<toMs>, or an epoch id."),
+                ARCHIVE,
+                ARCHIVE_SCOPE,
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
                 VIEW,
             ),
@@ -378,9 +393,10 @@ object Catalog {
                 ParamSpec("sinceMs", ParamType.LONG, "Only entries at or after this epoch millisecond."),
                 ParamSpec("untilMs", ParamType.LONG, "Only entries at or before this epoch millisecond."),
                 ParamSpec("bodyContains", ParamType.STRING, "Text inside a body or payload, case ignored (as body: in q)."),
-                ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
+                RUNS,
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
-                ParamSpec("archive", ParamType.STRING, "Archived history instead of the live one (as network.list)."),
+                ARCHIVE,
+                ARCHIVE_SCOPE,
                 ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network.list.", cliShort = "-q", cliName = "query"),
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
             ),
@@ -536,11 +552,12 @@ object Catalog {
                 ParamSpec("uri", ParamType.STRING, "Case-insensitive substring of the URI."),
                 ParamSpec("activity", ParamType.STRING, "Case-insensitive substring of the receiving activity's class."),
                 ParamSpec("delivery", ParamType.ENUM, "How it reached the activity.", enumValues = listOf("cold-start", "created", "new-intent", "from-recents")),
-                ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
+                RUNS,
                 ParamSpec("sinceMs", ParamType.LONG, "Only links at or after this epoch millisecond."),
                 ParamSpec("limit", ParamType.INT, "Page size, 1..1000 (default 100)."),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
-                ParamSpec("archive", ParamType.STRING, "Archived history instead of the live one: all, version:<name>, <fromMs>..<toMs>, or an epoch id."),
+                ARCHIVE,
+                ARCHIVE_SCOPE,
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URIs, query parameters and extras."),
             ),
             cliPathOverride = listOf("links", "list"),
