@@ -2,6 +2,7 @@ package io.yamsergey.dta.present.data
 
 import io.yamsergey.dta.protocol.data.ThreadInfo
 import io.yamsergey.dta.protocol.data.ThreadList
+import io.yamsergey.dta.protocol.network.FrameClassifier
 
 /**
  * Feature 032: the Runtime tab's threads as a state, not as a crash — grouped (the app's own,
@@ -56,10 +57,6 @@ class ThreadRows(list: ThreadList) {
     companion object {
         private const val POLL = "android.os.MessageQueue.nativePollOnce"
 
-        private val FRAMEWORK = listOf(
-            "java.", "javax.", "jdk.", "sun.", "kotlin.", "kotlinx.", "android.", "androidx.", "com.android.",
-            "dalvik.", "libcore.", "com.google.android.", "io.yamsergey.dta.",
-        )
         private val SYSTEM_NAMES = setOf(
             "FinalizerDaemon", "FinalizerWatchdogDaemon", "HeapTaskDaemon", "ReferenceQueueDaemon", "Signal Catcher",
             "Profile Saver", "RenderThread", "SurfaceSyncGroupTimer", "queued-work-looper", "Jit thread pool",
@@ -68,8 +65,11 @@ class ThreadRows(list: ThreadList) {
 
         fun isSystem(name: String) = name in SYSTEM_NAMES || SYSTEM_PREFIXES.any { name.startsWith(it) }
 
-        /** A frame of the app (or a library it ships) rather than of Java, Kotlin, Android or DTA. */
-        fun isApp(frame: String) = FRAMEWORK.none { frame.startsWith(it) }
+        /**
+         * A frame of the app rather than of Java, Kotlin, Android, a library or DTA: the shared
+         * [FrameClassifier] rule of Network, Layout and Timeline (032 FR-003). A frame starts with its class.
+         */
+        fun isApp(frame: String) = FrameClassifier.isApp(frame)
 
         fun stateText(t: ThreadInfo): String = when {
             t.stack.isEmpty() && t.state == "runnable" -> "native"

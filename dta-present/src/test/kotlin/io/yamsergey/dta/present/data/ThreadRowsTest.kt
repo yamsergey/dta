@@ -46,10 +46,27 @@ class ThreadRowsTest {
         assertEquals("waiting", rows["FinalizerDaemon"]!!.stateText)
         assertEquals("running", rows["sync"]!!.stateText)
         assertEquals("com.example.shop.Sync.flush(Sync.kt:42)", rows["sync"]!!.topFrame)
-        assertEquals("okhttp3.internal.concurrent.TaskRunner.awaitTaskToRun(TaskRunner.kt:220)", rows["OkHttp TaskRunner"]!!.topFrame)
+        // Library frames (OkHttp) are not the app's: the shared FrameClassifier, as Network and Layout (032 FR-003).
+        assertEquals("java.lang.Object.wait(Native Method)", rows["OkHttp TaskRunner"]!!.topFrame)
+        assertEquals(listOf(false, false), rows["OkHttp TaskRunner"]!!.frames.map { it.app })
         assertEquals("", rows["binder:10721_1"]!!.topFrame)
         assertEquals(listOf(false, true, false), rows["sync"]!!.frames.map { it.app })
         assertEquals("sync · running · priority 5 · group main", rows["sync"]!!.header)
+    }
+
+    @Test
+    fun `frames use the shared classifier, JDK, Ktor, Coil and DTA frames are not the app's`() {
+        val stack = listOf(
+            "jdk.internal.misc.Unsafe.park(Native Method)",
+            "io.ktor.client.engine.okhttp.OkHttpEngine.execute(OkHttpEngine.kt:1)",
+            "coil3.RealImageLoader.execute(RealImageLoader.kt:1)",
+            "retrofit2.OkHttpCall.execute(OkHttpCall.kt:1)",
+            "io.yamsergey.dta.sidekick.network.store.NetworkStore.writerLoop(NetworkStore.kt:568)",
+            "com.example.shop.Repo.load(Repo.kt:3)",
+        )
+        val row = ThreadRows(ThreadList(listOf(t("worker", "waiting", stack)))).groups.single().threads.single()
+        assertEquals(listOf(false, false, false, false, false, true), row.frames.map { it.app })
+        assertEquals("com.example.shop.Repo.load(Repo.kt:3)", row.topFrame)
     }
 
     @Test

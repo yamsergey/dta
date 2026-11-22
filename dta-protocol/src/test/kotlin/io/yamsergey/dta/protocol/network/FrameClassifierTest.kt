@@ -14,7 +14,9 @@ class FrameClassifierTest {
         for (cls in listOf("java.lang.Thread", "kotlin.coroutines.X", "android.os.Handler", "androidx.work.Y", "okhttp3.internal.connection.RealCall",
                 "okio.Buffer", "retrofit2.OkHttpCall", "com.squareup.moshi.Z", "io.reactivex.Single", "com.neovisionaries.ws.client.WebSocket",
                 "org.java_websocket.WebSocketImpl", "dalvik.system.VMStack", "com.android.internal.os.ZygoteInit",
-                "io.ktor.client.engine.okhttp.OkHttpEngine", "io.ktor.client.plugins.HttpSend")) {
+                "io.ktor.client.engine.okhttp.OkHttpEngine", "io.ktor.client.plugins.HttpSend",
+                // Android 14+ parks threads in jdk.internal.misc.Unsafe (032 Threads shares this list).
+                "jdk.internal.misc.Unsafe")) {
             assertEquals(false, FrameClassifier.isApp(cls), cls)
         }
         for (cls in listOf("com.example.auth.SessionRepository", "io.yamsergey.dta.fixture.channel.NetworkScreen", "okhttp3x.Fake")) {

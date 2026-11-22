@@ -16,6 +16,8 @@ object FrameClassifier {
         "com.google.", "coil.", "coil3.",
         // Feature 064: Ktor client engine frames sit on top of every Ktor request stack.
         "io.ktor.",
+        // Feature 032: Threads shares this list; Android 14+ parks threads in jdk.internal.misc.Unsafe.
+        "jdk.",
     )
 
     /** The capture machinery itself: never part of what the app did. */
