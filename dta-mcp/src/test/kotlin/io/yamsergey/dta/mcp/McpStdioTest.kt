@@ -89,6 +89,16 @@ class McpStdioTest {
         assertTrue(unusable.isError && "Upgrade dta" in unusable.text)
     }
 
+    // --- The scripting guide (D-018): served as a resource, from the skill's own file
+
+    @Test
+    fun `the instructions and network_script_set point at the scripting guide`() {
+        assertTrue(McpGuides.SCRIPT_API_URI in McpTools.INSTRUCTIONS, McpTools.INSTRUCTIONS)
+        val set = McpTools(call = { _, _ -> error("unused") }).byTool("network_script_set")!!.description
+        assertTrue(McpGuides.SCRIPT_API_URI in set, set)
+        assertEquals(scriptingGuide(), McpGuides.all.single { it.uri == McpGuides.SCRIPT_API_URI }.text)
+    }
+
     // --- Stdio server against an in-process daemon (T039)
 
     @Test
@@ -114,6 +124,13 @@ class McpStdioTest {
             send("""{"jsonrpc":"2.0","method":"notifications/initialized"}""")
             send("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
             assertEquals(Catalog.agentTools.size + 1, receive(2)["result"]!!.jsonObject["tools"]!!.jsonArray.size)
+            send("""{"jsonrpc":"2.0","id":4,"method":"resources/list"}""")
+            val resources = receive(4)["result"]!!.jsonObject["resources"]!!.jsonArray.map { it.jsonObject["uri"]!!.jsonPrimitive.content }
+            assertTrue(McpGuides.SCRIPT_API_URI in resources, "resources: $resources")
+            send("""{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"${McpGuides.SCRIPT_API_URI}"}}""")
+            val contents = receive(5)["result"]!!.jsonObject["contents"]!!.jsonArray.single().jsonObject
+            assertEquals(scriptingGuide(), contents["text"]!!.jsonPrimitive.content)
+            assertEquals("text/markdown", contents["mimeType"]!!.jsonPrimitive.content)
             send("""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"network_list","arguments":{}}}""")
             val result = receive(3)["result"]!!.jsonObject
             assertFalse(result["isError"]!!.jsonPrimitive.content.toBoolean())
@@ -124,3 +141,10 @@ class McpStdioTest {
         }
     }
 }
+
+/** The skill's scripting guide, read from the repository: what the server serves must be this file. */
+internal fun scriptingGuide(): String =
+    generateSequence(java.io.File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
+        .map { java.io.File(it, "plugins/dta/skills/dta/scripting.md") }
+        .first { it.isFile }
+        .readText()

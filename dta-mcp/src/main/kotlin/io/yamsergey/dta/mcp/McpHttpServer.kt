@@ -67,6 +67,7 @@ class McpHttpServer(
                 .serverInfo("dta", VersionInfo.current().version)
                 .instructions(McpTools.INSTRUCTIONS)
                 .capabilities(McpServerSpecs.CAPABILITIES)
+                .resources(McpGuides.resources())
                 .tools(McpServerSpecs.tools(tools, mapper, AppRunTool(runApp, projects)))
                 .build()
 

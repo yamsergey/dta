@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonObject
 
 /** The tool specifications both transports serve: one per [McpTools] tool (constitution VI). */
 object McpServerSpecs {
-    val CAPABILITIES: McpSchema.ServerCapabilities = McpSchema.ServerCapabilities.builder().tools(false).build()
+    val CAPABILITIES: McpSchema.ServerCapabilities = McpSchema.ServerCapabilities.builder().tools(false).resources(false, false).build()
 
     /** The catalog's tools, then `app_run` when the server can run apps ([appRun]). */
     fun tools(tools: McpTools, mapper: McpJsonMapper, appRun: AppRunTool? = null): List<McpServerFeatures.SyncToolSpecification> =

@@ -193,11 +193,13 @@ class OperationCatalogTest {
             "sleep(ms)", "throttle(bytesPerSecond)", "respond({status, headers, body})", "drop()", "description(text)", "log(",
             "text()", "json()", "return",
             "replaces", "persists across app restarts", "network_script_clear", "network_script_status", "network_script_logs",
-            "function onRequest(req)",
+            "function onRequest(req)", "dta://network/script-api",
         )
         assertEquals(emptyList(), needed.filter { it !in set }, set)
         assertTrue("{delayMs" in set && "null" in set, "says that returning {delayMs} or null does nothing: $set")
         assertTrue("URL" in set && "async" in set, "names what the runtime lacks: $set")
+        val cliSet = Catalog.cliCommands.single { it.name == "network.script.set" }.description
+        assertTrue("dta://" !in cliSet, "an MCP resource means nothing on the command line: $cliSet")
     }
 
     @Test

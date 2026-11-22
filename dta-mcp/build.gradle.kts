@@ -34,6 +34,11 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+// The skill's scripting guide, served as an MCP resource (McpGuides): the same file, so it cannot drift.
+tasks.processResources {
+    from(rootProject.file("plugins/dta/skills/dta/scripting.md")) { into("io/yamsergey/dta/mcp/guides") }
+}
+
 tasks.test {
     useJUnitPlatform()
 }

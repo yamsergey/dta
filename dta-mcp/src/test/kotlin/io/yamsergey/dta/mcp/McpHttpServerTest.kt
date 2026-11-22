@@ -82,6 +82,16 @@ class McpHttpServerTest {
     }
 
     @Test
+    fun `the scripting guide is a resource, as over stdio`() {
+        val server = server().apply { start() }
+        client(server).use { client ->
+            assertTrue(client.listResources().resources().any { it.uri() == McpGuides.SCRIPT_API_URI })
+            val read = client.readResource(McpSchema.ReadResourceRequest(McpGuides.SCRIPT_API_URI))
+            assertEquals(scriptingGuide(), (read.contents().single() as McpSchema.TextResourceContents).text())
+        }
+    }
+
+    @Test
     fun `a call returns the same text as stdio for the same request`() {
         val server = server().apply { start() }
         val stdioText = runBlocking {

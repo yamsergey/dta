@@ -408,6 +408,7 @@ object Catalog {
                 ParamSpec("source", ParamType.STRING, "Script source text."),
                 ParamSpec("path", ParamType.STRING, "Script file on this machine.", positional = true, path = true),
             ),
+            agentNote = "The full API with recipes: resource dta://network/script-api.",
         ),
         OperationSpec(
             "network.script.clear",

@@ -62,6 +62,7 @@ object McpStdioServer {
             .serverInfo("dta", version.version)
             .instructions(McpTools.INSTRUCTIONS)
             .capabilities(McpServerSpecs.CAPABILITIES)
+            .resources(McpGuides.resources())
             .tools(specs)
             .build()
         log.println("dta mcp ${version.display} serving ${specs.size} tools")
