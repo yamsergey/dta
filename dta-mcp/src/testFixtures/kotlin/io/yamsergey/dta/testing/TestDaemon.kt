@@ -86,8 +86,10 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     var listNext: (NetworkQuery) -> String? = { null }
     /** Feature 070: the search hits a network.list page carries for its entries (null: none). */
     var listHits: (NetworkQuery, List<io.yamsergey.dta.protocol.network.NetworkEntry>) -> Map<String, List<io.yamsergey.dta.protocol.network.SearchHit>>? = { _, _ -> null }
+    /** Feature 071: the scope a list page states (null: none, as before 071). */
+    @Volatile var listScope: io.yamsergey.dta.protocol.network.HistoryScope? = io.yamsergey.dta.protocol.network.HistoryScope(archive = false, entries = 3, run = io.yamsergey.dta.protocol.network.ScopeRun("r1-1", 3, startedMs = 1_700_000_000_000), outside = 120)
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery) =
-        listed(query).let { NetworkPage(it.sortedByDescending { e -> e.timeMs }, next = listNext(query), coverage = Coverage(searched = 3, stored = 3, persisted = true), hits = listHits(query, it)) }.also { queries += pkg to query }
+        listed(query).let { NetworkPage(it.sortedByDescending { e -> e.timeMs }, next = listNext(query), coverage = Coverage(searched = 3, stored = 3, persisted = true), hits = listHits(query, it), scope = listScope?.copy(archive = query.archive)) }.also { queries += pkg to query }
     /** Feature 040: network.search calls, and the hits they answer with. */
     val searches = java.util.concurrent.CopyOnWriteArrayList<NetworkQuery>()
     var searchHits: List<io.yamsergey.dta.protocol.network.EntryHits> = emptyList()
@@ -137,8 +139,15 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
         finds += query
         val scope = findScope.copy(archive = query.archive)
         started(scope, null)
+        // By default the rows a list of [query] gives here, newest first, with the hits a search gives here (the old answers, streamed).
         val walk = findWalk?.invoke(query, limit) ?: { _, onItem ->
-            searchHits.forEach { h -> onItem(io.yamsergey.dta.protocol.network.FoundItem(entries.firstOrNull { it.id == h.id } ?: entries.first(), h.hits.ifEmpty { null })) }
+            queries += pkg to query
+            searches += query
+            val rows = listed(query).sortedByDescending { e -> e.timeMs }
+            val page = searchPage?.invoke(query)?.entries ?: searchHits
+            val hitsOf = page.associate { it.id to it.hits } + (listHits(query, rows) ?: emptyMap())
+            val given = if (searchPage != null || searchHits.isNotEmpty()) rows.filter { it.id in hitsOf } .ifEmpty { if (searchHits.isEmpty() && searchPage == null) rows else emptyList() } else rows
+            given.forEach { e -> onItem(io.yamsergey.dta.protocol.network.FoundItem(e, hitsOf[e.id]?.ifEmpty { null })) }
             io.yamsergey.dta.protocol.network.FindEnd(null, null)
         }
         val end = try {

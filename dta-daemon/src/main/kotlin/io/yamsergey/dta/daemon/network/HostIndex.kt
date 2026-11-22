@@ -191,14 +191,16 @@ class HostIndex(
         }
         val runsShown = runs.map { shown(it.runId, (it.entries - it.links).toLong(), it.firstMs) }
         val current = runsShown.firstOrNull { it.runId == ctx.runId } ?: ctx.runId.takeIf { it.isNotEmpty() }?.let { shown(it, 0, null) }
+        val startedNow = current?.startedMs
+        val previous = runsShown.firstOrNull { it.runId != ctx.runId && (startedNow == null || (it.startedMs ?: 0) <= startedNow) }
         val archived = store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true))
             .map { io.yamsergey.dta.protocol.network.ScopeEpoch(it.id, store.networkCount(it.id).toLong(), it.closedMs, it.reason) }
         val all = (epochId?.let { store.networkCount(it) } ?: 0) + archived.sumOf { it.entries }
         return if (query.archive) {
-            io.yamsergey.dta.protocol.network.HistoryScope(true, all, current, runs = runsShown.ifEmpty { null }, epochs = archived.asReversed().ifEmpty { null })
+            io.yamsergey.dta.protocol.network.HistoryScope(true, all, current, previous = previous, runs = runsShown.ifEmpty { null }, epochs = archived.asReversed().ifEmpty { null })
         } else {
             val mine = current?.entries ?: 0
-            io.yamsergey.dta.protocol.network.HistoryScope(false, mine, current, outside = (all - mine).takeIf { it > 0 }, runAllIgnored = query.runAllIgnored())
+            io.yamsergey.dta.protocol.network.HistoryScope(false, mine, current, previous = previous, outside = (all - mine).takeIf { it > 0 }, runAllIgnored = query.runAllIgnored())
         }
     }
 

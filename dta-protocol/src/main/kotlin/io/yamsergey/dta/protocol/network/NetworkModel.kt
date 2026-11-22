@@ -572,6 +572,8 @@ data class HistoryScope(
     val entries: Long,
     /** The app's current run (the last one received when the app is gone); null when none was received. */
     val run: ScopeRun? = null,
+    /** The run before the current one in the live history (the restart banner names it); null when none. */
+    val previous: ScopeRun? = null,
     /** Entries kept on this computer outside the scope (earlier runs, archived epochs); null when none. */
     val outside: Long? = null,
     /** With the switch on: the live history's runs, newest first. */

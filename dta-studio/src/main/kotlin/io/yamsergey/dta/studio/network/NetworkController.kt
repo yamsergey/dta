@@ -55,6 +55,17 @@ data class NetworkViewState(
     val redact: Boolean = false,
     /** An archive scope (`all`, an epoch id…): the archived history instead of live traffic (feature 011). */
     val archive: String? = null,
+    /** Feature 071: the Archive switch, off at each IDE start: off, the app's current run; on, everything this computer keeps. */
+    val archiveOn: Boolean = false,
+    /** Feature 071: the streamed search's state while one runs or ran for the line (null: a plain list). */
+    val find: io.yamsergey.dta.protocol.network.FindState? = null,
+    val findError: String? = null,
+    /** Feature 071: the search holds back until the list is scrolled to its oldest row (it holds many rows). */
+    val findHeld: Boolean = false,
+    /** Feature 071: what the last answer covered (the caption's numbers). */
+    val scope: io.yamsergey.dta.protocol.network.HistoryScope? = null,
+    /** Feature 071: the app started again while the tab showed it (board 4); null when not. */
+    val restart: String? = null,
     val loading: Boolean = false,
     /** D-022: an older page is being loaded (Load older, or the list scrolled to its oldest edge). */
     val loadingOlder: Boolean = false,
@@ -292,6 +303,9 @@ class NetworkController(private val context: ContextController, private val scop
     private fun moveHit(forward: Boolean) {
         val s = mutable.value
         val h = s.hits
+        // Feature 071: past the last hit found while it searches, the step waits for the next find.
+        val atEnd = if (s.hitsNewestFirst) forward && h.index == h.total - 1 else !forward && h.index == 0
+        if (s.find == io.yamsergey.dta.protocol.network.FindState.SEARCHING && (h.total == 0 || atEnd)) { pendingStep = forward; findStream?.takeIf { it.waitingForViewer }?.more(); return }
         // Feature 070: the hits are those of the rows loaded; past the oldest loaded one the list's next page loads (no wrap while more can load).
         val pastOldest = h.total > 0 && s.list.older != null && if (s.hitsNewestFirst) forward && h.index == h.total - 1 else !forward && h.index == 0
         if (pastOldest) { loadOlderThenStep(forward); return }
@@ -366,11 +380,116 @@ class NetworkController(private val context: ContextController, private val scop
             mutable.update { it.copy(hits = HitNavigator(), searching = false, searchStatements = emptyList()) }
             return
         }
+        // Feature 071: a streamed search brings its hits with its rows; live entries bring theirs (067).
+        if (streamed(s)) return
         searchJob = scope.launch {
             if (debounceMs > 0) kotlinx.coroutines.delay(debounceMs)
             runSearch(mutable.value, c)
         }
     }
+
+    /** Feature 071: the line searches (words, or bodies by text or pattern): its rows stream in as found. */
+    private fun streamed(s: NetworkViewState): Boolean {
+        // D-021: what the list asks is the last valid line.
+        if (s.applied.parsed.problems.isNotEmpty()) return false
+        val f = s.applied.parsed.filter
+        return s.applied.hasSearch || f.bodyContains != null || f.requestContains != null || f.responseContains != null || f.bodyPattern != null || f.requestPattern != null || f.responsePattern != null
+    }
+
+    private var findStream: SearchStream? = null
+    /** The run the tab showed when the app started again, named by the banner once the new run is listed. */
+    @Volatile private var restartFrom: io.yamsergey.dta.protocol.network.ScopeRun? = null
+
+    /** Feature 071: the Archive switch; a search running in the old scope stops and starts over in the new one. */
+    fun setArchiveOn(on: Boolean) {
+        if (mutable.value.archiveOn == on) return
+        mutable.update { it.copy(archiveOn = on, restart = null) }
+        requery()
+    }
+
+    /** Feature 071: the Stop link — the search ends here and on the daemon, and says stopped, never done. */
+    fun stopSearch() {
+        val stream = findStream ?: return
+        findStream = null
+        stream.stop()
+        mutable.update { if (it.find == io.yamsergey.dta.protocol.network.FindState.SEARCHING || it.find == io.yamsergey.dta.protocol.network.FindState.WAITING) it.copy(find = io.yamsergey.dta.protocol.network.FindState.STOPPED, searching = false, findHeld = false, hits = it.hits.copy(more = false)) else it }
+    }
+
+    /** Feature 071: the banner's close. */
+    fun dismissRestart() = mutable.update { it.copy(restart = null) }
+
+    /**
+     * Feature 071: [query]'s rows streamed into the list, newest first, with their hits; live entries keep
+     * joining on top (067), merged by id. A newer query, the switch or the source stops it first.
+     */
+    private fun startFind(client: io.yamsergey.dta.client.DaemonClient) {
+        findStream?.stop()
+        val s = mutable.value
+        val params = JsonObject(params(s).toMap() - "limit" - "before" - "view")
+        val empty = JsonObject(mapOf("entries" to kotlinx.serialization.json.JsonArray(emptyList())))
+        val e = loaded(empty)
+        mutable.update { it.copy(list = it.list.reduce(e), find = io.yamsergey.dta.protocol.network.FindState.SEARCHING, findError = null, findHeld = false, searching = true, hits = HitNavigator(more = true), searchStatements = emptyList(), loading = false) }
+        lateinit var stream: SearchStream
+        stream = SearchStream(client, scope, params, onEvent = { ev -> if (findStream === stream) found(ev, stream) }, onError = { err ->
+            if (findStream === stream) mutable.update { it.copy(find = io.yamsergey.dta.protocol.network.FindState.FAILED, findError = err.message, searching = false, error = if (superseded(err)) it.error else err.message ?: err.javaClass.simpleName) }
+        })
+        findStream = stream
+        stream.start()
+    }
+
+    /** One event of the running stream. */
+    private fun found(e: io.yamsergey.dta.protocol.network.FoundEvent, stream: SearchStream) {
+        val items = e.items.orEmpty()
+        val hitList = kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer())
+        mutable.update { st ->
+            var next = st
+            if (items.isNotEmpty()) {
+                val entries = items.map { DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.NetworkEntry.serializer(), it.entry) }
+                val page = JsonObject(mapOf("entries" to kotlinx.serialization.json.JsonArray(entries)))
+                val joined = items.mapNotNull { i -> i.hits?.let { io.yamsergey.dta.protocol.network.EntryHits(i.entry.id, i.entry.timeMs, it) } }
+                next = next.copy(list = next.list.reduce(LiveEvent.Older(page)), hits = next.hits.withOlder(joined, next.hitsNewestFirst, more = true), findHeld = stream.waitingForViewer)
+            }
+            e.scope?.let { next = next.withScope(it) }
+            e.saved?.let { next = next.copy(savedApplied = it) }
+            if (e.state == io.yamsergey.dta.protocol.network.FindState.WAITING) next = next.copy(find = e.state)
+            if (e.state == io.yamsergey.dta.protocol.network.FindState.SEARCHING && next.find == io.yamsergey.dta.protocol.network.FindState.WAITING) next = next.copy(find = e.state)
+            if (e.final) {
+                val notSearched = JsonObject(listOfNotNull(e.notSearched?.let { "notSearched" to kotlinx.serialization.json.JsonArray(it.map(::JsonPrimitive)) }).toMap())
+                next = next.copy(find = e.state, findError = e.error, findHeld = false, searching = false, hits = next.hits.copy(more = false),
+                    searchStatements = Statements.forSearch(DtaJson.decodeFromJsonElement(SearchPage.serializer(), JsonObject(notSearched + ("entries" to kotlinx.serialization.json.JsonArray(emptyList()))))))
+            }
+            next
+        }
+        // Next past the last hit found waited for this one (FR-015).
+        pendingStep?.let { forward -> if (items.any { it.hits != null } || e.final) { pendingStep = null; moveHit(forward) } }
+        if (e.final && findStream === stream) findStream = null
+    }
+
+    /** Feature 071: a new scope; the app started again since the last one: the banner names the run before. */
+    private fun NetworkViewState.withScope(next: io.yamsergey.dta.protocol.network.HistoryScope): NetworkViewState {
+        val from = restartFrom
+        if (from == null || next.run == null || next.run!!.runId == from.runId) return copy(scope = next)
+        restartFrom = null
+        return copy(scope = next, restart = io.yamsergey.dta.present.network.ScopeCaption.restarted(next.run!!, next.previous ?: from))
+    }
+
+    /** Feature 071: a live entry of another run while the tab shows the current one: the app started again. */
+    private fun noteRun(entry: JsonObject) {
+        val s = mutable.value
+        if (s.archiveOn || s.archive != null) return
+        val shown = s.scope?.run?.runId ?: return
+        val run = (entry["runId"] as? JsonPrimitive)?.content ?: return
+        if (run == shown || restartFrom != null) return
+        // Only a newer run moves the view: an earlier run's late update stays out (the daemon drops it too).
+        val started = run.removePrefix("r").substringBefore('-').toLongOrNull() ?: return
+        val shownStarted = shown.removePrefix("r").substringBefore('-').toLongOrNull() ?: return
+        if (started <= shownStarted) return
+        restartFrom = s.scope?.run
+        requery()
+    }
+
+    /** Feature 071: Next past the last hit found while the search runs waits for the next one; the direction. */
+    @Volatile private var pendingStep: Boolean? = null
 
     /**
      * Feature 070: the hits of the rows the list has loaded — the newest as many as it holds, as the list
@@ -433,7 +552,7 @@ class NetworkController(private val context: ContextController, private val scop
                 for (ignored in trigger) {
                     kotlinx.coroutines.delay(SEARCH_SETTLE_MS)
                     runCatching { c.call("network.list", params(mutable.value)).result.jsonObject }
-                        .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page)) }; search() }
+                        .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page)).withPageScope(page) }; search() }
                 }
             }
         }
@@ -478,6 +597,8 @@ class NetworkController(private val context: ContextController, private val scop
      * scrolled to its oldest edge — one page at a time, joined at the cursor (no gap, no duplicate).
      */
     fun loadOlder() {
+        // Feature 071: a search that waits for the list to be scrolled goes on.
+        findStream?.takeIf { it.waitingForViewer }?.let { it.more(); mutable.update { s -> s.copy(findHeld = false) }; return }
         if (olderJob?.isActive == true) return
         val s = mutable.value
         val cursor = s.list.older ?: return
@@ -531,6 +652,7 @@ class NetworkController(private val context: ContextController, private val scop
     private fun reload(target: Target) {
         source?.cancel()
         relistJob?.cancel()
+        findStream?.let { findStream = null; it.stop() }
         val previous = mutable.value
         val sameApp = previous.device == target.device && previous.app == target.app
         mutable.update {
@@ -549,9 +671,10 @@ class NetworkController(private val context: ContextController, private val scop
         // The archive answers without the app running; it is a snapshot, not watched.
         if (mutable.value.archive != null && target.device != null && target.app != null) {
             source = scope.launch {
-                mutable.update { it.copy(loading = true) }
+                mutable.update { it.copy(loading = true, find = null) }
+                if (streamed(mutable.value)) { startFind(client); return@launch }
                 runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
-                    .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false) }; search() }
+                    .onSuccess { page -> val e = loaded(page); mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false).withPageScope(page) }; search() }
                     .onFailure { e -> mutable.update { it.copy(error = if (superseded(e)) it.error else e.message ?: e.javaClass.simpleName, loading = false, searching = false) } }
             }
             return
@@ -561,14 +684,21 @@ class NetworkController(private val context: ContextController, private val scop
             mutable.update { it.copy(loading = true) }
             try {
                 val s = mutable.value
-                val live = mapOf("view" to JsonPrimitive(VIEW)) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+                val live = mapOf("view" to JsonPrimitive(VIEW)) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                    (if (s.archiveOn) mapOf("archive" to JsonPrimitive(true)) else emptyMap())
                 client.networkEvents(JsonObject(target(s) + s.applied.params(s.kind) + live)).collect { data ->
                     if (data["selection"] != null) {
                         liveDecisions = ((data["selection"] as? JsonObject)?.get("result") as? JsonObject)?.get("liveQuery")?.let { (it as? JsonPrimitive)?.content == "true" } == true
+                        // Feature 071: a search streams its rows (subscribed first: live ones merge by id).
+                        if (streamed(mutable.value)) {
+                            mutable.update { it.copy(watching = true, find = null) }
+                            startFind(client)
+                            return@collect
+                        }
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
                         val page = client.call("network.list", params(mutable.value)).result.jsonObject
                         val e = loaded(page)
-                        mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false, watching = true) }
+                        mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false, watching = true, find = null).withPageScope(page) }
                         search()
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
@@ -593,6 +723,7 @@ class NetworkController(private val context: ContextController, private val scop
                             return@collect
                         }
                         list(if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry))
+                        noteRun(entry)
                         // New traffic may hold the words: the hits are refreshed once it settles.
                         if (mutable.value.applied.hasSearch) search(debounceMs = SEARCH_SETTLE_MS)
                     }
@@ -634,8 +765,13 @@ class NetworkController(private val context: ContextController, private val scop
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
         target(s) + s.applied.params(s.kind) + mapOf("limit" to JsonPrimitive(PAGE)) +
             (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
-            (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
+            (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))) +
+            (if (s.archiveOn && s.archive == null) mapOf("archive" to JsonPrimitive(true)) else emptyMap()),
     )
+
+    /** Feature 071: a list page's scope (and the restart banner when the app started again). */
+    private fun NetworkViewState.withPageScope(page: JsonObject): NetworkViewState =
+        page["scope"]?.let { runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }.getOrNull() }?.let { withScope(it) } ?: this
 
     /** Feature 067: the daemon decides each live entry with the whole line (an older daemon does not: the list is asked again). */
     @Volatile private var liveDecisions = false
@@ -653,6 +789,7 @@ class NetworkController(private val context: ContextController, private val scop
             runCatching { DtaJson.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer()), it) }.getOrNull()
         }
         val event = if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry)
+        noteRun(entry)
         mutable.update { s ->
             val withRow = s.copy(list = s.list.reduce(event)).followSelected(event)
             if (s.applied.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow

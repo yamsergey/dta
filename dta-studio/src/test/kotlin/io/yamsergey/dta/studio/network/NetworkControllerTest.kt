@@ -198,26 +198,6 @@ class NetworkControllerTest {
     }
 
     @Test
-    fun `matches decided while a search runs keep their hits when it answers (070)`() = runBlocking<Unit> {
-        daemon.ops.decide = { q, e -> io.yamsergey.dta.protocol.network.EntryDecision(true, hits = if (q.q?.contains("api") == true) listOf(hit(e.id)) else null) to false }
-        pagedHistory(listOf(3, 2, 1), firstPage = 3)
-        session.start()
-        await { it.list.rows.size == 3 && it.watching }
-        network.setQuery("api")
-        await { it.hits.total == 3 && !it.searching && it.watching }
-        // The next search is slow; traffic decided meanwhile has hits the search never saw.
-        val fast = daemon.ops.searchPage!!
-        daemon.ops.searchPage = { q -> Thread.sleep(800); fast(q) }
-        network.search()
-        await { it.searching }
-        repeat(4) { daemon.ops.events.emit(NetworkEntryEvent(http(100 + it), EntryChange.CREATED)) }
-        await { it.list.rows.size == 7 }
-        val s = await { !it.searching }
-        assertEquals(7, s.hits.total, "every loaded match has its hits: ${s.hits.entries.map { it.id }}")
-        assertEquals("– / 7", s.hits.label)
-    }
-
-    @Test
     fun `a search reaches the oldest loaded row though newer matches arrived since the list loaded (070)`() = runBlocking<Unit> {
         val listed = listOf(3, 2, 1)
         // The history the search reads already holds 5 and 4, newer than the rows listed.
@@ -236,26 +216,6 @@ class NetworkControllerTest {
         network.setQuery("api")
         val s = await { !it.searching && it.hits.total > 0 }
         assertEquals(listOf("r1-1:1", "r1-1:2", "r1-1:3"), s.hits.entries.map { it.id }.sorted(), "every loaded row has its hits")
-    }
-
-    @Test
-    fun `an older page brings its rows' hits, and nothing is searched again (070)`() = runBlocking<Unit> {
-        pagedHistory(listOf(3, 2, 1, -1, -2), firstPage = 3)
-        session.start()
-        await { it.list.rows.size == 3 && it.watching }
-        network.setQuery("api")
-        await { it.hits.total == 3 && !it.searching }
-        network.nextHit()
-        val current = await { it.hits.index >= 0 }.hits.current!!.id
-        val searches = daemon.ops.searches.size
-        network.loadOlder()
-        val s = await { it.list.rows.size == 5 && it.hits.total == 5 }
-        assertEquals("1 / 5", s.hits.label, "the hit stepped onto stays current: ${s.hits.label}")
-        assertEquals(current, s.hits.current?.id)
-        val newestFirst = listOf("r1-1:3", "r1-1:2", "r1-1:1", "r1-1:-1", "r1-1:-2")
-        assertEquals(if (s.hitsNewestFirst) newestFirst else newestFirst.asReversed(), s.hits.entries.map { it.id }, "in the list's order")
-        kotlinx.coroutines.delay(300)
-        assertEquals(searches, daemon.ops.searches.size, "the page's own hits, no search of every loaded row")
     }
 
     /** D-022: Load older (the row above the list, or scrolling to its top) joins the next page under the loaded rows, once. */
@@ -343,57 +303,8 @@ class NetworkControllerTest {
         }
     }
 
-    @Test
-    fun `hits are those of the rows loaded, and Next past the last loads the next page (070)`() = runBlocking<Unit> {
-        pagedHistory(listOf(3, 2, 1, -1, -2), firstPage = 3)
-        session.start()
-        await { it.list.rows.size == 3 && it.watching }
-        network.setQuery("api")
-        val first = await { it.hits.total == 3 && !it.searching }
-        assertEquals("– / 3 loaded", first.hits.label)
-        daemon.ops.searches.last().let {
-            assertEquals(3, it.limit, "as many as the list has loaded")
-            assertEquals(io.yamsergey.dta.protocol.network.Order.NEWEST_FIRST, it.order, "the newest, as the list loads them")
-        }
-        repeat(3) { network.nextHit() }
-        assertEquals("3 / 3 loaded", await { it.hits.index == 2 }.hits.label)
-        network.nextHit()
-        val more = await { it.hits.total == 5 && it.hits.current?.id == "r1-1:-1" }
-        assertEquals("4 / 5", more.hits.label, "the next page loaded: everything matching is in")
-        assertTrue(daemon.ops.queries.any { it.second.before == "l3" }, "the list's next page was asked")
-        assertEquals("r1-1:-1", await { it.list.selectedId == "r1-1:-1" }.list.selectedId)
-        network.nextHit(); network.nextHit()
-        assertEquals("1 / 5", await { it.hits.index == 0 }.hits.label, "all loaded: Next wraps")
-    }
-
-    @Test
-    fun `newest at the bottom, Previous past the first hit loads the older page above (070)`() = runBlocking<Unit> {
-        pagedHistory(listOf(3, 2, 1, -1, -2), firstPage = 3)
-        network.setHitsNewestFirst(false)
-        session.start()
-        await { it.list.rows.size == 3 && it.watching }
-        network.setQuery("api")
-        await { it.hits.total == 3 && !it.searching }
-        assertEquals(io.yamsergey.dta.protocol.network.Order.NEWEST_FIRST, daemon.ops.searches.last().order)
-        network.nextHit()
-        assertEquals("r1-1:1", await { it.hits.index == 0 }.hits.current?.id, "top to bottom: the oldest loaded first")
-        network.previousHit()
-        val more = await { it.hits.total == 5 && it.hits.current?.id == "r1-1:-1" }
-        assertEquals("2 / 5", more.hits.label)
-    }
-
-    @Test
-    fun `more rows loaded than one search page holds are searched page by page (070)`() = runBlocking<Unit> {
-        pagedHistory((1200 downTo 1).toList(), firstPage = 1200)
-        session.start()
-        await { it.list.rows.size == 1200 && it.watching }
-        network.setQuery("api")
-        val s = await { it.hits.total == 1200 && !it.searching }
-        assertEquals("– / 1200", s.hits.label)
-        val pages = daemon.ops.searches.takeLast(2)
-        assertEquals(listOf(1000, 200), pages.map { it.limit })
-        assertEquals(listOf(null, "s1000"), pages.map { it.before })
-    }
+    // Feature 071: the 070 tests of hits paged with the loaded rows (search pages, older pages bringing hits,
+    // Next past the last loading a page) are replaced by the streamed search: SearchStreamControllerTest.
 
     @Test
     fun `an entry that stops matching leaves the list (067)`() = runBlocking<Unit> {

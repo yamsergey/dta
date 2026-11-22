@@ -337,7 +337,9 @@ class DaemonServer(
                 // Feature 067: a live view's subscription decides each entry with the whole line, search words included.
                 val view = (params["view"] as? JsonPrimitive)?.content?.let { viewPrefix + it }
                 val redact = (params["redact"] as? JsonPrimitive)?.content == "true"
-                val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redact, ignoreSavedFilters = true)
+                // Feature 071: the switch scopes live decisions too (off: entries of the app's current run only).
+                val archive = (params["archive"] as? JsonPrimitive)?.content == "true"
+                val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redact, ignoreSavedFilters = true, archive = archive)
                 /** Entries decided by a body's preview: decided again once the body is copied here. */
                 val byPreview = ConcurrentHashMap.newKeySet<String>()
                 val id = "s${subscriptionIds.incrementAndGet()}"
