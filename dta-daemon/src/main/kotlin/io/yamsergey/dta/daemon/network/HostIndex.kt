@@ -271,14 +271,17 @@ class HostIndex(
      * now — its bodies from this computer's copy, else their previews — kept in [view]'s current match
      * set. Second: whether the entry was in that set before. Runs outside the mutex.
      */
-    fun decide(view: String, query: NetworkQuery, entry: NetworkEntry, socketUrl: (String) -> String?): Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean> {
+    fun decide(view: String, query: NetworkQuery, entry: NetworkEntry, socketUrl: (String) -> String?) = decide(view, query, entry, io.yamsergey.dta.protocol.network.PatternStop.NONE, socketUrl)
+
+    /** As [decide]; [stop] ends a decision whose pattern runs long (its subscription went away, 071). */
+    fun decide(view: String, query: NetworkQuery, entry: NetworkEntry, stop: io.yamsergey.dta.protocol.network.PatternStop, socketUrl: (String) -> String?): Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean> {
         (entry as? WsConnectionEntry)?.let { liveSockets.putIfAbsent(it.id, it) }
         val epochId = epoch?.id
         val ctx = context ?: emptyContext()
         fun socket(id: String): NetworkEntry? = socketOf(epochId, id)
             ?: socketUrl(id)?.let { WsConnectionEntry(id, entry.runId, 0, entry.library, url = it, state = WsState.OPEN) }
         val v = NetworkHistoryView({ emptyList() }, ::socket, { ctx }, { e, p -> hostBodyBytes(epochId, e, p) },
-            { e, p -> decodedJson(e, p, epochId, ::socket) }, readEnvelope)
+            { e, p -> decodedJson(e, p, epochId, ::socket) }, readEnvelope, { stop })
         // Feature 071: without the switch only the current run is in the view; a late update of an earlier run is not.
         val d = if (!query.archive && query.archiveScope == null && entry.runId != ctx.runId) io.yamsergey.dta.protocol.network.EntryDecision.NO else v.decide(query, entry)
         return d to views.decided(view, query, entry.id, d.match)

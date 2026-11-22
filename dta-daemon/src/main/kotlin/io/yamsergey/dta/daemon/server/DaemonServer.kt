@@ -347,7 +347,9 @@ class DaemonServer(
                 // (the list matches the host copy). Neither dropped nor let through silently.
                 // Feature 071: no time limit on a pattern; a body not whole in the preview leaves the event unchecked.
                 var unchecked = false
-                fun eval() = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, redact = redact, bodyBytes = { entry, part ->
+                // Feature 071: decisions run in their own coroutine (below); a runaway one stops with its subscription.
+                var decisionStop: io.yamsergey.dta.protocol.network.PatternStop = io.yamsergey.dta.protocol.network.PatternStop.NONE
+                fun eval() = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, check = { if (decisionStop.stopped()) throw io.yamsergey.dta.protocol.network.SearchStoppedException() }, redact = redact, bodyBytes = { entry, part ->
                     NetworkHistoryView.bodyOf(entry, part)?.wholeText()?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
                         ?: run { unchecked = true; null }
                 })
@@ -400,7 +402,7 @@ class DaemonServer(
                         if ((event.missed ?: 0) > 0) dropped.set(true)
                         (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
                         if (view != null) {
-                            val (d, had) = ops.networkDecide(serial, pkg, view, liveQuery, event.entry) { connectionUrls[it] } ?: (null to false)
+                            val (d, had) = ops.networkDecide(serial, pkg, view, liveQuery, event.entry, decisionStop) { connectionUrls[it] } ?: (null to false)
                             if (d != null) {
                                 if (d.byPreview) byPreview += event.entry.id else byPreview -= event.entry.id
                                 val mark: Any? = when {
@@ -416,17 +418,26 @@ class DaemonServer(
                         val matched = eval().matches(event.entry) != null
                         if ((matched || unchecked) && buffer.trySend(event to unchecked).isFailure) dropped.set(true)
                     }
+                    // Feature 071 (research R8): events are decided here, one by one, apart from the feed every
+                    // watcher shares: a decision that runs long holds this subscription only, never the others.
+                    val undecided = Channel<NetworkEntryEvent>(DECIDE_BUFFER)
+                    fun enqueue(event: NetworkEntryEvent) { if (undecided.trySend(event).isFailure) dropped.set(true) }
+                    val decider = launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val me = coroutineContext[Job]!!
+                        decisionStop = io.yamsergey.dta.protocol.network.PatternStop { !me.isActive }
+                        for (event in undecided) offer(event)
+                    }
                     // Feature 067: a body decided by its preview is decided again once its copy is here.
                     if (view != null) launch {
                         ops.networkCopied(serial, pkg).collect { id ->
                             if (id !in byPreview) return@collect
                             val entry = ops.networkLiveEntry(serial, pkg, id) ?: return@collect
-                            offer(NetworkEntryEvent(entry, EntryChange.UPDATED))
+                            enqueue(NetworkEntryEvent(entry, EntryChange.UPDATED))
                         }
                     }
                     try {
                         if (!history) {
-                            events.collect(::offer)
+                            events.collect(::enqueue)
                         } else {
                             // Subscribe first and hold live events, then read the snapshot: nothing
                             // between the two is lost, and a live repeat of a replayed state is skipped.
@@ -441,18 +452,21 @@ class DaemonServer(
                                 val page = ops.network(serial, pkg, NetworkQuery(filter = filter.copy(runs = RunScope.CURRENT), limit = 1000, order = Order.OLDEST_FIRST, before = cursor, ignoreSavedFilters = true))
                                 page.entries.forEach { entry ->
                                     replayed[entry.id] = entry
-                                    offer(NetworkEntryEvent(entry, EntryChange.CREATED))
+                                    undecided.send(NetworkEntryEvent(entry, EntryChange.CREATED))
                                 }
                                 cursor = page.next
                             } while (cursor != null)
                             for (event in live) {
                                 if (replayed.remove(event.entry.id)?.let { it == event.entry } == true) continue
-                                offer(event)
+                                undecided.send(event)
                             }
                             collector.join()
                         }
+                        undecided.close()
+                        decider.join()
                         event(DaemonEvents.STOPPING, DaemonStoppingEvent.serializer(), DaemonStoppingEvent("event stream of $pkg ended"))
                     } finally {
+                        undecided.close()
                         buffer.close()
                     }
                 }
@@ -686,6 +700,9 @@ internal fun who(kind: io.yamsergey.dta.protocol.ops.ClientKind): String = when 
     io.yamsergey.dta.protocol.ops.ClientKind.CLI -> "cli"
     io.yamsergey.dta.protocol.ops.ClientKind.MCP, io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP -> "mcp"
 }
+
+/** Feature 071 (research R8): live events of one subscription waiting for their decision. */
+private const val DECIDE_BUFFER = 4_096
 
 /** Feature 071: the first credit of a stream when the client does not say (contracts/find.md). */
 private const val FIND_WINDOW = 500

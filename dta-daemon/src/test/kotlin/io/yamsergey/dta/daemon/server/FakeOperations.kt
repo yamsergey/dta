@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.server
 
+import io.yamsergey.dta.protocol.network.find
 import kotlinx.coroutines.flow.onSubscription
 import io.yamsergey.dta.daemon.connection.ConnectException
 import io.yamsergey.dta.daemon.connection.SidekickRpcException
@@ -141,6 +142,21 @@ class FakeOperations : DaemonOperations {
     override suspend fun networkHistorySet(serial: String, pkg: String, keepBytes: Long?, warnBytes: Long?) =
         io.yamsergey.dta.protocol.network.HistorySettings(keepBytes ?: 1, warnBytes ?: 2).also { historySet = keepBytes to warnBytes }
     val events = kotlinx.coroutines.flow.MutableSharedFlow<NetworkEntryEvent>(extraBufferCapacity = 10_000)
+
+    /** Feature 071: live decisions here (null: none); a view named "stuck" runs a runaway pattern on entry "slow". */
+    var decides = false
+    val decisionsStopped = java.util.concurrent.atomic.AtomicInteger()
+    override fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, stop: io.yamsergey.dta.protocol.network.PatternStop, socketUrl: (String) -> String?): Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean>? {
+        if (!decides) return null
+        if (view.endsWith("stuck") && entry.id == "slow") {
+            try {
+                io.yamsergey.dta.protocol.network.BodyPattern.find(java.util.regex.Pattern.compile("(x+x+)+y"), "x".repeat(1 shl 20)) { if (stop.stopped()) throw io.yamsergey.dta.protocol.network.SearchStoppedException() }
+            } catch (e: io.yamsergey.dta.protocol.network.SearchStoppedException) {
+                decisionsStopped.incrementAndGet(); throw e
+            }
+        }
+        return io.yamsergey.dta.protocol.network.EntryDecision(true) to false
+    }
     override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent> =
         events.onSubscription { onSubscribed() }
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true).also { calls += "script:$source" }

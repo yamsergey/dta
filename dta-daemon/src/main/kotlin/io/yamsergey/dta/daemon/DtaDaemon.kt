@@ -349,8 +349,8 @@ class DtaDaemon(
     }
 
     /** Feature 067: a live view's decision for one entry of a subscription (see [io.yamsergey.dta.daemon.network.HostIndex.decide]). */
-    fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, socketUrl: (String) -> String? = { null }) =
-        hostIndex(serial, pkg).decide(view, query, entry, socketUrl)
+    fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, stop: io.yamsergey.dta.protocol.network.PatternStop = io.yamsergey.dta.protocol.network.PatternStop.NONE, socketUrl: (String) -> String? = { null }) =
+        hostIndex(serial, pkg).decide(view, query, entry, stop, socketUrl)
 
     fun networkCopied(serial: String, pkg: String): Flow<String> = hostIndex(serial, pkg).copied
 
