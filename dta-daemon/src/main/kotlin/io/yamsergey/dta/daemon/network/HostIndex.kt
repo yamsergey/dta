@@ -731,9 +731,11 @@ class HostIndex(
      */
     suspend fun openFeed(): io.yamsergey.dta.protocol.network.FeedOpenResult? {
         readsInBackground = true
-        catchingUpInBackground = true
         try {
             mutex.lock()
+            // Only once it holds the mutex: an answer that took it first (dialling the app) reads its own page,
+            // else it would read none and say it is caught up (fix-g: D-004/D-010/D-015).
+            catchingUpInBackground = true
             try {
                 val app = connection()
                 feedSub = null

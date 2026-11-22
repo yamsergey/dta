@@ -9,6 +9,8 @@ import io.yamsergey.dta.protocol.network.HttpEntry
 import io.yamsergey.dta.protocol.network.HttpState
 import io.yamsergey.dta.protocol.network.NetworkPage
 import io.yamsergey.dta.protocol.network.NetworkQuery
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
@@ -58,6 +60,34 @@ class HostIndexFeedTest {
         assertEquals(0, app.requests.count { it == "network_body_range" })
         assertEquals(emptyList(), host.pendingBodies())
         assertEquals(app.bodies[e.id to BodyPart.RESPONSE]!!.decodeToString(), host.storedBody(e.id, BodyPart.RESPONSE)?.second?.decodeToString())
+    }
+
+    /**
+     * fix-g (D-004/D-010/D-015): the first answer after a start dials the app under the mutex; a catch-up
+     * that begins meanwhile must not make that answer read nothing and say it is caught up.
+     */
+    @Test
+    fun `an answer that dialled while the catch-up started reads the journal or says it is behind`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        repeat(30) { http(app) }
+        val dialling = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val dialled = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var first = true
+        val host = HostIndex(HostStore(dir).also { stores += it }, DeviceIdentity("dev1", "emulator-5554"), "io.example") {
+            if (first) { first = false; dialling.complete(Unit); dialled.await() }
+            app
+        }
+        host.pageSize = 10
+        host.readInBackground()
+        val answer = async(kotlinx.coroutines.Dispatchers.Default) { host.list(NetworkQuery(limit = 100)) }
+        dialling.await()
+        val feed = launch(kotlinx.coroutines.Dispatchers.Default) { host.openFeed() }
+        kotlinx.coroutines.delay(200) // the catch-up has begun and waits for the answer's hold
+        dialled.complete(Unit)
+        val page = answer.await()
+        feed.join()
+        assertTrue(page.entries.isNotEmpty() || (page.coverage.hostLagRecords ?: 0) > 0,
+            "nothing read and nothing said: ${page.entries.size} entries, lag ${page.coverage.hostLagRecords}")
     }
 
     /** D-009: an entry the app wrote that its batch has not brought yet is the app's to answer, not "evicted". */
