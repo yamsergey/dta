@@ -39,7 +39,14 @@ data class EntryLink(val id: String, val label: String)
 data class InitiatorView(val header: String, val frames: List<FrameLine>, val missing: String?, val truncated: Int?)
 
 /** [description] is the script's own words for what it did; [summary] is what DTA recorded. */
-data class InterventionView(val summary: String, val hasAppSide: Boolean, val mocked: Boolean, val dropped: Boolean, val error: String?, val description: String? = null)
+data class InterventionView(val summary: String, val hasAppSide: Boolean, val mocked: Boolean, val dropped: Boolean, val error: String?, val description: String? = null, val scriptId: String? = null) {
+    /** D-024: the detail's line — "✎ Changed by script auth.js: <what it did>. The original is kept." — [name] as the plugin knows the script. */
+    fun sentence(name: String?): String {
+        val what = (description ?: summary).trimEnd('.')
+        val by = name ?: scriptId
+        return "✎ Changed by script${by?.let { " $it" } ?: ""}: $what." + if (hasAppSide) " The original is kept." else ""
+    }
+}
 
 /**
  * One entry in full (information.md "Network entry"): summary, script intervention with the
@@ -82,7 +89,7 @@ data class EntryDetail(
                     "ws-connection" -> {
                         add(Field("Connection", e.str("url") ?: ""))
                         add(Field("State", listOfNotNull(e.str("state"), e.long("closeCode")?.let { "code $it" }, e.str("closeReason")).joinToString(" · ")))
-                        e.str("failure")?.let { add(Field("Failure", it)) }
+                        failure(e)?.let { add(Field("Failure", it)) }
                     }
                     else -> add(Field("Message", "${e.str("direction")} ${e.str("opcode")}"))
                 }
@@ -101,7 +108,7 @@ data class EntryDetail(
                 InterventionView(
                     summary = listOfNotNull(changed.takeIf { c -> c.isNotEmpty() }?.let { c -> "changed $c" }, it.long("delayMs")?.let { d -> "delayed $d ms" },
                         if (it.bool("mocked")) "answered by the script" else null, if (it.bool("dropped")) "dropped" else null).joinToString(" · ").ifEmpty { "ran, changed nothing" },
-                    hasAppSide = hasAppSide, mocked = it.bool("mocked"), dropped = it.bool("dropped"), error = it.str("error"), description = it.str("description"),
+                    hasAppSide = hasAppSide, mocked = it.bool("mocked"), dropped = it.bool("dropped"), error = it.str("error"), description = it.str("description"), scriptId = it.str("scriptId"),
                 )
             }
             val appRequest = e.obj("appRequest").takeIf { app }
@@ -144,7 +151,7 @@ data class EntryDetail(
                 ),
                 connection = if (type == "ws-message") e.str("connectionId")?.let { EntryLink(it, e.str("url") ?: "connection $it") } else null,
                 ending = if (type == "ws-connection" && e.str("state") == "failed") socketEnd(e, zone)?.let { (at, after) ->
-                    "${io.yamsergey.dta.present.StatementKind.FAILED.glyph} failed at $at after $after" + (e.str("failure")?.let { f -> ": $f" } ?: "")
+                    "${io.yamsergey.dta.present.StatementKind.FAILED.glyph} failed at $at after $after" + (failure(e)?.let { f -> ": $f" } ?: "")
                 } else null,
                 messagesTitle = if (type == "ws-connection") "Messages · ${e.long("messageCount") ?: messages.size}" else "Messages",
                 formatUse = detail.arr("formatUse").mapNotNull {
@@ -154,6 +161,9 @@ data class EntryDetail(
         }
 
         private val CLOCK = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+
+        /** A socket's failure as the library said it; an exception without a message is its class alone (not "…: null"). */
+        private fun failure(e: JsonObject): String? = e.str("failure")?.removeSuffix(": null")
 
         /** D-023: when a socket ended and how long it had lived (from its start); null while it lives. */
         private fun socketEnd(e: JsonObject, zone: ZoneId): Pair<String, String>? {

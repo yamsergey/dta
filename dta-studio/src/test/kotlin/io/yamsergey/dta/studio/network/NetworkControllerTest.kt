@@ -305,6 +305,25 @@ class NetworkControllerTest {
         assertTrue(s.watching)
     }
 
+    /** D-024: the script control shows the app's active network script, and Stop clears it; none, nothing shown. */
+    @Test
+    fun `the active network script is the view's state, and Stop clears it (D-024)`() = runBlocking<Unit> {
+        network.scriptPollMs = 50
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        assertEquals(null, network.state.value.script, "no script, no control")
+        daemon.ops.scriptStatus = io.yamsergey.dta.protocol.network.ScriptStatus(active = true, id = "abc123def456", installedAtMs = 1L,
+            handlers = listOf(io.yamsergey.dta.protocol.network.ScriptHandler.entries.first()), invocations = 4, changes = 2)
+        val on = await { it.script != null }
+        assertEquals("abc123def456", on.script!!.id)
+        assertEquals(2, on.script!!.changes)
+        network.stopScript()
+        val off = await { it.script == null }
+        assertEquals(null, off.error)
+        assertTrue(off.watching, "the list stays live")
+        assertEquals(false, daemon.ops.scriptStatus.active, "cleared at the app")
+    }
+
     /** A history of [ids] newest first that match "api"; the list pages after [firstPage] rows, the search by its limit. */
     private fun pagedHistory(ids: List<Int>, firstPage: Int) {
         val byId = ids.associateWith { http(it) }

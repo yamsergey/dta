@@ -71,6 +71,8 @@ class NetworkPanel(
     private val scope: CoroutineScope,
     /** Feature 066: opens the Daemon tab on this app's network history. */
     private val openHistory: () -> Unit = {},
+    /** D-024: opens the Script tab (the script control's popup). */
+    private val openScript: () -> Unit = {},
 ) : JPanel(BorderLayout()) {
     private val model = RowsModel()
     /** D-022: the Load older row, at the list's oldest edge — under the header when the oldest rows are on top, under the rows otherwise. */
@@ -110,7 +112,7 @@ class NetworkPanel(
                 tableHeader.toolTipText = COLUMNS.getOrNull(convertColumnIndexToModel(columnAtPoint(e.point)))?.tooltip
             }
         })
-        setDefaultRenderer(Any::class.java, RowRenderer())
+        setDefaultRenderer(Any::class.java, CellRenderer())
         // Feature 026: right-click selects the row and offers its copy actions.
         addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mousePressed(e: java.awt.event.MouseEvent) = popup(e)
@@ -148,8 +150,8 @@ class NetworkPanel(
     }
     private val hitLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
     /** D-021: what is wrong with the line, under it, and which query the list keeps meanwhile. */
-    private val problemText = wrapping(DtaColors.of("status-server"))
-    private val keptText = wrapping(com.intellij.ui.JBColor.GRAY)
+    private val problemText = io.yamsergey.dta.studio.ui.WrappingText("", DtaColors.of("status-server"))
+    private val keptText = io.yamsergey.dta.studio.ui.WrappingText("", com.intellij.ui.JBColor.GRAY)
     private val problemRow = JPanel().apply {
         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
         border = JBUI.Borders.empty(0, 8, 2, 8)
@@ -162,6 +164,7 @@ class NetworkPanel(
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     /** Feature 061: browser capture, while a browser switch is on. */
     private val webStatus = WebStatusRow(context, scope)
+    private val scriptControl = ScriptControl()
     // The IDE's own segmented control: a plain JToggleButton's pressed state barely shows in the new UI.
     private lateinit var kinds: SegmentedButton<KindChoice>
     /**
@@ -176,7 +179,8 @@ class NetworkPanel(
     private val source = com.intellij.openapi.ui.ComboBox(sources).apply {
         toolTipText = "Live: the app's traffic now. Below it: the app's sessions kept on this computer after the device cleared or lost them (delete them in the Daemon tab)."
         // The closed switch fits a session's time; the open list (the IDE's popup) is as wide as its rows.
-        prototypeDisplayValue = SourceChoice(null, "Today 14:02–14:35")
+        // D-024: the closed switch as wide as its choice ("Live" is short), so the view row keeps the script control beside it.
+        prototypeDisplayValue = liveChoice
         isSwingPopup = false
         renderer = object : com.intellij.ui.ColoredListCellRenderer<SourceChoice>() {
             override fun customizeCellRenderer(list: javax.swing.JList<out SourceChoice>, value: SourceChoice?, index: Int, selected: Boolean, focus: Boolean) {
@@ -301,9 +305,11 @@ class NetworkPanel(
             border = JBUI.Borders.empty(0, 4)
             add(chips, BorderLayout.CENTER)
         }
-        val viewRow = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply {
+        val viewRow = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))).apply {
             add(kindSwitch)
             add(source)
+            // D-024: the network script in force, after the source; wraps to the next row when narrow.
+            add(scriptControl)
         }
         val toolbar = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
@@ -330,8 +336,13 @@ class NetworkPanel(
         addComponentListener(object : ComponentAdapter() {
             override fun componentResized(e: ComponentEvent?) { splitter.orientation = width < JBUI.scale(NARROW) }
         })
+        // D-024: a narrow list (not the whole tab: the split decides the list's width) drops Time and the host.
+        scroll.addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent?) { narrowColumns(scroll.width < JBUI.scale(NARROW_LIST)) }
+        })
 
         source.addActionListener {
+            (source.selectedItem as? SourceChoice)?.let { if (source.prototypeDisplayValue != it) source.prototypeDisplayValue = it }
             if (updatingSources) return@addActionListener
             val chosen = source.selectedItem as? SourceChoice ?: return@addActionListener
             if (!chosen.enabled) { selectSource(last.archive); return@addActionListener }
@@ -405,6 +416,7 @@ class NetworkPanel(
         context.state.value.let { st -> if (st.app != null && sessionsFor != st.device to st.app) loadSessions() }
 
         if (kinds.selectedItem != s.kind) kinds.selectedItem = s.kind
+        scriptControl.show(s.script)
         // The line is the person's while they type; set from the state only when changed elsewhere (a chip, the switch).
         if (s.line.text != query.text && !typing.isRunning && s.line.text != previous.line.text) query.text = s.line.text
         val problems = s.line.parsed.problems.takeIf { s.line.text == query.text }.orEmpty()
@@ -752,29 +764,43 @@ class NetworkPanel(
         override fun getValueAt(rowIndex: Int, columnIndex: Int): Any = view(rowAt(rowIndex))
     }
 
+    /** D-024: the Request cell draws itself (label, host muted, path cut before the scripted mark); the others are coloured text. */
+    private inner class CellRenderer : javax.swing.table.TableCellRenderer {
+        private val text = RowRenderer()
+        private val request = RequestCell()
+
+        override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): java.awt.Component {
+            val r = value as? EntryRow
+            if (r == null || table.convertColumnIndexToModel(column) != 1) return text.getTableCellRendererComponent(table, value, selected, focus, row, column)
+            request.background = when {
+                selected -> com.intellij.ui.render.RenderingUtil.getBackground(table, true)
+                last.applied.hasSearch && last.hits.current?.id == r.id -> io.yamsergey.dta.studio.ui.SEARCH_MARK
+                else -> table.background
+            }
+            request.font = table.font
+            val fg = com.intellij.ui.render.RenderingUtil.getForeground(table, selected)
+            // Narrow, the path alone (the host is in the tooltip and the detail).
+            request.set(r.label, DtaColors.of(r.kind.token), r.host.takeUnless { narrow }, r.path, fg, r.scripted?.let { "${it.kind.glyph} ${it.word}" }, DtaColors.of("intervened"))
+            // Every note (binary, redacted, decoded, where web traffic came from…) in the tooltip; the detail states them too.
+            request.toolTipText = (listOf("${r.label} ${r.host.orEmpty()}${r.path}") + r.marks.shown.map { it.sentence }).joinToString("<br>", "<html>", "</html>") { it.replace("&", "&amp;").replace("<", "&lt;") }
+            return request
+        }
+    }
+
     private inner class RowRenderer : ColoredTableCellRenderer() {
         override fun customizeCellRenderer(table: JTable, value: Any?, selected: Boolean, hasFocus: Boolean, row: Int, column: Int) {
             // One renderer draws every cell: a tooltip set for one cell must not show on the next.
-        toolTipText = null
-        val r = value as? EntryRow ?: return
+            toolTipText = null
+            val r = value as? EntryRow ?: return
             // Feature 040: rows holding the search words are tinted; the current hit more.
             // Feature 041: with only the matches listed every row is one: only the current hit stands out.
             if (!selected && last.applied.hasSearch && last.hits.hitsOf(r.id) != null) {
                 if (last.hits.current?.id == r.id) background = io.yamsergey.dta.studio.ui.SEARCH_MARK
             }
-            val kind = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.of(r.kind.token))
             val muted = SimpleTextAttributes.GRAYED_ATTRIBUTES
-            when (column) {
+            when (table.convertColumnIndexToModel(column)) {
                 0 -> append(r.time, muted)
-                1 -> { append(r.kind.label, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token))); toolTipText = r.kind.description.takeIf { it.isNotBlank() } }
-                2 -> append(r.verb, SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, DtaColors.of(r.kind.token)))
-                // The URL, nothing else: a message's payload is under its connection, in Messages.
-                3 -> {
-                    r.host?.let { append(it, muted) }; append(r.path)
-                    // Feature 061: where web traffic came from, also when the Notes column is out of sight.
-                    toolTipText = r.marks.shown.firstOrNull { it.kind == io.yamsergey.dta.present.StatementKind.SOURCE }?.let { "${it.kind.glyph} ${it.word}: ${it.detail}" }
-                }
-                4 -> {
+                2 -> {
                     val st = r.outcome.statement
                     when {
                         st != null -> append("${st.kind.glyph} ${st.word}", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.text(st.kind)))
@@ -782,14 +808,83 @@ class NetworkPanel(
                         else -> append(r.outcome.text)
                     }
                 }
-                5 -> append(r.timing, muted)
-                6 -> {
-                    r.marks.shown.forEach { append("${it.kind.glyph} ${it.word}  ", SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.text(it.kind))) }
-                    r.marks.moreLabel?.let { append(it, muted) }
-                    // No notes, no popup (an empty one showed before 021).
-                    toolTipText = r.marks.shown.takeIf { it.isNotEmpty() }?.joinToString("<br>", "<html>", "</html>") { it.sentence }
-                }
+                // D-024: narrow, the size alone (a failed call without one keeps its duration).
+                3 -> append(if (narrow) r.size ?: r.timing else r.timing, muted)
             }
+        }
+    }
+
+    /** D-024: whether the list is narrow (Time hidden, Size alone). */
+    private var narrow = false
+    private val timeColumn by lazy { table.columnModel.getColumn(0) }
+
+    private fun narrowColumns(on: Boolean) {
+        if (on == narrow) return
+        narrow = on
+        val columns = table.columnModel
+        if (on) columns.removeColumn(timeColumn) else { columns.addColumn(timeColumn); columns.moveColumn(columns.columnCount - 1, 0) }
+        val size = (0 until columns.columnCount).map { columns.getColumn(it) }.first { it.modelIndex == 3 }
+        size.headerValue = if (on) "Size" else COLUMNS[3].title
+        fitColumn(table, size, if (on) "18.4 KB" else COLUMNS[3].sample!!, size.headerValue as String)
+        table.tableHeader.repaint()
+        table.repaint()
+    }
+
+    /** D-024: the script in force, as a closed switch: "✎ Script: auth.js ▾", in the script's colour; a click lists what it does. */
+    private inner class ScriptControl : JBLabel() {
+        private var script: io.yamsergey.dta.protocol.network.ScriptStatus? = null
+
+        init {
+            foreground = DtaColors.of("intervened")
+            icon = AllIcons.General.ChevronDown
+            horizontalTextPosition = javax.swing.SwingConstants.LEADING
+            iconTextGap = JBUI.scale(4)
+            border = JBUI.Borders.compound(com.intellij.ui.RoundedLineBorder(com.intellij.ui.JBColor.border(), JBUI.scale(6)), JBUI.Borders.empty(3, 7))
+            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            toolTipText = "The network script in force: what it changes, Edit, Stop, the Script tab"
+            isVisible = false
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) = popup()
+            })
+        }
+
+        fun show(next: io.yamsergey.dta.protocol.network.ScriptStatus?) {
+            if (next == script) return
+            script = next
+            isVisible = next != null
+            text = next?.let { "✎ Script: ${io.yamsergey.dta.studio.network.ScriptNames.name(it.id)}" } ?: ""
+        }
+
+        private fun popup() {
+            val st = script ?: return
+            val view = io.yamsergey.dta.present.script.ScriptView.from(io.yamsergey.dta.protocol.rpc.DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.ScriptStatus.serializer(), st) as JsonObject)
+            val path = io.yamsergey.dta.studio.network.ScriptNames.path(st.id)
+            lateinit var popup: com.intellij.openapi.ui.popup.JBPopup
+            val content = JPanel().apply {
+                layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                border = JBUI.Borders.empty(8, 12)
+                fun line(c: javax.swing.JComponent) { c.alignmentX = LEFT_ALIGNMENT; add(c) }
+                line(JBLabel("✎ ${io.yamsergey.dta.studio.network.ScriptNames.name(st.id)}").apply { foreground = DtaColors.of("intervened"); font = font.deriveFont(java.awt.Font.BOLD) })
+                line(JBLabel(view.headline).apply { foreground = com.intellij.ui.JBColor.GRAY })
+                view.handlers?.let { line(JBLabel("Handles: $it")) }
+                view.counters?.let { line(JBLabel("This run: $it")) }
+                view.statements.forEach { line(StatementMark(it)) }
+                line(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                    border = JBUI.Borders.emptyTop(8)
+                    add(ActionLink("Edit") {
+                        popup.cancel()
+                        val file = path?.let { com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(it) }
+                        if (file != null) com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).openFile(file, true) else openScript()
+                    }.apply { toolTipText = if (path != null) "Open $path" else "Not installed from a file here: the Script tab" })
+                    add(javax.swing.Box.createHorizontalStrut(JBUI.scale(16)))
+                    add(ActionLink("Stop") { popup.cancel(); network.stopScript() }.apply { toolTipText = "Clear the app's network script: traffic goes unchanged" })
+                    add(javax.swing.Box.createHorizontalStrut(JBUI.scale(16)))
+                    add(ActionLink("Script tab") { popup.cancel(); openScript() })
+                })
+            }
+            popup = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance().createComponentPopupBuilder(content, null)
+                .setRequestFocus(true).setCancelOnClickOutside(true).createPopup()
+            popup.showUnderneathOf(this)
         }
     }
 
@@ -799,43 +894,93 @@ class NetworkPanel(
         const val NARROW = 860
         const val LIVE = "Live"
 
-        /** [sample] is the widest content the column shows; null = flexible, takes what is left. */
+        /** Below this the list drops Time and shows Size alone (D-024). */
+        const val NARROW_LIST = 480
+
+        /** [sample] is the widest content the column shows; null = flexible, takes what is left. D-024: kind and method join the URL. */
         val COLUMNS = listOf(
-            Column("Time", "00:00:00.000"), Column("Type", "WS ↓"), Column("Method", "Received"), Column("URL", null),
-            Column("Status", "closed 1000"), Column("Duration · Size", "1.3 s · 18.4 KB"),
-            Column("Notes", null, "What DTA states about the entry: binary, scripted, redacted, incomplete, decoded…"),
+            Column("Time", "00:00:00.000"),
+            Column("Request", null, "The method or socket direction, then host and path; ✎ scripted when the network script changed it (every note in the tooltip)"),
+            Column("Status", "101 · open"), Column("Duration · Size", "1.3 s · 18.4 KB"),
         )
 
-        /** Fixed columns as wide as their widest content (bold, as kinds and methods are drawn); URL and Notes share the rest. */
+        /** Fixed columns as wide as their widest content (bold, as statuses are drawn); Request takes the rest. */
         fun sizeColumns(table: JTable) {
-            val bold = table.getFontMetrics(table.font.deriveFont(java.awt.Font.BOLD))
-            val header = table.tableHeader.getFontMetrics(table.tableHeader.font)
             COLUMNS.forEachIndexed { i, c ->
                 val column = table.columnModel.getColumn(i)
-                if (c.sample == null) {
-                    column.preferredWidth = JBUI.scale(if (c.title == "URL") 420 else 180)
-                } else {
-                    val width = maxOf(bold.stringWidth(c.sample), header.stringWidth(c.title)) + JBUI.scale(16)
-                    column.minWidth = width
-                    column.preferredWidth = width
-                    column.maxWidth = width + JBUI.scale(24)
-                }
+                if (c.sample == null) column.preferredWidth = JBUI.scale(420) else fitColumn(table, column, c.sample, c.title)
             }
+        }
+
+        /** As wide as [sample] or [title], never less: sizes are never cut. */
+        fun fitColumn(table: JTable, column: javax.swing.table.TableColumn, sample: String, title: String) {
+            val bold = table.getFontMetrics(table.font.deriveFont(java.awt.Font.BOLD))
+            val header = table.tableHeader.getFontMetrics(table.tableHeader.font)
+            val width = maxOf(bold.stringWidth(sample), header.stringWidth(title) + JBUI.scale(16)) + JBUI.scale(16)
+            // The maximum first: Swing clamps a minimum to the old maximum (narrow → wide).
+            column.maxWidth = width + JBUI.scale(24)
+            column.minWidth = width
+            column.preferredWidth = width
         }
     }
 }
 
-/** A read-only text that wraps at its width (a sentence under a field). */
-private fun wrapping(color: java.awt.Color) = com.intellij.ui.components.JBTextArea().apply {
-    isEditable = false
-    isFocusable = false
-    lineWrap = true
-    wrapStyleWord = true
-    isOpaque = false
-    border = JBUI.Borders.empty(1, 0)
-    font = com.intellij.util.ui.UIUtil.getLabelFont()
-    foreground = color
-    alignmentX = java.awt.Component.LEFT_ALIGNMENT
+/**
+ * D-024: the Request cell — the method or socket direction coloured, the host muted, the path; the
+ * URL is cut with … before the scripted mark at the cell's end, so the mark always shows.
+ */
+private class RequestCell : javax.swing.JComponent() {
+    private var label = ""
+    private var labelColor: java.awt.Color = com.intellij.ui.JBColor.foreground()
+    private var host: String? = null
+    private var path = ""
+    private var fg: java.awt.Color = com.intellij.ui.JBColor.foreground()
+    private var mark: String? = null
+    private var markColor: java.awt.Color = com.intellij.ui.JBColor.foreground()
+
+    init { isOpaque = true }
+
+    fun set(label: String, labelColor: java.awt.Color, host: String?, path: String, fg: java.awt.Color, mark: String?, markColor: java.awt.Color) {
+        this.label = label; this.labelColor = labelColor; this.host = host; this.path = path; this.fg = fg; this.mark = mark; this.markColor = markColor
+    }
+
+    override fun getPreferredSize(): java.awt.Dimension = java.awt.Dimension(JBUI.scale(200), getFontMetrics(font).height + JBUI.scale(2))
+
+    override fun paintComponent(g: java.awt.Graphics) {
+        val g2 = g.create() as java.awt.Graphics2D
+        try {
+            com.intellij.ide.ui.UISettings.setupAntialiasing(g2)
+            g2.color = background
+            g2.fillRect(0, 0, width, height)
+            val gap = JBUI.scale(6)
+            val pad = JBUI.scale(4)
+            val bold = font.deriveFont(java.awt.Font.BOLD)
+            val bm = g2.getFontMetrics(bold)
+            val fm = g2.getFontMetrics(font)
+            val base = (height - fm.height) / 2 + fm.ascent
+            var x = pad
+            g2.font = bold; g2.color = labelColor
+            g2.drawString(label, x, base)
+            x += bm.stringWidth(label) + gap
+            // Too narrow for the mark beside the label: the tooltip says it.
+            val m = mark?.takeIf { width - pad - x - fm.stringWidth(it) - gap >= fm.charWidth('m') * 3 }
+            val markWidth = m?.let { fm.stringWidth(it) + gap } ?: 0
+            val room = width - pad - markWidth - x
+            // The host goes first, the path last: the path stays readable (the whole URL is in the tooltip).
+            val (hostPart, pathPart) = io.yamsergey.dta.present.network.RequestFit.fit(host, path, room) { fm.stringWidth(it) }
+            g2.font = font
+            g2.color = com.intellij.ui.JBColor.GRAY
+            g2.drawString(hostPart, x, base)
+            g2.color = fg
+            g2.drawString(pathPart, x + fm.stringWidth(hostPart), base)
+            if (m != null) {
+                g2.color = markColor
+                g2.drawString(m, width - pad - fm.stringWidth(m), base)
+            }
+        } finally {
+            g2.dispose()
+        }
+    }
 }
 
 /** The user's Basic Completion shortcut, as the placeholder names it. */

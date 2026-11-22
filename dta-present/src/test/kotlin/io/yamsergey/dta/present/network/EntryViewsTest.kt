@@ -57,6 +57,23 @@ class EntryViewsTest {
         assertEquals("binary", binary.preview, "the size is in its own column, once")
     }
 
+    /** D-024: the list's Request cell and its narrow Size column. */
+    @Test
+    fun `a row's label is its method or socket direction, its size stands alone for the narrow list (D-024)`() {
+        assertEquals("GET", row(0).label)
+        assertEquals("18.4 KB", row(0).size)
+        assertEquals("WS", row(6).label)
+        assertEquals("3 msgs", row(6).size)
+        assertEquals("2 msgs", row(7).size)
+        assertEquals(StatementKind.SCRIPTED, row(1).scripted?.kind, "the scripted mark, at the cell's end")
+        assertNull(row(0).scripted)
+        // Sorting: Time, Request, Status, Duration · Size.
+        val rows = (0..4).map(::row)
+        assertEquals(rows.sortedBy { (it.host.orEmpty() + it.path).lowercase() }.map { it.id }, rows.sortedWith(RowSort(1).comparator()).map { it.id })
+        assertEquals(rows.sortedBy { it.outcome.text.lowercase() }.map { it.id }, rows.sortedWith(RowSort(2).comparator()).map { it.id })
+        assertEquals(rows.sortedWith(compareBy<EntryRow> { RowSort.millis(it.timing) == null }.thenBy { RowSort.millis(it.timing) ?: 0L }).map { it.id }, rows.sortedWith(RowSort(3).comparator()).map { it.id })
+    }
+
     @Test
     fun `a WebSocket connection says Connect, host and path, 101 while open, then the close`() {
         val open = row(6)
@@ -113,6 +130,10 @@ class EntryViewsTest {
         assertEquals(listOf("Content-Type", "Retry-After"), wire.response!!.headers.map { it.first })
         assertEquals("response", wire.response!!.body!!.part)
 
+        // D-024: one sentence for the detail, the script named as the plugin knows it.
+        assertEquals("✎ Changed by script checkout.js: checkout outage. The original is kept.", wire.intervention!!.sentence("checkout.js"))
+        assertEquals(wire.intervention!!.scriptId, wire.statements.first().detail.substringAfter("script ").substringBefore(' '))
+
         val app = EntryDetail.of(canned("entry-scripted"), Side.APP)
         assertEquals(listOf("Content-Type", "X-Scripted"), app.response!!.headers.map { it.first })
         assertEquals("app-response", app.response!!.body!!.part)
@@ -134,12 +155,13 @@ class EntryViewsTest {
     fun `a failed socket says when, after how long and why, and counts its messages by direction (D-023)`() {
         val m = { id: Int, dir: String -> """{"type":"ws-message","id":"r1-1:$id","runId":"r1-1","timeMs":${1_700_000_001_000 + id},"library":"okhttp3-ws","connectionId":"r1-1:7","direction":"$dir","opcode":"text","payload":{"part":"message","storedBytes":43,"completeness":"complete"}}""" }
         val detail = Json.parseToJsonElement("""{"entry":{"type":"ws-connection","id":"r1-1:7","runId":"r1-1","timeMs":1700000000000,"library":"okhttp3-ws","url":"ws://127.0.0.1:8098/ws",
-            "state":"failed","openedAtMs":1700000000100,"closedAtMs":1700000062005,"failure":"java.io.EOFException","messageCount":3},
+            "state":"failed","openedAtMs":1700000000100,"closedAtMs":1700000062005,"failure":"java.io.EOFException: null","messageCount":3},
             "messages":[${m(1, "out")},${m(2, "in")},${m(3, "in")}]}""").jsonObject
         val d = EntryDetail.of(detail, zone = ZoneOffset.UTC)
         assertEquals("✕ failed at 22:14:22.005 after 62.0 s: java.io.EOFException", d.ending)
         val fields = d.summary.associate { it.label to it.value }
         assertEquals("failed", fields["State"])
+        assertEquals("java.io.EOFException", fields["Failure"], "an exception without a message is its class alone")
         assertEquals("22:14:22.005 · 62.0 s", fields["Ended"])
         assertEquals("3 · ↑1 ↓2", fields["Messages"])
         assertEquals("Messages · 3", d.messagesTitle)

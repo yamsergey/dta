@@ -135,7 +135,11 @@ class ScriptPanel(
         run("network.script.set", JsonObject(params + ("source" to JsonPrimitive(source))), onError = { message ->
             val e = ScriptView.installError(message)
             showError("${file.name}: ${e.message}", file, e.line)
-        }) { refresh() }
+        }) { result ->
+            // D-024: the Network tab names the script by its file, and Edit opens it.
+            ((result as? JsonObject)?.get("id") as? JsonPrimitive)?.content?.let { io.yamsergey.dta.studio.network.ScriptNames.remember(it, file.path) }
+            refresh()
+        }
     }
 
     private fun showError(message: String?, file: VirtualFile?, line: Int?) {
@@ -150,13 +154,13 @@ class ScriptPanel(
         error.repaint()
     }
 
-    private fun run(operation: String, params: JsonObject? = target, onError: (String) -> Unit = { showError(it, null, null) }, then: () -> Unit) {
+    private fun run(operation: String, params: JsonObject? = target, onError: (String) -> Unit = { showError(it, null, null) }, then: (kotlinx.serialization.json.JsonElement?) -> Unit) {
         val client = controller.client ?: return
         val p = params ?: return
         scope.launch {
             val result = runCatching { client.call(operation, p) }
             withContext(Dispatchers.Main) {
-                result.onSuccess { then() }.onFailure { onError(it.message ?: it.javaClass.simpleName) }
+                result.onSuccess { then(it.result) }.onFailure { onError(it.message ?: it.javaClass.simpleName) }
             }
         }
     }

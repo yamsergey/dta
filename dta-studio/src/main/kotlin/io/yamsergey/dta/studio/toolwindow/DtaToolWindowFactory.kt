@@ -75,7 +75,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         var dataFor: Pair<String?, String?>? = null
         // Feature 056: Agents and Schemas live in Settings › Tools › DTA; Timeline is a feature switched there.
         tabs = JBTabbedPane().apply {
-            addTab("Network", NetworkPanel(project, service.network, controller, service.scope, openHistory = { openHistory() }))
+            addTab("Network", NetworkPanel(project, service.network, controller, service.scope, openHistory = { openHistory() }, openScript = { tabs.selectedComponent = scriptPanel; scriptPanel.refresh() }))
             addTab("Data", dataPanel)
             addTab("Runtime", runtimePanel)
             addTab("Links", linksPanel)

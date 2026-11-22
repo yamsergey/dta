@@ -120,8 +120,10 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, socketUrl: (String) -> String?) =
         decide?.invoke(query, entry)
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true, id = "abc123")
-    override suspend fun networkScriptClear(serial: String, pkg: String) = true
-    override suspend fun networkScriptStatus(serial: String, pkg: String) = ScriptStatus(active = false)
+    /** What network.script.status answers; a clear makes it inactive. */
+    @Volatile var scriptStatus = ScriptStatus(active = false)
+    override suspend fun networkScriptClear(serial: String, pkg: String) = true.also { scriptStatus = ScriptStatus(active = false) }
+    override suspend fun networkScriptStatus(serial: String, pkg: String) = scriptStatus
     override suspend fun networkScriptLogs(serial: String, pkg: String, since: Long) = ScriptLogPage(emptyList(), next = since)
     override suspend fun networkWsPush(serial: String, pkg: String, connection: String?, text: String?, base64: String?, waitMs: Long?) =
         io.yamsergey.dta.protocol.network.WsPushResult("r1-1:9", connection ?: "r1-1:4", io.yamsergey.dta.protocol.network.InjectionDelivery.READING_THREAD, 3)

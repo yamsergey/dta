@@ -73,6 +73,15 @@ class EntryDetailPane(
         empty(SELECT)
     }
 
+    // A long title or header value must not push the split: the list keeps its width, the detail wraps or cuts.
+    override fun getMinimumSize(): java.awt.Dimension = super.getMinimumSize().let { java.awt.Dimension(minOf(it.width, JBUI.scale(200)), it.height) }
+
+    // The header and tabs are out of the hierarchy while nothing is selected: a theme change reaches them too.
+    override fun updateUI() {
+        super.updateUI()
+        @Suppress("SENSELESS_COMPARISON") if (header != null) listOf(header, tabs, placeholder).forEach { javax.swing.SwingUtilities.updateComponentTreeUI(it) }
+    }
+
     /**
      * Shows [id]; [gone] adds the caveat that it is no longer in the list (patterns.md); [unlisted]
      * that the list as filtered does not show it (reached by a link, 025).
@@ -204,10 +213,10 @@ class EntryDetailPane(
         }
         val statements = listOfNotNull(
             if (gone) Statement(StatementKind.EVICTED, word = "no longer in the list", detail = "no longer in the list") else null,
-        ) + Statements.forNetworkTab(detail.statements)
+        ) + Statements.forNetworkTab(detail.statements).filterNot { detail.ending != null && it.kind == StatementKind.FAILED }
         if (statements.isNotEmpty()) header.add(row(statements.map { StatementMark(it) }))
-        // D-023: how a socket ended, in the failure colour.
-        detail.ending?.let { header.add(JBLabel(it).apply { foreground = DtaColors.of("status-server"); setCopyable(true) }.left()) }
+        // D-023: how a socket ended, in the failure colour (in place of the bare failed mark); it wraps when narrow.
+        detail.ending?.let { header.add(io.yamsergey.dta.studio.ui.WrappingText(it, DtaColors.of("status-server")).apply { border = JBUI.Borders.emptyTop(4) }.left()) }
         if (shownUnlisted) header.add(JBLabel("Not in the list as filtered").apply { foreground = JBColor.GRAY }.left())
         // Feature 041: where the search words are, each place a link to its tab.
         val found = io.yamsergey.dta.present.network.Hits.foundIn(hits)
@@ -223,14 +232,16 @@ class EntryDetailPane(
             )))
         }
         detail.intervention?.let { i ->
-            val items = mutableListOf<JComponent>(JBLabel("✎ ${listOfNotNull(i.description, i.summary).joinToString(" — ")}").apply { foreground = DtaColors.of("intervened") })
+            // D-024: one sentence, the script named as the plugin knows it; it wraps in a narrow pane.
+            header.add(io.yamsergey.dta.studio.ui.WrappingText(i.sentence(ScriptNames.name(i.scriptId)), DtaColors.of("intervened")).apply { border = JBUI.Borders.emptyTop(4) }.left())
+            val items = mutableListOf<JComponent>()
             if (i.hasAppSide) {
                 items += ComboBox(arrayOf("On the wire", "What the app saw")).apply {
                     selectedIndex = if (side == Side.WIRE) 0 else 1
                     addActionListener { side = if (selectedIndex == 0) Side.WIRE else Side.APP; render(shownGone) }
                 }
             }
-            header.add(row(items))
+            if (items.isNotEmpty()) header.add(row(items))
             i.error?.let { header.add(JBLabel("Script error: $it").apply { foreground = DtaColors.of("status-server") }.left()) }
         }
     }

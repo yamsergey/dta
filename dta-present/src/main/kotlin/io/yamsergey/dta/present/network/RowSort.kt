@@ -7,18 +7,16 @@ package io.yamsergey.dta.present.network
  */
 data class RowSort(val column: Int, val ascending: Boolean = true) {
     fun comparator(): Comparator<EntryRow> {
+        // D-024: Time, Request (host and path), Status, Duration · Size.
         val by: Comparator<EntryRow> = when (column) {
-            1 -> compareBy { it.kind.label }
-            2 -> compareBy { it.verb }
-            3 -> compareBy { (it.host.orEmpty() + it.path).lowercase() }
-            4 -> compareBy { it.outcome.text.lowercase() }
-            5 -> compareBy { millis(it.timing) ?: 0L }
-            6 -> compareBy { it.marks.shown.joinToString { m -> m.word } }
+            1 -> compareBy { (it.host.orEmpty() + it.path).lowercase() }
+            2 -> compareBy { it.outcome.text.lowercase() }
+            3 -> compareBy { millis(it.timing) ?: 0L }
             else -> compareBy { it.time }
         }
         val directed = if (ascending) by else by.reversed()
         // Rows with no duration (a message's "22 B") stay at the end whichever way it runs.
-        return if (column == 5) compareBy<EntryRow> { millis(it.timing) == null }.then(directed) else directed
+        return if (column == 3) compareBy<EntryRow> { millis(it.timing) == null }.then(directed) else directed
     }
 
     companion object {

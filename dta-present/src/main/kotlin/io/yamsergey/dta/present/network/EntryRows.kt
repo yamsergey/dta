@@ -42,7 +42,14 @@ data class EntryRow(
     /** Feature 038: what the message is (format, kind, id, topic), from its text; null for other rows and messages with no envelope. */
     val envelope: Envelope? = null,
     val timeMs: Long? = null,
-)
+    /** D-024: the size alone ("18.4 KB", a socket's "33 msgs"), for the narrow list; null when none is known. */
+    val size: String? = null,
+    /** D-024: the scripted statement, shown at the end of the Request cell; null when no script touched it. */
+    val scripted: Statement? = null,
+) {
+    /** D-024: the Request cell's coloured word — the method, or the socket and its direction ("WS ↓"). */
+    val label: String get() = if (kind == EntryKind.HTTP) verb else kind.label
+}
 
 object EntryRows {
     private val OUTCOMES = setOf(StatementKind.FAILED, StatementKind.PENDING, StatementKind.PROCESS_ENDED)
@@ -81,7 +88,13 @@ object EntryRows {
             )
             else -> listOfNotNull(entry.long("durationMs")?.let(Units::millis), bodies.lastOrNull()?.long("storedBytes")?.let(Units::bytes))
         }.joinToString(" · ")
+        val size = when (kind) {
+            EntryKind.WS_CONNECTION -> entry.long("messageCount")?.let { "$it msgs" }
+            else -> bodies.lastOrNull()?.long("storedBytes")?.let(Units::bytes)
+        }
         return EntryRow(
+            size = size,
+            scripted = statements.firstOrNull { it.kind == StatementKind.SCRIPTED },
             id = entry.str("id") ?: "",
             time = entry.long("timeMs")?.let { TIME.withZone(zone).format(Instant.ofEpochMilli(it)) } ?: "",
             kind = kind,

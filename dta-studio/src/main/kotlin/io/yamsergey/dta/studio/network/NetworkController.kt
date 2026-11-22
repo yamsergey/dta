@@ -60,6 +60,8 @@ data class NetworkViewState(
     val loadingOlder: Boolean = false,
     /** D-023: bumped when the selected entry changed live (its own update, a message of its socket): the detail reads it again. */
     val selectedRevision: Long = 0,
+    /** D-024: the app's network script while one is active (the view row's script control); null when none. */
+    val script: io.yamsergey.dta.protocol.network.ScriptStatus? = null,
     val watching: Boolean = false,
     val error: String? = null,
     /** Feature 068: a wait of the archiving that lasts, for the IDE's background task; null when none. */
@@ -185,6 +187,44 @@ class NetworkController(private val context: ContextController, private val scop
     }
 
     private var savedJob: Job? = null
+
+    /** D-024: how often the app's network script is asked (it changes rarely: installed or stopped here or by an agent). */
+    @Volatile internal var scriptPollMs = 5_000L
+
+    /** Stops the app's network script (`network.script.clear`); the control goes. */
+    fun stopScript() {
+        val c = context.client ?: return
+        val s = mutable.value
+        if (s.app == null || s.device == null) return
+        scope.launch {
+            runCatching { c.call("network.script.clear", target(s)) }
+                .onSuccess { mutable.update { it.copy(script = null) }; readScript(c) }
+                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName) } }
+        }
+    }
+
+    private var scriptJob: Job? = null
+    private var scriptClient: DaemonClient? = null
+
+    /** D-024: the app's network script, followed while the tab shows live traffic of an app. */
+    private fun followScript(client: DaemonClient) {
+        scriptJob?.cancel()
+        scriptClient = client
+        scriptJob = scope.launch {
+            while (true) {
+                readScript(client)
+                kotlinx.coroutines.delay(scriptPollMs)
+            }
+        }
+    }
+
+    private suspend fun readScript(client: DaemonClient) {
+        val s = mutable.value
+        val script = if (s.app != null && s.device != null && s.archive == null) runCatching {
+            DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.ScriptStatus.serializer(), client.call("network.script.status", target(s)).result)
+        }.getOrElse { e -> if (e is kotlinx.coroutines.CancellationException) throw e; s.script }?.takeIf { it.active } else null
+        if (mutable.value.script != script) mutable.update { it.copy(script = script) }
+    }
     private var waitJob: Job? = null
     private var waitClient: DaemonClient? = null
 
@@ -498,12 +538,14 @@ class NetworkController(private val context: ContextController, private val scop
                 device = target.device, app = target.app, watching = false, error = null,
                 list = if (sameApp) it.list else LiveList(), statements = if (sameApp) it.statements else emptyList(),
                 saved = if (sameApp) it.saved else SavedFilters(), savedApplied = if (sameApp) it.savedApplied else null,
+                script = if (sameApp) it.script else null,
             )
         }
         val client = target.client ?: return
         // A new daemon connection (restarted, replaced) is a new client: the old one answers nothing any more.
         if (!sameApp || savedJob == null || savedClient !== client) followSaved(client)
         if (!sameApp || waitJob == null || waitClient !== client) followWait(client)
+        if (!sameApp || scriptJob == null || scriptClient !== client) followScript(client)
         // The archive answers without the app running; it is a snapshot, not watched.
         if (mutable.value.archive != null && target.device != null && target.app != null) {
             source = scope.launch {
