@@ -103,4 +103,30 @@ class ContextControllerTest {
         val kinds = (status["clients"] as kotlinx.serialization.json.JsonArray).map { (it as kotlinx.serialization.json.JsonObject)["kind"].toString().trim('"') }
         assertEquals(listOf("ide"), kinds, "one connection for the whole IDE")
     }
+
+    /**
+     * D-038: the daemon connected while the emulator read offline (it hung, or adb was restarting), so the
+     * context chose no device. When the device is back and its app connects, the context must find it
+     * without a daemon restart.
+     */
+    @Test
+    fun `a device offline when the daemon connected is chosen once it is back and its app connects`() = runBlocking<Unit> {
+        daemon.ops.deviceList = listOf(DeviceInfo("emulator-5554", "offline", null))
+        val controller = ContextController(session.state, scope).also { session.start() }
+        val none = controller.await { it.devices != null }
+        assertEquals(null, none.device)
+        daemon.ops.deviceList = listOf(DeviceInfo("emulator-5554", "online", "Pixel 8"))
+        // The app connects; told again until the context has a watch to hear it (events are not replayed).
+        val back = withTimeout(5_000) {
+            while (controller.state.value.let { it.device == null || it.app == null }) {
+                daemon.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", "com.example.shop", "connected"))
+                kotlinx.coroutines.delay(100)
+            }
+            controller.state.value
+        }
+        assertEquals("emulator-5554", back.device)
+        assertEquals("com.example.shop", back.app)
+        assertEquals("Pixel 8", back.deviceModel)
+        controller.await { it.connection == Connection.CONNECTED }
+    }
 }
