@@ -79,7 +79,7 @@ class NetworkFilterEval(
             if (!ok) return null
         }
         filter.url?.let { needle ->
-            val url = urlOf(entry)
+            val url = urlOf(entry)?.let { if (redact) Redactor.url(it, "").first else it }
             if (url == null || !url.contains(needle, ignoreCase = true)) return null
             locations += MatchLocation.URL
         }
@@ -107,7 +107,8 @@ class NetworkFilterEval(
                 else -> return null
             }
             val value = filter.headerValue
-            if (headers.none { it.name.equals(name, ignoreCase = true) && (value == null || it.value.contains(value, ignoreCase = true)) }) return null
+            val shownHeaders = if (redact && value != null) Redactor.headers(headers, "").first else headers
+            if (shownHeaders.none { it.name.equals(name, ignoreCase = true) && (value == null || it.value.contains(value, ignoreCase = true)) }) return null
         }
         filter.mime?.let { m ->
             val types = bodies(entry).mapNotNull { it.first.contentType } +
@@ -226,14 +227,14 @@ class NetworkFilterEval(
     /** Feature 053: binary bodies patterns did not look at, here and in the exclusions. */
     val patternBinaryAll: Int get() = patternBinary + exclusions.values.sumOf { it.patternBinary }
 
-    /** Bodies not matched because they cannot be redacted, here and in the exclusions. */
+    /** Bodies not matched because they cannot be redacted, here and in the exclusions (patterns and text alike). */
     val notRedactableAll: Int get() = notRedactable + exclusions.values.sumOf { it.notRedactable }
 
     /** The decoded location when a schema decodes the body and a field holds the needle. */
     private fun decodedHit(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): MatchLocation? {
         val decode = decoded ?: return null
         if (!info.binary) return null
-        val json = decode(entry, part)
+        val json = decode(entry, part)?.let { shown(it, "application/json") ?: return null }
         if (json == null) {
             binaryUndecoded++
             return null
@@ -250,7 +251,12 @@ class NetworkFilterEval(
 
     private fun contains(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): Boolean {
         val body = bodyBytes(entry, part) ?: return false
-        if (!info.binary) return String(body.bytes, Charsets.UTF_8).contains(needle, ignoreCase = true)
+        if (!info.binary) return shown(String(body.bytes, Charsets.UTF_8), info.contentType)?.contains(needle, ignoreCase = true) == true
+        if (redact) {
+            // Bytes no schema decodes cannot be redacted, so they are not matched while redacting.
+            notRedactable++
+            return false
+        }
         if (!body.decoded) {
             binaryNotSearched++
             return false

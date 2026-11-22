@@ -64,4 +64,25 @@ class HistoryRedactionTest {
         val out = DtaJson.encodeToString(SearchPage.serializer(), near)
         assertFalse("SEED-PROTO-1" in out, "the excerpt around it shows the mask: $out")
     }
+
+    /** 040: masked values are not searchable — the text filters of the query line read the redacted text too. */
+    @Test
+    fun `text filters match the redacted url, headers and bodies`() {
+        val headed = HttpEntry("r1:3", "r1", 300, "okhttp3", method = "GET", url = "https://api.example.test/q?page=2&access_token=SEED-QUERY-123", state = HttpState.COMPLETE, status = 200,
+            requestHeaders = listOf(Header("Authorization", "Bearer SEED-AUTH-456"), Header("Accept", "application/json")))
+        val all = entries + headed
+        val v = NetworkHistoryView(
+            { all }, { id -> all.firstOrNull { it.id == id } },
+            { HistoryContext("r1", Coverage(searched = 0, stored = all.size, persisted = true), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE)) },
+            bodyBytes = { e, _ -> bodies[e.id]?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.ISO_8859_1), true) } },
+            decoded = { e, _ -> if (e.id == "r1:2") decodedJson else null },
+        )
+        for (q in listOf("body:SEED-TOKEN-abc", "req:seed@example.com", "resp:SEED-TOKEN", "body:SEED-PROTO-1", "url:SEED-QUERY-123", "header:authorization=SEED-AUTH")) {
+            assertEquals(emptyList(), ids(v.list(NetworkQuery(q = q, redact = true))), "$q under redaction")
+            assertTrue(ids(v.list(NetworkQuery(q = q))).isNotEmpty(), "twin: $q matches without redaction")
+        }
+        for (q in listOf("body:visible", "url:page=2", "header:accept=json", "header:authorization", "body:ord-42")) {
+            assertTrue(ids(v.list(NetworkQuery(q = q, redact = true))).isNotEmpty(), "a harmless $q still matches under redaction")
+        }
+    }
 }
