@@ -42,9 +42,13 @@ fun interface EntrySourceProvider {
 
 /** A history held as a list (the app's, the tests'). */
 class ListEntrySource(
-    private val entries: List<NetworkEntry>,
+    entriesOf: () -> List<NetworkEntry>,
     private val lookup: ((String) -> NetworkEntry?)? = null,
 ) : EntrySource {
+    constructor(entries: List<NetworkEntry>, lookup: ((String) -> NetworkEntry?)? = null) : this({ entries }, lookup)
+
+    /** D-037: the list is made only when an answer walks it; a lookup by id ([byId] with [lookup]) never does. */
+    private val entries by lazy(entriesOf)
     private val withoutLinks by lazy { entries.filter { it !is LinkEntry } }
     private val byIds by lazy { entries.associateBy { it.id } }
 

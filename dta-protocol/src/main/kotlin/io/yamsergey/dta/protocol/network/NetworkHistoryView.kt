@@ -52,7 +52,7 @@ class NetworkHistoryView private constructor(
         decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
         readEnvelope: (WsMessageEntry, String) -> Envelope? = { _, text -> WsFormats.detect(text) },
         patternStop: () -> PatternStop = { PatternStop.NONE },
-    ) : this(EntrySourceProvider { ListEntrySource(entries(), byId) }, context, bodyBytes, decoded, readEnvelope, patternStop)
+    ) : this(EntrySourceProvider { ListEntrySource(entries, byId) }, context, bodyBytes, decoded, readEnvelope, patternStop)
 
     /** The envelope of a text message for `type:`/`topic:`: the whole stored text when here, else the preview. */
     private fun envelopeOf(src: EntrySource, m: WsMessageEntry): Envelope? {

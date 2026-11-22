@@ -951,12 +951,32 @@ class NetworkStore(
     }
 
     /** The latest record of [id] in the journal (newest segments first). */
+    /** D-037, tests: journal lines read by lookups and whole-journal reads. */
+    @Volatile internal var linesReadForTest = 0L
+
+    /**
+     * D-037: the segments that may hold [id], newest first, from their id index; empty when none can
+     * (not `run:seq`, a run never written, a sequence no segment holds). Null when the index is not
+     * complete yet (the earlier runs are still read): then every segment may.
+     */
+    private fun segmentsHolding(id: String): List<File>? {
+        if (loaded.count > 0) return null
+        val (run, n) = idParts(id) ?: return emptyList()
+        return synchronized(writeLock) {
+            val ordinal = runOrdinals[run] ?: return@synchronized emptyList()
+            val key = (ordinal.toLong() shl SEQ_BITS) or (n and SEQ_MASK)
+            segmentIds.entries.filter { it.value.contains(key) }.map { it.key }
+        }.sortedBy { segmentIndex(it) }.asReversed()
+    }
+
     private fun fromJournal(id: String): NetworkEntry? {
         flush()
         val marker = "\"id\":\"$id\""
-        for (file in segmentFiles().asReversed()) {
+        // D-037: only the segments whose index holds the id are read; an id none holds reads nothing.
+        for (file in segmentsHolding(id) ?: segmentFiles().asReversed()) {
             var found: NetworkEntry? = null
             file.forEachLine { line ->
+                linesReadForTest++
                 if (marker in line) {
                     runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()
                         ?.takeIf { it.id == id }?.let { found = it }
@@ -970,6 +990,7 @@ class NetworkStore(
     private fun forEachRecord(action: (File, NetworkEntry) -> Unit) {
         for (file in segmentFiles()) {
             file.forEachLine { line ->
+                linesReadForTest++
                 if (line.isBlank()) return@forEachLine
                 runCatching { DtaJson.decodeFromString(EntryRecord.serializer(), line).entry }.getOrNull()?.let { action(file, it) }
             }
