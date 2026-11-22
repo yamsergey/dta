@@ -127,6 +127,8 @@ object Redactor {
             is WsMessageEntry -> entry.copy(
                 payload = preview(entry.payload, "payload")!!,
                 appPayload = preview(entry.appPayload, "app-payload"),
+                // The socket's URL a message carries (feature 025) is the connection's, masked alike.
+                url = entry.url?.let { u -> url(u, at).also { (_, m) -> masked += m }.first },
             )
             // Feature 012: the same rules over a link's URI, its query and its extras.
             is LinkEntry -> {

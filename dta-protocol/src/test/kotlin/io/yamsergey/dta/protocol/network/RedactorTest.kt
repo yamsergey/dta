@@ -177,4 +177,17 @@ class RedactorTest {
         assertFalse("SECRET" in m.toString(), m.toString())
         assertTrue(mi.masked.any { "app-payload preview $.token" in it }, mi.masked.toString())
     }
+
+    /** A message carries its socket's URL (feature 025): the handshake query is masked there too. */
+    @Test
+    fun `a message's socket url is masked like its connection's`() {
+        val message = WsMessageEntry(
+            id = "m1", runId = "r", timeMs = 2, library = "okhttp3-ws", connectionId = "c1", direction = Direction.IN, opcode = MessageOpcode.TEXT,
+            payload = BodyInfo(BodyPart.MESSAGE, 2, completeness = Completeness.COMPLETE, preview = "{}"),
+            url = "wss://h/socket?room=7&token=SECRET-WS",
+        )
+        val (m, info) = Redactor.entry(message)
+        assertEquals("wss://h/socket?room=7&token=${Redactor.MASK}", (m as WsMessageEntry).url)
+        assertTrue(info.masked.any { "url.query token" in it }, info.masked.toString())
+    }
 }
