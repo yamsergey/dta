@@ -27,10 +27,13 @@ internal class LiveViews(
         trim(current)
     }
 
-    /** A live decision: a new match is shown; one that no longer matches leaves. Returns whether it was shown. */
+    /**
+     * A live decision: a new match is shown; one that no longer matches leaves. Returns whether it was shown.
+     * A view that only watches (it never listed) remembers the matches it was sent for [query] (D-032).
+     */
     @Synchronized
-    fun decided(view: String, id: String, match: Boolean): Boolean {
-        val set = views[view] ?: return false
+    fun decided(view: String, query: NetworkQuery, id: String, match: Boolean): Boolean {
+        val set = views[view] ?: if (match) Shown(key(query), LinkedHashSet()).also { views[view] = it } else return false
         val had = id in set.ids
         if (match) { set.ids += id; trim(set) } else set.ids -= id
         return had

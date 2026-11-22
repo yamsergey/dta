@@ -89,14 +89,14 @@ class HostIndexLiveViewTest {
         val views = LiveViews()
         val q = NetworkQuery(q = "tick")
         views.shown("v", q, listOf("1", "2"))
-        assertEquals(true, views.decided("v", "1", false), "shown, no longer matching: it left")
-        assertEquals(false, views.decided("v", "1", false), "it left once")
-        assertEquals(false, views.decided("v", "9", false), "never shown: nothing left")
-        assertEquals(false, views.decided("other", "2", false), "a view that was shown nothing")
+        assertEquals(true, views.decided("v", NetworkQuery(), "1", false), "shown, no longer matching: it left")
+        assertEquals(false, views.decided("v", NetworkQuery(), "1", false), "it left once")
+        assertEquals(false, views.decided("v", NetworkQuery(), "9", false), "never shown: nothing left")
+        assertEquals(false, views.decided("other", NetworkQuery(), "2", false), "a view that was shown nothing")
         // Paging and order do not change the query: a next page adds to what was shown.
         views.shown("v", q.copy(limit = 7, before = "2", order = io.yamsergey.dta.protocol.network.Order.OLDEST_FIRST), listOf("3"))
-        assertEquals(true, views.decided("v", "2", false))
-        assertEquals(true, views.decided("v", "3", false))
+        assertEquals(true, views.decided("v", NetworkQuery(), "2", false))
+        assertEquals(true, views.decided("v", NetworkQuery(), "3", false))
     }
 
     @Test
@@ -104,8 +104,8 @@ class HostIndexLiveViewTest {
         val views = LiveViews()
         views.shown("v", NetworkQuery(q = "tick"), listOf("1", "2"))
         views.shown("v", NetworkQuery(q = "tock"), listOf("3"))
-        assertEquals(false, views.decided("v", "1", false), "shown for the old query only")
-        assertEquals(true, views.decided("v", "3", false))
+        assertEquals(false, views.decided("v", NetworkQuery(), "1", false), "shown for the old query only")
+        assertEquals(true, views.decided("v", NetworkQuery(), "3", false))
         assertEquals(1, views.size())
     }
 
@@ -113,9 +113,9 @@ class HostIndexLiveViewTest {
     fun `a live match is remembered, so it can leave later`() {
         val views = LiveViews()
         views.shown("v", NetworkQuery(q = "tick"), emptyList())
-        assertEquals(false, views.decided("v", "5", true), "new: it was not shown before")
-        assertEquals(true, views.decided("v", "5", true), "shown now")
-        assertEquals(true, views.decided("v", "5", false), "and it leaves")
+        assertEquals(false, views.decided("v", NetworkQuery(), "5", true), "new: it was not shown before")
+        assertEquals(true, views.decided("v", NetworkQuery(), "5", true), "shown now")
+        assertEquals(true, views.decided("v", NetworkQuery(), "5", false), "and it leaves")
     }
 
     @Test
@@ -214,6 +214,29 @@ class HostIndexLiveViewTest {
         val (d, had) = host.decide("v", out, changed) { null }
         assertEquals(false, d.match)
         assertEquals(true, had, "it was in the view's matches: it has left")
+    }
+
+    /**
+     * D-032 (067 FR-004, contracts/live-query.md): a view that only watches (it never listed) is told
+     * an entry left when it stops matching, as one that listed first is.
+     */
+    @Test
+    fun `a watching view that never listed is told a finished request left status-pending`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        val host = index(app)
+        host.list(NetworkQuery())
+        val pending = io.yamsergey.dta.protocol.network.HttpEntry("r1-1:1", "r1-1", 1_000, "okhttp3", method = "GET", url = "https://api.example.test/slow/4000",
+            state = io.yamsergey.dta.protocol.network.HttpState.PENDING)
+        val q = NetworkQuery(q = "status:pending")
+        val (joined, _) = host.decide("watch", q, pending) { null }
+        assertEquals(true, joined.match)
+        val done = pending.copy(state = io.yamsergey.dta.protocol.network.HttpState.COMPLETE, status = 200)
+        val (d, had) = host.decide("watch", q, done) { null }
+        assertEquals(false, d.match)
+        assertEquals(true, had, "it was sent to this view as a match: it has left")
+        val (again, hadAgain) = host.decide("watch", q, done) { null }
+        assertEquals(false, again.match)
+        assertEquals(false, hadAgain, "left once")
     }
 
     /** A channel where every body range takes [ms]: a large backlog of bodies takes long to copy. */
@@ -323,8 +346,8 @@ class HostIndexLiveViewTest {
     fun `what a view was shown is bounded, the oldest forgotten first, and views are dropped`() {
         val views = LiveViews(keepUpTo = 2)
         views.shown("a", NetworkQuery(q = "x"), listOf("1", "2", "3"))
-        assertEquals(false, views.decided("a", "1", false), "the oldest is forgotten")
-        assertEquals(true, views.decided("a", "3", false))
+        assertEquals(false, views.decided("a", NetworkQuery(), "1", false), "the oldest is forgotten")
+        assertEquals(true, views.decided("a", NetworkQuery(), "3", false))
         views.shown("c1/a", NetworkQuery(q = "x"), listOf("1"))
         views.shown("c1/b", NetworkQuery(q = "x"), listOf("1"))
         assertEquals(3, views.size())

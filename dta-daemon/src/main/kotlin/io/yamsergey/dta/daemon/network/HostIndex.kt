@@ -221,7 +221,7 @@ class HostIndex(
         val v = NetworkHistoryView({ emptyList() }, ::socket, { ctx }, { e, p -> hostBodyBytes(epochId, e, p) },
             { e, p -> decodedJson(e, p, epochId, ::socket) }, readEnvelope)
         val d = v.decide(query, entry)
-        return d to views.decided(view, entry.id, d.match)
+        return d to views.decided(view, query, entry.id, d.match)
     }
 
     /** Feature 067: a live entry as this computer holds it now (after its body was copied). */
