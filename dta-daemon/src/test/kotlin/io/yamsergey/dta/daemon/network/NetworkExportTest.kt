@@ -84,4 +84,18 @@ class NetworkExportTest {
         assertTrue("not-read" in entries[2]["response"]!!.jsonObject["content"]!!.jsonObject["comment"]!!.jsonPrimitive.content)
         assertEquals(listOf("hi", "yo"), entries[3]["_webSocketMessages"]!!.jsonArray.map { it.jsonObject["data"]!!.jsonPrimitive.content })
     }
+
+    /** NET-EXP-014 (071 FR-004): the export states the scope its list answered, what lies outside included. */
+    @Test
+    fun `the result states the scope the list answered`() = runBlocking {
+        val scope = io.yamsergey.dta.protocol.network.HistoryScope(false, 7, io.yamsergey.dta.protocol.network.ScopeRun("r1", 7, 1_000), outside = 5)
+        val scoped = NetworkExport(
+            page = { q -> NetworkPage(listOf(get), coverage = Coverage(searched = 1, stored = 1, persisted = true), scope = scope.takeIf { q.before == null }) },
+            entry = { NetworkEntryDetail(get) },
+            body = { _, _, file -> file.writeBytes("{}".toByteArray()) },
+            version = "0.10.0",
+        )
+        val result = scoped.export(NetworkQuery(), File(Files.createTempDirectory("har").toFile(), "s.har"))
+        assertEquals(scope, result.scope)
+    }
 }
