@@ -23,6 +23,8 @@ class NetworkFilterEval(
     private val envelope: ((WsMessageEntry) -> Envelope?)? = null,
     /** Feature 053: time for body patterns, shared with the exclusions (one answer, one budget). */
     val budget: PatternBudget = PatternBudget(),
+    /** Match bodies as redacted (040, 053): a masked value is matched by nothing. */
+    private val redact: Boolean = false,
     private val bodyBytes: (NetworkEntry, BodyPart) -> BodyBytes?,
 ) {
     /** [decoded] is false when the Content-Encoding could not be undone ([bytes] are as sent). */
@@ -47,6 +49,16 @@ class NetworkFilterEval(
     /** Feature 053: binary bodies no schema decodes, which patterns do not look at. */
     var patternBinary = 0
         private set
+
+    /** Bodies that cannot be redacted (neither JSON nor form), not matched while redacting. */
+    var notRedactable = 0
+        private set
+
+    /** [text] of a body as an answer under redaction shows it; null when it cannot be redacted (counted). */
+    private fun shown(text: String, contentType: String?): String? {
+        if (!redact) return text
+        return Redactor.body(text, contentType, "").text ?: run { notRedactable++; null }
+    }
 
     private val compiled = HashMap<String, java.util.regex.Pattern>()
 
@@ -169,14 +181,15 @@ class NetworkFilterEval(
             val decodedJson = if (info.binary) {
                 decoded?.invoke(entry, part) ?: run { patternBinary++; return@mapNotNull null }
             } else null
-            val haystack = decodedJson ?: String(body.bytes, Charsets.UTF_8)
+            val haystack = (if (decodedJson != null) shown(decodedJson, "application/json") else shown(String(body.bytes, Charsets.UTF_8), info.contentType))
+                ?: return@mapNotNull null
             val found = budget.find(p, haystack) as? PatternBudget.Outcome.Found ?: return@mapNotNull null
             patternHits.getOrPut(entry.id) { mutableListOf() } += SearchHit(
                 entry.id, place(part), "/$text/", found.start, found.end,
                 Fuzzy.excerpt(haystack, Fuzzy.Span(found.start, found.end)), part,
             )
             if (decodedJson != null) {
-                val paths = DecodedFields.paths(decodedJson) { v -> budget.find(p, v) is PatternBudget.Outcome.Found }
+                val paths = DecodedFields.paths(haystack) { v -> budget.find(p, v) is PatternBudget.Outcome.Found }
                 if (paths.isNotEmpty()) fieldPaths.getOrPut(entry.id) { mutableListOf() } += paths
                 when (part) {
                     BodyPart.REQUEST, BodyPart.APP_REQUEST -> MatchLocation.REQUEST_BODY_DECODED
@@ -204,7 +217,7 @@ class NetworkFilterEval(
     private val exclusions = HashMap<NetworkFilter, NetworkFilterEval>()
 
     private fun excluded(f: NetworkFilter): NetworkFilterEval = exclusions.getOrPut(f) {
-        NetworkFilterEval(f, liveRunId, connectionUrl, decoded, envelope, budget, bodyBytes)
+        NetworkFilterEval(f, liveRunId, connectionUrl, decoded, envelope, budget, redact, bodyBytes)
     }
 
     /** Not searched by the exclusions' body searches. */
@@ -212,6 +225,9 @@ class NetworkFilterEval(
 
     /** Feature 053: binary bodies patterns did not look at, here and in the exclusions. */
     val patternBinaryAll: Int get() = patternBinary + exclusions.values.sumOf { it.patternBinary }
+
+    /** Bodies not matched because they cannot be redacted, here and in the exclusions. */
+    val notRedactableAll: Int get() = notRedactable + exclusions.values.sumOf { it.notRedactable }
 
     /** The decoded location when a schema decodes the body and a field holds the needle. */
     private fun decodedHit(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): MatchLocation? {

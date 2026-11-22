@@ -65,8 +65,8 @@ class NetworkHistoryView private constructor(
         return readEnvelope(m.copy(url = url), text)
     }
 
-    private fun evaluator(src: EntrySource, filter: NetworkFilter?, ctx: HistoryContext): NetworkFilterEval? = filter?.let {
-        NetworkFilterEval(it, ctx.runId, { id -> (src.byId(id) as? WsConnectionEntry)?.url }, decoded, { m -> envelopeOf(src, m) }, patternBudget(), bodyBytes)
+    private fun evaluator(src: EntrySource, filter: NetworkFilter?, ctx: HistoryContext, redact: Boolean): NetworkFilterEval? = filter?.let {
+        NetworkFilterEval(it, ctx.runId, { id -> (src.byId(id) as? WsConnectionEntry)?.url }, decoded, { m -> envelopeOf(src, m) }, patternBudget(), redact, bodyBytes)
     }
 
     /**
@@ -84,7 +84,7 @@ class NetworkHistoryView private constructor(
         val links = filter?.kinds != null
         // Feature 041: search words leave only the entries that hold them, unless every row is asked for.
         val onlyHits = terms.isNotEmpty() && !query.allRows
-        val eval = evaluator(src, filter, ctx)
+        val eval = evaluator(src, filter, ctx, query.redact)
         val search = search(src, terms, query.redact)
         val walk = src.walk(newest, links, query.before)
             ?: throw InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared")
@@ -133,7 +133,7 @@ class NetworkHistoryView private constructor(
     fun passing(query: NetworkQuery): Passing = query.resolved().let { (filter, terms) -> sources.open(null).use { src ->
         val ctx = context()
         val search = search(src, terms, query.redact)
-        val eval = evaluator(src, filter, ctx)
+        val eval = evaluator(src, filter, ctx, query.redact)
         val seen = HashSet<String>()
         val ids = HashSet<String>()
         for (entry in src.walk(false, true, null)!!) {
@@ -158,7 +158,7 @@ class NetworkHistoryView private constructor(
         val newest = query.order == Order.NEWEST_FIRST
         val links = filter?.kinds != null
         val unknown = { InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared") }
-        val eval = evaluator(src, filter, ctx)
+        val eval = evaluator(src, filter, ctx, query.redact)
         val s = search(src, terms, query.redact)
         fun hitsOf(entry: NetworkEntry): List<SearchHit>? {
             if (eval != null && eval.matches(entry) == null) return null
@@ -190,7 +190,7 @@ class NetworkHistoryView private constructor(
         val (filter, terms) = query.resolved()
         if (entry is LinkEntry && filter?.kinds == null) return@use EntryDecision.NO
         val s = search(src, terms, query.redact)
-        val eval = evaluator(src, filter, ctx)
+        val eval = evaluator(src, filter, ctx, query.redact)
         val locations = if (eval != null) eval.matches(entry) else emptyList()
         val unchecked = (eval?.budget?.skipped ?: 0) > 0
         if (locations == null) return@use EntryDecision(false, unchecked = unchecked)
@@ -216,6 +216,7 @@ class NetworkHistoryView private constructor(
     private fun notSearched(eval: NetworkFilterEval?, search: NetworkSearch?): List<String>? = listOfNotNull(
         eval?.budget?.skipped?.takeIf { it > 0 }?.let { "bodies skipped: pattern too slow ($it)" },
         eval?.patternBinaryAll?.takeIf { it > 0 }?.let { "binary bodies without a schema, not matched by patterns ($it)" },
+        eval?.notRedactableAll?.takeIf { it > 0 }?.let { "bodies that cannot be redacted, not matched while redacting ($it)" },
         ((eval?.binaryNotSearched ?: 0) + (eval?.excludedNotSearched ?: 0)).takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
         eval?.binaryUndecoded?.takeIf { it > 0 }?.let { "binary bodies without a schema, searched as bytes only ($it)" },
         search?.notSearched?.takeIf { it > 0 }?.let { "bodies the search could not read: encoding not undone, or not inspectable while redacting ($it)" },
