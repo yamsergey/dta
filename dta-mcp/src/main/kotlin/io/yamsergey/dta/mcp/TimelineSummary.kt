@@ -20,11 +20,15 @@ import java.util.concurrent.ConcurrentHashMap
 internal class TimelineSummary(private val call: suspend (operation: String, params: JsonObject) -> Selected) {
     private val cursors = ConcurrentHashMap<String, String>()
 
-    /** The line for [session] after a call that concerned [selection] (device, app), or null. */
-    suspend fun after(session: String?, selection: Pair<String?, String?>?): String? = try {
+    /**
+     * The line for [session] after a call that concerned [selection] (device, app), or null; with
+     * [redact] (the call asked for it) read redacted, as the call's own answer is (decision 2026-11-22).
+     */
+    suspend fun after(session: String?, selection: Pair<String?, String?>?, redact: Boolean = false): String? = try {
         val params = buildJsonObject {
             selection?.first?.let { put("device", it) }
             selection?.second?.let { put("app", it) }
+            if (redact) put("redact", true)
         }
         val key = key(session, selection)
         val cursor = cursors[key]

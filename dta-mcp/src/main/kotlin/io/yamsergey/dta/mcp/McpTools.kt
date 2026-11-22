@@ -48,7 +48,7 @@ class McpTools(
         val spec = byTool(toolName) ?: return ToolOutcome("Unknown tool '$toolName'. Tools: ${tools.joinToString(", ") { it.toolName }}", true)
         val outcome = runTool(spec, arguments)
         if (spec.name == TimelineSummary.OPERATION) return outcome.toolOutcome
-        val line = summary.after(session, outcome.selection ?: selectionOf(arguments))
+        val line = summary.after(session, outcome.selection ?: selectionOf(arguments), redact = (arguments["redact"] as? JsonPrimitive)?.content == "true")
         return if (line == null) outcome.toolOutcome else outcome.toolOutcome.copy(text = outcome.toolOutcome.text + "\n\n" + line)
     }
 

@@ -49,7 +49,9 @@ class McpTimelineSummaryTest {
             uiCalls += params
             if (uiFails) throw DaemonCallException(-32014, "app not connected", null)
             val since = (params["since"] as? JsonPrimitive)?.content
-            val page: TimelinePage = journal.page(if (since == "end") journal.end() else since, 50)
+            val read: TimelinePage = journal.page(if (since == "end") journal.end() else since, 50)
+            // As the daemon answers: redacted when asked.
+            val page = if ((params["redact"] as? JsonPrimitive)?.content == "true") io.yamsergey.dta.protocol.timeline.TimelineRedaction.page(read) else read
             Selected(null, DtaJson.encodeToJsonElement(TimelinePage.serializer(), page))
         } else {
             Selected(SelectionStatement("emulator-5554", DeviceRule.ONLY_DEVICE, app = "com.example"), buildJsonObject { put("ok", true) })
@@ -65,6 +67,21 @@ class McpTimelineSummaryTest {
         assertFalse("Since your last call" in first.text, first.text)
         assertEquals("end", (uiCalls.single()["since"] as JsonPrimitive).content)
         assertEquals("com.example", (uiCalls.single()["app"] as JsonPrimitive).content)
+    }
+
+    /** Decision 2026-11-22 (3): a tool asked with redact gets its summary line redacted the same way. */
+    @Test
+    fun `a redacted call gets a redacted summary`() {
+        val redacted = JsonObject(mapOf("redact" to JsonPrimitive(true)))
+        runBlocking { tools.invoke("network_list", redacted, null) }
+        toast("Saved, token=SEED-MS1")
+        val second = runBlocking { tools.invoke("network_list", redacted, null) }
+        assertTrue(uiCalls.all { (it["redact"] as? JsonPrimitive)?.content == "true" }, "the summary is read redacted: $uiCalls")
+        assertFalse("SEED-MS1" in second.text, second.text)
+        assertTrue("Since your last call" in second.text, second.text)
+        toast("Saved, token=SEED-MS2")
+        val plain = call()
+        assertTrue("SEED-MS2" in plain.text, "twin: without redact the summary is whole: ${plain.text}")
     }
 
     @Test
