@@ -86,6 +86,18 @@ class CliTest {
         assertEquals(io.yamsergey.dta.protocol.network.ArchiveScope(all = true), daemon.ops.queries.last().second.archiveScope)
     }
 
+    @Test
+    fun `--typos asks for the one-typo allowance - without it search words are exact (decision 2026-11-22)`() {
+        assertEquals(0, dta("network", "search", "tokan"), stderr)
+        assertEquals(false, daemon.ops.finds.last().typos)
+        assertEquals(listOf(io.yamsergey.dta.protocol.network.Term("tokan")), daemon.ops.finds.last().resolved().second)
+        assertEquals(0, dta("network", "search", "tokan", "--typos"), stderr)
+        assertEquals(listOf(io.yamsergey.dta.protocol.network.Term("tokan", typos = true)), daemon.ops.finds.last().resolved().second)
+        assertEquals(0, dta("network", "list", "-q", "tokan", "--typos"), stderr)
+        assertEquals(true, daemon.ops.queries.last().second.typos)
+        assertTrue(io.yamsergey.dta.protocol.ops.Catalog.agentTools.single { it.name == "network.search" }.params.any { it.name == "typos" }, "MCP network_search takes typos")
+    }
+
     // --- daemon status / stop (T045)
 
     @Test
