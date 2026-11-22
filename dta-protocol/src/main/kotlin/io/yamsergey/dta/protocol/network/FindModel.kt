@@ -95,7 +95,7 @@ class FindCollector {
         return e.final
     }
 
-    fun page(): SearchPage = SearchPage(entries.toList(), next = final?.next, notSearched = final?.notSearched, degraded = final?.degraded, saved = saved, scope = final?.scope ?: scope)
+    fun page(): SearchPage = SearchPage(entries.toList(), next = final?.next, notSearched = final?.notSearched, degraded = final?.degraded, saved = saved, scope = final?.scope ?: scope, redaction = final?.redaction)
 
     /** The page as JSON with the stream's final `state` (and `reason` or `error`). */
     fun json(): kotlinx.serialization.json.JsonObject {

@@ -520,9 +520,11 @@ data class Coverage(
     val archiveHeld: String? = null,
 )
 
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Serializable
 data class RedactionInfo(
-    val applied: Boolean = true,
+    /** Always on the wire (D-041): a JSON reader sees `applied: true`, not only a missing field. */
+    @kotlinx.serialization.EncodeDefault val applied: Boolean = true,
     /** Locations masked, e.g. `entry r..:4 request.header Authorization`. */
     val masked: List<String> = emptyList(),
     /** Bodies/payloads not returned because they could not be redacted. */
@@ -625,6 +627,8 @@ data class SearchPage(
     val saved: SavedFiltersApplied? = null,
     /** Feature 071: what the search covered. */
     val scope: HistoryScope? = null,
+    /** D-041: what redaction masked or withheld in the rows (a streamed search's final statement). */
+    val redaction: RedactionInfo? = null,
 )
 
 /** Result of `network_entry`. */
