@@ -9,6 +9,7 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.openapi.application.ApplicationManager
 import io.yamsergey.dta.studio.DtaApplicationService
 import io.yamsergey.dta.studio.DtaProjectService
+import io.yamsergey.dta.studio.settings.forwardTimelineSwitch
 import io.yamsergey.dta.studio.ui.BannerPanel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
@@ -170,18 +171,11 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         service.scope.launch {
             settings.timelineFlow.collect { on -> withContext(Dispatchers.Main) { showTimeline(on) } }
         }
-        service.scope.launch {
-            combine(controller.state, settings.timelineFlow) { st, on -> Triple(st.device, st.app.takeIf { st.connection == io.yamsergey.dta.present.context.Connection.CONNECTED }, on) }
-                .distinctUntilChanged()
-                .collect { (device, app, on) ->
-                    val client = controller.client ?: return@collect
-                    if (device == null || app == null) return@collect
-                    runCatching {
-                        client.call("timeline.enabled", kotlinx.serialization.json.buildJsonObject {
-                            put("device", kotlinx.serialization.json.JsonPrimitive(device)); put("app", kotlinx.serialization.json.JsonPrimitive(app)); put("set", kotlinx.serialization.json.JsonPrimitive(if (on) "on" else "off"))
-                        })
-                    }.onFailure { com.intellij.openapi.diagnostic.logger<DtaToolWindowFactory>().info("timeline switch not sent to $app: ${it.message}") }
-                }
+        service.scope.forwardTimelineSwitch(controller.state, settings.timelineFlow) { device, app, on ->
+            val client = controller.client ?: return@forwardTimelineSwitch
+            client.call("timeline.enabled", kotlinx.serialization.json.buildJsonObject {
+                put("device", kotlinx.serialization.json.JsonPrimitive(device)); put("app", kotlinx.serialization.json.JsonPrimitive(app)); put("set", kotlinx.serialization.json.JsonPrimitive(if (on) "on" else "off"))
+            })
         }
         // Feature 060: the browser switches, told to the connected app (it keeps them; DTA follows them).
         service.scope.launch {
