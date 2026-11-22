@@ -126,6 +126,41 @@ class NetworkHistoryView private constructor(
         )
     } }
 
+    /**
+     * Feature 071 (FR-006): [query]'s rows as `list` gives them with every row asked for (search words
+     * leave only their hits), each handed to [onItem] as it is found, newest first unless the order says
+     * otherwise; until the scope ends, or [limit] rows (then [FindEnd.next]). No time limit: [stop] (and
+     * the view's pattern stop) end it, also inside a match. What it holds per row is let go once given.
+     */
+    fun find(query: NetworkQuery, limit: Int? = null, stop: () -> Unit = {}, onItem: (FoundItem) -> Unit): FindEnd = query.resolved().let { (filter, terms) ->
+        sources.open(filter, WordNeeds.of(filter, terms, words = terms.isNotEmpty() && !query.allRows)).use { src ->
+            val ctx = context()
+            val check = checker(stop)
+            val links = filter?.kinds != null
+            val onlyHits = terms.isNotEmpty() && !query.allRows
+            val eval = evaluator(src, filter, ctx, query.redact, check)
+            val search = search(src, terms, query.redact)
+            val walk = src.walk(query.order == Order.NEWEST_FIRST, links, query.before)
+                ?: throw InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared")
+            var given = 0
+            var last: String? = null
+            for (entry in walk) {
+                check()
+                val matched = if (eval != null) eval.matches(entry) ?: continue else null
+                val words = if (search != null) search.hits(entry) else null
+                val spans = eval?.patternHits?.remove(entry.id)
+                val fields = eval?.fieldPaths?.remove(entry.id)
+                if (onlyHits && words == null) continue
+                if (limit != null && given == limit) return@use FindEnd(last, notSearched(eval, search))
+                val hits = words.orEmpty() + spans.orEmpty()
+                onItem(FoundItem(entry.withSocketUrl(src).summary(), hits.ifEmpty { null }, matched?.ifEmpty { null }, fields?.toList()?.ifEmpty { null }))
+                given++
+                last = entry.id
+            }
+            FindEnd(null, notSearched(eval, search))
+        }
+    }
+
     /** Feature 065: the ids a query lets through and the ids it looked at. */
     data class Passing(val ids: Set<String>, val seen: Set<String>)
 

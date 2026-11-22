@@ -148,9 +148,9 @@ class HostIndex(
      * Feature 069 (research R1): the live epoch as one answer reads it, from disk (each answer opens
      * one read); feature 070: narrowed by the query's filter and its words' need.
      */
-    private fun liveView(epochId: String?, ctx: HistoryContext, run: io.yamsergey.dta.daemon.store.RunBound? = null) = NetworkHistoryView.over(
+    private fun liveView(epochId: String?, ctx: HistoryContext, run: io.yamsergey.dta.daemon.store.RunBound? = null, stop: io.yamsergey.dta.protocol.network.PatternStop = io.yamsergey.dta.protocol.network.PatternStop.NONE) = NetworkHistoryView.over(
         store.sources({ listOfNotNull(epochId) }, { run }), { ctx },
-        { e, p -> hostBodyBytes(epochId, e, p) }, { entry, part -> decodedJson(entry, part, epochId) { socketOf(epochId, it) } }, readEnvelope,
+        { e, p -> hostBodyBytes(epochId, e, p) }, { entry, part -> decodedJson(entry, part, epochId) { socketOf(epochId, it) } }, readEnvelope, { stop },
     )
 
     /** Feature 071: the app's current run of [epochId] as the default scope reads it (nothing while none was recorded). */
@@ -164,7 +164,7 @@ class HostIndex(
         store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true)).map { it.id } + listOfNotNull(epochId)
 
     /** Feature 071 (FR-002): the whole history this computer keeps for the app, with the live context. */
-    private fun wholeView(epochId: String?, ctx: HistoryContext): NetworkHistoryView {
+    private fun wholeView(epochId: String?, ctx: HistoryContext, stop: io.yamsergey.dta.protocol.network.PatternStop = io.yamsergey.dta.protocol.network.PatternStop.NONE): NetworkHistoryView {
         val ids = wholeIds(epochId)
         fun epochOf(e: NetworkEntry): String? = if (epochId != null && store.entry(epochId, e.id) != null) epochId else store.epochOf(ids, e.id)
         fun byId(id: String): NetworkEntry? = socketOf(epochId, id) ?: store.epochOf(ids, id)?.let { store.entry(it, id) }
@@ -172,7 +172,7 @@ class HostIndex(
             store.sources({ ids }), { ctx },
             { e, p -> if (NetworkHistoryView.bodyOf(e, p)?.wholeText() != null) hostBodyBytes(null, e, p) else hostBodyBytes(epochOf(e), e, p) },
             { entry, part -> decodedJson(entry, part, epochOf(entry), ::byId) },
-            readEnvelope,
+            readEnvelope, { stop },
         )
     }
 
@@ -541,6 +541,42 @@ class HostIndex(
     }
 
     /**
+     * Feature 071: a streamed search's walk, ready to run on the search pool: caught up and its bodies
+     * copied first (as [search]), then [Pass.walk] reads the scope on one snapshot, outside the mutex.
+     */
+    class Pass(val scope: io.yamsergey.dta.protocol.network.HistoryScope, val walk: (stop: io.yamsergey.dta.protocol.network.PatternStop, onItem: (io.yamsergey.dta.protocol.network.FoundItem) -> Unit) -> io.yamsergey.dta.protocol.network.FindEnd)
+
+    suspend fun find(query: NetworkQuery, limit: Int?): Pass {
+        query.archiveScope?.let { scope ->
+            val epochs = store.epochs(device.key, packageName, scope)
+            val ids = epochs.map { it.id }
+            val marks = epochs.associate { it.id to mark(it) }
+            return Pass(explicitScope(scope, epochs)) { stop, onItem ->
+                archiveView(epochs, stop).find(query, limit) { item -> onItem(item.copy(archived = store.epochOf(ids, item.entry.id)?.let { marks.getValue(it) })) }
+            }
+        }
+        var at: Pair<String?, HistoryContext>? = null
+        val toCopy = mutex.withLock {
+            val app = connection()
+            check(sync(app)) { "this app keeps no history to search on this computer" }
+            (if (needsBodies(query)) pending() else emptyList()).also { if (it.isEmpty()) at = epoch?.id to context!! }
+        }
+        copyAll(toCopy)
+        val (epochId, ctx) = at ?: mutex.withLock { epoch?.id to context!! }
+        val scope = scopeOf(query, epochId, ctx)
+        return Pass(scope) { stop, onItem ->
+            val view = if (query.archive) wholeView(epochId, ctx, stop) else liveView(epochId, ctx, runBound(epochId, ctx), stop)
+            val archivedMarks = if (query.archive) store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true)).associate { it.id to mark(it) } else emptyMap()
+            val archivedIds = archivedMarks.keys.toList()
+            view.find(query, limit) { item ->
+                val mark = if (archivedIds.isEmpty() || (epochId != null && store.entry(epochId, item.entry.id) != null)) null
+                else store.epochOf(archivedIds, item.entry.id)?.let { archivedMarks.getValue(it) }
+                onItem(if (mark != null) item.copy(archived = mark) else item)
+            }
+        }
+    }
+
+    /**
      * Feature 065: the entries of the live history [query] lets through (Network's evaluator), for
      * the Timeline. Throws, saying why, when the app keeps no journal to copy.
      */
@@ -628,7 +664,7 @@ class HostIndex(
         io.yamsergey.dta.protocol.network.HistoryScope(archive = false, entries = epochs.sumOf { store.networkCount(it.id).toLong() }, explicit = scope.text())
 
     /** [epochs] (in the order they were opened) as one answer reads them, from disk (feature 069). */
-    private fun archiveView(epochs: List<Epoch>): NetworkHistoryView {
+    private fun archiveView(epochs: List<Epoch>, stop: io.yamsergey.dta.protocol.network.PatternStop = io.yamsergey.dta.protocol.network.PatternStop.NONE): NetworkHistoryView {
         val ids = epochs.map { it.id }
         val stored = ids.sumOf { store.entryCount(it) }
         val context = HistoryContext(
@@ -647,7 +683,7 @@ class HostIndex(
                 raw?.let { BodyCodec.decode(it, info.encoding).let { d -> NetworkFilterEval.BodyBytes(d.bytes, d.decoded) } }
             },
             { entry, part -> decodedJson(entry, part, store.epochOf(ids, entry.id), ::byId) },
-            readEnvelope,
+            readEnvelope, { stop },
         )
     }
 

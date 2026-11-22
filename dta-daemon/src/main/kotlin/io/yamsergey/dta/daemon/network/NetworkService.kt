@@ -62,6 +62,16 @@ class NetworkService(
     suspend fun passing(query: NetworkQuery): io.yamsergey.dta.protocol.network.NetworkHistoryView.Passing =
         host?.passing(query) ?: error("this app's network history is not kept on this computer, so Network's filters cannot be applied to its timeline")
 
+    /** Feature 071: a streamed search's walk over the host copy (the app alone cannot search). */
+    suspend fun find(query: NetworkQuery, limit: Int?): HostIndex.Pass =
+        host?.find(query, limit) ?: throw IllegalStateException("this app's network history is not kept on this computer, so it cannot be searched as it streams")
+
+    /** Feature 071: one streamed row as the list shows it: redacted here and only here (VI). */
+    fun redactItem(item: io.yamsergey.dta.protocol.network.FoundItem): Pair<io.yamsergey.dta.protocol.network.FoundItem, RedactionInfo> {
+        val (entry, info) = Redactor.entry(item.entry)
+        return item.copy(entry = entry) to info
+    }
+
     /** Feature 040: entries with search hits; the host copy searches (the app alone cannot). */
     suspend fun search(query: NetworkQuery, view: String? = null): io.yamsergey.dta.protocol.network.SearchPage =
         (if (view != null) host?.search(query, view) else host?.search(query)) ?: io.yamsergey.dta.protocol.network.SearchPage(

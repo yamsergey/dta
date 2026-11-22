@@ -364,6 +364,60 @@ class DtaDaemon(
         return savedFilters.applied(pkg, query, { service.search(it) }, { p, saved -> p.copy(saved = saved) })
     }
 
+    /** Feature 071 (research R6): where streamed searches run, apart from requests and the feed. */
+    val searches = io.yamsergey.dta.daemon.network.SearchRunner()
+
+    /** Feature 071: masked or withheld locations a streamed answer lists before it only counts them. */
+    private val MAX_LOCATIONS = 1_000
+
+    /** Feature 071: what [networkFind] covered and how it ended. */
+    class FindResult(
+        val end: io.yamsergey.dta.protocol.network.FindEnd,
+        val scope: io.yamsergey.dta.protocol.network.HistoryScope,
+        val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied?,
+        val redaction: io.yamsergey.dta.protocol.network.RedactionInfo?,
+    )
+
+    /**
+     * Feature 071 (FR-006): [query]'s rows streamed as they are found: [started] once the scope is known,
+     * [waitingAt] while over the concurrent limit, [send] for each batch, against [credit]. Saved filters,
+     * redaction and the message formats apply as in [network]. Cancelling the caller stops it.
+     */
+    suspend fun networkFind(
+        serial: String, pkg: String, query: NetworkQuery, limit: Int?,
+        credit: io.yamsergey.dta.daemon.network.Credit,
+        waitingAt: suspend (Int) -> Unit,
+        started: suspend (io.yamsergey.dta.protocol.network.HistoryScope, io.yamsergey.dta.protocol.network.SavedFiltersApplied?) -> Unit,
+        send: suspend (List<io.yamsergey.dta.protocol.network.FoundItem>) -> Unit,
+    ): FindResult {
+        val service = networkService(serial, pkg)
+        var saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null
+        val pass = savedFilters.applied(pkg, query, { q -> service.find(q, limit) to q }, { p, applied -> saved = applied; p })
+        started(pass.first.scope, saved)
+        val masked = mutableListOf<String>()
+        val withheld = mutableListOf<String>()
+        var moreMasked = 0
+        var moreWithheld = 0
+        val hasRules = formats.list(pkg).isNotEmpty()
+        val end = io.yamsergey.dta.daemon.network.FindPipeline.run(searches, credit, waitingAt, pass.first.walk) { items ->
+            val shown = if (!query.redact) items else items.map { item ->
+                service.redactItem(item).let { (r, info) ->
+                    // A stream may mask in every row: the first locations are listed, the rest counted.
+                    info.masked.forEach { if (masked.size < MAX_LOCATIONS) masked += it else moreMasked++ }
+                    info.withheld.forEach { if (withheld.size < MAX_LOCATIONS) withheld += it else moreWithheld++ }
+                    r
+                }
+            }
+            val texts = if (hasRules) fullTexts(service, pkg, shown.mapNotNull { it.entry as? io.yamsergey.dta.protocol.network.WsMessageEntry }, query.redact, rulesToApply = true) else { _ -> null }
+            send(if (hasRules) shown.map { it.copy(entry = formats.annotate(pkg, it.entry, texts)) } else shown)
+        }
+        val redaction = if (query.redact) io.yamsergey.dta.protocol.network.RedactionInfo(
+            masked = masked + listOfNotNull(moreMasked.takeIf { it > 0 }?.let { "… and $it more" }),
+            withheld = withheld + listOfNotNull(moreWithheld.takeIf { it > 0 }?.let { "… and $it more" }),
+        ) else null
+        return FindResult(end, pass.first.scope, saved, redaction)
+    }
+
     /** Feature 043: the app's saved network filters. */
     fun networkFilters(pkg: String) = savedFilters.state(pkg)
     fun networkFiltersAdd(pkg: String, words: String) = savedFilters.add(pkg, words)
