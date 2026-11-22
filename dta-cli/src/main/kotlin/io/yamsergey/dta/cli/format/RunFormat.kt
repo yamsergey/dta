@@ -32,7 +32,10 @@ class RunFormat(private val style: Style, private val sidekickVersion: String) {
     }
 
     fun summary(result: RunResult): String = buildList {
-        result.device?.let { add(row("Device", it.serial + (it.model?.let { m -> " ($m)" } ?: ""))) }
+        result.device?.let { d ->
+            val known = listOfNotNull(d.model, d.api?.let { "API $it" })
+            add(row("Device", d.serial + if (known.isEmpty()) "" else known.joinToString(", ", " (", ")")))
+        }
         if (result.module != null) add(row("Project", "${result.project}  module ${result.module}  variant ${result.variant}"))
         result.steps.forEach { step ->
             when (step.step) {

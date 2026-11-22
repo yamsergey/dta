@@ -23,7 +23,7 @@ class RunSessionTest {
         assertEquals(0, result.exitCode)
         assertEquals(listOf(StepName.RESOLVE, StepName.BUILD, StepName.LAUNCH, StepName.CONNECT), result.steps.map { it.step })
         assertTrue(result.steps.all { it.outcome == StepOutcome.OK })
-        assertEquals(DeviceSummary(SERIAL, "Pixel 8"), result.device)
+        assertEquals(DeviceSummary(SERIAL, "Pixel 8", 37), result.device, "device.api is the device's API level (010 contract)")
         assertEquals(":app", result.module)
         assertEquals("debug", result.variant)
         assertEquals(APP_ID, result.applicationId)
@@ -32,6 +32,13 @@ class RunSessionTest {
         assertNull(result.failure)
         assertTrue(File(result.log!!).isFile, "the build log is kept")
         assertNotNull(result.steps.first { it.step == StepName.BUILD }.phases)
+    }
+
+    @Test
+    fun `an API level that cannot be read leaves device api null and the run goes on`() = runBlocking<Unit> {
+        val result = Harness(device = FakeDevice(api = null)).run()
+        assertEquals(RunOutcome.CONNECTED, result.outcome)
+        assertEquals(DeviceSummary(SERIAL, "Pixel 8", null), result.device)
     }
 
     @Test

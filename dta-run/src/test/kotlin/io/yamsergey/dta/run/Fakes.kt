@@ -70,6 +70,7 @@ class FakeDevice(
     var launch: LaunchOutcome = LaunchOutcome.Started(restarted = false),
     /** pidOf answers in order (before the build when a last run is known, before the launch, after it); the last repeats. */
     var pids: MutableList<Long?> = mutableListOf(null, 4242),
+    var api: Int? = 37,
 ) : DeviceActions {
     val started = mutableListOf<String>()
     val calls = mutableListOf<String>()
@@ -81,6 +82,8 @@ class FakeDevice(
         started += component
         return launch
     }
+
+    override suspend fun apiLevel(serial: String): Int? = api
 
     override suspend fun pidOf(serial: String, applicationId: String): Long? {
         calls += "pidof"

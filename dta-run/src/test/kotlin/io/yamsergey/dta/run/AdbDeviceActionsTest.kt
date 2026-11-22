@@ -36,6 +36,13 @@ class AdbDeviceActionsTest {
     }
 
     @Test
+    fun `getprop ro build version sdk gives the API level or nothing`() {
+        assertEquals(37, AdbDeviceActions.parseApi("37\n"))
+        assertNull(AdbDeviceActions.parseApi("\n"))
+        assertNull(AdbDeviceActions.parseApi("error: device offline\n"))
+    }
+
+    @Test
     fun `pidof gives a pid or nothing`() {
         assertEquals(4242L, AdbDeviceActions.parsePid("4242\n"))
         assertEquals(4242L, AdbDeviceActions.parsePid("4242 4250\n"))

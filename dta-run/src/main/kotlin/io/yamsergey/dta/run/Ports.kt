@@ -23,6 +23,9 @@ interface DeviceActions {
     suspend fun start(serial: String, component: String): LaunchOutcome
 
     suspend fun pidOf(serial: String, applicationId: String): Long?
+
+    /** The device's API level (`ro.build.version.sdk`), or null when it cannot be read. */
+    suspend fun apiLevel(serial: String): Int?
 }
 
 /** The device the daemon's rule chose, or why none. */

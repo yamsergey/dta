@@ -21,6 +21,8 @@ class AdbDeviceActions(private val adb: suspend () -> String) : DeviceActions {
 
     override suspend fun pidOf(serial: String, applicationId: String): Long? = parsePid(shell(serial, "pidof", applicationId).output)
 
+    override suspend fun apiLevel(serial: String): Int? = parseApi(shell(serial, "getprop", "ro.build.version.sdk").output)
+
     private data class Result(val exit: Int, val output: String)
 
     private suspend fun shell(serial: String, vararg command: String): Result = withContext(Dispatchers.IO) {
@@ -50,6 +52,9 @@ class AdbDeviceActions(private val adb: suspend () -> String) : DeviceActions {
             if (exit != 0) return LaunchOutcome.Failed(lines.lastOrNull { it.isNotEmpty() } ?: "am start exited with $exit")
             return LaunchOutcome.Started(restarted = false)
         }
+
+        /** `getprop ro.build.version.sdk` prints the number alone; anything else is not known. */
+        fun parseApi(output: String): Int? = output.trim().toIntOrNull()
 
         /** `pidof` prints nothing when the app does not run; several pids (several processes) give the first. */
         fun parsePid(output: String): Long? = output.trim().split(Regex("\\s+")).firstOrNull()?.toLongOrNull()

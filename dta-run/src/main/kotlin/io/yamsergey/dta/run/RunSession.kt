@@ -37,6 +37,7 @@ class RunSession(
     private inner class Run(private val request: RunRequest, private val progress: (RunProgress) -> Unit) {
         private val steps = mutableListOf<Step>()
         private var chosen: DeviceChoice.Chosen? = null
+        private var api: Int? = null
         private var log: File? = null
         private var selection: RunSelection? = null
         private var injection: ProjectInjection? = null
@@ -52,7 +53,7 @@ class RunSession(
         private fun result(outcome: RunOutcome, code: ExitCode, failure: Failure? = null) = RunResult(
             outcome = outcome,
             exitCode = code.code,
-            device = chosen?.let { DeviceSummary(it.serial, it.model) },
+            device = chosen?.let { DeviceSummary(it.serial, it.model, api) },
             project = request.project.path,
             module = selection?.module,
             variant = selection?.variant,
@@ -99,7 +100,11 @@ class RunSession(
                     }
                 }
                 when (choice) {
-                    is DeviceChoice.Chosen -> chosen = choice
+                    is DeviceChoice.Chosen -> {
+                        chosen = choice
+                        // Only reported (contracts/run.md device.api): a device that does not answer does not stop the run.
+                        api = runCatching { device.apiLevel(choice.serial) }.getOrNull()
+                    }
                     DeviceChoice.NoDevice -> return fail(
                         StepName.RESOLVE, resolving, ExitCode.NOT_AVAILABLE,
                         "No device is connected.", "Start an emulator or connect a device with USB debugging, then run again.",

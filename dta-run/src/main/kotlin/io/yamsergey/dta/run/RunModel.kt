@@ -96,7 +96,12 @@ enum class ExitCode(val code: Int) {
 }
 
 @Serializable
-data class DeviceSummary(val serial: String, val model: String? = null)
+data class DeviceSummary(
+    val serial: String,
+    val model: String? = null,
+    /** The device's API level (contracts/run.md `device.api`); null when it could not be read. */
+    val api: Int? = null,
+)
 
 /** The whole run (contracts/run.md JSON); also the `app_run` result. */
 @Serializable

@@ -97,7 +97,7 @@ class RunCommandTest {
     }
 
     private val connected = RunResult(
-        RunOutcome.CONNECTED, 0, DeviceSummary("emulator-5554", "Pixel 8"), "/work/shop", ":app", "debug", "io.example.shop", "io.example.shop/.MainActivity",
+        RunOutcome.CONNECTED, 0, DeviceSummary("emulator-5554", "Pixel 8", 37), "/work/shop", ":app", "debug", "io.example.shop", "io.example.shop/.MainActivity",
         ProjectInjection(":app", InjectionOutcome.INJECTED, tooling = ToolingInjection(ToolingOutcome.INJECTED, "1.11.4")),
         listOf(
             Step(StepName.RESOLVE, StepOutcome.OK, 120),
@@ -112,13 +112,22 @@ class RunCommandTest {
     fun `a connected run prints the contract's summary`() {
         val text = RunFormat(Style.PLAIN, sidekickVersion = "0.11.0").summary(connected)
         val lines = text.lines()
-        assertEquals("Device   emulator-5554 (Pixel 8)", lines[0])
+        assertEquals("Device   emulator-5554 (Pixel 8, API 37)", lines[0])
         assertEquals("Project  /work/shop  module :app  variant debug", lines[1])
         assertEquals("Build    ok 41.2 s  (configure 3.1 s · compile 31.0 s · package 4.4 s · install 2.7 s)", lines[2])
         assertEquals("DTA      ok injected dta-sidekick 0.11.0 · Compose tooling data 1.11.4 added", lines[3])
         assertEquals("Launch   ok io.example.shop/.MainActivity (restarted)", lines[4])
         assertEquals("DTA      ok connected in 1.3 s", lines[5])
         assertEquals("Log      /home/.dta/logs/run-1.log", lines[6])
+    }
+
+    @Test
+    fun `the device line names what is known of model and API level`() {
+        val format = RunFormat(Style.PLAIN, sidekickVersion = "0.11.0")
+        fun first(device: DeviceSummary) = format.summary(connected.copy(device = device)).lines()[0]
+        assertEquals("Device   emulator-5554 (API 37)", first(DeviceSummary("emulator-5554", null, 37)))
+        assertEquals("Device   emulator-5554 (Pixel 8)", first(DeviceSummary("emulator-5554", "Pixel 8", null)))
+        assertEquals("Device   emulator-5554", first(DeviceSummary("emulator-5554")))
     }
 
     @Test
@@ -138,6 +147,7 @@ class RunCommandTest {
     fun `json is the result document`() {
         val doc = Json.parseToJsonElement(RunFormat.json(connected)).jsonObject
         assertEquals("connected", doc["outcome"]!!.jsonPrimitive.content)
+        assertEquals("37", doc["device"]!!.jsonObject["api"]!!.jsonPrimitive.content)
         assertEquals("injected", doc["injection"]!!.jsonObject["outcome"]!!.jsonPrimitive.content)
         assertTrue(doc.containsKey("failure"), "null fields are present, as in the contract")
     }
