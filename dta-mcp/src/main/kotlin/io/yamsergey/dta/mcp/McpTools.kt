@@ -142,6 +142,7 @@ class McpTools(
             Results state how values were obtained: fallback captures, degraded markers, incomplete bodies, script interventions. Read them before drawing conclusions.
             To follow traffic over time, call network_list with sinceMs set to the time of your previous call.
             To find where a value appeared in traffic, use network_search with words (q); network_list takes the same query line (filters like status:4xx host:x body:text body:/"id":\s*\d+/ dir:received type:order.update, -key:value to leave out).
+            Network answers cover the app's current run (since its process last started); the answer's scope says how much more this computer keeps. Pass archive: true to include earlier runs and archived history. network_search streams with progress and stops when you cancel it; no time limit cuts it.
             Network scripts (network_script_set) change traffic inside the app: read the resource dta://network/script-api for the full API and recipes before writing one, then check network_script_status and network_script_logs — a handler that fails leaves traffic unchanged and says so only there.
             WebSocket text messages carry an envelope (format, kind, id, topic, payload); for an app's own protocol, try a rule with network_format_test and keep it with network_format_add.
         """.trimIndent()

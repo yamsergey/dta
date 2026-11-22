@@ -181,7 +181,8 @@ object Catalog {
         "HTTP: method:, status: (200, 4xx, failed, pending), header:name or header:name=text, req: / resp: (text in the request or response body), mime:json, duration:>1s, size:>100k; " +
         "WebSocket: dir:sent|received, frame:text|binary, type: and topic: (as the message format reads them), conn:<connection id>, status:open|closed|connecting|failed|1006, header: (handshake), size:; " +
         "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched, fuzzily " +
-        "(case and separators ignored, one typo allowed in words of 5+ letters, numbers exact), in URLs, headers, bodies and message payloads."
+        "(case and separators ignored, one typo allowed in words of 5+ letters, numbers exact), in URLs, headers, bodies and message payloads. " +
+        "Answers cover the app's current run unless archive is on (run:all alone widens nothing; run:current narrows a whole-history answer). No time limit cuts a pattern or a search."
 
     /** Feature 067: a live view's name. 069 R13: no match sets are reused; 070: only a different query supersedes. */
     private val VIEW = ParamSpec(
@@ -334,7 +335,8 @@ object Catalog {
         ),
         OperationSpec(
             "network.search",
-            "Find where words occur in captured traffic: the entries holding every search word of the query, in list order, each with its hits — the place (url, request/response header, request/response body, payload, envelope), the matched span and a short excerpt. Use it to find where a value appeared without reading every body.",
+            "Find where words occur in captured traffic: the entries holding every search word of the query, in list order, each with its hits — the place (url, request/response header, request/response body, payload, envelope), the matched span and a short excerpt. Use it to find where a value appeared without reading every body. " +
+                "It covers the app's current run unless archive is on. It streams: the CLI prints entries as they are found (Ctrl-C stops it), an agent gets progress and the answer when limit entries are found, the scope is read, or it cancels; state says which (done, limit, stopped).",
             Scope.APP,
             listOf(
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP At least one search word is needed.", required = true, positional = true),

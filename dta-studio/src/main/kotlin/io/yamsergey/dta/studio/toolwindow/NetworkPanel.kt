@@ -145,6 +145,8 @@ class NetworkPanel(
             "WebSocket: dir:sent|received frame:text|binary type: topic: conn: status:open|closed|1006<br>" +
             "body: req: resp: take text or a /regex/ pattern: body:/\"id\":\\s*\\d+/ (case ignored; body:\"/x/\" is literal text)<br>" +
             "-key:value leaves matches out; other words are searched in URLs, headers, bodies and messages: only the matches are listed.<br>" +
+            "The list and search cover the app's current run; Archive includes earlier runs and archived history (run:all alone does not).<br>" +
+            "A search shows its matches as it finds them; Stop (or a new query) ends it. No time limit cuts a pattern.<br>" +
             "Enter saves the filters for this app as chips; with only search words Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.<br>" +
             "${completionShortcut()} or Down lists every filter at the caret.</html>"
     }

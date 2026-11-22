@@ -182,7 +182,7 @@ class CliTest {
         assertEquals(0, dta("network", "list"))
         assertTrue("device emulator-5554 (only device) · app com.example.shop (foreground)" in stderr, stderr)
         assertTrue("POST" in stdout && "503" in stdout && "* scripted" in stdout && ".. pending" in stdout, stdout)
-        assertTrue(Regex("3 shown · \\d+ in the history").containsMatchIn(stdout), stdout)
+        assertTrue(Regex("3 shown · \\d+ in this run · earlier runs are in the archive \\(--archive includes them\\)").containsMatchIn(stdout), stdout)
     }
 
     @Test

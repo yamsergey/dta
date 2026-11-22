@@ -74,7 +74,47 @@ class ArchiveScaleBench {
             val restarted = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, last) }
             val (_, restartMs) = ms { runBlocking { restarted.list(NetworkQuery(limit = 100)) } }
             println("BENCH n=$n words: start+first with the index=${restartMs}ms")
+            // Feature 071: streamed searches with the switch on — first row (SC-005), every row of a common word and memory (SC-007).
+            SearchRunner().use { runner ->
+                fun first(q: String): Pair<Long, Long> {
+                    val started = System.nanoTime()
+                    var at = -1L
+                    var rows = 0L
+                    runBlocking {
+                        val pass = host.find(NetworkQuery(q = q, archive = true), null)
+                        kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                            FindPipeline.run(runner, Credit(Int.MAX_VALUE), {}, pass.walk) { batch ->
+                                if (at < 0) at = (System.nanoTime() - started) / 1_000_000
+                                rows += batch.size
+                                if (rows >= 100) throw kotlinx.coroutines.CancellationException("enough")
+                            }
+                        }
+                    }
+                    return at to rows
+                }
+                val firsts = listOf("item-123460-0", "item-12", "tick", "price 4242", "body:/item-12\\d+-3/").joinToString(" ") { q -> first(q); first(q).let { (t, r) -> "«$q»=${t}ms($r)" } }
+                println("BENCH n=$n find archive=on first rows: $firsts")
+                val heap0 = heapMb()
+                var peak = 0L
+                var all = 0L
+                val (_, allMs) = ms {
+                    runBlocking {
+                        val pass = host.find(NetworkQuery(q = "tick", archive = true), null)
+                        FindPipeline.run(runner, Credit(Int.MAX_VALUE), {}, pass.walk) { batch ->
+                            all += batch.size
+                            if (all % 100_000 < batch.size) { val r = Runtime.getRuntime(); peak = maxOf(peak, (r.totalMemory() - r.freeMemory()) shr 20) }
+                        }
+                    }
+                }
+                println("BENCH n=$n find archive=on «tick» every row: $all rows in ${allMs}ms, heap before=${heap0}MB peak sampled=${peak}MB after=${heapMb()}MB")
+            }
             store.close()
+            // Feature 071 (research R2): format 3 → 4, the runs counted once from what is kept.
+            java.sql.DriverManager.getConnection("jdbc:sqlite:${File(root, "dta.db").path}").use { c ->
+                c.createStatement().use { st -> st.execute("DROP TRIGGER run_added"); st.execute("DROP TRIGGER run_removed"); st.execute("DROP TABLE run"); st.execute("PRAGMA user_version=3") }
+            }
+            val (_, migrateMs) = ms { HostStore(root).close() }
+            println("BENCH n=$n format 3→4 (run counters backfilled) in ${migrateMs}ms")
         }
     }
 }
