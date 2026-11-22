@@ -88,7 +88,7 @@ class WordIndexEquivalenceTest {
             1 -> words.filter { it.length >= 6 }.random(r).let { it.substring(0, it.length - 1) + "z" }
             2 -> "\"${words.random(r)} ${words.random(r)}\""
             3 -> "body:${words.random(r)}"
-            4 -> listOf("ab", "x9", "12", "body:/item-\\d+/", "body:/(tick|boom)/", "body:/pay.*ment/", "body:/orders?x/", "body:/[a-z]+beat/").random(r)
+            4 -> listOf("ab", "x9", "12", "body:/item-\\d+/", "body:/(tick|boom)/", "body:/pay.*ment/", "body:/orders?x/", "body:/[a-z]+beat/", "redacted", "body:redacted", "body:/\\[redacted\\]/").random(r)
             else -> words.random(r).uppercase()
         }
     }
@@ -135,7 +135,7 @@ class WordIndexEquivalenceTest {
             val read = NetworkHistoryView.over(whole { epochs }, ::context, bytes)
             repeat(4) {
                 val q = line(r)
-                var query = NetworkQuery(q = q, limit = r.nextInt(1, 12), order = Order.entries.random(r), allRows = r.nextInt(6) == 0,
+                var query = NetworkQuery(q = q, limit = r.nextInt(1, 12), order = Order.entries.random(r), allRows = r.nextInt(6) == 0, redact = r.nextInt(3) == 0,
                     filter = if (r.nextInt(4) == 0) NetworkFilter(status = listOf("2xx", "404", "5xx").random(r)) else null)
                 repeat(3) {
                     val a = runCatching { read.list(query) }
@@ -145,7 +145,7 @@ class WordIndexEquivalenceTest {
                     if ((a.getOrNull()?.entries?.size ?: 0) > 0) narrowed++
                     query = query.copy(before = a.getOrNull()?.next ?: return@repeat)
                 }
-                var s = NetworkQuery(q = q, limit = r.nextInt(1, 10), order = Order.entries.random(r))
+                var s = NetworkQuery(q = q, limit = r.nextInt(1, 10), order = Order.entries.random(r), redact = r.nextInt(3) == 0)
                 repeat(3) {
                     val a = runCatching { read.search(s) }
                     val b = runCatching { indexed.search(s) }
