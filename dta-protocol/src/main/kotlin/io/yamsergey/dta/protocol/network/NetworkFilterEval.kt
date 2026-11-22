@@ -21,8 +21,8 @@ class NetworkFilterEval(
     private val decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
     /** Feature 051: a text message's envelope as its format reads it (whole text when known); null: none or binary. */
     private val envelope: ((WsMessageEntry) -> Envelope?)? = null,
-    /** Feature 053: time for body patterns, shared with the exclusions (one answer, one budget). */
-    val budget: PatternBudget = PatternBudget(),
+    /** Feature 071: called while patterns match; throws to stop the answer (no time limit, FR-005). */
+    private val check: () -> Unit = {},
     /** Match bodies as redacted (040, 053): a masked value is matched by nothing. */
     private val redact: Boolean = false,
     private val bodyBytes: (NetworkEntry, BodyPart) -> BodyBytes?,
@@ -174,7 +174,7 @@ class NetworkFilterEval(
         }
     }
 
-    /** Feature 053: the bodies of [entry] in [parts] where [text] matches, within the budget; records the spans. */
+    /** Feature 053: the bodies of [entry] in [parts] where [text] matches, to the end; records the spans. */
     private fun patternMatches(entry: NetworkEntry, text: String, parts: (BodyPart) -> Boolean): List<MatchLocation> {
         val p = pattern(text)
         return bodies(entry).filter { parts(it.second) }.mapNotNull { (info, part) ->
@@ -184,13 +184,13 @@ class NetworkFilterEval(
             } else null
             val haystack = (if (decodedJson != null) shown(decodedJson, "application/json") else shown(String(body.bytes, Charsets.UTF_8), info.contentType))
                 ?: return@mapNotNull null
-            val found = budget.find(p, haystack) as? PatternBudget.Outcome.Found ?: return@mapNotNull null
+            val found = BodyPattern.find(p, haystack, check) ?: return@mapNotNull null
             patternHits.getOrPut(entry.id) { mutableListOf() } += SearchHit(
-                entry.id, place(part), "/$text/", found.start, found.end,
-                Fuzzy.excerpt(haystack, Fuzzy.Span(found.start, found.end)), part,
+                entry.id, place(part), "/$text/", found.first, found.second,
+                Fuzzy.excerpt(haystack, Fuzzy.Span(found.first, found.second)), part,
             )
             if (decodedJson != null) {
-                val paths = DecodedFields.paths(haystack) { v -> budget.find(p, v) is PatternBudget.Outcome.Found }
+                val paths = DecodedFields.paths(haystack) { v -> BodyPattern.find(p, v, check) != null }
                 if (paths.isNotEmpty()) fieldPaths.getOrPut(entry.id) { mutableListOf() } += paths
                 when (part) {
                     BodyPart.REQUEST, BodyPart.APP_REQUEST -> MatchLocation.REQUEST_BODY_DECODED
@@ -218,7 +218,7 @@ class NetworkFilterEval(
     private val exclusions = HashMap<NetworkFilter, NetworkFilterEval>()
 
     private fun excluded(f: NetworkFilter): NetworkFilterEval = exclusions.getOrPut(f) {
-        NetworkFilterEval(f, liveRunId, connectionUrl, decoded, envelope, budget, redact, bodyBytes)
+        NetworkFilterEval(f, liveRunId, connectionUrl, decoded, envelope, check, redact, bodyBytes)
     }
 
     /** Not searched by the exclusions' body searches. */

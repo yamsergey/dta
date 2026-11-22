@@ -31,12 +31,11 @@ class NetworkFilterPatternTest {
         (tick.id to BodyPart.MESSAGE) to """{"type":"tick","symbol":"ACME"}""",
     )
 
-    private fun eval(f: NetworkFilter, budget: PatternBudget = PatternBudget()) = NetworkFilterEval(
+    private fun eval(f: NetworkFilter) = NetworkFilterEval(
         filter = f,
         liveRunId = "a",
         connectionUrl = { "wss://push.example.test/s" },
         decoded = { e, _ -> if (e.id == proto.id) """{"items":[{"name":"Widget 42"}]}""" else null },
-        budget = budget,
         bodyBytes = { entry, part -> texts[entry.id to part]?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.ISO_8859_1), true) } },
     )
 
@@ -84,22 +83,5 @@ class NetworkFilterPatternTest {
         assertEquals("/\"price\":\\d+\\.\\d+/", hit.term)
         assertEquals("\"price\":19.57", texts[quote.id to BodyPart.RESPONSE]!!.substring(hit.start, hit.end))
         assertTrue(hit.excerpt.text.contains("19.57"))
-    }
-
-    @Test
-    fun `a runaway pattern is cut by the budget and counted`() {
-        val slow = "a".repeat(200)
-        val many = (1..20).map { i ->
-            WsMessageEntry("b:$i", "a", i.toLong(), "okhttp3-ws", connectionId = "a:9", direction = Direction.IN, opcode = MessageOpcode.TEXT, payload = body(BodyPart.MESSAGE))
-        }
-        val budget = PatternBudget(perBodyMs = 20, totalMs = 200)
-        val e = NetworkFilterEval(NetworkFilter(bodyPattern = "(.*a){12}x"), "a", { null }, budget = budget,
-            bodyBytes = { _, _ -> NetworkFilterEval.BodyBytes(slow.toByteArray(), true) })
-        val started = System.nanoTime()
-        val kept = many.filter { e.matches(it) != null }
-        val tookMs = (System.nanoTime() - started) / 1_000_000
-        assertEquals(emptyList<String>(), kept.map { it.id })
-        assertEquals(20, budget.skipped)
-        assertTrue(tookMs < 1_500, "took $tookMs ms")
     }
 }

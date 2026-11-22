@@ -20,11 +20,10 @@ class HistoryPatternTest {
     private val entries = data.map { it.first }
     private val bodies = data.associate { it.first.id to it.second }
 
-    private fun view(budget: () -> PatternBudget = { PatternBudget() }) = NetworkHistoryView(
+    private fun view() = NetworkHistoryView(
         { entries }, { id -> entries.firstOrNull { it.id == id } },
         { HistoryContext("r1", Coverage(searched = 0, stored = entries.size, persisted = true), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE)) },
         bodyBytes = { e, _ -> bodies[e.id]?.let { NetworkFilterEval.BodyBytes(it.toByteArray(), true) } },
-        patternBudget = budget,
     )
 
     @Test
@@ -45,12 +44,5 @@ class HistoryPatternTest {
         val both = v.search(NetworkQuery(q = "body:/orderid/ ok"))
         assertEquals(listOf("r1:1"), both.entries.map { it.id })
         assertEquals(setOf("/orderid/", "ok"), both.entries.single().hits.map { it.term }.toSet())
-    }
-
-    @Test
-    fun `bodies cut by the budget are stated`() {
-        val page = view { PatternBudget(perBodyMs = 20, totalMs = 500) }.list(NetworkQuery(q = "body:/(.*a){12}x/"))
-        assertEquals(emptyList<String>(), page.entries.map { it.id })
-        assertTrue(page.coverage.notSearched!!.any { it.startsWith("bodies skipped: pattern too slow (1)") }, page.coverage.notSearched.toString())
     }
 }

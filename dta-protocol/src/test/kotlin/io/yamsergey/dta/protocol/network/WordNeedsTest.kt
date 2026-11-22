@@ -258,22 +258,21 @@ class WordNeedsTest {
     }
 
     @Test
-    fun `under a spent pattern budget the index finds what a whole read ran out of time for`() {
+    fun `with no time budget an indexed answer equals a whole read, statements included`() {
         val entries = (0 until 30).map { n ->
             val text = if (n == 0) "{\"order\":\"order-77\"}" else "{\"tick\":$n}"
             HttpEntry("e$n", "r", n.toLong(), "okhttp3", method = "GET", url = "https://api.example.test/$n", state = HttpState.COMPLETE,
                 responseBody = BodyInfo(BodyPart.RESPONSE, text.length.toLong(), contentType = "application/json", completeness = Completeness.COMPLETE, preview = text))
         }
         val w = World(entries, entries.associate { (it.id to BodyPart.RESPONSE) to NetworkFilterEval.BodyBytes(it.responseBody!!.preview!!.toByteArray(), true) }, emptyMap())
-        // Each body read costs 10 ms of a 100 ms answer.
-        val budget = { var now = 0L; PatternBudget(perBodyMs = 50, totalMs = 100) { now += 5_000_000; now } }
-        val whole = NetworkHistoryView.over(EntrySourceProvider { ListEntrySource(entries) }, { context(w) }, w.bodyBytes, w.decode, patternBudget = budget)
-        val indexed = NetworkHistoryView.over(NeedsProvider(w), { context(w) }, w.bodyBytes, w.decode, patternBudget = budget)
+        val whole = NetworkHistoryView.over(EntrySourceProvider { ListEntrySource(entries) }, { context(w) }, w.bodyBytes, w.decode)
+        val indexed = NetworkHistoryView.over(NeedsProvider(w), { context(w) }, w.bodyBytes, w.decode)
         val q = NetworkQuery(q = "body:/order-\\d+/", limit = 10)
         val a = whole.list(q)
         val b = indexed.list(q)
-        assertEquals(emptyList(), a.entries.map { it.id }, "the whole read spent its time on the newer bodies")
-        assertTrue(a.coverage.notSearched.orEmpty().isNotEmpty(), "and says so: ${a.coverage}")
-        assertEquals(listOf("e0"), b.entries.map { it.id })
+        assertEquals(listOf("e0"), a.entries.map { it.id })
+        assertEquals(a.entries, b.entries)
+        assertEquals(a.hits, b.hits)
+        assertEquals(a.coverage.notSearched, b.coverage.notSearched)
     }
 }

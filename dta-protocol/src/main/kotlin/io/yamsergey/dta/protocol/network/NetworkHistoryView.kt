@@ -40,11 +40,8 @@ class NetworkHistoryView private constructor(
     private val decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
     /** Feature 051: a text message's envelope from its text and its socket's URL (the host has the app's rules). */
     private val readEnvelope: (WsMessageEntry, String) -> Envelope? = { _, text -> WsFormats.detect(text) },
-    /** Feature 053: a fresh time budget for the body patterns of one answer. */
-    private val patternBudget: () -> PatternBudget = { PatternBudget() },
-    /** Feature 069: how long an answer counts after its page, when the query does not say; null: no limit. */
-    private val countBudgetMs: Long? = null,
-    private val nanoTime: () -> Long = System::nanoTime,
+    /** Feature 071: whether the answer under way was stopped; no time limit cuts it (FR-005). */
+    private val patternStop: () -> PatternStop = { PatternStop.NONE },
 ) {
     /** The history as a list (the app's, the tests'): every count is exact. */
     constructor(
@@ -54,8 +51,8 @@ class NetworkHistoryView private constructor(
         bodyBytes: (NetworkEntry, BodyPart) -> NetworkFilterEval.BodyBytes?,
         decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
         readEnvelope: (WsMessageEntry, String) -> Envelope? = { _, text -> WsFormats.detect(text) },
-        patternBudget: () -> PatternBudget = { PatternBudget() },
-    ) : this(EntrySourceProvider { ListEntrySource(entries(), byId) }, context, bodyBytes, decoded, readEnvelope, patternBudget)
+        patternStop: () -> PatternStop = { PatternStop.NONE },
+    ) : this(EntrySourceProvider { ListEntrySource(entries(), byId) }, context, bodyBytes, decoded, readEnvelope, patternStop)
 
     /** The envelope of a text message for `type:`/`topic:`: the whole stored text when here, else the preview. */
     private fun envelopeOf(src: EntrySource, m: WsMessageEntry): Envelope? {
@@ -65,8 +62,14 @@ class NetworkHistoryView private constructor(
         return readEnvelope(m.copy(url = url), text)
     }
 
-    private fun evaluator(src: EntrySource, filter: NetworkFilter?, ctx: HistoryContext, redact: Boolean): NetworkFilterEval? = filter?.let {
-        NetworkFilterEval(it, ctx.runId, { id -> (src.byId(id) as? WsConnectionEntry)?.url }, decoded, { m -> envelopeOf(src, m) }, patternBudget(), redact, bodyBytes)
+    private fun evaluator(src: EntrySource, filter: NetworkFilter?, ctx: HistoryContext, redact: Boolean, check: () -> Unit): NetworkFilterEval? = filter?.let {
+        NetworkFilterEval(it, ctx.runId, { id -> (src.byId(id) as? WsConnectionEntry)?.url }, decoded, { m -> envelopeOf(src, m) }, check, redact, bodyBytes)
+    }
+
+    /** Feature 071: the answer's stop — the view's ([patternStop]) and the caller's ([stop], which throws). */
+    private fun checker(stop: () -> Unit): () -> Unit {
+        val p = patternStop()
+        return { if (p.stopped()) throw SearchStoppedException(); stop() }
     }
 
     /**
@@ -75,16 +78,17 @@ class NetworkHistoryView private constructor(
      * [NetworkPage.next] when one more follows. Feature 069: nothing is counted over the whole
      * history; what the page could not read is said for the entries it read.
      *
-     * @param stop feature 067: called once per entry; throws to abandon a pass a newer query replaced.
+     * @param stop feature 067: called once per entry and while patterns match (071); throws to abandon a pass.
      */
     fun list(query: NetworkQuery, stop: () -> Unit = {}): NetworkPage = query.resolved().let { (filter, terms) -> sources.open(filter, WordNeeds.of(filter, terms, words = terms.isNotEmpty() && !query.allRows)).use { src ->
         val ctx = context()
+        val check = checker(stop)
         val newest = query.order == Order.NEWEST_FIRST
         // Links (012) are in the same history; network views show them only when kinds asks.
         val links = filter?.kinds != null
         // Feature 041: search words leave only the entries that hold them, unless every row is asked for.
         val onlyHits = terms.isNotEmpty() && !query.allRows
-        val eval = evaluator(src, filter, ctx, query.redact)
+        val eval = evaluator(src, filter, ctx, query.redact, check)
         val search = search(src, terms, query.redact)
         val walk = src.walk(newest, links, query.before)
             ?: throw InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared")
@@ -93,7 +97,7 @@ class NetworkHistoryView private constructor(
         val pageHits = HashMap<String, List<SearchHit>>()
         var more = false
         for (entry in walk) {
-            stop()
+            check()
             var matched: List<MatchLocation>? = null
             if (eval != null) matched = eval.matches(entry) ?: continue
             val h = if (onlyHits) search!!.hits(entry) ?: continue else null
@@ -133,7 +137,7 @@ class NetworkHistoryView private constructor(
     fun passing(query: NetworkQuery): Passing = query.resolved().let { (filter, terms) -> sources.open(null).use { src ->
         val ctx = context()
         val search = search(src, terms, query.redact)
-        val eval = evaluator(src, filter, ctx, query.redact)
+        val eval = evaluator(src, filter, ctx, query.redact, checker {})
         val seen = HashSet<String>()
         val ids = HashSet<String>()
         for (entry in src.walk(false, true, null)!!) {
@@ -153,12 +157,13 @@ class NetworkHistoryView private constructor(
      */
     fun search(query: NetworkQuery, stop: () -> Unit = {}): SearchPage = query.resolved().let { (filter, terms) -> sources.open(filter, WordNeeds.of(filter, terms, words = true)).use { src ->
         val ctx = context()
+        val check = checker(stop)
         val patterns = filter?.let { it.bodyPattern != null || it.requestPattern != null || it.responsePattern != null } == true
         if (terms.isEmpty() && !patterns) throw InvalidParamsException("query: no search words; give words, a \"phrase\" or a body:/pattern/ to find (filters alone are network.list)")
         val newest = query.order == Order.NEWEST_FIRST
         val links = filter?.kinds != null
         val unknown = { InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared") }
-        val eval = evaluator(src, filter, ctx, query.redact)
+        val eval = evaluator(src, filter, ctx, query.redact, check)
         val s = search(src, terms, query.redact)
         fun hitsOf(entry: NetworkEntry): List<SearchHit>? {
             if (eval != null && eval.matches(entry) == null) return null
@@ -173,7 +178,7 @@ class NetworkHistoryView private constructor(
         val page = ArrayList<EntryHits>()
         var more = false
         for (entry in walk) {
-            stop()
+            check()
             val h = hitsOf(entry) ?: continue
             if (page.size == query.limit) { more = true; break }
             page += EntryHits(entry.id, entry.timeMs, h)
@@ -185,19 +190,18 @@ class NetworkHistoryView private constructor(
      * Feature 067: [query]'s decision for one entry, with the same evaluators as [list] (filters,
      * then the search words): a live event is decided as a full pass would decide it.
      */
-    fun decide(query: NetworkQuery, entry: NetworkEntry): EntryDecision = sources.open(null).use { src ->
+    fun decide(query: NetworkQuery, entry: NetworkEntry, stop: () -> Unit = {}): EntryDecision = sources.open(null).use { src ->
         val ctx = context()
         val (filter, terms) = query.resolved()
         if (entry is LinkEntry && filter?.kinds == null) return@use EntryDecision.NO
         val s = search(src, terms, query.redact)
-        val eval = evaluator(src, filter, ctx, query.redact)
+        val eval = evaluator(src, filter, ctx, query.redact, checker(stop))
         val locations = if (eval != null) eval.matches(entry) else emptyList()
-        val unchecked = (eval?.budget?.skipped ?: 0) > 0
-        if (locations == null) return@use EntryDecision(false, unchecked = unchecked)
+        if (locations == null) return@use EntryDecision(false)
         val words = if (s != null) s.hits(entry) else emptyList()
-        if (words == null) return@use EntryDecision(false, byPreview = s!!.byPreview > 0, unchecked = unchecked)
+        if (words == null) return@use EntryDecision(false, byPreview = s!!.byPreview > 0)
         val hits = words + eval?.patternHits?.get(entry.id).orEmpty()
-        EntryDecision(true, locations.ifEmpty { null }, hits.ifEmpty { null }, byPreview = (s?.byPreview ?: 0) > 0, unchecked = unchecked)
+        EntryDecision(true, locations.ifEmpty { null }, hits.ifEmpty { null }, byPreview = (s?.byPreview ?: 0) > 0)
     }
 
     private fun search(src: EntrySource, terms: List<Term>, redact: Boolean): NetworkSearch? = terms.takeIf { it.isNotEmpty() }?.let {
@@ -214,7 +218,6 @@ class NetworkHistoryView private constructor(
     }
 
     private fun notSearched(eval: NetworkFilterEval?, search: NetworkSearch?): List<String>? = listOfNotNull(
-        eval?.budget?.skipped?.takeIf { it > 0 }?.let { "bodies skipped: pattern too slow ($it)" },
         eval?.patternBinaryAll?.takeIf { it > 0 }?.let { "binary bodies without a schema, not matched by patterns ($it)" },
         eval?.notRedactableAll?.takeIf { it > 0 }?.let { "bodies that cannot be redacted, not matched while redacting ($it)" },
         ((eval?.binaryNotSearched ?: 0) + (eval?.excludedNotSearched ?: 0)).takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
@@ -288,8 +291,8 @@ class NetworkHistoryView private constructor(
             bodyBytes: (NetworkEntry, BodyPart) -> NetworkFilterEval.BodyBytes?,
             decoded: ((NetworkEntry, BodyPart) -> String?)? = null,
             readEnvelope: (WsMessageEntry, String) -> Envelope? = { _, text -> WsFormats.detect(text) },
-            patternBudget: () -> PatternBudget = { PatternBudget() },
-        ) = NetworkHistoryView(sources, context, bodyBytes, decoded, readEnvelope, patternBudget)
+            patternStop: () -> PatternStop = { PatternStop.NONE },
+        ) = NetworkHistoryView(sources, context, bodyBytes, decoded, readEnvelope, patternStop)
 
         /** The body info of one part of an entry, wire or app side; null when absent. */
         fun bodyOf(entry: NetworkEntry, part: BodyPart): BodyInfo? = when (part) {

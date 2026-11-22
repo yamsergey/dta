@@ -29,56 +29,35 @@ object BodyPattern {
 }
 
 /**
- * Time for body patterns in one answer: each body at most [perBodyMs], all of them at most
- * [totalMs]; a body over its time, or any body once the total is spent, is not matched and
- * is counted in [skipped] (stated in the answer: constitution III).
+ * Feature 071: whether a search was stopped (a changed query, the stop control, a closed client).
+ * No time limit cuts a pattern (FR-005); a stop reaches into a match ([BodyPattern.find]).
  */
-class PatternBudget(
-    private val perBodyMs: Long = 50,
-    private val totalMs: Long = 1000,
-    private val nanoTime: () -> Long = System::nanoTime,
-) {
-    var skipped = 0
-        private set
-    private var spentNs = 0L
+fun interface PatternStop {
+    fun stopped(): Boolean
 
-    /** The first match in [text], null when none; [Skipped] when time ran out. */
-    fun find(pattern: Pattern, text: String): Outcome {
-        val leftNs = totalMs * 1_000_000 - spentNs
-        if (leftNs <= 0) { skipped++; return Outcome.Skipped }
-        val started = nanoTime()
-        val deadline = started + minOf(perBodyMs * 1_000_000, leftNs)
-        return try {
-            val m: Matcher = pattern.matcher(Deadline(text, deadline, nanoTime))
-            if (m.find()) Outcome.Found(m.start(), m.end()) else Outcome.None
-        } catch (_: OutOfTime) {
-            skipped++
-            Outcome.Skipped
-        } finally {
-            spentNs += nanoTime() - started
-        }
+    companion object {
+        val NONE = PatternStop { false }
     }
+}
 
-    sealed interface Outcome {
-        data class Found(val start: Int, val end: Int) : Outcome
-        data object None : Outcome
-        data object Skipped : Outcome
-    }
+/** Feature 071: a search ended by its stop; a cancellation, not a failure. */
+class SearchStoppedException(message: String = "the search was stopped") : java.util.concurrent.CancellationException(message)
 
-    private object OutOfTime : RuntimeException() {
-        private fun readResolve(): Any = OutOfTime
-        override fun fillInStackTrace(): Throwable = this
-    }
+/** The first match of [pattern] in [text] as (start, end), null when none; [check] runs every 1,024 reads of the text and throws to stop. */
+fun BodyPattern.find(pattern: Pattern, text: String, check: () -> Unit): Pair<Int, Int>? {
+    check()
+    val m: Matcher = pattern.matcher(Checked(text, check))
+    return if (m.find()) m.start() to m.end() else null
+}
 
-    /** Text that throws once its deadline passes; the matcher reads it all the time, also while backtracking. */
-    private class Deadline(private val text: CharSequence, private val deadline: Long, private val nanoTime: () -> Long) : CharSequence {
-        private var reads = 0
-        override val length: Int get() = text.length
-        override fun get(index: Int): Char {
-            if (++reads and 1023 == 0 && nanoTime() > deadline) throw OutOfTime
-            return text[index]
-        }
-        override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = Deadline(text.subSequence(startIndex, endIndex), deadline, nanoTime)
-        override fun toString(): String = text.toString()
+/** Text whose reads call [check] now and then: the matcher reads it all the time, also while backtracking. */
+private class Checked(private val text: CharSequence, private val check: () -> Unit) : CharSequence {
+    private var reads = 0
+    override val length: Int get() = text.length
+    override fun get(index: Int): Char {
+        if (++reads and 1023 == 0) check()
+        return text[index]
     }
+    override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = Checked(text.subSequence(startIndex, endIndex), check)
+    override fun toString(): String = text.toString()
 }

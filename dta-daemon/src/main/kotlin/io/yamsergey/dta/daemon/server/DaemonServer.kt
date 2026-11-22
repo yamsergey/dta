@@ -8,7 +8,6 @@ import io.yamsergey.dta.protocol.network.NetworkEntry
 import io.yamsergey.dta.protocol.network.NetworkFilter
 import io.yamsergey.dta.protocol.network.NetworkFilterEval
 import io.yamsergey.dta.protocol.network.NetworkHistoryView
-import io.yamsergey.dta.protocol.network.PatternBudget
 import io.yamsergey.dta.protocol.network.WsConnectionEntry
 import io.yamsergey.dta.protocol.ops.AppConnectionEvent
 import io.yamsergey.dta.protocol.ops.AppList
@@ -255,9 +254,9 @@ class DaemonServer(
                 // Body filters on live events: an event carries only the preview, so a body the preview
                 // is all of is matched here; any other is passed marked, and the client lists again
                 // (the list matches the host copy). Neither dropped nor let through silently.
-                // Each event gets its own pattern time; a pattern out of time leaves the event unchecked too.
+                // Feature 071: no time limit on a pattern; a body not whole in the preview leaves the event unchecked.
                 var unchecked = false
-                fun eval(budget: PatternBudget) = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, budget = budget, redact = redact, bodyBytes = { entry, part ->
+                fun eval() = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, redact = redact, bodyBytes = { entry, part ->
                     NetworkHistoryView.bodyOf(entry, part)?.wholeText()?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
                         ?: run { unchecked = true; null }
                 })
@@ -296,7 +295,6 @@ class DaemonServer(
                                                 put("match", true)
                                                 d.hits?.let { put("hits", DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer()), it)) }
                                                 if (d.byPreview) put("byPreview", true)
-                                                if (d.unchecked) put("unchecked", true)
                                             })
                                         }
                                         if (left) put("decision", buildJsonObject { put("match", false); put("left", true) })
@@ -324,9 +322,7 @@ class DaemonServer(
                             }
                         }
                         unchecked = false
-                        val budget = PatternBudget(perBodyMs = 20, totalMs = 50)
-                        val matched = eval(budget).matches(event.entry) != null
-                        if (budget.skipped > 0) unchecked = true
+                        val matched = eval().matches(event.entry) != null
                         if ((matched || unchecked) && buffer.trySend(event to unchecked).isFailure) dropped.set(true)
                     }
                     // Feature 067: a body decided by its preview is decided again once its copy is here.
