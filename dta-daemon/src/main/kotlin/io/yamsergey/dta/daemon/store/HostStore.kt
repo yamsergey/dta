@@ -186,6 +186,10 @@ class HostStore(
         "SELECT run_id, entries, links, first_seq, first_ms FROM run WHERE epoch_id=? ORDER BY first_seq DESC", epochId,
     ) { RunCount(it.getString(1), it.getInt(2), it.getInt(3), it.getLong(4), it.getLong(5)) }
 
+    /** Feature 071: entries of [epochId] that are network traffic (links are listed only when asked for). */
+    @Synchronized
+    fun networkCount(epochId: String): Int = query("SELECT entries - links FROM epoch WHERE id=?", epochId) { it.getInt(1) }.firstOrNull() ?: 0
+
     @Synchronized
     fun entryCount(epochId: String): Int = query("SELECT entries FROM epoch WHERE id=?", epochId) { it.getInt(1) }.firstOrNull() ?: 0
 
@@ -488,19 +492,27 @@ class HostStore(
         filter: io.yamsergey.dta.protocol.network.NetworkFilter?,
         /** Feature 070: what an entry's words must hold; rows the word index knows lack it are not read. */
         need: io.yamsergey.dta.protocol.network.Need = io.yamsergey.dta.protocol.network.Need.Any,
+        /** Feature 071: only this run of its epoch. */
+        run: RunBound? = null,
     ): StoreEntrySource =
         StoreEntrySource(reader(), epochIds, PreSelection.of(filter), { c ->
             runCatching { c.rollback() }
             readers.offer(c)
-        }, WordIndexSql.match(need), readPage)
+        }, WordIndexSql.match(need), readPage, run, { rowsRead++ })
+
+    /** Rows answers read (tests check what a walk reads). */
+    @Volatile internal var rowsRead = 0L
 
     /** Rows an answer reads at a time; tests make it small. */
     internal var readPage: Int = StoreEntrySource.PAGE
 
     /** Feature 070: epochs [epochIds] as answers open them, narrowed by the query's filter and its words' need. */
-    fun sources(epochIds: () -> List<String>): io.yamsergey.dta.protocol.network.EntrySourceProvider = object : io.yamsergey.dta.protocol.network.EntrySourceProvider {
-        override fun open(filter: io.yamsergey.dta.protocol.network.NetworkFilter?) = readSource(epochIds(), filter)
-        override fun open(filter: io.yamsergey.dta.protocol.network.NetworkFilter?, need: io.yamsergey.dta.protocol.network.Need) = readSource(epochIds(), filter, need)
+    fun sources(epochIds: () -> List<String>): io.yamsergey.dta.protocol.network.EntrySourceProvider = sources(epochIds) { null }
+
+    /** Feature 071: as [sources], only the run [run] gives (the default scope). */
+    fun sources(epochIds: () -> List<String>, run: () -> RunBound?): io.yamsergey.dta.protocol.network.EntrySourceProvider = object : io.yamsergey.dta.protocol.network.EntrySourceProvider {
+        override fun open(filter: io.yamsergey.dta.protocol.network.NetworkFilter?) = readSource(epochIds(), filter, run = run())
+        override fun open(filter: io.yamsergey.dta.protocol.network.NetworkFilter?, need: io.yamsergey.dta.protocol.network.Need) = readSource(epochIds(), filter, need, run())
     }
 
     override fun close() {

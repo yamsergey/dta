@@ -56,6 +56,8 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     val records = mutableListOf<NetworkEntry>()
     val bodies = HashMap<Pair<String, BodyPart>, ByteArray>()
     var runId = "r1-1"
+    /** Feature 071: the app's process runs as its context reports them. */
+    var processRuns: List<io.yamsergey.dta.protocol.network.ProcessRun> = emptyList()
     var reason: String? = "storage-new"
     var listCalls = 0
     var installation: io.yamsergey.dta.protocol.rpc.AppInstallation? = io.yamsergey.dta.protocol.rpc.AppInstallation("1.4.0", 14, 1, 100, "aa")
@@ -114,7 +116,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     private fun latest(): List<NetworkEntry> = LinkedHashMap<String, NetworkEntry>().apply { records.filter { it.id !in evicted }.forEach { put(it.id, it) } }.values.toList()
 
     fun context() = HistoryContext(runId, Coverage(searched = latest().size, stored = latest().size, persisted = persisted, earliestMs = latest().minOfOrNull { it.timeMs }.takeIf { evicted.isNotEmpty() }, evicted = evicted.size, archivedOnly = archivedOnly,
-        deviceBytes = deviceBytes.takeIf { reportsSize }, archivedThrough = archivedThrough, keepBytes = keep.takeIf { reportsSize }, warnBytes = warn.takeIf { reportsSize }), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
+        deviceBytes = deviceBytes.takeIf { reportsSize }, archivedThrough = archivedThrough, keepBytes = keep.takeIf { reportsSize }, warnBytes = warn.takeIf { reportsSize }, runs = processRuns), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
 
     /** The sidekick's own answer over the same history: the reference the host must equal. */
     fun deviceAnswer(query: NetworkQuery): NetworkPage = deviceView().list(query)
@@ -210,8 +212,9 @@ class HostIndexTest {
         HostIndex(store, DeviceIdentity("dev1", "emulator-5554"), "io.example") { app }
 
     /** The app's answer, without what only the host adds (bodies it has not copied yet, US7). */
+    /** The host's answer over the whole history (071: the switch on; nothing is archived here), as the device gives it. */
     private suspend fun HostIndex.answer(q: NetworkQuery): NetworkPage =
-        list(q).let { it.copy(coverage = it.coverage.copy(bodiesPending = null, bodiesNotArchived = null)) }
+        list(q.copy(archive = true)).let { it.copy(coverage = it.coverage.copy(bodiesPending = null, bodiesNotArchived = null), scope = null) }
 
     private var t = 1_000L
 

@@ -21,12 +21,30 @@ class StoreEntrySource internal constructor(
     private val match: String? = null,
     /** Rows read at a time (tests make it small to walk many batches). */
     private val page: Int = PAGE,
+    /** Feature 071: only this run of its epoch (the default scope), from where it starts. */
+    private val run: RunBound? = null,
+    /** Called once per row read (tests count what a walk reads). */
+    private val onRow: () -> Unit = {},
 ) : EntrySource {
+    /** The run's conditions for epoch [epoch], or none. */
+    private fun runSql(epoch: String): Pair<String, List<Any?>>? =
+        run?.takeIf { it.epochId == epoch }?.let { "coalesce(run_id, '') = ? AND seq >= ?" to listOf(it.runId, it.firstSeq) }
+
     private val decoded = object : LinkedHashMap<String, NetworkEntry?>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, NetworkEntry?>?) = size > LOOKUPS
     }
 
     private fun decode(json: String) = DtaJson.decodeFromString(NetworkEntry.serializer(), json)
+
+    /**
+     * Feature 071: an entry of epoch [i] that a later epoch holds too (read again after a rollback) is
+     * given once, in its latest state, as [byId] gives it: no entry shows twice in a whole-history answer.
+     */
+    private fun shadowed(i: Int, entryId: String): Boolean {
+        if (i == epochs.lastIndex) return false
+        val later = epochs.subList(i + 1, epochs.size)
+        return query("SELECT 1 FROM entry WHERE entry_id=? AND epoch_id IN (${later.joinToString(",") { "?" }}) LIMIT 1", listOf(entryId) + later) { true }.isNotEmpty()
+    }
 
     private fun <T> query(sql: String, args: List<Any?>, map: (java.sql.ResultSet) -> T): List<T> = db.prepareStatement(sql).use { st ->
         args.forEachIndexed { i, a -> st.setObject(i + 1, a) }
@@ -40,7 +58,8 @@ class StoreEntrySource internal constructor(
 
     override fun walk(newestFirst: Boolean, links: Boolean, after: String?): Sequence<NetworkEntry>? {
         val start: Pair<Int, Long>? = after?.let { id ->
-            val at = epochs.withIndex().firstNotNullOfOrNull { (i, e) ->
+            // The latest epoch holding it: the copy the walk gives (an earlier one is shadowed, 071).
+            val at = epochs.withIndex().reversed().firstNotNullOfOrNull { (i, e) ->
                 query("SELECT seq, kind FROM entry WHERE epoch_id=? AND entry_id=?", listOf(e, id)) { it.getLong(1) to it.getString(2) }.firstOrNull()?.let { i to it }
             } ?: return null
             if (!links && at.second.second == "link") return null
@@ -53,18 +72,20 @@ class StoreEntrySource internal constructor(
                 if (start != null && (if (newestFirst) i > start.first else i < start.first)) continue
                 var cursor: Long? = if (start != null && i == start.first) start.second else null
                 while (true) {
+                    val r = runSql(epochs[i])
                     val conditions = buildList {
                         add("epoch_id = ?")
                         if (!links) add("kind <> 'link'")
                         cursor?.let { add(if (newestFirst) "seq < ?" else "seq > ?") }
                         pre?.let { add(it.sql) }
+                        r?.let { add(it.first) }
                     }
-                    val args = buildList<Any?> { add(epochs[i]); cursor?.let { add(it) }; pre?.let { addAll(it.args) } }
+                    val args = buildList<Any?> { add(epochs[i]); cursor?.let { add(it) }; pre?.let { addAll(it.args) }; r?.let { addAll(it.second) } }
                     val rows = query(
                         "SELECT seq, json FROM entry WHERE ${conditions.joinToString(" AND ")} ORDER BY seq ${if (newestFirst) "DESC" else "ASC"} LIMIT $page",
                         args,
                     ) { Row(it.getLong(1), it.getString(2)) }
-                    for (row in rows) yield(decode(row.json))
+                    for (row in rows) { onRow(); val e = decode(row.json); if (!shadowed(i, e.id)) yield(e) }
                     if (rows.size < page) break
                     cursor = rows.last().seq
                 }
@@ -84,7 +105,8 @@ class StoreEntrySource internal constructor(
         for (i in order) {
             if (start != null && (if (newestFirst) i > start.first else i < start.first)) continue
             val epoch = epochs[i]
-            val lo = query("SELECT rowid FROM entry WHERE epoch_id=? ORDER BY seq LIMIT 1", listOf(epoch)) { it.getLong(1) }.firstOrNull() ?: continue
+            val r = runSql(epoch)
+            val lo = query("SELECT rowid FROM entry WHERE epoch_id=? AND seq >= ? ORDER BY seq LIMIT 1", listOf(epoch, run?.takeIf { it.epochId == epoch }?.firstSeq ?: Long.MIN_VALUE)) { it.getLong(1) }.firstOrNull() ?: continue
             val hi = query("SELECT rowid FROM entry WHERE epoch_id=? ORDER BY seq DESC LIMIT 1", listOf(epoch)) { it.getLong(1) }.single()
             var cursor: Long = if (start != null && i == start.first) {
                 query("SELECT rowid FROM entry WHERE epoch_id=? AND seq=?", listOf(epoch, start.second)) { it.getLong(1) }.single()
@@ -116,11 +138,12 @@ class StoreEntrySource internal constructor(
                         add("epoch_id = ?")
                         if (!links) add("kind <> 'link'")
                         pre?.let { add(it.sql) }
+                        r?.let { add(it.first) }
                     }
                     // NOT INDEXED: by rowid, not a scan of the epoch's index (on a million rows, 10 ms against 0.2 ms a batch).
-                    val rows = query("SELECT rowid, json FROM entry NOT INDEXED WHERE ${conditions.joinToString(" AND ")}", buildList { add(epoch); pre?.let { addAll(it.args) } }) { it.getLong(1) to it.getString(2) }
+                    val rows = query("SELECT rowid, json FROM entry NOT INDEXED WHERE ${conditions.joinToString(" AND ")}", buildList { add(epoch); pre?.let { addAll(it.args) }; r?.let { addAll(it.second) } }) { it.getLong(1) to it.getString(2) }
                         .toMap()
-                    for (id in chunk) rows[id]?.let { yield(decode(it)) }
+                    for (id in chunk) rows[id]?.let { onRow(); val e = decode(it); if (!shadowed(i, e.id)) yield(e) }
                 }
                 if (!full) break
                 cursor = edge
@@ -129,11 +152,13 @@ class StoreEntrySource internal constructor(
     }
 
     override fun count(links: Boolean): Int = epochs.sumOf { e ->
+        if (run?.epochId == e) return@sumOf query("SELECT entries, links FROM run WHERE epoch_id=? AND run_id=?", listOf(e, run.runId)) { if (links) it.getInt(1) else it.getInt(1) - it.getInt(2) }.firstOrNull() ?: 0
         query("SELECT entries, links FROM epoch WHERE id=?", listOf(e)) { if (links) it.getInt(1) else it.getInt(1) - it.getInt(2) }.firstOrNull() ?: 0
     }
 
     override fun first(links: Boolean): String? = epochs.firstNotNullOfOrNull { e ->
-        query("SELECT entry_id FROM entry WHERE epoch_id=?${if (links) "" else " AND kind <> 'link'"} ORDER BY seq LIMIT 1", listOf(e)) { it.getString(1) }.firstOrNull()
+        val r = runSql(e)
+        query("SELECT entry_id FROM entry WHERE epoch_id=?${if (links) "" else " AND kind <> 'link'"}${r?.let { " AND " + it.first } ?: ""} ORDER BY seq LIMIT 1", listOf(e) + r?.second.orEmpty()) { it.getString(1) }.firstOrNull()
     }
 
     override fun messagesOf(connectionId: String): List<WsMessageEntry> = epochs.flatMap { e ->
@@ -147,3 +172,6 @@ class StoreEntrySource internal constructor(
         const val LOOKUPS = 4_096
     }
 }
+
+/** Feature 071: one run of an epoch, from where it starts: the default scope of an answer. */
+data class RunBound(val epochId: String, val runId: String, val firstSeq: Long)

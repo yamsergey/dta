@@ -20,6 +20,14 @@ data class ArchiveScope(
         require(set == 1) { "an archive scope names exactly one of epoch, version, a time range (fromMs/toMs) or all" }
     }
 
+    /** Feature 071: the scope as [parse] reads it back. */
+    fun text(): String = when {
+        all == true -> "all"
+        version != null -> "version:$version"
+        epoch != null -> epoch
+        else -> "${fromMs ?: ""}..${toMs ?: ""}"
+    }
+
     companion object {
         /** The CLI and tool form: `all`, `version:1.4.0`, `<fromMs>..<toMs>` (either side may be empty), or an epoch id. */
         fun parse(text: String): ArchiveScope {

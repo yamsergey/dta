@@ -148,10 +148,67 @@ class HostIndex(
      * Feature 069 (research R1): the live epoch as one answer reads it, from disk (each answer opens
      * one read); feature 070: narrowed by the query's filter and its words' need.
      */
-    private fun liveView(epochId: String?, ctx: HistoryContext) = NetworkHistoryView.over(
-        store.sources { listOfNotNull(epochId) }, { ctx },
+    private fun liveView(epochId: String?, ctx: HistoryContext, run: io.yamsergey.dta.daemon.store.RunBound? = null) = NetworkHistoryView.over(
+        store.sources({ listOfNotNull(epochId) }, { run }), { ctx },
         { e, p -> hostBodyBytes(epochId, e, p) }, { entry, part -> decodedJson(entry, part, epochId) { socketOf(epochId, it) } }, readEnvelope,
     )
+
+    /** Feature 071: the app's current run of [epochId] as the default scope reads it (nothing while none was recorded). */
+    private fun runBound(epochId: String?, ctx: HistoryContext): io.yamsergey.dta.daemon.store.RunBound? = epochId?.let { e ->
+        val first = store.runs(e).firstOrNull { it.runId == ctx.runId }?.firstSeq ?: Long.MAX_VALUE
+        io.yamsergey.dta.daemon.store.RunBound(e, ctx.runId, first)
+    }
+
+    /** Feature 071: the archived epochs (in the order they were opened) and then the live one. */
+    private fun wholeIds(epochId: String?): List<String> =
+        store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true)).map { it.id } + listOfNotNull(epochId)
+
+    /** Feature 071 (FR-002): the whole history this computer keeps for the app, with the live context. */
+    private fun wholeView(epochId: String?, ctx: HistoryContext): NetworkHistoryView {
+        val ids = wholeIds(epochId)
+        fun epochOf(e: NetworkEntry): String? = if (epochId != null && store.entry(epochId, e.id) != null) epochId else store.epochOf(ids, e.id)
+        fun byId(id: String): NetworkEntry? = socketOf(epochId, id) ?: store.epochOf(ids, id)?.let { store.entry(it, id) }
+        return NetworkHistoryView.over(
+            store.sources({ ids }), { ctx },
+            { e, p -> if (NetworkHistoryView.bodyOf(e, p)?.wholeText() != null) hostBodyBytes(null, e, p) else hostBodyBytes(epochOf(e), e, p) },
+            { entry, part -> decodedJson(entry, part, epochOf(entry), ::byId) },
+            readEnvelope,
+        )
+    }
+
+    /** Feature 071: the view of [query]'s scope over the live history: its current run, or (switch on) everything. */
+    private fun scopedView(query: NetworkQuery, epochId: String?, ctx: HistoryContext): NetworkHistoryView =
+        if (query.archive) wholeView(epochId, ctx) else liveView(epochId, ctx, runBound(epochId, ctx))
+
+    /** Feature 071 (FR-004, FR-014): what an answer of [query] covers, from kept counters. */
+    private fun scopeOf(query: NetworkQuery, epochId: String?, ctx: HistoryContext): io.yamsergey.dta.protocol.network.HistoryScope {
+        val runs = epochId?.let { store.runs(it) }.orEmpty()
+        val told = ctx.coverage.runs.associateBy { it.runId }
+        fun shown(runId: String, entries: Long, firstMs: Long?) = told[runId].let { r ->
+            io.yamsergey.dta.protocol.network.ScopeRun(runId, entries, r?.startedAtMs ?: firstMs, r?.endedAtMs, r?.ended)
+        }
+        val runsShown = runs.map { shown(it.runId, (it.entries - it.links).toLong(), it.firstMs) }
+        val current = runsShown.firstOrNull { it.runId == ctx.runId } ?: ctx.runId.takeIf { it.isNotEmpty() }?.let { shown(it, 0, null) }
+        val archived = store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true))
+            .map { io.yamsergey.dta.protocol.network.ScopeEpoch(it.id, store.networkCount(it.id).toLong(), it.closedMs, it.reason) }
+        val all = (epochId?.let { store.networkCount(it) } ?: 0) + archived.sumOf { it.entries }
+        return if (query.archive) {
+            io.yamsergey.dta.protocol.network.HistoryScope(true, all, current, runs = runsShown.ifEmpty { null }, epochs = archived.asReversed().ifEmpty { null })
+        } else {
+            val mine = current?.entries ?: 0
+            io.yamsergey.dta.protocol.network.HistoryScope(false, mine, current, outside = (all - mine).takeIf { it > 0 }, runAllIgnored = query.runAllIgnored())
+        }
+    }
+
+    /** Feature 071: entries of the whole history that are archived, marked with their epoch (011 FR-016). */
+    private fun marks(ids: Collection<String>): Map<String, io.yamsergey.dta.protocol.network.ArchivedMark>? {
+        if (ids.isEmpty()) return null
+        val archived = store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true))
+        if (archived.isEmpty()) return null
+        val byId = archived.associateBy { it.id }
+        val live = epoch?.id
+        return ids.mapNotNull { id -> if (live != null && store.entry(live, id) != null) null else store.epochOf(archived.map { it.id }, id)?.let { id to mark(byId.getValue(it)) } }.toMap().ifEmpty { null }
+    }
 
     /** A socket of the live epoch: kept once seen (few per run), else read from disk. */
     private fun socketOf(epochId: String?, id: String): WsConnectionEntry? = liveSockets[id]
@@ -220,7 +277,8 @@ class HostIndex(
             ?: socketUrl(id)?.let { WsConnectionEntry(id, entry.runId, 0, entry.library, url = it, state = WsState.OPEN) }
         val v = NetworkHistoryView({ emptyList() }, ::socket, { ctx }, { e, p -> hostBodyBytes(epochId, e, p) },
             { e, p -> decodedJson(e, p, epochId, ::socket) }, readEnvelope)
-        val d = v.decide(query, entry)
+        // Feature 071: without the switch only the current run is in the view; a late update of an earlier run is not.
+        val d = if (!query.archive && query.archiveScope == null && entry.runId != ctx.runId) io.yamsergey.dta.protocol.network.EntryDecision.NO else v.decide(query, entry)
         return d to views.decided(view, query, entry.id, d.match)
     }
 
@@ -254,9 +312,9 @@ class HostIndex(
         }
     }
 
-    /** Feature 069: a pass over the live history on one read of the disk (one transaction), outside the mutex. */
-    private fun <T> livePass(@Suppress("UNUSED_PARAMETER") query: NetworkQuery, epochId: String?, ctx: HistoryContext, pass: (NetworkHistoryView) -> T): T =
-        pass(liveView(epochId, ctx))
+    /** Feature 069: a pass over [query]'s scope (071) on one read of the disk (one transaction), outside the mutex. */
+    private fun <T> livePass(query: NetworkQuery, epochId: String?, ctx: HistoryContext, pass: (NetworkHistoryView) -> T): T =
+        pass(scopedView(query, epochId, ctx))
 
     suspend fun list(query: NetworkQuery): NetworkPage = list(query, pass = { v -> v.list(query) })
 
@@ -278,6 +336,8 @@ class HostIndex(
         val (at, extra) = snapshot ?: mutex.withLock { liveSnapshot() }
         val page = livePass(query, at.first, at.second, pass)
         return page.copy(
+            scope = scopeOf(query, at.first, at.second),
+            archived = if (query.archive) marks(page.entries.map { it.id }) else page.archived,
             coverage = page.coverage.copy(
                 hostLagRecords = extra.hostLagRecords,
                 bodiesPending = extra.bodiesPending,
@@ -462,7 +522,10 @@ class HostIndex(
 
     /** The search through [pass] on a snapshot outside the mutex (feature 067). */
     internal suspend fun search(query: NetworkQuery, pass: (NetworkHistoryView) -> SearchPage): SearchPage {
-        query.archiveScope?.let { scope -> return mutex.withLock { archiveView(store.epochs(device.key, packageName, scope)) }.search(query) }
+        query.archiveScope?.let { scope ->
+            val epochs = store.epochs(device.key, packageName, scope)
+            return archiveView(epochs).search(query).copy(scope = explicitScope(scope, epochs))
+        }
         var at: Pair<String?, HistoryContext>? = null
         val toCopy = mutex.withLock {
             val app = connection()
@@ -474,7 +537,7 @@ class HostIndex(
         }
         copyAll(toCopy)
         val (epochId, ctx) = at ?: mutex.withLock { epoch?.id to context!! }
-        return livePass(query, epochId, ctx, pass)
+        return livePass(query, epochId, ctx, pass).copy(scope = scopeOf(query, epochId, ctx))
     }
 
     /**
@@ -554,8 +617,15 @@ class HostIndex(
         val page = archiveView(epochs).list(query)
         val ids = epochs.map { it.id }
         val marks = epochs.associate { it.id to mark(it) }
-        return page.copy(archived = page.entries.mapNotNull { e -> store.epochOf(ids, e.id)?.let { e.id to marks.getValue(it) } }.toMap().ifEmpty { null })
+        return page.copy(
+            archived = page.entries.mapNotNull { e -> store.epochOf(ids, e.id)?.let { e.id to marks.getValue(it) } }.toMap().ifEmpty { null },
+            scope = explicitScope(scope, epochs),
+        )
     }
+
+    /** Feature 071: an explicit archived part answered instead of the switch's scope. */
+    private fun explicitScope(scope: io.yamsergey.dta.protocol.network.ArchiveScope, epochs: List<Epoch>) =
+        io.yamsergey.dta.protocol.network.HistoryScope(archive = false, entries = epochs.sumOf { store.networkCount(it.id).toLong() }, explicit = scope.text())
 
     /** [epochs] (in the order they were opened) as one answer reads them, from disk (feature 069). */
     private fun archiveView(epochs: List<Epoch>): NetworkHistoryView {
@@ -568,7 +638,7 @@ class HostIndex(
         )
         fun byId(id: String): NetworkEntry? = store.epochOf(ids, id)?.let { store.entry(it, id) }
         return NetworkHistoryView.over(
-            store.sources { ids }, { context },
+            store.sources({ ids }), { context },
             { entry, part ->
                 val info = NetworkHistoryView.bodyOf(entry, part)
                 // A preview that is all of the body is the body (as for the live epoch: no disk read).

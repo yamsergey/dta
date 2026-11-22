@@ -47,7 +47,7 @@ class EpochTest {
         // As NetworkService.clear: the app clears, then the host is told how many it cleared.
         app.reset("j2", "cleared")
         host.cleared(clearedEntries = 8)
-        assertEquals(0, host.list(NetworkQuery()).entries.size, "the live history starts empty")
+        assertEquals(0, host.liveEntries().size, "the live history starts empty")
         val epoch = archived(s).single()
         assertEquals(EpochCloseReason.CLEARED, epoch.reason)
         assertEquals(5, epoch.entries, "what the host had is kept")
@@ -73,8 +73,7 @@ class EpochTest {
         host.list(NetworkQuery())
         app.goBack(2)
         newRun(app, 50, 1)
-        val page = host.list(NetworkQuery())
-        assertEquals(setOf("r1-1:1", "r1-1:2", "r9-50:50"), page.entries.map { it.id }.toSet(), "the new request is there")
+        assertEquals(setOf("r1-1:1", "r1-1:2", "r9-50:50"), host.liveEntries().map { it.id }.toSet(), "the new request is there")
         val epoch = archived(s).single()
         assertEquals(EpochCloseReason.ROLLED_BACK, epoch.reason)
         assertEquals(5, s.entries(epoch.id).size, "nothing read before is removed")
@@ -91,7 +90,7 @@ class EpochTest {
         host.list(NetworkQuery())
         app.goBack(2)
         newRun(app, 50, 6)
-        assertEquals(8, host.list(NetworkQuery()).entries.size, "two from before and all six since")
+        assertEquals(8, host.liveEntries().size, "two from before and all six since")
         assertEquals(EpochCloseReason.ROLLED_BACK, archived(s).single().reason)
     }
 
@@ -104,7 +103,7 @@ class EpochTest {
         host.list(NetworkQuery())
         newRun(app, 50, 2)
         (1..5).forEach { app.evicted += "r1-1:$it" }
-        assertTrue(host.list(NetworkQuery()).entries.any { it.id == "r9-50:51" })
+        assertTrue(host.liveEntries().any { it.id == "r9-50:51" })
         assertEquals(emptyList(), archived(s))
     }
 
@@ -115,9 +114,9 @@ class EpochTest {
         app.cutLines += 4
         val s = store()
         val host = index(app, s)
-        assertEquals(4, host.list(NetworkQuery()).entries.size)
+        assertEquals(4, host.liveEntries().size)
         app.cutLines.clear()
-        assertEquals(5, host.list(NetworkQuery()).entries.size, "the line is whole now")
+        assertEquals(5, host.liveEntries().size, "the line is whole now")
         assertEquals(emptyList(), archived(s))
     }
 
@@ -128,13 +127,13 @@ class EpochTest {
         val s = store()
         val host = index(app, s).apply { pageSize = 2 }
         host.list(NetworkQuery()) // several pages
-        assertEquals(7, host.list(NetworkQuery()).entries.size) // nothing new
+        assertEquals(7, host.liveEntries().size) // nothing new
         newRun(app, 50, 1) // the app restarted
-        assertEquals(8, host.list(NetworkQuery()).entries.size)
+        assertEquals(8, host.liveEntries().size)
         val few = index(app, s).apply { pageSize = 1; catchUpBudgetPages = 1 } // the daemon restarted, and reads little at a time
         newRun(app, 60, 3)
         repeat(4) { few.list(NetworkQuery()) }
-        assertEquals(11, few.list(NetworkQuery()).entries.size)
+        assertEquals(11, few.liveEntries().size)
         assertEquals(emptyList(), archived(s))
     }
 
@@ -162,7 +161,7 @@ class EpochTest {
         host.list(NetworkQuery())
         s.setCursor("dev1", "io.example", "j1", "0:5", null)
         newRun(app, 50, 1)
-        assertEquals(6, host.list(NetworkQuery()).entries.size)
+        assertEquals(6, host.liveEntries().size)
         assertEquals(emptyList(), archived(s), "inside the journal")
         s.setCursor("dev1", "io.example", "j1", "0:99", null)
         host.list(NetworkQuery())
@@ -178,7 +177,7 @@ class EpochTest {
         host.list(NetworkQuery())
         s.setCursor("dev1", "io.example", "j1", "5", "r1-1:5")
         newRun(app, 50, 1)
-        assertEquals(6, host.list(NetworkQuery()).entries.size)
+        assertEquals(6, host.liveEntries().size)
         assertEquals(emptyList(), archived(s))
     }
 
@@ -213,8 +212,11 @@ class EpochTest {
         index(app, s).list(NetworkQuery())
         s.close(); stores.clear()
         val again = store()
-        assertEquals(1, index(app, again).list(NetworkQuery()).entries.size)
+        assertEquals(1, index(app, again).liveEntries().size)
         assertNotNull(again.epochs("dev1", "io.example", ArchiveScope(all = true)).singleOrNull())
         assertEquals(1, index(app, again).list(NetworkQuery()).coverage.archivedEpochs, "the archive is stated beside the live list")
     }
+
+    /** Feature 071: every run of the live history (the switch on, less what is archived): what these tests count. */
+    private suspend fun HostIndex.liveEntries() = list(NetworkQuery(archive = true, limit = 1000)).let { p -> p.entries.filter { p.archived?.containsKey(it.id) != true } }
 }
