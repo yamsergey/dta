@@ -647,6 +647,9 @@ class HostIndex(
         store.findArchived(device.key, packageName, id)?.let { (archivedEpoch, _) ->
             if (epoch?.let { store.entry(it.id, id) } == null) return archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch))
         }
+        // D-009/D-033: with the feed live, an entry this computer holds nowhere may still be on its way in a batch:
+        // the app answers for it, asked without a catch-up and without the mutex (it reads its whole journal for it).
+        if (feedSub != null) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), connection().request("network_entry", buildJsonObject { put("id", id) }))
         // D-033: what only the app can answer is asked after the mutex is let go: it reads its whole journal.
         val (detail, askApp) = entryLocked(id)
         detail?.let { return it }

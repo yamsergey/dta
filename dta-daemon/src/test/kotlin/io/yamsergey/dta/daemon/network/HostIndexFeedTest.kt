@@ -290,6 +290,7 @@ class HostIndexFeedTest {
         assertNotNull(host.openFeed()?.subscription)
         http(app) // its batch not here yet: the app is asked
         app.entryDelayMs = 3_000
+        app.identityDelayMs = 3_000 // nor does a slow identity: no catch-up is needed to ask
         val asking = async(kotlinx.coroutines.Dispatchers.Default) { host.entry("r1-1:4") }
         kotlinx.coroutines.delay(300)
         http(app)
@@ -297,6 +298,8 @@ class HostIndexFeedTest {
         assertEquals(HostIndex.Applied.APPLIED, host.apply(app.batch(3)))
         val applyMs = (System.nanoTime() - t) / 1_000_000
         assertTrue(applyMs < 500, "the batch waited $applyMs ms for the app's lookup")
+        val t2 = System.nanoTime()
         assertEquals("r1-1:4", asking.await().entry.id)
+        assertTrue((System.nanoTime() - t2) / 1_000_000 < 3_000, "only the app's own lookup time, no identity round trip before it")
     }
 }
