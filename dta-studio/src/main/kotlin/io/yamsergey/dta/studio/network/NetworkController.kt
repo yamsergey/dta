@@ -66,6 +66,8 @@ data class NetworkViewState(
     val scope: io.yamsergey.dta.protocol.network.HistoryScope? = null,
     /** Feature 071: the app started again while the tab showed it (board 4); null when not. */
     val restart: String? = null,
+    /** Feature 071: the archived epoch of each archived row shown (board 3's separators), by entry id. */
+    val epochOf: Map<String, String> = emptyMap(),
     val loading: Boolean = false,
     /** D-022: an older page is being loaded (Load older, or the list scrolled to its oldest edge). */
     val loadingOlder: Boolean = false,
@@ -428,7 +430,7 @@ class NetworkController(private val context: ContextController, private val scop
         val params = JsonObject(params(s).toMap() - "limit" - "before" - "view")
         val empty = JsonObject(mapOf("entries" to kotlinx.serialization.json.JsonArray(emptyList())))
         val e = loaded(empty)
-        mutable.update { it.copy(list = it.list.reduce(e), find = io.yamsergey.dta.protocol.network.FindState.SEARCHING, findError = null, findHeld = false, searching = true, hits = HitNavigator(more = true), searchStatements = emptyList(), loading = false) }
+        mutable.update { it.copy(list = it.list.reduce(e), find = io.yamsergey.dta.protocol.network.FindState.SEARCHING, findError = null, findHeld = false, searching = true, hits = HitNavigator(more = true), searchStatements = emptyList(), loading = false, epochOf = emptyMap()) }
         lateinit var stream: SearchStream
         stream = SearchStream(client, scope, params, onEvent = { ev -> if (findStream === stream) found(ev, stream) }, onError = { err ->
             if (findStream === stream) mutable.update { it.copy(find = io.yamsergey.dta.protocol.network.FindState.FAILED, findError = err.message, searching = false, error = if (superseded(err)) it.error else err.message ?: err.javaClass.simpleName) }
@@ -447,7 +449,9 @@ class NetworkController(private val context: ContextController, private val scop
                 val entries = items.map { DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.NetworkEntry.serializer(), it.entry) }
                 val page = JsonObject(mapOf("entries" to kotlinx.serialization.json.JsonArray(entries)))
                 val joined = items.mapNotNull { i -> i.hits?.let { io.yamsergey.dta.protocol.network.EntryHits(i.entry.id, i.entry.timeMs, it) } }
-                next = next.copy(list = next.list.reduce(LiveEvent.Older(page)), hits = next.hits.withOlder(joined, next.hitsNewestFirst, more = true), findHeld = stream.waitingForViewer)
+                val epochs = items.mapNotNull { i -> i.archived?.let { i.entry.id to it.epoch } }
+                next = next.copy(list = next.list.reduce(LiveEvent.Older(page)), hits = next.hits.withOlder(joined, next.hitsNewestFirst, more = true), findHeld = stream.waitingForViewer,
+                    epochOf = if (epochs.isEmpty()) next.epochOf else next.epochOf + epochs)
             }
             e.scope?.let { next = next.withScope(it) }
             e.saved?.let { next = next.copy(savedApplied = it) }
@@ -770,8 +774,11 @@ class NetworkController(private val context: ContextController, private val scop
     )
 
     /** Feature 071: a list page's scope (and the restart banner when the app started again). */
-    private fun NetworkViewState.withPageScope(page: JsonObject): NetworkViewState =
-        page["scope"]?.let { runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }.getOrNull() }?.let { withScope(it) } ?: this
+    private fun NetworkViewState.withPageScope(page: JsonObject): NetworkViewState {
+        val epochs = (page["archived"] as? JsonObject)?.mapNotNull { (id, mark) -> ((mark as? JsonObject)?.get("epoch") as? JsonPrimitive)?.content?.let { id to it } }.orEmpty()
+        val marked = if (epochs.isEmpty()) this else copy(epochOf = epochOf + epochs)
+        return page["scope"]?.let { runCatching { DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }.getOrNull() }?.let { marked.withScope(it) } ?: marked
+    }
 
     /** Feature 067: the daemon decides each live entry with the whole line (an older daemon does not: the list is asked again). */
     @Volatile private var liveDecisions = false

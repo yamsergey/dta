@@ -161,6 +161,33 @@ class NetworkPanel(
     }
     private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
     private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
+    /** Feature 071 (boards 1–7): the spinner while a search reads its scope, and the caption's link (Stop / Include archive). */
+    private val spinner = JBLabel(com.intellij.ui.AnimatedIcon.Default()).apply { isVisible = false }
+    private var captionAction: io.yamsergey.dta.present.network.ScopeCaption.Action? = null
+    private val captionLink = com.intellij.ui.components.ActionLink("") {
+        when (captionAction) {
+            io.yamsergey.dta.present.network.ScopeCaption.Action.STOP -> network.stopSearch()
+            io.yamsergey.dta.present.network.ScopeCaption.Action.INCLUDE_ARCHIVE -> network.setArchiveOn(true)
+            null -> Unit
+        }
+    }.apply { isVisible = false }
+    /** Feature 071: the Archive switch, after the source (off at each IDE start). */
+    private val archiveBox = com.intellij.ui.components.JBCheckBox("Archive").apply {
+        toolTipText = "Include every earlier run and the archived history this computer keeps for the app. Off: only the app's current run (since its process last started)."
+        isOpaque = false
+    }
+    /** Feature 071 (board 5): run:all while the switch is off widens nothing; said under the line. */
+    private val runAllHint = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
+        isOpaque = false
+        border = JBUI.Borders.empty(0, 8, 2, 8)
+        add(JBLabel(io.yamsergey.dta.present.network.ScopeCaption.RUN_ALL_HINT, AllIcons.General.Information, javax.swing.SwingConstants.LEFT).apply { foreground = com.intellij.ui.JBColor.GRAY })
+        add(com.intellij.ui.components.ActionLink(io.yamsergey.dta.present.network.ScopeCaption.TURN_ON_ARCHIVE) { network.setArchiveOn(true) })
+        isVisible = false
+    }
+    /** Feature 071 (board 4): the app started again; the previous run is named, with the way to include it. */
+    private val restartBanner = io.yamsergey.dta.studio.ui.BannerPanel().apply {
+        onAction { network.setArchiveOn(true) }
+    }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     /** Feature 061: browser capture, while a browser switch is on. */
     private val webStatus = WebStatusRow(context, scope)
@@ -308,12 +335,14 @@ class NetworkPanel(
         val viewRow = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))).apply {
             add(kindSwitch)
             add(source)
+            add(archiveBox)
             // D-024: the network script in force, after the source; wraps to the next row when narrow.
             add(scriptControl)
         }
+        archiveBox.addActionListener { if (archiveBox.isSelected != last.archiveOn) network.setArchiveOn(archiveBox.isSelected) }
         val toolbar = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
-            listOf(queryRow, problemRow, chipRow, viewRow).forEach { it.alignmentX = LEFT_ALIGNMENT; add(it) }
+            listOf(queryRow, problemRow, runAllHint, chipRow, viewRow, restartBanner).forEach { it.alignmentX = LEFT_ALIGNMENT; add(it) }
         }
         bindQuery()
         val master = JPanel(BorderLayout()).apply {
@@ -324,7 +353,7 @@ class NetworkPanel(
             // In one line when it fits, else "N new below" under the caption: never over it.
             add(JPanel(LineOrStack(JBUI.scale(12))).apply {
                 border = JBUI.Borders.empty(2, 6, 0, 4)
-                add(caption)
+                add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false; add(spinner); add(caption); add(captionLink) })
                 add(empty)
                 add(newBar)
             }, BorderLayout.SOUTH)
@@ -350,7 +379,8 @@ class NetworkPanel(
         }
         table.selectionModel.addListSelectionListener { e ->
             if (e.valueIsAdjusting || model.updating) return@addListSelectionListener
-            val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rowAt(it) }
+            // Feature 071: a separator row is not an entry.
+            val row = table.selectedRow.takeIf { it >= 0 }?.let { model.rowAt(it) }?.takeUnless { it.id.startsWith(SEPARATOR) }
             network.list(LiveEvent.Selected(row?.id))
         }
         // Only the person's own scrolling changes following: away from the newest edge stops it, back to it resumes.
@@ -391,7 +421,11 @@ class NetworkPanel(
         last = s
         // A reload can move the scroll bar too: that is not the person scrolling.
         programmaticScroll = true
-        val (added, prepended) = try { model.update(s.list.rows) } finally { scroll.validate(); programmaticScroll = false }
+        // Feature 071 (board 3): with Archive on, earlier runs and archived history under their separators.
+        val shownRows = if (model.sort != null) s.list.rows else io.yamsergey.dta.present.network.RunSeparators.insert(
+            s.list.rows, { r -> s.epochOf[r.id] ?: (r.entry["runId"] as? JsonPrimitive)?.content.orEmpty() }, s.scope, newestFirst = model.order == ListOrder.NEWEST_FIRST,
+        ) { sep -> Row("$SEPARATOR${sep.group}", 0, JsonObject(mapOf("separator" to JsonPrimitive(sep.text)))) }
+        val (added, prepended) = try { model.update(shownRows) } finally { scroll.validate(); programmaticScroll = false }
         // Keep the selection on its row by id, whatever moved around it.
         s.list.selectedId?.let { id -> model.indexOf(id)?.let { i -> if (table.selectedRow != i) { model.updating = true; table.setRowSelectionInterval(i, i); model.updating = false } } }
         if (s.list.following && model.sort == null) scrollToEdge()
@@ -440,9 +474,19 @@ class NetworkPanel(
         }
         // The caption keeps its width while traffic arrives (024); it starts over on new filters or a cleared list.
         if (s.applied != previous.applied || s.list.history < previous.list.history) caption.reset()
-        // Feature 069: rows shown and the history's size; matches are not counted.
+        // Feature 069: rows shown and the scope's size (071); matches are not counted.
         val filtered = s.applied.text.isNotBlank() || s.kind != io.yamsergey.dta.present.network.KindChoice.ALL
-        caption.text = io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.history, s.savedApplied, filtered, more = s.list.older != null)
+        val words = if (s.scope == null) null else io.yamsergey.dta.present.network.ScopeCaption.of(s.scope, s.list.shown, filtered, s.find, s.savedApplied, s.findError)
+        caption.text = words?.text ?: io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.history, s.savedApplied, filtered, more = s.list.older != null)
+        if (s.findHeld && words != null) caption.text = words.text + " · more as you scroll"
+        spinner.isVisible = words?.searching == true
+        captionAction = words?.action?.takeUnless { it == io.yamsergey.dta.present.network.ScopeCaption.Action.INCLUDE_ARCHIVE && (s.archiveOn || s.archive != null) }
+        captionLink.text = captionAction?.let { io.yamsergey.dta.present.network.ScopeCaption.label(it) }.orEmpty()
+        captionLink.isVisible = captionAction != null
+        if (archiveBox.isSelected != s.archiveOn) archiveBox.isSelected = s.archiveOn
+        archiveBox.isEnabled = s.archive == null
+        runAllHint.isVisible = !s.archiveOn && s.archive == null && s.applied.parsed.filter.runs == io.yamsergey.dta.protocol.network.RunScope.ALL && s.applied.parsed.problems.isEmpty()
+        restartBanner.show(s.restart?.let { io.yamsergey.dta.present.context.Banner(io.yamsergey.dta.present.StatementKind.PROCESS_ENDED, it, "Include archive".takeUnless { s.archiveOn }) })
         if (s.hits != previous.hits) table.repaint()
         statements.removeAll()
         s.saved.problem?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.text(io.yamsergey.dta.present.StatementKind.DEGRADED) }) }
@@ -705,7 +749,7 @@ class NetworkPanel(
         fun view(row: Row): EntryRow = cache.getOrPut(row) { EntryRows.of(row.entry) }
 
         /** The newest rows as shown, for the query line's value suggestions (hosts, statuses, methods). */
-        fun views(): List<EntryRow> = rows.takeLast(500).map(::view)
+        fun views(): List<EntryRow> = rows.takeLast(500).filterNot { it.id.startsWith(SEPARATOR) }.map(::view)
 
         fun rowAt(shown: Int): Row = if (sort != null) sorted[shown] else rows[order.shown(shown, rows.size)]
 
@@ -761,7 +805,9 @@ class NetworkPanel(
         override fun getRowCount() = rows.size
         override fun getColumnCount() = COLUMNS.size
         override fun getColumnName(column: Int) = COLUMNS[column].title
-        override fun getValueAt(rowIndex: Int, columnIndex: Int): Any = view(rowAt(rowIndex))
+        override fun getValueAt(rowIndex: Int, columnIndex: Int): Any = rowAt(rowIndex).let { r ->
+            if (r.id.startsWith(SEPARATOR)) Separator((r.entry["separator"] as JsonPrimitive).content) else view(r)
+        }
     }
 
     /** D-024: the Request cell draws itself (label, host muted, path cut before the scripted mark); the others are coloured text. */
@@ -791,6 +837,14 @@ class NetworkPanel(
         override fun customizeCellRenderer(table: JTable, value: Any?, selected: Boolean, hasFocus: Boolean, row: Int, column: Int) {
             // One renderer draws every cell: a tooltip set for one cell must not show on the next.
             toolTipText = null
+            // Feature 071 (board 3): a separator's words where they fit — what, when, how many (a cell cannot span the row).
+            if (value is Separator) {
+                val parts = value.text.split(" · ")
+                val shown = when (column) { 0 -> parts.getOrNull(0); 1 -> parts.getOrNull(1)?.takeIf { parts.size > 2 }; 3 -> parts.lastOrNull()?.takeIf { parts.size > 1 }; else -> null }
+                shown?.let { append(it, SimpleTextAttributes.GRAYED_BOLD_ATTRIBUTES) }
+                toolTipText = value.text
+                return
+            }
             val r = value as? EntryRow ?: return
             // Feature 040: rows holding the search words are tinted; the current hit more.
             // Feature 041: with only the matches listed every row is one: only the current hit stands out.
@@ -888,7 +942,12 @@ class NetworkPanel(
         }
     }
 
+    /** Feature 071: a separator row's cell. */
+    private class Separator(val text: String)
+
     private companion object {
+        /** Feature 071: ids of separator rows (never an entry's). */
+        const val SEPARATOR = "sep:"
         const val ORDER_KEY = "dta.network.order"
         /** Below this the detail goes under the list; a 900 px tool window still has them side by side. */
         const val NARROW = 860
