@@ -133,41 +133,68 @@ class HostIndexFeedTest {
 
     @Test
     fun `whatever happens on the way, the archive ends equal to the app's history, nothing doubled`() = runBlocking<Unit> {
-        repeat(300) { run ->
-            val app = FakeJournalApp().apply { attachBodies = run % 2 == 0 }
-            val host = index(app, File(dir, "r$run").apply { mkdirs() })
-            val r = Random(run)
-            var sent = 0 // the line up to which the app has sent batches of its current subscription
-            repeat(r.nextInt(0, 5)) { http(app) }
-            repeat(40) {
-                when (r.nextInt(12)) {
-                    0, 1, 2 -> repeat(r.nextInt(1, 4)) {
-                        // New traffic, and an entry finishing (a second record of the same id).
-                        val pending = http(app, state = HttpState.PENDING, body = null)
-                        if (r.nextBoolean()) app.record(pending.copy(state = HttpState.COMPLETE, status = 204))
-                    }
-                    3 -> if (host.feedLive || r.nextBoolean()) host.openFeed()?.subscription?.let { sent = app.feedFrom!!.substringAfter(':').toInt() }
-                    4, 5 -> if (app.feedId != null && sent < app.records.size) {
-                        val to = r.nextInt(sent + 1, app.records.size + 1)
-                        host.apply(app.batch(sent, to)); sent = to
-                    }
-                    6 -> if (app.feedId != null && sent < app.records.size) { sent = r.nextInt(sent + 1, app.records.size + 1) } // lost
-                    7 -> if (app.feedId != null && sent > 0) host.apply(app.batch(r.nextInt(0, sent), sent)) // again
-                    8 -> host.feedEnded(io.yamsergey.dta.protocol.network.FeedEnded(app.feedId ?: "f0", "overflow", "0:$sent"))
-                    9 -> host.list(NetworkQuery(limit = 1))
-                    // A clear ends the subscription (closed); a snapshot taken back restarts the process (the channel ends).
-                    10 -> if (r.nextInt(4) == 0) { app.reset("j${run}-${r.nextInt(1000)}", "cleared"); endFeed(app, host, sent); sent = 0 }
-                    11 -> if (r.nextInt(4) == 0 && app.records.size > 2) { app.goBack(r.nextInt(1, app.records.size)); endFeed(app, host, sent); sent = 0 }
+        repeat(300) { run -> property(run, seed = run) }
+    }
+
+    /** D-031: QA's seed 10069 (harness QaFeedPropertyTest, run 69): a rollback past the record that completed an entry. */
+    @Test
+    fun `a rollback past an entry's completion leaves the archive with the app's pending record (seed 10069)`() = runBlocking<Unit> {
+        property(69, seed = 10_069)
+    }
+
+    /** D-031: the completion of the last entry read, cut when read, is applied once whole (its pending record is not "the same record"). */
+    @Test
+    fun `a completion cut when read is applied once whole, though its entry was the last read`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        http(app)
+        val pending = http(app, state = HttpState.PENDING, body = null)
+        app.record(pending.copy(state = HttpState.COMPLETE, status = 204))
+        app.cutLines += 2 // the completion is being written
+        val host = index(app)
+        host.list(NetworkQuery())
+        app.cutLines.clear()
+        val got = host.list(NetworkQuery()).entries.single { it.id == pending.id } as HttpEntry
+        assertEquals(HttpState.COMPLETE, got.state)
+        assertEquals(1, host.history().archive.installations.single().epochs.size, "not a rollback")
+    }
+
+    private suspend fun property(run: Int, seed: Int, trace: Boolean = false) {
+        val app = FakeJournalApp().apply { attachBodies = run % 2 == 0 }
+        val host = index(app, File(dir, "r$run").apply { mkdirs() })
+        val r = Random(seed)
+        fun log(what: String) { if (trace) println("D-031 step: $what; app ${app.records.size} lines (${app.records.map { "${it.id.substringAfter(':')}${if ((it as? HttpEntry)?.state == HttpState.PENDING) "p" else "c"}" }}) feed ${app.feedId}") }
+        var sent = 0 // the line up to which the app has sent batches of its current subscription
+        repeat(r.nextInt(0, 5)) { http(app) }
+        log("start")
+        repeat(40) {
+            when (r.nextInt(12)) {
+                0, 1, 2 -> repeat(r.nextInt(1, 4)) {
+                    // New traffic, and an entry finishing (a second record of the same id).
+                    val pending = http(app, state = HttpState.PENDING, body = null)
+                    if (r.nextBoolean()) app.record(pending.copy(state = HttpState.COMPLETE, status = 204))
+                    log("traffic")
                 }
+                3 -> if (host.feedLive || r.nextBoolean()) host.openFeed()?.subscription?.let { sent = app.feedFrom!!.substringAfter(':').toInt(); log("feed opened from $sent") }
+                4, 5 -> if (app.feedId != null && sent < app.records.size) {
+                    val to = r.nextInt(sent + 1, app.records.size + 1)
+                    val applied = host.apply(app.batch(sent, to)); log("batch $sent..$to $applied"); sent = to
+                }
+                6 -> if (app.feedId != null && sent < app.records.size) { sent = r.nextInt(sent + 1, app.records.size + 1); log("lost up to $sent") } // lost
+                7 -> if (app.feedId != null && sent > 0) { val from = r.nextInt(0, sent); val applied = host.apply(app.batch(from, sent)); log("again $from..$sent $applied") } // again
+                8 -> { host.feedEnded(io.yamsergey.dta.protocol.network.FeedEnded(app.feedId ?: "f0", "overflow", "0:$sent")); log("overflow") }
+                9 -> { host.list(NetworkQuery(limit = 1)); log("query") }
+                // A clear ends the subscription (closed); a snapshot taken back restarts the process (the channel ends).
+                10 -> if (r.nextInt(4) == 0) { app.reset("j${run}-${r.nextInt(1000)}", "cleared"); endFeed(app, host, sent); sent = 0; log("clear") }
+                11 -> if (r.nextInt(4) == 0 && app.records.size > 2) { val to = r.nextInt(1, app.records.size); app.goBack(to); endFeed(app, host, sent); sent = 0; log("rollback to $to lines") }
             }
-            // The app sends what it wrote after its last batch, as it does while subscribed.
-            if (host.feedLive && app.feedId != null) host.apply(app.batch(minOf(sent, app.records.size)))
-            val expected = plain(app.deviceAnswer(NetworkQuery(limit = 10_000)))
-            val got = plain(host.list(NetworkQuery(limit = 10_000)))
-            assertEquals(expected.entries, got.entries, "run $run: missing ${expected.entries.map { it.id } - got.entries.map { it.id }.toSet()}, extra ${got.entries.map { it.id } - expected.entries.map { it.id }.toSet()}, differ ${expected.entries.zip(got.entries).filter { (a, b) -> a != b }.map { it.first.id + '/' + it.second.id }.take(3)}; ${expected.entries.size} vs ${got.entries.size}")
-            assertEquals(got.entries.map { it.id }.toSet().size, got.entries.size, "run $run: nothing doubled")
-            assertTrue(got.coverage.bodiesNotArchived == null, "run $run")
         }
+        // The app sends what it wrote after its last batch, as it does while subscribed.
+        if (host.feedLive && app.feedId != null) host.apply(app.batch(minOf(sent, app.records.size)))
+        val expected = plain(app.deviceAnswer(NetworkQuery(limit = 10_000)))
+        val got = plain(host.list(NetworkQuery(limit = 10_000)))
+        assertEquals(expected.entries, got.entries, "run $run (seed $seed): missing ${expected.entries.map { it.id } - got.entries.map { it.id }.toSet()}, extra ${got.entries.map { it.id } - expected.entries.map { it.id }.toSet()}, differ ${expected.entries.zip(got.entries).filter { (a, b) -> a != b }.map { (a, b) -> "${a.id}: app ${(a as? HttpEntry)?.state}/${(a as? HttpEntry)?.status} archive ${(b as? HttpEntry)?.state}/${(b as? HttpEntry)?.status}" }.take(3)}; ${expected.entries.size} vs ${got.entries.size}")
+        assertEquals(got.entries.map { it.id }.toSet().size, got.entries.size, "run $run: nothing doubled")
+        assertTrue(got.coverage.bodiesNotArchived == null, "run $run")
     }
 
     @Test

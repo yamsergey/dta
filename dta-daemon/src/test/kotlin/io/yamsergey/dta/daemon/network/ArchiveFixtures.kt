@@ -71,6 +71,10 @@ object ArchiveFixtures {
         return listOf(epoch.id)
     }
 
+    /** The record on the journal's last line read: the one the archive holds for its cursor's last id (D-031: records are compared whole). */
+    fun lastRecord(store: HostStore): NetworkEntry =
+        store.entry(store.liveEpoch(DEVICE, PACKAGE)!!.id, store.cursor(DEVICE, PACKAGE)!!.lastId!!)!!
+
     /** An app whose journal this computer has read through line [lines]: nothing new to read. */
     class ReadThrough(private val lines: Int, private val last: NetworkEntry) : FakeJournalApp(JOURNAL) {
         init {

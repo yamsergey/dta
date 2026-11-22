@@ -649,7 +649,7 @@ class HostIndex(
             var next = page.next
             check?.let { line ->
                 check = null
-                when (continuity(app, line, lastId, records.firstOrNull()?.id, identity)) {
+                when (continuity(app, line, lastId, records.firstOrNull(), identity)) {
                     Continuity.SAME -> records = records.drop(1)
                     Continuity.GOES_ON -> if (records.isEmpty() && next == line) next = position!!
                     Continuity.ROLLED_BACK -> {
@@ -831,7 +831,7 @@ class HostIndex(
      * the journal back with its id, so the id alone cannot say. [first] is what the journal has on
      * the [line] of the last record read, [lastId].
      */
-    private suspend fun continuity(app: AppConnection, line: String, lastId: String?, first: String?, identity: JournalIdentityResult): Continuity {
+    private suspend fun continuity(app: AppConnection, line: String, lastId: String?, first: NetworkEntry?, identity: JournalIdentityResult): Continuity {
         val coverage = identity.context.coverage
         // Feature 066: entries the device removed after archiving are gone the same way as evicted ones.
         val removed = coverage.evicted + (coverage.archivedOnly?.values?.sum() ?: 0)
@@ -839,10 +839,14 @@ class HostIndex(
             // No record was read at this position: only one beyond the journal shows.
             return if (first == null && removed == 0) Continuity.ROLLED_BACK else Continuity.GOES_ON
         }
-        if (first == lastId) return Continuity.SAME
+        // D-031: the last record read, not only its entry: a pending and a finished record of one entry share its id,
+        // so the entry's earlier record on that line (the journal went back past its completion) is not it.
+        val last = epoch?.let { store.entry(it.id, lastId) }
+        fun isLast(record: NetworkEntry?) = record != null && record.id == lastId && (last == null || record == last)
+        if (isLast(first)) return Continuity.SAME
         // Feature 066: the device removed what this computer archived up to there; a missing line is that, not a rollback.
         coverage.archivedThrough?.let { through -> if (cursorAtOrBefore(line, through)) return Continuity.GOES_ON }
-        val time = epoch?.let { store.entry(it.id, lastId) }?.timeMs
+        val time = last?.timeMs
         val evicted = removed > 0 && (coverage.earliestMs == null || time == null || time <= coverage.earliestMs!!)
         if (evicted) return Continuity.GOES_ON
         // That line was cut when read (being written, or a crash): the record is one line earlier.
@@ -852,7 +856,7 @@ class HostIndex(
             put("limit", 1)
         }
         val before = DtaJson.decodeFromJsonElement(JournalPageResult.serializer(), app.request("network_journal", params))
-        return if (before.records.firstOrNull()?.id == lastId) Continuity.GOES_ON else Continuity.ROLLED_BACK
+        return if (isLast(before.records.firstOrNull())) Continuity.GOES_ON else Continuity.ROLLED_BACK
     }
 
     /** The journal went back: what was read is archived, and it is read again from its start. */

@@ -43,7 +43,7 @@ class ArchiveScaleBench {
             val store = HostStore(root)
             val (read, readMs) = ms { store.entries(store.liveEpoch(ArchiveFixtures.DEVICE, ArchiveFixtures.PACKAGE)!!.id).size }
             println("BENCH n=$n read epoch: $read entries in ${readMs}ms")
-            val last = ArchiveFixtures.entry(n - 1, Random(0))
+            val last = ArchiveFixtures.lastRecord(store)
             val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, last) }
             val (first, startMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100)) } }
             val (_, againMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100)) } }

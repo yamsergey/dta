@@ -49,7 +49,8 @@ class HostIndexScaleTest {
         HostStore(dir).use { ArchiveFixtures.fill(it, n) }
         val store = HostStore(dir).also { stores += it }
         val before = heapMb()
-        val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, ArchiveFixtures.entry(n - 1, Random(0))) }
+        val last = ArchiveFixtures.lastRecord(store)
+        val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, last) }
         val (first, startMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100)) } }
         assertEquals(100, first.entries.size)
         assertTrue(startMs < 150, "first page, after a start, in $startMs ms")
@@ -95,7 +96,8 @@ class HostIndexScaleTest {
         val n = 100_000
         HostStore(dir).use { ArchiveFixtures.fill(it, n) }
         val store = HostStore(dir).also { stores += it }
-        val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, ArchiveFixtures.entry(n - 1, Random(0))) }
+        val last = ArchiveFixtures.lastRecord(store)
+        val host = HostIndex(store, DeviceIdentity(ArchiveFixtures.DEVICE, "emulator-5554"), ArchiveFixtures.PACKAGE) { ArchiveFixtures.ReadThrough(n, last) }
         val (_, indexMs) = ms { while (host.indexWords() > 0) Unit }
         assertEquals(0, host.wordsPending())
         host.list(NetworkQuery(limit = 100))
