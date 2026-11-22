@@ -9,6 +9,8 @@ import io.yamsergey.dta.protocol.network.Completeness
 import io.yamsergey.dta.protocol.network.HttpEntry
 import io.yamsergey.dta.protocol.network.HttpState
 import io.yamsergey.dta.protocol.network.NetworkQuery
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
@@ -53,6 +55,37 @@ class NetworkServiceClearTest {
         val archived = service.list(NetworkQuery(archive = ArchiveScope(all = true)))
         assertEquals(4, archived.entries.size)
         assertNotNull(service.body("r1-1:2", BodyPart.RESPONSE).text?.takeIf { it == "body-1" }, "the body is on this computer")
+    }
+
+    /** D-005: a body the copy worker is copying when the clear starts is waited for, not counted lost at once. */
+    @Test
+    fun `a body the copy worker is copying is waited for before the clear`() = runBlocking<Unit> {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val app = object : FakeJournalApp() {
+            override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
+                if (method == "network_body_range") { started.complete(Unit); gate.await() }
+                return super.requestFull(method, params, timeout)
+            }
+        }
+        // Bodies above their preview, so each one is fetched.
+        val big = "x".repeat(70_000)
+        HttpEntry("${app.runId}:1", app.runId, now + 1, "okhttp3", method = "GET", url = "https://api/x/1", state = HttpState.COMPLETE, status = 200,
+            responseBody = BodyInfo(BodyPart.RESPONSE, big.length.toLong(), completeness = Completeness.COMPLETE))
+            .also { e -> app.record(e); app.bodies[e.id to BodyPart.RESPONSE] = big.toByteArray() }
+        val store = HostStore(dir).also { stores += it }
+        val host = HostIndex(store, DeviceIdentity("dev1", "emulator-5554"), "io.example") { app }
+        val service = NetworkService(host = host) { app }
+        service.list(NetworkQuery())
+        assertEquals(1, host.pendingBodies().size)
+        val worker = launch(kotlinx.coroutines.Dispatchers.Default) { CopyWorker(host).runOnce() }
+        started.await()
+        val clear = async(kotlinx.coroutines.Dispatchers.Default) { service.clear(copyTimeoutMs = 10_000) }
+        kotlinx.coroutines.delay(300)
+        gate.complete(Unit)
+        val result = clear.await()
+        worker.join()
+        assertNull(result.notKept, "the worker's copy finished well within the clear's time: ${result.notKept}")
     }
 
     @Test

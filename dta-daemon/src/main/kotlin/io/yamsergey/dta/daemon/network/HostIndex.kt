@@ -397,9 +397,21 @@ class HostIndex(
                 // The whole journal before a clear, whoever else reads it.
                 while (sync(app, pages = catchUpBudgetPages) && lag > 0 && clock() < deadline) Unit
             }
-            for (body in pendingBodies()) {
-                if (clock() >= deadline) break
-                copyBody(body.entryId, body.part)
+            // A body the copy worker (or an answer) is copying is waited for, not skipped (D-005);
+            // one this copy tried and could not take stays counted.
+            val tried = HashSet<Pair<String, BodyPart>>()
+            while (clock() < deadline) {
+                val left = pendingBodies().filter { (it.entryId to it.part) !in tried }
+                if (left.isEmpty()) break
+                var waiting = false
+                for (body in left) {
+                    if (clock() >= deadline) break
+                    val key = body.entryId to body.part
+                    if (key in copying) { waiting = true; continue }
+                    copyBody(body.entryId, body.part)
+                    tried += key
+                }
+                if (waiting) kotlinx.coroutines.delay(CLEAR_WAIT_MS)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -1015,6 +1027,8 @@ class HostIndex(
         const val HISTORY_WAIT_MS = 300L
         /** How long a clear waits for the copy of what this computer does not have yet. */
         const val CLEAR_COPY_MS = 20_000L
+        /** How often a clear looks again at a body another copy is taking. */
+        private const val CLEAR_WAIT_MS = 20L
         /** Feature 067: an answer's own body copying; measured, a backlog of 100k bodies took 871 s. */
         const val SEARCH_COPY_MS = 2_000L
         const val MAX_KEEP = 2_000
