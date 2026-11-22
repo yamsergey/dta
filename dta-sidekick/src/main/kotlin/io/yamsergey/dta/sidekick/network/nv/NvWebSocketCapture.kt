@@ -96,7 +96,9 @@ internal object NvWebSocketCapture {
         }
         listenerHooks.on(NetworkEvents.CLOSE, "callOnDisconnected", "(${FRAME}${FRAME}Z)V") { self, params ->
             val id = idOfListeners(self) ?: return@on
-            val closeFrame = params[0] ?: params[1]
+            // The frame of the side that started the closing handshake is the connection's close.
+            val closedByServer = params[2] as? Boolean ?: true
+            val closeFrame = if (closedByServer) params[0] ?: params[1] else params[1] ?: params[0]
             recorder.wsClosed(id, closeFrame?.call("getCloseCode") as? Int, closeFrame?.call("getCloseReason") as? String)
         }
         listenerHooks.on(NetworkEvents.FAILURES, "callOnConnectError", "(Lcom/neovisionaries/ws/client/WebSocketException;)V") { self, params ->

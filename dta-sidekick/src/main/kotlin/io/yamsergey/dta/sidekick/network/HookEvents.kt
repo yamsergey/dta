@@ -37,6 +37,8 @@ object NetworkEvents {
     const val RECEIVED_TEXT = "received text messages"
     const val RECEIVED_BINARY = "received binary messages"
     const val CLOSE = "close"
+    /** The app started the closing handshake (its close frame is the connection's close). */
+    const val CLOSING = "close sent by the app"
     const val FAILURES = "failures"
     /** Feature 020: where pushed messages go to the app on the library's reading thread. */
     const val PUSH_ON_READER = "pushed messages on the reading thread"

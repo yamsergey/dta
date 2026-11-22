@@ -184,6 +184,34 @@ class NetworkRecorderTest {
         assertContentEquals(byteArrayOf(9, 9, 9), store.openBody(inbound, BodyPart.MESSAGE)!!.readBytes())
     }
 
+    /** D-002 (NET-WS-001/002): the close frame that started the closing handshake is the connection's close. */
+    @Test
+    fun `the app's close frame is the connection's close, not the server's empty echo`() {
+        val id = recorder.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)
+        recorder.wsOpened(id)
+        recorder.wsClosing(id, 1000, "done")
+        assertEquals(WsState.OPEN, (entry(id) as WsConnectionEntry).state, "open until the closing handshake ends")
+        now += 3
+        recorder.wsClosed(id, 1000, "")
+        val c = entry(id) as WsConnectionEntry
+        assertEquals(WsState.CLOSED, c.state)
+        assertEquals(1000, c.closeCode)
+        assertEquals("done", c.closeReason)
+        assertEquals(now, c.closedAtMs)
+    }
+
+    /** The twin: the server closes first; the app's echo afterwards does not replace its frame. */
+    @Test
+    fun `the server's close frame stays when it came first`() {
+        val id = recorder.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)
+        recorder.wsOpened(id)
+        recorder.wsClosed(id, 4001, "server says bye")
+        recorder.wsClosing(id, 4001, "echo")
+        val c = entry(id) as WsConnectionEntry
+        assertEquals(4001, c.closeCode)
+        assertEquals("server says bye", c.closeReason)
+    }
+
     @Test
     fun `a pushed message is an incoming message with its marker, through the push recorder`() {
         val id = recorder.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)

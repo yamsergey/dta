@@ -171,9 +171,22 @@ class NetworkRecorder(
             id
         }
 
+    /**
+     * The app sent a close frame: the closing handshake started on this side. Its code and reason are
+     * the connection's close (the first close frame on the wire); the state stays until [wsClosed].
+     */
+    fun wsClosing(id: String, code: Int?, reason: String?) = guard {
+        updateWs(id) {
+            if (it.state != WsState.OPEN && it.state != WsState.CONNECTING || it.closeCode != null) it
+            else it.copy(closeCode = code, closeReason = reason)
+        }
+    }
+
+    /** The closing handshake ended; a close frame the app sent first ([wsClosing]) stays the close. */
     fun wsClosed(id: String, code: Int?, reason: String?, atMs: Long? = null) = guard {
         updateWs(id) {
             if (it.state == WsState.CLOSED || it.state == WsState.FAILED) it
+            else if (it.closeCode != null) it.copy(state = WsState.CLOSED, closedAtMs = atMs ?: clock())
             else it.copy(state = WsState.CLOSED, closedAtMs = atMs ?: clock(), closeCode = code, closeReason = reason)
         }
     }

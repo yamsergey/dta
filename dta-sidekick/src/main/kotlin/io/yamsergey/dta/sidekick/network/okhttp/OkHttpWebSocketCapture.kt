@@ -94,6 +94,10 @@ internal object OkHttpWebSocketCapture {
             hooks.on(NetworkEvents.CLOSE, "onReadClose", "(ILjava/lang/String;)V") { self, params ->
                 sockets[self]?.let { recorder.wsClosed(it, params[0] as? Int, params[1] as? String) }
             }
+            // The app's close(code, reason): when it comes first, its frame is the connection's close.
+            hooks.on(NetworkEvents.CLOSING, "close", "(ILjava/lang/String;)Z") { self, params ->
+                sockets[self]?.let { recorder.wsClosing(it, params[0] as? Int, params[1] as? String) }
+            }
             // The exception is params[0] and the response params[1] in every form (research R1).
             hooks.on(NetworkEvents.FAILURES, *FAILURE) { self, params ->
                 val id = sockets[self] ?: return@on
