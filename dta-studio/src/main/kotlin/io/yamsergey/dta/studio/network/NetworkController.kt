@@ -478,7 +478,9 @@ class NetworkController(private val context: ContextController, private val scop
     }
 
     /** Feature 071: a live entry of another run while the tab shows the current one: the app started again. */
-    private fun noteRun(entry: JsonObject) {
+    private fun noteRun(entry: JsonObject, created: Boolean = false) {
+        // The caption's M follows the run as entries arrive (the counters are read again at the next answer).
+        if (created) mutable.update { st -> st.scope?.takeIf { sc -> sc.run?.runId == (entry["runId"] as? JsonPrimitive)?.content }?.let { sc -> st.copy(scope = sc.copy(entries = sc.entries + 1, run = sc.run?.copy(entries = sc.run!!.entries + 1))) } ?: st }
         val s = mutable.value
         if (s.archiveOn || s.archive != null) return
         val shown = s.scope?.run?.runId ?: return
@@ -727,7 +729,7 @@ class NetworkController(private val context: ContextController, private val scop
                             return@collect
                         }
                         list(if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry))
-                        noteRun(entry)
+                        noteRun(entry, created = change != "updated")
                         // New traffic may hold the words: the hits are refreshed once it settles.
                         if (mutable.value.applied.hasSearch) search(debounceMs = SEARCH_SETTLE_MS)
                     }
@@ -796,7 +798,7 @@ class NetworkController(private val context: ContextController, private val scop
             runCatching { DtaJson.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer()), it) }.getOrNull()
         }
         val event = if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry)
-        noteRun(entry)
+        noteRun(entry, created = change != "updated")
         mutable.update { s ->
             val withRow = s.copy(list = s.list.reduce(event)).followSelected(event)
             if (s.applied.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
