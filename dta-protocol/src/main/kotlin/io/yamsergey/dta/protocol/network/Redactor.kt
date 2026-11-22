@@ -103,16 +103,7 @@ object Redactor {
         if (!mayChangeWords(text) && "://" !in text) return text to emptyList()
         val masked = mutableListOf<String>()
         var result = if ("://" in text) URL_IN_TEXT.replace(text) { m -> url(m.value, location).also { (_, l) -> masked += l }.first } else text
-        result = PAIR_IN_TEXT.replace(result) { m ->
-            val name = m.groupValues[2]
-            val value = m.groupValues[5]
-            val bare = value.trim('"', '\'')
-            if (!isSensitive(name) || bare.startsWith(MASK.dropLast(1)) || bare.isEmpty()) return@replace m.value
-            masked += "$location text $name"
-            val open = value.takeWhile { it == '"' || it == '\'' }.take(1)
-            val close = if (open.isNotEmpty() && value.length > 1 && value.endsWith(open)) open else ""
-            m.value.substring(0, m.groups[4]!!.range.first - m.range.first) + open + MASK + close
-        }
+        result = textPairs(result, location, masked)
         result = CREDENTIAL_IN_TEXT.replace(result) { m ->
             masked += "$location text credential ${m.groupValues[1]}"
             "${m.groupValues[1]} $MASK"
@@ -123,6 +114,30 @@ object Redactor {
             m.value.replaceRange(m.groups[4]!!.range.first - m.range.first, m.groups[4]!!.range.last + 1 - m.range.first, MASK)
         }
         return result to masked
+    }
+
+    /** [PAIR_IN_TEXT] over [text]: a pair whose name is not sensitive is passed over at its separator, so `failed: token=…` is still found. */
+    private fun textPairs(text: String, location: String, masked: MutableList<String>): String {
+        val out = StringBuilder()
+        var at = 0
+        var from = 0
+        while (true) {
+            val m = PAIR_IN_TEXT.find(text, from) ?: break
+            val name = m.groupValues[2]
+            val value = m.groupValues[5]
+            val bare = value.trim('"', '\'')
+            if (!isSensitive(name) || bare.startsWith(MASK.dropLast(1)) || bare.isEmpty()) {
+                from = m.groups[4]!!.range.first.coerceAtLeast(m.range.first + 1)
+                continue
+            }
+            masked += "$location text $name"
+            val open = value.takeWhile { it == '"' || it == '\'' }.take(1)
+            val close = if (open.isNotEmpty() && value.length > 1 && value.endsWith(open)) open else ""
+            out.append(text, at, m.groups[4]!!.range.first).append(open).append(MASK).append(close)
+            at = m.range.last + 1
+            from = at
+        }
+        return out.append(text, at, text.length).toString()
     }
 
     fun body(text: String, contentType: String?, location: String): BodyRedaction {

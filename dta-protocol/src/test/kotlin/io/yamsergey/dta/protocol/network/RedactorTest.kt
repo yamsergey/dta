@@ -245,6 +245,7 @@ class RedactorTest {
             "sent Bearer SECRET-B2abc to the proxy" to "sent Bearer ${Redactor.MASK} to the proxy",
             "Basic U0VDUkVULUIz= refused" to "Basic ${Redactor.MASK} refused",
             "login token=SECRET-K1 user=ana" to "login token=${Redactor.MASK} user=ana",
+            "POST /login failed: token=SECRET-K5" to "POST /login failed: token=${Redactor.MASK}",
             "password: SECRET-K2, retry in 5s" to "password: ${Redactor.MASK}, retry in 5s",
             "bad field \"api_key\":\"SECRET-K3\" in request" to "bad field \"api_key\":\"${Redactor.MASK}\" in request",
             "cut preview {\"session\":\"SECRET-K4" to "cut preview {\"session\":\"${Redactor.MASK}",
