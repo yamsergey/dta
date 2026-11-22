@@ -154,6 +154,31 @@ class DaemonServerTest {
         drop.close(); keep.close()
     }
 
+    /** A redacted watch (the plugin's live list with redaction on) gets entries masked like network.list, and matches the redacted text. */
+    @Test
+    fun `a redacted watch masks every event and matches body patterns against the redacted text`() = runBlocking<Unit> {
+        val watcher = connect()
+        val patterned = connect()
+        val got = async { withTimeout(5_000) { watcher.networkEvents(buildJsonObject { put("redact", true) }).take(3).toList() } }
+        val matched = async { withTimeout(5_000) { patterned.networkEvents(buildJsonObject { put("redact", true); put("q", "body:/SEED-TOKEN|visible/") }).take(2).toList() } }
+        delay(300)
+        val secret = HttpEntry(
+            "r1-1:1", "r1-1", 1, "okhttp3", method = "POST", url = "https://api.example.com/p?page=2&access_token=SEED-QUERY-123", state = HttpState.COMPLETE, status = 200,
+            requestHeaders = listOf(io.yamsergey.dta.protocol.network.Header("Authorization", "Bearer SEED-AUTH-456")),
+        )
+        fake.events.emit(NetworkEntryEvent(secret, EntryChange.CREATED))
+        fake.events.emit(message(2, """{"token":"SEED-TOKEN-abc"}"""))
+        fake.events.emit(message(3, """{"name":"visible"}"""))
+        val events = got.await().drop(1)
+        val text = events.joinToString("\n") { it.toString() }
+        assertFalse(listOf("SEED-QUERY-123", "SEED-AUTH-456", "SEED-TOKEN-abc").any { it in text }, text)
+        assertTrue("page=2" in text && "Authorization" in text, "the rest stays: $text")
+        assertTrue(events.all { it["redaction"] != null }, "every redacted event says so: $text")
+        val m = matched.await().drop(1)
+        assertEquals(listOf("r1-1:3"), m.map { it["event"]!!.jsonObject["entry"]!!.jsonObject["id"]!!.jsonPrimitive.content }, "a masked value is not matched")
+        watcher.close(); patterned.close()
+    }
+
     @Test
     fun `a watch with history=current first replays the running process, then follows it, losing nothing`() = runBlocking<Unit> {
         val pending = HttpEntry("r1-1:2", "r1-1", 2, "okhttp3", method = "GET", url = "https://api.example.com/2", state = HttpState.PENDING)

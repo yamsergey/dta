@@ -257,7 +257,7 @@ class DaemonServer(
                 // (the list matches the host copy). Neither dropped nor let through silently.
                 // Each event gets its own pattern time; a pattern out of time leaves the event unchecked too.
                 var unchecked = false
-                fun eval(budget: PatternBudget) = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, budget = budget, bodyBytes = { entry, part ->
+                fun eval(budget: PatternBudget) = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, budget = budget, redact = redact, bodyBytes = { entry, part ->
                     NetworkHistoryView.bodyOf(entry, part)?.wholeText()?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
                         ?: run { unchecked = true; null }
                 })
@@ -278,6 +278,8 @@ class DaemonServer(
                             } else {
                                 null
                             }
+                            // Decided on the entry as stored (search and patterns redact as they read); sent as network.list shows it.
+                            val (shown, redaction) = if (redact) io.yamsergey.dta.protocol.network.Redactor.entry(event.entry) else event.entry to null
                             send(
                                 Event(
                                     name = DaemonEvents.NETWORK_ENTRY,
@@ -286,7 +288,8 @@ class DaemonServer(
                                         put("subscription", id)
                                         put("device", serial)
                                         put("app", pkg)
-                                        put("event", DtaJson.encodeToJsonElement(NetworkEntryEvent.serializer(), event))
+                                        put("event", DtaJson.encodeToJsonElement(NetworkEntryEvent.serializer(), event.copy(entry = shown)))
+                                        redaction?.let { put("redaction", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.RedactionInfo.serializer(), it)) }
                                         if (bodyUnchecked) put("bodyFilterUnchecked", true)
                                         decision?.let { d ->
                                             put("decision", buildJsonObject {
