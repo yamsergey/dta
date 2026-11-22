@@ -80,7 +80,7 @@ class LiveSubscriptionBurstTest {
         quiet { events.size }
         job.cancel()
         val marked = events.filter { it["degraded"] != null }
-        assertTrue(marked.isEmpty(), "${marked.size} events marked dropped, first ${marked.first().id()}: ${marked.first()["degraded"]}")
+        assertTrue(marked.isEmpty(), "${marked.size} events marked dropped, first ${marked.firstOrNull()?.id()}: ${marked.firstOrNull()?.get("degraded")}")
         assertEquals((1..burst).map { "r1-1:$it" }, events.map { it.id() }, "every event, in order")
         client.close()
     }

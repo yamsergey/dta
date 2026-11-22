@@ -74,7 +74,7 @@ class DaemonServer(
     private val onStop: (reason: String) -> Unit,
     private val pid: Long = ProcessHandle.current().pid(),
     private val clock: () -> Long = System::currentTimeMillis,
-    /** Events buffered per subscription before the oldest are dropped (stated on the next event). */
+    /** Events decided and waiting to be sent per subscription; the decisions wait for room (D-040). */
     private val subscriberBuffer: Int = 256,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -401,7 +401,9 @@ class DaemonServer(
                             )
                         }
                     }
-                    fun offer(event: NetworkEntryEvent) {
+                    // D-040: the decider waits for the sender (it runs apart from the shared feed, 071 R8), so a burst a
+                    // client reads at full speed is never dropped here; only [undecided] filling (the client stopped reading) is.
+                    suspend fun offer(event: NetworkEntryEvent) {
                         // Feature 068: the archive could not hold entries for this watcher: said with the next one.
                         if ((event.missed ?: 0) > 0) dropped.set(true)
                         (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
@@ -414,13 +416,13 @@ class DaemonServer(
                                     had -> LEFT
                                     else -> null
                                 }
-                                if (mark != null && buffer.trySend(event to mark).isFailure) dropped.set(true)
+                                if (mark != null) buffer.send(event to mark)
                                 return
                             }
                         }
                         unchecked = false
                         val matched = eval().matches(event.entry) != null
-                        if ((matched || unchecked) && buffer.trySend(event to unchecked).isFailure) dropped.set(true)
+                        if (matched || unchecked) buffer.send(event to unchecked)
                     }
                     // Feature 071 (research R8): events are decided here, one by one, apart from the feed every
                     // watcher shares: a decision that runs long holds this subscription only, never the others.
@@ -705,7 +707,7 @@ internal fun who(kind: io.yamsergey.dta.protocol.ops.ClientKind): String = when 
     io.yamsergey.dta.protocol.ops.ClientKind.MCP, io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP -> "mcp"
 }
 
-/** Feature 071 (research R8): live events of one subscription waiting for their decision. */
+/** Feature 071 (research R8): live events of one subscription waiting for their decision; past this the client fell behind and is told (D-040). */
 private const val DECIDE_BUFFER = 4_096
 
 /** Feature 071: the first credit of a stream when the client does not say (contracts/find.md). */
