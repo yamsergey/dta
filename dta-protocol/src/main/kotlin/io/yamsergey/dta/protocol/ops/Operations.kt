@@ -281,7 +281,7 @@ object Catalog {
             NETWORK_FILTERS + listOf(
                 ParamSpec("sinceMs", ParamType.LONG, "Only entries at or after this epoch millisecond."),
                 ParamSpec("untilMs", ParamType.LONG, "Only entries at or before this epoch millisecond."),
-                ParamSpec("bodyContains", ParamType.STRING, "Case-sensitive text inside a body or payload; also searched inside binary bodies."),
+                ParamSpec("bodyContains", ParamType.STRING, "Text inside a body or payload, case ignored (as body: in q); a protobuf body decoded by a schema is searched in its fields, another binary body for the exact bytes."),
                 ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
                 ParamSpec("limit", ParamType.INT, "Page size, 1..1000 (default 100)."),
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
@@ -356,7 +356,7 @@ object Catalog {
             listOf(ParamSpec("output", ParamType.STRING, "The .har file to write.", required = true, path = true, cliShort = "-o")) + NETWORK_FILTERS + listOf(
                 ParamSpec("sinceMs", ParamType.LONG, "Only entries at or after this epoch millisecond."),
                 ParamSpec("untilMs", ParamType.LONG, "Only entries at or before this epoch millisecond."),
-                ParamSpec("bodyContains", ParamType.STRING, "Case-sensitive text inside a body or payload."),
+                ParamSpec("bodyContains", ParamType.STRING, "Text inside a body or payload, case ignored (as body: in q)."),
                 ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
                 ParamSpec("archive", ParamType.STRING, "Archived history instead of the live one (as network.list)."),

@@ -130,4 +130,14 @@ class OperationCatalogTest {
             assertEquals(network.cliName, p.cliName, op)
         }
     }
+
+    /** D-016 / 051 FR-003: bodyContains ignores case in text (and decoded) bodies, as body: does. */
+    @Test
+    fun `bodyContains says that case is ignored`() {
+        for (op in listOf("network.list", "network.export")) {
+            val text = Catalog[op].param("bodyContains")!!.description.lowercase()
+            assertTrue("case-sensitive" !in text, "$op bodyContains: $text")
+            assertTrue("case ignored" in text, "$op bodyContains: $text")
+        }
+    }
 }
