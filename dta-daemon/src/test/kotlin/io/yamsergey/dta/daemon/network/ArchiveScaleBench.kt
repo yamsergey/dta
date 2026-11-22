@@ -80,14 +80,18 @@ class ArchiveScaleBench {
                     val started = System.nanoTime()
                     var at = -1L
                     var rows = 0L
+                    class Enough : RuntimeException()
                     runBlocking {
                         val pass = host.find(NetworkQuery(q = q, archive = true), null)
-                        kotlinx.coroutines.withTimeoutOrNull(60_000) {
-                            FindPipeline.run(runner, Credit(Int.MAX_VALUE), {}, pass.walk) { batch ->
-                                if (at < 0) at = (System.nanoTime() - started) / 1_000_000
-                                rows += batch.size
-                                if (rows >= 100) throw kotlinx.coroutines.CancellationException("enough")
+                        try {
+                            kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                                FindPipeline.run(runner, Credit(Int.MAX_VALUE), {}, pass.walk) { batch ->
+                                    if (at < 0) at = (System.nanoTime() - started) / 1_000_000
+                                    rows += batch.size
+                                    if (rows >= 100) throw Enough()
+                                }
                             }
+                        } catch (_: Enough) {
                         }
                     }
                     return at to rows
