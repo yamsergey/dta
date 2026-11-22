@@ -140,4 +140,15 @@ class OperationCatalogTest {
             assertTrue("case ignored" in text, "$op bodyContains: $text")
         }
     }
+
+    /** D-017 / 067 contract, 069 R13, 070: what view does now — a different query supersedes the running pass, the same query does not. */
+    @Test
+    fun `view says a different query supersedes the running pass and the same query does not`() {
+        for (op in listOf("network.list", "network.search")) {
+            val text = Catalog[op].param("view")!!.description.lowercase()
+            assertTrue("different query" in text && "supersed" in text, "$op view: $text")
+            assertTrue("same query" in text && "next page" in text, "$op view: $text")
+            assertTrue("recent" !in text && "narrower" !in text, "$op view: 069 R13 removed match-set reuse: $text")
+        }
+    }
 }

@@ -172,10 +172,12 @@ object Catalog {
         "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched, fuzzily " +
         "(case and separators ignored, one typo allowed in words of 5+ letters, numbers exact), in URLs, headers, bodies and message payloads."
 
-    /** Feature 067: a live view's name; its answers reuse what its earlier queries matched (the same, a recent or a wider query). */
+    /** Feature 067: a live view's name. 069 R13: no match sets are reused; 070: only a different query supersedes. */
     private val VIEW = ParamSpec(
         "view", ParamType.STRING,
-        "A live view's name, chosen by the client (one per list it keeps up to date): the next query of the same view reads only what can match, when it is the same, a recent or a narrower one.",
+        "A live view's name, chosen by the client (one per list it keeps up to date; omit it for one-off calls). " +
+            "A different query of the same view supersedes that view's running pass: the older call ends with a SUPERSEDED error and its answer is dropped. " +
+            "The same query again (its next page, a relist) does not supersede it.",
         cliHidden = true,
     )
 
