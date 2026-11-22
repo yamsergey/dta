@@ -43,7 +43,8 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
         val pane = EntryDetailPane(project, scope, open = { opened += it })
         pane.showLoaded("r2-1:6", Json.parseToJsonElement(javaClass.getResource("/entry-ws.json")!!.readText()).jsonObject)
         val tabs = all(pane).filterIsInstance<JBTabbedPane>().single()
-        tabs.selectedIndex = (0 until tabs.tabCount).first { tabs.getTitleAt(it) == "Messages" }
+        // D-023: the tab says how many messages the socket had.
+        tabs.selectedIndex = (0 until tabs.tabCount).first { tabs.getTitleAt(it) == "Messages · 3" }
         render(pane, "links-connection")
         // Feature 042: a list of app content — summary, the first formatted lines, expandable; a double-click opens the message.
         val view = all(tabs.selectedComponent).filterIsInstance<MessagesView>().single()

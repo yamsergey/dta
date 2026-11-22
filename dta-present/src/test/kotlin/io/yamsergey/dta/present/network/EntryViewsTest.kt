@@ -129,6 +129,28 @@ class EntryViewsTest {
         assertEquals("captured without a stack (process restarted)", d.initiator!!.missing)
     }
 
+    /** D-023: a socket's detail says how it ended and how many messages it had, by direction. */
+    @Test
+    fun `a failed socket says when, after how long and why, and counts its messages by direction (D-023)`() {
+        val m = { id: Int, dir: String -> """{"type":"ws-message","id":"r1-1:$id","runId":"r1-1","timeMs":${1_700_000_001_000 + id},"library":"okhttp3-ws","connectionId":"r1-1:7","direction":"$dir","opcode":"text","payload":{"part":"message","storedBytes":43,"completeness":"complete"}}""" }
+        val detail = Json.parseToJsonElement("""{"entry":{"type":"ws-connection","id":"r1-1:7","runId":"r1-1","timeMs":1700000000000,"library":"okhttp3-ws","url":"ws://127.0.0.1:8098/ws",
+            "state":"failed","openedAtMs":1700000000100,"closedAtMs":1700000062005,"failure":"java.io.EOFException","messageCount":3},
+            "messages":[${m(1, "out")},${m(2, "in")},${m(3, "in")}]}""").jsonObject
+        val d = EntryDetail.of(detail, zone = ZoneOffset.UTC)
+        assertEquals("✕ failed at 22:14:22.005 after 62.0 s: java.io.EOFException", d.ending)
+        val fields = d.summary.associate { it.label to it.value }
+        assertEquals("failed", fields["State"])
+        assertEquals("22:14:22.005 · 62.0 s", fields["Ended"])
+        assertEquals("3 · ↑1 ↓2", fields["Messages"])
+        assertEquals("Messages · 3", d.messagesTitle)
+        // Open, more messages than the detail holds: the count alone, no ending.
+        val open = EntryDetail.of(Json.parseToJsonElement("""{"entry":{"type":"ws-connection","id":"r1-1:7","runId":"r1-1","timeMs":1700000000000,"library":"okhttp3-ws","url":"ws://h/ws","state":"open","messageCount":40},
+            "messages":[${m(1, "out")}],"messagesTruncated":39}""").jsonObject, zone = ZoneOffset.UTC)
+        assertNull(open.ending)
+        assertEquals("40", open.summary.single { it.label == "Messages" }.value)
+        assertNull(open.summary.firstOrNull { it.label == "Ended" })
+    }
+
     @Test
     fun `a connection's messages link to themselves, a message links to its connection (025)`() {
         val d = EntryDetail.of(canned("entry-ws"))

@@ -83,6 +83,8 @@ class EntryDetailPane(
         marks: List<String> = emptyList(), hitTab: io.yamsergey.dta.present.network.HitTab? = null,
         /** Feature 041: the entry's hits, for the "Found in" line. */
         hits: List<io.yamsergey.dta.protocol.network.SearchHit> = emptyList(),
+        /** D-023: the selection's live revision; a new one reads the entry again, in place. */
+        revision: Long = 0,
     ) {
         if (id == null) { shown = null; return empty(SELECT) }
         val marksChanged = marks != this.marks || hitTab != this.hitTab || hits != this.hits
@@ -91,8 +93,10 @@ class EntryDetailPane(
         this.hits = hits
         if (shown == id && this.client === client) {
             if (gone != shownGone || unlisted != shownUnlisted || marksChanged) { shownUnlisted = unlisted; render(gone) }
+            if (revision != shownRevision) follow(revision)
             return
         }
+        shownRevision = revision
         shownUnlisted = unlisted
         lastRedact = redact
         this.client = client
@@ -112,6 +116,33 @@ class EntryDetailPane(
         }
     }
 
+    private var shownRevision = 0L
+    private var following: Job? = null
+
+    /**
+     * D-023: the shown entry changed live (state, end, messages): read again at most every
+     * [FOLLOW_MS], shown in place — the tab, and the message selected, stay.
+     */
+    private fun follow(revision: Long) {
+        shownRevision = revision
+        if (following?.isActive == true) return
+        val c = client ?: return
+        val id = shown ?: return
+        val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)) + if (lastRedact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+        following = scope.launch {
+            kotlinx.coroutines.delay(FOLLOW_MS)
+            val asked = shownRevision
+            val result = runCatching { c.call("network.entry", params).result.jsonObject }.getOrNull() ?: return@launch
+            withContext(Dispatchers.Main) {
+                if (shown != id || loading?.isActive == true) return@withContext
+                raw = result
+                render(shownGone)
+                // Changed again while it was read: once more.
+                if (shownRevision != asked) follow(shownRevision)
+            }
+        }
+    }
+
     /** Tests: shows an already loaded `network.entry` [result] for [id]. */
     internal fun showLoaded(id: String, result: JsonObject, unlisted: Boolean = false) {
         shown = id
@@ -126,7 +157,8 @@ class EntryDetailPane(
         val id = shown ?: return
         renderHeader(detail, gone)
 
-        val selected = tabs.selectedIndex.takeIf { it >= 0 }?.let { tabs.getTitleAt(it) }
+        val selected = tabs.selectedIndex.takeIf { it >= 0 }?.let { tabs.getTitleAt(it).substringBefore(" · ") }
+        val message = (tabs.components.firstOrNull { it is MessagesView } as? MessagesView)?.selectedId
         tabs.removeAll()
         tabs.addTab("Headers", scroll(headersPage(detail)))
         val c = client
@@ -134,11 +166,11 @@ class EntryDetailPane(
             detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, bodyTarget(), id, it, scope, marks)) }
             detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, bodyTarget(), id, it, scope, marks)) }
         }
-        if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab("Messages", messagesPanel(detail))
+        if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab(detail.messagesTitle, messagesPanel(detail).also { v -> message?.let { (v as? MessagesView)?.select(it) } })
         detail.initiator?.let { tabs.addTab("Initiator", scroll(initiatorPage(detail))) }
         // A search hit: its tab. Otherwise the same tab stays open from entry to entry when the new one has it.
         val wanted = hitTab?.let(::tabTitle) ?: selected
-        (0 until tabs.tabCount).firstOrNull { tabs.getTitleAt(it) == wanted }?.let { tabs.selectedIndex = it }
+        (0 until tabs.tabCount).firstOrNull { tabs.getTitleAt(it).substringBefore(" · ") == wanted }?.let { tabs.selectedIndex = it }
 
         removeAll()
         add(header, BorderLayout.NORTH)
@@ -174,6 +206,8 @@ class EntryDetailPane(
             if (gone) Statement(StatementKind.EVICTED, word = "no longer in the list", detail = "no longer in the list") else null,
         ) + Statements.forNetworkTab(detail.statements)
         if (statements.isNotEmpty()) header.add(row(statements.map { StatementMark(it) }))
+        // D-023: how a socket ended, in the failure colour.
+        detail.ending?.let { header.add(JBLabel(it).apply { foreground = DtaColors.of("status-server"); setCopyable(true) }.left()) }
         if (shownUnlisted) header.add(JBLabel("Not in the list as filtered").apply { foreground = JBColor.GRAY }.left())
         // Feature 041: where the search words are, each place a link to its tab.
         val found = io.yamsergey.dta.present.network.Hits.foundIn(hits)
@@ -340,6 +374,7 @@ class EntryDetailPane(
 
     private companion object {
         const val SELECT = "Select an entry to see its headers, bodies and initiator."
+        const val FOLLOW_MS = 700L
         private val MASCOT by lazy { com.intellij.openapi.util.IconLoader.getIcon("/icons/mascot.svg", EntryDetailPane::class.java.classLoader) }
     }
 }

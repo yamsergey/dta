@@ -61,6 +61,10 @@ data class EntryDetail(
     val connection: EntryLink? = null,
     /** Feature 041: how the app's format rules read a connection's messages (the daemon's). */
     val formatUse: List<io.yamsergey.dta.protocol.network.FormatUse> = emptyList(),
+    /** D-023: how a socket ended when it failed ("✕ failed at … after 62.0 s: java.io.EOFException"); null otherwise. */
+    val ending: String? = null,
+    /** D-023: the Messages tab's title, with the socket's message count. */
+    val messagesTitle: String = "Messages",
 ) {
     companion object {
         /** From a `network.entry` result. */
@@ -83,6 +87,10 @@ data class EntryDetail(
                     else -> add(Field("Message", "${e.str("direction")} ${e.str("opcode")}"))
                 }
                 add(Field("Started", EntryRows.of(e, zone).time))
+                if (type == "ws-connection") {
+                    socketEnd(e, zone)?.let { (at, after) -> add(Field("Ended", "$at · $after")) }
+                    add(Field("Messages", socketMessages(e, detail)))
+                }
                 e.long("durationMs")?.let { add(Field("Duration", Units.millis(it))) }
                 add(Field("Library", listOfNotNull(e.str("library"), e.str("protocol")).joinToString(" · ")))
             }
@@ -135,10 +143,33 @@ data class EntryDetail(
                     if (type == "ws-connection") "Messages" else null,
                 ),
                 connection = if (type == "ws-message") e.str("connectionId")?.let { EntryLink(it, e.str("url") ?: "connection $it") } else null,
+                ending = if (type == "ws-connection" && e.str("state") == "failed") socketEnd(e, zone)?.let { (at, after) ->
+                    "${io.yamsergey.dta.present.StatementKind.FAILED.glyph} failed at $at after $after" + (e.str("failure")?.let { f -> ": $f" } ?: "")
+                } else null,
+                messagesTitle = if (type == "ws-connection") "Messages · ${e.long("messageCount") ?: messages.size}" else "Messages",
                 formatUse = detail.arr("formatUse").mapNotNull {
                     runCatching { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FormatUse.serializer(), it) }.getOrNull()
                 },
             )
+        }
+
+        private val CLOCK = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+
+        /** D-023: when a socket ended and how long it had lived (from its start); null while it lives. */
+        private fun socketEnd(e: JsonObject, zone: ZoneId): Pair<String, String>? {
+            val closed = e.long("closedAtMs") ?: return null
+            val start = e.long("timeMs") ?: e.long("openedAtMs") ?: return null
+            return CLOCK.withZone(zone).format(java.time.Instant.ofEpochMilli(closed)) to Units.millis(closed - start)
+        }
+
+        /** D-023: "33 · ↑1 ↓32" when the detail holds every message, the count alone otherwise. */
+        private fun socketMessages(e: JsonObject, detail: JsonObject): String {
+            val messages = detail.arr("messages").map { it.o }
+            val count = e.long("messageCount") ?: messages.size.toLong()
+            val all = (detail.long("messagesTruncated") ?: 0) == 0L && messages.size.toLong() == count
+            if (!all || messages.isEmpty()) return "$count"
+            val out = messages.count { it.str("direction") == "out" }
+            return "$count · ↑$out ↓${messages.size - out}"
         }
 
         private fun section(title: String, headers: kotlinx.serialization.json.JsonArray, body: JsonObject?): Section? {

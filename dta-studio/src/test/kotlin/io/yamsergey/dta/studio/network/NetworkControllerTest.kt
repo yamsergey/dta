@@ -278,6 +278,33 @@ class NetworkControllerTest {
         assertEquals(1, daemon.ops.queries.count { it.second.before != null }, "nothing older to load")
     }
 
+    /**
+     * D-023: the selected entry's detail follows it live — its own updates, and a connection's new
+     * messages, are a new revision of the selection (the detail reads it again); other traffic is not.
+     */
+    @Test
+    fun `the selection's revision follows its live updates and its socket's messages, nothing else (D-023)`() = runBlocking<Unit> {
+        val socket = io.yamsergey.dta.protocol.network.WsConnectionEntry("r1-1:7", "r1-1", 1_700_000_003_000, "okhttp3-ws", url = "ws://127.0.0.1:8098/ws", state = io.yamsergey.dta.protocol.network.WsState.OPEN, messageCount = 26)
+        daemon.ops.listed = { daemon.ops.entries + listOf<io.yamsergey.dta.protocol.network.NetworkEntry>(socket) }
+        session.start()
+        await { it.list.rows.size == 4 && it.watching }
+        network.list(io.yamsergey.dta.present.network.LiveEvent.Selected("r1-1:7"))
+        val r0 = await { it.list.selectedId == "r1-1:7" }.selectedRevision
+        daemon.ops.events.emit(NetworkEntryEvent(http(20), EntryChange.CREATED))
+        await { it.list.rows.any { r -> r.id == "r1-1:20" } }
+        assertEquals(r0, network.state.value.selectedRevision, "other traffic is not the selection's")
+        val message = io.yamsergey.dta.protocol.network.WsMessageEntry("r1-1:21", "r1-1", 1_700_000_004_000, "okhttp3-ws", connectionId = "r1-1:7",
+            direction = io.yamsergey.dta.protocol.network.Direction.IN, opcode = io.yamsergey.dta.protocol.network.MessageOpcode.TEXT,
+            payload = io.yamsergey.dta.protocol.network.BodyInfo(io.yamsergey.dta.protocol.network.BodyPart.MESSAGE, 43, completeness = io.yamsergey.dta.protocol.network.Completeness.COMPLETE))
+        daemon.ops.events.emit(NetworkEntryEvent(message, EntryChange.CREATED))
+        val r1 = await { it.selectedRevision > r0 }.selectedRevision
+        daemon.ops.events.emit(NetworkEntryEvent(socket.copy(state = io.yamsergey.dta.protocol.network.WsState.FAILED, closedAtMs = 1_700_000_065_000, failure = "java.io.EOFException", messageCount = 33), EntryChange.UPDATED))
+        val s = await { it.selectedRevision > r1 }
+        assertEquals("failed", (s.list.selected!!.entry["state"] as JsonPrimitive).content)
+        assertEquals(null, s.error)
+        assertTrue(s.watching)
+    }
+
     /** A history of [ids] newest first that match "api"; the list pages after [firstPage] rows, the search by its limit. */
     private fun pagedHistory(ids: List<Int>, firstPage: Int) {
         val byId = ids.associateWith { http(it) }

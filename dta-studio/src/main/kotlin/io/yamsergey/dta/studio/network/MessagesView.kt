@@ -119,6 +119,13 @@ class MessagesView(
 
     internal fun select(index: Int) { list.selectedIndex = index }
 
+    /** D-023: the message selected, kept when the socket's detail is read again. */
+    val selectedId: String? get() = list.selectedValue?.row?.id
+
+    fun select(id: String) {
+        items.indexOfFirst { it.row.id == id }.takeIf { it >= 0 }?.let { list.selectedIndex = it; list.ensureIndexIsVisible(it) }
+    }
+
     internal fun toggle(index: Int) = expand(index, !items[index].expanded)
 
     private fun expand(index: Int, on: Boolean) {

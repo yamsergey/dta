@@ -456,7 +456,7 @@ class NetworkPanel(
         // Feature 041: any selected row that matched opens on its hit, saying where the words are.
         val rowHits = s.list.selectedId?.takeIf { s.applied.hasSearch }?.let { s.hits.hitsOf(it) }.orEmpty()
         val hitTab = rowHits.takeIf { it.isNotEmpty() }?.let { s.hits.tabOf(it) }
-        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab, rowHits)
+        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab, rowHits, s.selectedRevision)
         revalidate()
         repaint()
     }

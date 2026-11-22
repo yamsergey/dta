@@ -58,6 +58,8 @@ data class NetworkViewState(
     val loading: Boolean = false,
     /** D-022: an older page is being loaded (Load older, or the list scrolled to its oldest edge). */
     val loadingOlder: Boolean = false,
+    /** D-023: bumped when the selected entry changed live (its own update, a message of its socket): the detail reads it again. */
+    val selectedRevision: Long = 0,
     val watching: Boolean = false,
     val error: String? = null,
     /** Feature 068: a wait of the archiving that lasts, for the IDE's background task; null when none. */
@@ -88,7 +90,15 @@ class NetworkController(private val context: ContextController, private val scop
 
     private data class Target(val device: String?, val app: String?, val hasDta: Boolean, val generation: Int, val client: DaemonClient?)
 
-    fun list(event: LiveEvent) = mutable.update { it.copy(list = it.list.reduce(event)) }
+    fun list(event: LiveEvent) = mutable.update { it.copy(list = it.list.reduce(event)).followSelected(event) }
+
+    /** D-023: a live event about the selected entry, or a message of the selected socket, is a new revision of the selection. */
+    private fun NetworkViewState.followSelected(event: LiveEvent): NetworkViewState {
+        val entry = when (event) { is LiveEvent.Arrived -> event.entry; is LiveEvent.Updated -> event.entry; else -> return this }
+        val selected = list.selectedId ?: return this
+        fun field(k: String) = (entry[k] as? JsonPrimitive)?.content
+        return if (field("id") == selected || field("connectionId") == selected) copy(selectedRevision = selectedRevision + 1) else this
+    }
 
     /**
      * The query line as typed. A line with problems changes nothing (the field shows them);
@@ -535,6 +545,8 @@ class NetworkController(private val context: ContextController, private val scop
                         if (filtering(mutable.value) || unchecked) {
                             // Only matches are listed: a listed row may change in place; anything new waits for the next list.
                             if (change == "updated" && mutable.value.list.rows.any { it.id == entry["id"]?.let { i -> (i as? JsonPrimitive)?.content } }) list(LiveEvent.Updated(entry))
+                            // D-023: the selected socket's new message changes its detail even before it is listed.
+                            else mutable.update { it.followSelected(LiveEvent.Arrived(entry)) }
                             relist()
                             return@collect
                         }
@@ -600,7 +612,7 @@ class NetworkController(private val context: ContextController, private val scop
         }
         val event = if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry)
         mutable.update { s ->
-            val withRow = s.copy(list = s.list.reduce(event))
+            val withRow = s.copy(list = s.list.reduce(event)).followSelected(event)
             if (s.applied.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
         }
     }
