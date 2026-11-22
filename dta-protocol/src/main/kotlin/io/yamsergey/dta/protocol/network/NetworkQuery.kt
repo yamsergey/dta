@@ -143,10 +143,13 @@ data class NetworkQuery(
     val allRows: Boolean = false,
     /** Feature 043: do not apply the app's saved filters to this call (they stay saved). */
     val ignoreSavedFilters: Boolean = false,
+    /** Decision 2026-11-22: the search words also match one typo away (as `typos:on` in [q]); off: exact. */
+    val typos: Boolean = false,
 ) {
     /**
      * The filter of [filter] and the line's filters together (the line's win where both give a
-     * field), and the line's search words. A line with problems is refused naming each one.
+     * field), and the line's search words (with [typos] or `typos:on`, each takes one typo). A line
+     * with problems is refused naming each one.
      */
     fun resolved(nowMs: Long = System.currentTimeMillis()): Pair<NetworkFilter?, List<Term>> {
         val line = q?.takeIf { it.isNotBlank() } ?: return filter to emptyList()
@@ -155,7 +158,7 @@ data class NetworkQuery(
             throw InvalidParamsException("query: " + p.problems.joinToString("; ") { "${line.substring(it.start, it.end)} — ${it.message}" })
         }
         val merged = (filter ?: NetworkFilter()).overlay(p.filter.copy(exclude = p.exclude.ifEmpty { null }))
-        return merged.takeIf { it != NetworkFilter() } to p.terms
+        return merged.takeIf { it != NetworkFilter() } to if (typos) p.terms.map { it.copy(typos = true) } else p.terms
     }
 
     /**

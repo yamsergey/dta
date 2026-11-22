@@ -31,8 +31,8 @@ class NetworkSearchTest {
     )
     private val bytes = mapOf((upload.id to BodyPart.REQUEST) to (byteArrayOf(0x0A, 0x02) + "checkout".toByteArray() + byteArrayOf(0x00)))
 
-    private fun search(vararg terms: String, redact: Boolean = false, undecodable: Set<String> = emptySet()) = NetworkSearch(
-        terms.map { if (' ' in it) Term(it, true) else Term(it) },
+    private fun search(vararg terms: String, redact: Boolean = false, undecodable: Set<String> = emptySet(), typos: Boolean = false) = NetworkSearch(
+        terms.map { if (' ' in it) Term(it, true, typos) else Term(it, typos = typos) },
         connectionUrl = { socket.url },
         bodyBytes = { e, p ->
             if (e.id in undecodable) NetworkFilterEval.BodyBytes(ByteArray(3), decoded = false)
@@ -48,6 +48,17 @@ class NetworkSearchTest {
         assertEquals(BodyPart.RESPONSE, body.part)
         assertEquals("Token expired", texts[login.id to BodyPart.RESPONSE]!!.substring(body.start, body.end))
         assertTrue(body.excerpt.render { "[$it]" }.contains("[Token expired]"), body.excerpt.toString())
+    }
+
+    @Test
+    fun `words match exactly unless typos are on (decision 2026-11-22)`() {
+        assertNull(search("tokan").hits(login), "one typo off: not found by default")
+        assertNull(search("tokan expired").hits(login))
+        val near = search("tokan", typos = true).hits(login)!!.single { it.place == SearchPlace.RESPONSE_BODY }
+        assertEquals("Token", texts[login.id to BodyPart.RESPONSE]!!.substring(near.start, near.end))
+        assertEquals(listOf("Token expired"), search("tokan expired", typos = true).hits(login)!!.map { texts[login.id to BodyPart.RESPONSE]!!.substring(it.start, it.end) })
+        // Exact still ignores case and separators.
+        assertTrue(search("TOKEN-EXPIRED").hits(login)!!.isNotEmpty())
     }
 
     @Test

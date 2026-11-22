@@ -3,11 +3,12 @@ package io.yamsergey.dta.protocol.network
 import kotlinx.serialization.Serializable
 
 /**
- * Feature 040: the fuzzy match of network search. Letters and digits only, lower case
- * (`orderId` = `order_id` = `order-id` = `order id`); a term also matches with one edit when the
- * edit falls inside one of its words of 5+ letters (no digits): in a phrase too, so `"tokn expired"`
- * stays exact while `"tokan expired"` finds `token expired` (040 FR-003, US1-4). Spans are given in
- * the original text, for highlighting.
+ * Feature 040: the match of network search. Letters and digits only, lower case
+ * (`orderId` = `order_id` = `order-id` = `order id`), exact by default (decision 2026-11-22: typos
+ * found "rain" for "main" and cluttered the list). Asked for (`typos:on`), a term also matches with
+ * one edit when the edit falls inside one of its words of 5+ letters (no digits): in a phrase too,
+ * so `"tokn expired"` stays exact while `"tokan expired"` finds `token expired` (040 FR-003, US1-4).
+ * Spans are given in the original text, for highlighting.
  */
 object Fuzzy {
     const val EDIT_FROM = 5
@@ -73,18 +74,21 @@ object Fuzzy {
             at = idx.copyOf(n)
         }
 
-        /** Every match of [term], in order; exact ones only when there is any, else those one edit away. */
-        fun find(term: String): List<Span> {
+        /**
+         * Every match of [term], in order: exact ones; with [typos], when there is none, those one
+         * edit away.
+         */
+        fun find(term: String, typos: Boolean = false): List<Span> {
             val k = key(term)
             if (k.isEmpty() || norm.isEmpty()) return emptyList()
             val exact = exact(k)
             // Numbers and ids must match exactly: a typo is allowed only in words of letters.
-            val words = if (exact.isEmpty()) editable(term) else emptyList()
+            val words = if (typos && exact.isEmpty()) editable(term) else emptyList()
             if (words.isEmpty()) return exact.map(::span)
             return near(k, words).map(::span)
         }
 
-        fun contains(term: String): Boolean = find(term).isNotEmpty()
+        fun contains(term: String, typos: Boolean = false): Boolean = find(term, typos).isNotEmpty()
 
         private fun span(r: IntRange) = Span(at[r.first], at[r.last] + 1)
 

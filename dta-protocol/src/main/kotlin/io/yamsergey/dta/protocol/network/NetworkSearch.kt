@@ -69,7 +69,7 @@ class NetworkSearch(
         for (term in terms) {
             var found = false
             for ((p, t) in texts) {
-                val spans = if (p.binary) binarySpans(p.text, term) else t.find(term.text)
+                val spans = if (p.binary) binarySpans(p.text, term) else t.find(term.text, term.typos)
                 if (spans.isEmpty()) continue
                 found = true
                 spans.forEach { s ->

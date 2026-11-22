@@ -78,4 +78,13 @@ class NetworkQueryTest {
     fun `intervened parses`() {
         assertEquals(true, parse("""{"filter":{"intervened":true}}""").filter!!.intervened)
     }
+
+    @Test
+    fun `typos is a field and a line word, off by default (decision 2026-11-22)`() {
+        assertEquals(false, NetworkQuery.parse(null).typos)
+        assertEquals(listOf(Term("tokan")), NetworkQuery(q = "tokan").resolved().second)
+        assertEquals(listOf(Term("tokan", typos = true)), parse("""{"q":"tokan","typos":true}""").resolved().second)
+        assertEquals(listOf(Term("tokan", typos = true)), NetworkQuery(q = "typos:on tokan").resolved().second)
+        assertEquals(NetworkFilter(host = "a.test"), NetworkQuery(q = "typos:on host:a.test tokan").resolved().first)
+    }
 }

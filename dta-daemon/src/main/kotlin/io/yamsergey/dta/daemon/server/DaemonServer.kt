@@ -339,7 +339,9 @@ class DaemonServer(
                 val redact = (params["redact"] as? JsonPrimitive)?.content == "true"
                 // Feature 071: the switch scopes live decisions too (off: entries of the app's current run only).
                 val archive = (params["archive"] as? JsonPrimitive)?.content == "true"
-                val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redact, ignoreSavedFilters = true, archive = archive)
+                // Decision 2026-11-22: typo tolerance only when asked (typos, or typos:on in the line).
+                val typos = (params["typos"] as? JsonPrimitive)?.content == "true"
+                val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redact, ignoreSavedFilters = true, archive = archive, typos = typos)
                 /** Entries decided by a body's preview: decided again once the body is copied here. */
                 val byPreview = ConcurrentHashMap.newKeySet<String>()
                 val id = "s${subscriptionIds.incrementAndGet()}"

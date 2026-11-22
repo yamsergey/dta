@@ -101,4 +101,23 @@ class QueryLineTest {
         assertEquals("source:webview -source:app", QueryLine.render(parse("source:webview -source:app")))
         assertTrue(QueryLine.savable("source:webview"))
     }
+
+    @Test
+    fun `typos are off unless the line asks with typos-on (decision 2026-11-22)`() {
+        assertEquals(listOf(Term("token")), parse("token").terms)
+        val on = parse("typos:on token \"expird soon\"")
+        assertEquals(listOf(Term("token", typos = true), Term("expird soon", true, typos = true)), on.terms)
+        assertTrue(on.typos)
+        assertEquals(NetworkFilter(), on.filter, "typos: says how words are searched, it keeps no rows by itself")
+        assertEquals(listOf("typos", null, null), on.tokens.map { it.key })
+        assertEquals(listOf(Term("token")), parse("typos:off token").terms)
+        assertEquals("typos: takes on or off; was 'yes'", parse("typos:yes token").problems.single().message)
+        assertEquals("typos: cannot be negated", parse("-typos:on token").problems.single().message)
+        assertEquals("typos: given twice; one value per filter", parse("typos:on typos:off token").problems.single().message)
+        // It stays in the line: Enter saves filters, not how the line searches.
+        assertEquals(QueryLine.Commit(listOf("host:a.test"), "typos:on token"), QueryLine.commit("host:a.test typos:on token", now))
+        assertEquals(false, QueryLine.savable("typos:on"))
+        assertEquals("host:a.test typos:on token", QueryLine.render(parse("typos:on host:a.test token")))
+        assertTrue("typos" in QueryLine.KEYS)
+    }
 }

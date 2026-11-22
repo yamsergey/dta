@@ -107,6 +107,9 @@ class WordNeedsTest {
         }
     }
 
+    /** The line with `typos:on` now and then (decision 2026-11-22: off by default). */
+    private fun typos(r: Random, line: String) = if (r.nextInt(3) == 0) "typos:on $line" else line
+
     /** A body pattern from a small grammar over the history's words (feature 053). */
     private fun pattern(r: Random): String {
         val w = words.filter { it.all { c -> c.code < 128 && c != ' ' } }.random(r)
@@ -168,7 +171,8 @@ class WordNeedsTest {
                     val at = r.nextInt(value.length)
                     value.substring(at, minOf(value.length, at + r.nextInt(3, 10)))
                 } else null
-                val query = NetworkQuery(q = line, redact = r.nextBoolean(), filter = needle?.let { NetworkFilter(bodyContains = it) })
+                // Decision 2026-11-22: typos off by default; both ways are proved (the field, or the line's word).
+                val query = NetworkQuery(q = typos(r, line), redact = r.nextBoolean(), filter = needle?.let { NetworkFilter(bodyContains = it) }, typos = r.nextInt(4) == 0)
                 val (filter, terms) = runCatching { query.resolved() }.getOrNull() ?: return@repeat
                 val need = WordNeeds.of(filter, terms, words = true)
                 for (e in w.entries) {
@@ -192,7 +196,7 @@ class WordNeedsTest {
             val full = NetworkHistoryView.over(EntrySourceProvider { ListEntrySource(w.entries) }, { context(w) }, w.bodyBytes, w.decode)
             val indexed = narrowed(w)
             repeat(4) {
-                val line = (0 until r.nextInt(1, 3)).joinToString(" ") { term(r, w) }
+                val line = typos(r, (0 until r.nextInt(1, 3)).joinToString(" ") { term(r, w) })
                 var query = NetworkQuery(q = line, limit = r.nextInt(1, 8), order = Order.entries.random(r), redact = r.nextBoolean(), allRows = r.nextInt(5) == 0)
                 repeat(3) {
                     val a = runCatching { full.list(query) }
@@ -217,14 +221,17 @@ class WordNeedsTest {
     fun `what narrows and what does not`() {
         assertEquals(Need.All(setOf("item12")), WordNeeds.term(Term("item-12")))
         assertEquals(Need.All(setOf("tick")), WordNeeds.term(Term("TICK")), "under five letters: exact only")
-        assertEquals(Need.Any, WordNeeds.term(Term("price")), "five letters may match one edit away; its left half is two letters")
-        assertEquals(Need.Or(listOf(Need.All(setOf("payment")), Need.All(setOf("pay")), Need.All(setOf("ment")))), WordNeeds.term(Term("payment")))
+        assertEquals(Need.All(setOf("price")), WordNeeds.term(Term("price")), "typos off (the default, 2026-11-22): exact")
+        assertEquals(Need.All(setOf("payment")), WordNeeds.term(Term("payment")))
+        assertEquals(Need.Any, WordNeeds.term(Term("price", typos = true)), "five letters may match one edit away; its left half is two letters")
+        assertEquals(Need.Or(listOf(Need.All(setOf("payment")), Need.All(setOf("pay")), Need.All(setOf("ment")))), WordNeeds.term(Term("payment", typos = true)))
         assertEquals(Need.Any, WordNeeds.term(Term("ab")))
         assertEquals(Need.Any, WordNeeds.term(Term("naïve")), "not ASCII")
         assertEquals(Need.Any, WordNeeds.term(Term("x—y")), "its bytes read as Latin-1 hold letters the word does not")
-        assertEquals(Need.All(setOf("orderid")).strings, (WordNeeds.term(Term("order id", phrase = true)) as Need.Or).parts.first().let { (it as Need.All).strings })
-        assertEquals(Need.All(setOf("tokncart")), WordNeeds.term(Term("tokn cart", phrase = true)), "a phrase of words under five letters: exact only")
-        assertEquals(Need.Or(listOf(Need.All(setOf("order42failed")), Need.All(setOf("order4")), Need.All(setOf("2failed")))), WordNeeds.term(Term("order 42 failed", phrase = true)), "failed may take one edit beside a number")
+        assertEquals(Need.All(setOf("orderid")).strings, (WordNeeds.term(Term("order id", phrase = true, typos = true)) as Need.Or).parts.first().let { (it as Need.All).strings })
+        assertEquals(Need.All(setOf("tokncart")), WordNeeds.term(Term("tokn cart", phrase = true, typos = true)), "a phrase of words under five letters: exact only")
+        assertEquals(Need.Or(listOf(Need.All(setOf("order42failed")), Need.All(setOf("order4")), Need.All(setOf("2failed")))), WordNeeds.term(Term("order 42 failed", phrase = true, typos = true)), "failed may take one edit beside a number")
+        assertEquals(Need.All(setOf("order42failed")), WordNeeds.term(Term("order 42 failed", phrase = true)))
         assertEquals(Need.Any, WordNeeds.of(null, listOf(Term("ab"), Term("x")), words = true))
         assertEquals(Need.Any, WordNeeds.of(null, listOf(Term("item-12")), words = false), "allRows: words do not leave rows out")
         assertEquals(Need.All(setOf("item12")), WordNeeds.of(NetworkFilter(bodyContains = "ITEM-12"), emptyList(), words = true))

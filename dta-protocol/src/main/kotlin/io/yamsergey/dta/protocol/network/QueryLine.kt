@@ -2,9 +2,12 @@ package io.yamsergey.dta.protocol.network
 
 import kotlinx.serialization.Serializable
 
-/** A search word or a quoted phrase of the query line (feature 040). */
+/**
+ * A search word or a quoted phrase of the query line (feature 040); [typos]: it also matches one
+ * typo away (`typos:on`, off by default — decision 2026-11-22).
+ */
 @Serializable
-data class Term(val text: String, val phrase: Boolean = false)
+data class Term(val text: String, val phrase: Boolean = false, val typos: Boolean = false)
 
 /** Something wrong in the query line, at [start]..[end] (character offsets). */
 @Serializable
@@ -22,6 +25,8 @@ data class ParsedQuery(
     val terms: List<Term> = emptyList(),
     val problems: List<QueryProblem> = emptyList(),
     val tokens: List<QueryToken> = emptyList(),
+    /** Decision 2026-11-22: `typos:on` — the search words also match one typo away. */
+    val typos: Boolean = false,
 ) {
     val hasSearch: Boolean get() = terms.isNotEmpty()
 }
@@ -62,12 +67,13 @@ object QueryLine {
         KeyInfo("run", "current or all app runs (this session only)", ALL),
         KeyInfo("since", "newer than: 5m, 2h, 1d (this session only)", ALL),
         KeyInfo("until", "older than: 5m, 2h, 1d (this session only)", ALL),
+        KeyInfo("typos", "on: search words also match one typo away (words of 5+ letters); off by default", ALL),
     )
     val KEYS = KEY_INFO.map { it.name }
     /** Feature 061: values of `source:`. */
     val SOURCES = listOf("app", "webview", "custom-tab")
     val METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
-    private val NOT_NEGATABLE = setOf("run", "since", "until", "has")
+    private val NOT_NEGATABLE = setOf("run", "since", "until", "has", "typos")
     private val STATUS = Regex("""[1-5]\d\d|[1-5]xx|failed|pending|open|closed|connecting|[1-4]\d\d\d""")
     private val BOUND = Regex("""(>=|<=|>|<)(\d+)([a-z]*)""")
     private val RELATIVE = Regex("""(\d+)([smhd])""")
@@ -86,6 +92,7 @@ object QueryLine {
         val problems = ArrayList<QueryProblem>()
         val tokens = ArrayList<QueryToken>()
         val seen = HashSet<String>()
+        var typos = false
         for (raw in split(q)) {
             fun problem(message: String) { problems += QueryProblem(raw.start, raw.end, message) }
             if (raw.key == null) {
@@ -114,6 +121,13 @@ object QueryLine {
             }
             if (value.isEmpty()) { problem("$key: needs a value"); continue }
             if (raw.negated && key in NOT_NEGATABLE && key != "has") { problem("$key: cannot be negated"); continue }
+            if (key == "typos") {
+                val on = when (value) { "on" -> true; "off" -> false; else -> { problem("typos: takes on or off; was '$value'"); continue } }
+                if (!seen.add(key)) { problem("typos: given twice; one value per filter"); continue }
+                typos = on
+                tokens += QueryToken(raw.start, raw.end, raw.text, key)
+                continue
+            }
             val one: NetworkFilter = when (key) {
                 "method" -> NetworkFilter(method = value.uppercase())
                 "status" -> if (STATUS.matches(value)) NetworkFilter(status = value) else { problem("status: takes a code (200), a class (4xx), failed, pending, or for sockets open, closed, connecting, a close code (1006); was '$value'"); continue }
@@ -157,11 +171,14 @@ object QueryLine {
             else filter = once(filter, onceKey, seen, ::problem) { it.overlay(one) }
             tokens += QueryToken(raw.start, raw.end, raw.text, key, raw.negated && key != "has" || (key == "has" && raw.negated))
         }
-        return ParsedQuery(filter, exclude, terms, problems, tokens)
+        return ParsedQuery(filter, exclude, if (typos) terms.map { it.copy(typos = true) } else terms, problems, tokens, typos)
     }
 
     /** Filters that only make sense for the session they were typed in: never saved (feature 043). */
     val SESSION_KEYS = setOf("run", "since", "until")
+
+    /** Words that say how the line searches, not what it keeps: they stay in the line, never saved. */
+    val LINE_KEYS = setOf("typos")
 
     /** Feature 043: [words] the line's savable filter words in order, [rest] the line without them. */
     @Serializable
@@ -174,7 +191,7 @@ object QueryLine {
     fun commit(q: String, nowMs: Long = System.currentTimeMillis()): Commit {
         val p = parse(q, nowMs)
         val bad = p.problems.map { it.start until it.end }
-        val take = p.tokens.filter { t -> t.key != null && t.key !in SESSION_KEYS && bad.none { r -> t.start in r || (t.end - 1) in r } }
+        val take = p.tokens.filter { t -> t.key != null && t.key !in SESSION_KEYS && t.key !in LINE_KEYS && bad.none { r -> t.start in r || (t.end - 1) in r } }
         var rest = q
         take.sortedByDescending { it.start }.forEach { rest = rest.removeRange(it.start, it.end) }
         return Commit(take.map { it.text }, rest.trim().replace(Regex("\\s{2,}"), " "))
@@ -187,7 +204,8 @@ object QueryLine {
     fun render(p: ParsedQuery): String = render(p.filter, p.exclude, p.terms)
 
     fun render(filter: NetworkFilter, exclude: List<NetworkFilter>, terms: List<Term>): String =
-        (words(filter, false) + exclude.flatMap { words(it, true) } + terms.map { if (it.phrase) "\"${it.text}\"" else it.text }).joinToString(" ")
+        (words(filter, false) + exclude.flatMap { words(it, true) } + listOfNotNull("typos:on".takeIf { terms.any { it.typos } }) +
+            terms.map { if (it.phrase) "\"${it.text}\"" else it.text }).joinToString(" ")
 
     private fun words(f: NetworkFilter, negated: Boolean): List<String> {
         val n = if (negated) "-" else ""

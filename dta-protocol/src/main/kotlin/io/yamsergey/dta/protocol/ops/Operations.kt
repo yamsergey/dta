@@ -180,9 +180,12 @@ object Catalog {
         "Query line: key:value words filter — any entry: body: (text in any body, case ignored; body:/regex/ a pattern, also req:/…/ resp:/…/ — slashes group spaces, case ignored unless (?-i), body:\"/x/\" stays literal), url:, host:, kind:, source:app|webview|custom-tab, has:intervention, run:, since:5m, until:; " +
         "HTTP: method:, status: (200, 4xx, failed, pending), header:name or header:name=text, req: / resp: (text in the request or response body), mime:json, duration:>1s, size:>100k; " +
         "WebSocket: dir:sent|received, frame:text|binary, type: and topic: (as the message format reads them), conn:<connection id>, status:open|closed|connecting|failed|1006, header: (handshake), size:; " +
-        "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched, fuzzily " +
-        "(case and separators ignored, one typo allowed in words of 5+ letters, numbers exact), in URLs, headers, bodies and message payloads. " +
+        "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched exactly " +
+        "(case and separators ignored: orderId = order_id = order id) in URLs, headers, bodies and message payloads; typos:on (or typos) also allows one typo in words of 5+ letters (numbers stay exact; body: is always exact). " +
         "Answers cover the app's current run unless archive is on (run:all alone widens nothing; run:current narrows a whole-history answer). No time limit cuts a pattern or a search."
+
+    /** Decision 2026-11-22: typo tolerance is asked for, never the default. */
+    private val TYPOS = ParamSpec("typos", ParamType.BOOLEAN, "Search words and phrases also match one typo away, in words of 5+ letters (as typos:on in q); off by default: exact, case and separators ignored. body: text is always exact.")
 
     /** Feature 067: a live view's name. 069 R13: no match sets are reused; 070: only a different query supersedes. */
     private val VIEW = ParamSpec(
@@ -329,6 +332,7 @@ object Catalog {
                 ARCHIVE_SCOPE,
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
                 ParamSpec("allRows", ParamType.BOOLEAN, "With search words: list every entry the filters keep, hits marked, instead of only the matches.", cliName = "all-rows"),
+                TYPOS,
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
                 VIEW,
             ),
@@ -346,6 +350,7 @@ object Catalog {
                 ParamSpec("redact", ParamType.BOOLEAN, "Search URLs, headers and bodies as redacted: masked secrets are not found."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
+                TYPOS,
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
                 VIEW,
             ),
@@ -410,6 +415,7 @@ object Catalog {
             NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")) +
                 ParamSpec("q", ParamType.STRING, "Query line, as in network.list: its filters apply, and search words list only the entries holding them (each with its hits).", cliShort = "-q", cliName = "query") +
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and previews, as network.list does; filters and search words match the masked text.") +
+                TYPOS +
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
             streaming = true, cliOnly = true,
         ),

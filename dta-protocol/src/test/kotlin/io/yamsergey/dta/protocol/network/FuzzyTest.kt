@@ -5,7 +5,24 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class FuzzyTest {
-    private fun spans(text: String, term: String) = Fuzzy.Text(text).find(term).map { text.substring(it.start, it.end) }
+    /** With typos (`typos:on`), as most of these cases are about the one-edit allowance. */
+    private fun spans(text: String, term: String) = Fuzzy.Text(text).find(term, typos = true).map { text.substring(it.start, it.end) }
+
+    private fun exact(text: String, term: String) = Fuzzy.Text(text).find(term).map { text.substring(it.start, it.end) }
+
+    @Test
+    fun `exact by default - no typo is allowed unless asked (decision 2026-11-22)`() {
+        assertEquals(emptyList(), exact("the token expired", "tokan"))
+        assertEquals(emptyList(), exact("the token expired", "expird"))
+        assertEquals(emptyList(), exact("rain cain majn", "main"))
+        assertEquals(emptyList(), exact("remain contain", "remainz"))
+        assertEquals(listOf("token"), exact("the token expired", "token"))
+        // The normalisation stays: case and separators are still ignored.
+        assertEquals(listOf("order-id", "ORDER_ID"), exact("x-order-id: 7, ORDER_ID", "orderId"))
+        assertEquals(listOf("token expired"), exact("the token expired", "token expired"))
+        assertEquals(false, Fuzzy.Text("the token expired").contains("tokan"))
+        assertEquals(true, Fuzzy.Text("the token expired").contains("tokan", typos = true))
+    }
 
     @Test
     fun `case and separators do not matter`() {
@@ -47,7 +64,7 @@ class FuzzyTest {
     @Test
     fun `an exact hit wins over a near one`() {
         val text = "tokan token"
-        assertEquals(listOf(6 to 11), Fuzzy.Text(text).find("token").map { it.start to it.end })
+        assertEquals(listOf(6 to 11), Fuzzy.Text(text).find("token", typos = true).map { it.start to it.end })
     }
 
     @Test
@@ -67,7 +84,7 @@ class FuzzyTest {
     fun `large text stays fast`() {
         val text = buildString { repeat(50_000) { append("{\"price\":20.$it,\"symbol\":\"ACME\"}") } } + "expired"
         val t0 = System.nanoTime()
-        assertEquals(1, Fuzzy.Text(text).find("expird").size)
+        assertEquals(1, Fuzzy.Text(text).find("expird", typos = true).size)
         assertTrue(System.nanoTime() - t0 < 500_000_000, "took ${(System.nanoTime() - t0) / 1_000_000} ms")
     }
 }
