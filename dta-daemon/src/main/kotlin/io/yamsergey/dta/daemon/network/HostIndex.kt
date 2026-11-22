@@ -509,6 +509,14 @@ class HostIndex(
     /** The device cleared [clearedEntries]: those the host never read are counted on the archived epoch. */
     suspend fun cleared(clearedEntries: Int) = mutex.withLock {
         neverReceived = (clearedEntries - liveCount()).coerceAtLeast(0)
+        // 011 US1: the cleared history is an archived epoch as soon as the clear answers, not at the next answer (D-006).
+        try {
+            sync(connection(), pages = 1)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The next answer closes it.
+        }
     }
 
     /** An entry of the live history, else of the archive (marked); the archive answers with the app gone. */

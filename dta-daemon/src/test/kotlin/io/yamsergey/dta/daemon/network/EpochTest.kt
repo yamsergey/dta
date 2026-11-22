@@ -44,8 +44,9 @@ class EpochTest {
         val host = index(app, s)
         host.list(NetworkQuery())
         repeat(3) { record(app, it + 6) } // recorded, never read by the host
-        host.cleared(clearedEntries = 8)
+        // As NetworkService.clear: the app clears, then the host is told how many it cleared.
         app.reset("j2", "cleared")
+        host.cleared(clearedEntries = 8)
         assertEquals(0, host.list(NetworkQuery()).entries.size, "the live history starts empty")
         val epoch = archived(s).single()
         assertEquals(EpochCloseReason.CLEARED, epoch.reason)

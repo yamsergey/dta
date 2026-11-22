@@ -57,6 +57,35 @@ class NetworkServiceClearTest {
         assertNotNull(service.body("r1-1:2", BodyPart.RESPONSE).text?.takeIf { it == "body-1" }, "the body is on this computer")
     }
 
+    /**
+     * D-006 (011 US-1 scenario 1): right after a clear the cleared history is an archived epoch,
+     * so deleting the older of two cleared epochs that share a body leaves the newer one whole.
+     */
+    @Test
+    fun `a clear archives at once, and deleting the older epoch leaves the newer one and their shared body`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        val store = HostStore(dir).also { stores += it }
+        val host = HostIndex(store, DeviceIdentity("dev1", "emulator-5554"), "io.example", clock = { now++ }) { app }
+        val service = NetworkService(host = host) { app }
+        val shared = "s".repeat(70_000)
+        http(app, 1, shared)
+        service.list(NetworkQuery())
+        CopyWorker(host).runOnce()
+        service.clear()
+        app.runId = "r2-1"
+        http(app, 1, shared)
+        service.list(NetworkQuery())
+        CopyWorker(host).runOnce()
+        service.clear()
+        val epochs = store.listing().devices.single().apps.single().installations.flatMap { it.epochs }.filter { !it.live }.sortedBy { it.closedMs }
+        assertEquals(2, epochs.size, "both cleared histories are archived as soon as they are cleared: $epochs")
+        val (older, newer) = epochs
+        store.delete(io.yamsergey.dta.daemon.store.DeleteTarget.Epoch(older.id))
+        val left = service.list(NetworkQuery(archive = ArchiveScope(epoch = newer.id)))
+        assertEquals(listOf("r2-1:1"), left.entries.map { it.id }, "the newer epoch is untouched")
+        assertEquals(shared, service.body("r2-1:1", BodyPart.RESPONSE).text, "the body both shared is still here")
+    }
+
     /** D-005: a body the copy worker is copying when the clear starts is waited for, not counted lost at once. */
     @Test
     fun `a body the copy worker is copying is waited for before the clear`() = runBlocking<Unit> {
