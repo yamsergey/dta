@@ -44,6 +44,48 @@ class CliTest {
         assertEquals(listOf("-host:a.example.test", "status:2xx"), daemon.ops.savedWords.toList())
     }
 
+    // --- streamed search and the archive switch (071)
+
+    @Test
+    fun `network search prints each row as it is found, then the run's scope and how to include the archive`() {
+        val printed = java.util.concurrent.CopyOnWriteArrayList<String>()
+        daemon.ops.findWalk = { _, _ ->
+            { _, onItem ->
+                onItem(io.yamsergey.dta.protocol.network.FoundItem(daemon.ops.entries[1]))
+                // The first row is out before the walk ends.
+                val deadline = System.currentTimeMillis() + 3_000
+                while ("api.example.com/v1/cart" !in stdout && System.currentTimeMillis() < deadline) Thread.sleep(10)
+                printed += stdout
+                onItem(io.yamsergey.dta.protocol.network.FoundItem(daemon.ops.entries[0]))
+                io.yamsergey.dta.protocol.network.FindEnd(null, null)
+            }
+        }
+        assertEquals(0, dta("network", "search", "cart"), stderr)
+        assertTrue("api.example.com/v1/cart" in printed.single(), "the first row was printed while it searched: ${printed.single()}")
+        val lines = stdout.trim().lines()
+        assertTrue(lines[0].contains("/v1/cart") && lines[1].contains("/v1/catalog"), stdout)
+        assertEquals("2 shown · 3 in this run · earlier runs are in the archive (--archive includes them)", lines.last())
+        assertEquals(false, daemon.ops.finds.single().archive)
+    }
+
+    @Test
+    fun `--archive includes the whole history, and --json prints the search page once with its state`() {
+        assertEquals(0, dta("--json", "network", "search", "cart", "--archive"), stderr)
+        assertEquals(true, daemon.ops.finds.single().archive)
+        val doc = kotlinx.serialization.json.Json.parseToJsonElement(stdout.trim()).let { it as kotlinx.serialization.json.JsonObject }
+        val result = doc["result"] as kotlinx.serialization.json.JsonObject
+        assertEquals("done", (result["state"] as kotlinx.serialization.json.JsonPrimitive).content)
+        assertEquals(1, stdout.trim().lines().size)
+    }
+
+    @Test
+    fun `network list takes --archive and names its scope`() {
+        assertEquals(0, dta("network", "list", "--archive"), stderr)
+        assertEquals(true, daemon.ops.queries.last().second.archive)
+        assertEquals(0, dta("network", "list", "--archive-scope", "all"), stderr)
+        assertEquals(io.yamsergey.dta.protocol.network.ArchiveScope(all = true), daemon.ops.queries.last().second.archiveScope)
+    }
+
     // --- daemon status / stop (T045)
 
     @Test

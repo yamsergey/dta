@@ -345,8 +345,11 @@ class Formatters(private val style: Style) {
             hitLines(o.obj("hits")?.get(e.obj.str("id") ?: "")).forEach { appendLine(it) }
         }
         if (entries.isEmpty()) appendLine("No entries.")
-        // Feature 069: rows shown and the history's size; matches are not counted.
-        append(style.paint("${entries.size} shown · ${o.obj("coverage")?.long("searched") ?: entries.size} in the history", Token.INK_MUTED))
+        // Feature 069: rows shown and the scope's size (071); matches are not counted.
+        val scope = o["scope"]?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }
+        if (scope == null) append(style.paint("${entries.size} shown · ${o.obj("coverage")?.long("searched") ?: entries.size} in the history", Token.INK_MUTED))
+        else append(style.paint(io.yamsergey.dta.present.network.ScopeCaption.cli(io.yamsergey.dta.present.network.ScopeCaption.of(scope, entries.size, filtered = true)), Token.INK_MUTED))
+        if (scope?.runAllIgnored == true) append("\n" + style.paint(io.yamsergey.dta.present.network.ScopeCaption.RUN_ALL_HINT + " Add --archive to include earlier runs.", Token.INK_MUTED))
         o.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         savedLine(o)?.let { append("\n" + style.paint(it, Token.INK_MUTED)) }
         Statements.forNetworkList(o).forEach { append("\n" + style.mark(it)) }
@@ -392,6 +395,27 @@ class Formatters(private val style: Style) {
     private fun hitLines(json: kotlinx.serialization.json.JsonElement?): List<String> =
         io.yamsergey.dta.present.network.Hits.lines(io.yamsergey.dta.present.network.Hits.of(json)) { style.paint(it, Token.ACCENT) }
             .map { "      " + style.paint("▸ ", Token.ACCENT) + it }
+
+    /** Feature 071: one row of a streamed search as it is found: the entry's line and where it matched. */
+    fun foundLines(item: JsonObject): String = buildString {
+        val e = item.obj("entry") ?: return@buildString
+        append(entryRow(e, absolute = false))
+        item.obj("archived")?.let { append("  " + style.mark(Statements.forArchived(it))) }
+        hitLines(item["hits"]).forEach { append("\n" + it) }
+    }
+
+    /** Feature 071: how a streamed search ended, under its rows: its state, scope, and what it could not read. */
+    fun findEnd(page: JsonObject, shown: Int): String = buildString {
+        val state = page.str("state")?.let { s -> io.yamsergey.dta.protocol.network.FindState.entries.firstOrNull { it.name.lowercase() == s } }
+        val scope = page["scope"]?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }
+        val saved = page["saved"]?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.SavedFiltersApplied.serializer(), it) }
+        if (shown == 0 && state != io.yamsergey.dta.protocol.network.FindState.STOPPED) appendLine("Not found.")
+        val caption = io.yamsergey.dta.present.network.ScopeCaption.of(scope, shown, filtered = true, state = state.takeIf { it != io.yamsergey.dta.protocol.network.FindState.LIMIT }, saved = saved, error = page.str("error"))
+        append(style.paint(io.yamsergey.dta.present.network.ScopeCaption.cli(caption), Token.INK_MUTED))
+        page.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
+        if (scope?.runAllIgnored == true) append("\n" + style.paint(io.yamsergey.dta.present.network.ScopeCaption.RUN_ALL_HINT + " Add --archive to include earlier runs.", Token.INK_MUTED))
+        page.arr("notSearched").forEach { append("\n" + style.mark(io.yamsergey.dta.present.StatementKind.DEGRADED, "not searched: ${it.jsonContent}")) }
+    }
 
     private fun networkSearch(o: JsonObject): String = buildString {
         val entries = o.arr("entries")

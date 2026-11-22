@@ -70,6 +70,8 @@ class Runner(
             client = connected.client
             connected.statements.forEach { err.println(it) }
             if (spec.streaming) return@runBlocking watch(spec, connected.client, full, globals)
+            // Feature 071: a search prints its rows as they are found; Ctrl-C ends the process, and the daemon stops it.
+            if (spec.name == "network.search") return@runBlocking find(connected.client, full, globals)
             val selected = connected.client.call(spec.name, full)
             if (globals.json) {
                 out.println(DtaJson.encodeToString(Selected.serializer(), selected))
@@ -93,6 +95,30 @@ class Runner(
         } finally {
             client?.let { runCatching { it.close() } }
         }
+    }
+
+    /** Feature 071: `network search` streamed (`network.find`): rows as found, then how it ended; `--json` prints the page once. */
+    private suspend fun find(client: DaemonClient, params: JsonObject, globals: Globals): Int {
+        val formatters = formatters(globals)
+        val limit = (params["limit"] as? JsonPrimitive)?.content?.toIntOrNull() ?: io.yamsergey.dta.protocol.network.NetworkQuery.DEFAULT_LIMIT
+        val collector = io.yamsergey.dta.protocol.network.FindCollector()
+        var selection: io.yamsergey.dta.protocol.ops.SelectionStatement? = null
+        var shown = 0
+        client.find(JsonObject(params + ("limit" to JsonPrimitive(limit))), window = minOf(limit, 500)).collect { e ->
+            (e["selection"] as? JsonObject)?.let { started ->
+                selection = DtaJson.decodeFromJsonElement(Selected.serializer(), started).selection
+                if (!globals.json) selection(selection)?.let(err::println)
+                return@collect
+            }
+            val event = DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FoundEvent.serializer(), e)
+            collector.take(event)
+            if (!globals.json) (e["items"] as? kotlinx.serialization.json.JsonArray)?.forEach { item -> out.println(formatters.foundLines(item as JsonObject)); shown++ }
+            if (!globals.json && event.state == io.yamsergey.dta.protocol.network.FindState.WAITING) err.println("Waiting: ${event.position} search(es) of other clients run first.")
+        }
+        val page = collector.json()
+        if (globals.json) out.println(DtaJson.encodeToString(Selected.serializer(), Selected(selection, page)))
+        else out.println(formatters.findEnd(page, shown))
+        return if (collector.final?.state == io.yamsergey.dta.protocol.network.FindState.FAILED) ExitCodes.INTERNAL else ExitCodes.OK
     }
 
     private suspend fun watch(spec: OperationSpec, client: DaemonClient, params: JsonObject, globals: Globals): Int {

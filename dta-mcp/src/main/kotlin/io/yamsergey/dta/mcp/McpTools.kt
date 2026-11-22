@@ -32,6 +32,8 @@ class McpTools(
     private val unusable: () -> String? = { null },
     /** The project folder whose .proto files a binary body may need (the stdio server's working folder, feature 013). */
     private val schemaFolder: java.io.File? = null,
+    /** Feature 071: `network.search` streamed, with how many were found so far; null: as a plain call. */
+    private val find: (suspend (params: JsonObject, progress: (Int) -> Unit) -> Selected)? = null,
 ) {
     @Volatile
     private var schemasSynced = false
@@ -43,10 +45,10 @@ class McpTools(
      * Runs one tool; [session] is the MCP session (null for the stdio server's one client). The
      * answer ends with what the app did since that session's previous call (features 015/016).
      */
-    suspend fun invoke(toolName: String, arguments: JsonObject, session: String? = null): ToolOutcome {
+    suspend fun invoke(toolName: String, arguments: JsonObject, session: String? = null, progress: (Int) -> Unit = {}): ToolOutcome {
         unusable()?.let { return ToolOutcome(it, isError = true) }
         val spec = byTool(toolName) ?: return ToolOutcome("Unknown tool '$toolName'. Tools: ${tools.joinToString(", ") { it.toolName }}", true)
-        val outcome = runTool(spec, arguments)
+        val outcome = runTool(spec, arguments, progress)
         if (spec.name == TimelineSummary.OPERATION) return outcome.toolOutcome
         val line = summary.after(session, outcome.selection ?: selectionOf(arguments), redact = (arguments["redact"] as? JsonPrimitive)?.content == "true")
         return if (line == null) outcome.toolOutcome else outcome.toolOutcome.copy(text = outcome.toolOutcome.text + "\n\n" + line)
@@ -62,10 +64,11 @@ class McpTools(
         return if (device == null && app == null) null else device to app
     }
 
-    private suspend fun runTool(spec: OperationSpec, arguments: JsonObject): Ran {
+    private suspend fun runTool(spec: OperationSpec, arguments: JsonObject, progress: (Int) -> Unit): Ran {
         var selected: Selected? = null
         val outcome = try {
-            val (result, image) = call(spec.name, arguments).let { s ->
+            val streamed = find?.takeIf { spec.name == "network.search" }
+            val (result, image) = (if (streamed != null) streamed(arguments, progress) else call(spec.name, arguments)).let { s ->
                 selected = s
                 if (spec.name == "layout.tree") ScreenImageBound.split(s.result).let { (r, i) -> s.copy(result = r) to i } else s to null
             }

@@ -42,8 +42,10 @@ object McpStdioServer {
         val version = VersionInfo.current()
         val unusable = javaUnusable()
         val connection = DaemonConnection(connect, log::println)
+        val cancels = McpCancels()
         val tools = McpTools(
             call = connection::call,
+            find = connection::find,
             bound = ResultBound.fromEnv(),
             unusable = { unusable ?: connection.fatal },
             schemaFolder = File(System.getProperty("user.dir")),
@@ -51,13 +53,13 @@ object McpStdioServer {
         val mapper = JacksonMcpJsonMapper(JsonMapper.builder().build())
 
         val ended = CountDownLatch(1)
-        val watchedInput = object : FilterInputStream(input) {
+        val watchedInput = object : FilterInputStream(ObservedInput(input, cancels)) {
             override fun read(): Int = super.read().also { if (it < 0) ended.countDown() }
             override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it < 0) ended.countDown() }
         }
         val transport = StdioServerTransportProvider(mapper, watchedInput, protocolOut)
         val appRun = AppRunTool(AppRunTool.real(ClientKind.MCP), projects = { listOf(File(System.getProperty("user.dir"))) })
-        val specs = McpServerSpecs.tools(tools, mapper, appRun)
+        val specs = McpServerSpecs.tools(tools, mapper, appRun, cancels)
         val server = McpServer.sync(transport)
             .serverInfo("dta", version.version)
             .instructions(McpTools.INSTRUCTIONS)

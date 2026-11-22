@@ -60,7 +60,8 @@ class McpHttpServer(
         thread.contextClassLoader = McpHttpServer::class.java.classLoader
         try {
             val connection = DaemonConnection(connect, log)
-            val tools = McpTools(call = connection::call, bound = bound, unusable = { connection.fatal })
+            val tools = McpTools(call = connection::call, bound = bound, unusable = { connection.fatal }, find = connection::find)
+            val cancels = McpCancels(bySession = true)
             val mapper = JacksonMcpJsonMapper(JsonMapper.builder().build())
             val transport = HttpServletStreamableServerTransportProvider.builder().jsonMapper(mapper).mcpEndpoint(ENDPOINT).build()
             val mcp = McpServer.sync(transport)
@@ -68,13 +69,14 @@ class McpHttpServer(
                 .instructions(McpTools.INSTRUCTIONS)
                 .capabilities(McpServerSpecs.CAPABILITIES)
                 .resources(McpGuides.resources())
-                .tools(McpServerSpecs.tools(tools, mapper, AppRunTool(runApp, projects)))
+                .tools(McpServerSpecs.tools(tools, mapper, AppRunTool(runApp, projects), cancels))
                 .build()
 
             val jetty = Server(QueuedThreadPool().apply { name = "dta-agent-server"; isDaemon = true })
             jetty.addConnector(ServerConnector(jetty).apply { host = HOST; port = this@McpHttpServer.port })
             jetty.handler = ServletContextHandler().apply {
                 addFilter(FilterHolder(BearerFilter(credential)), "/*", EnumSet.of(DispatcherType.REQUEST))
+                addFilter(FilterHolder(ObservingFilter(cancels)), "/*", EnumSet.of(DispatcherType.REQUEST))
                 addServlet(ServletHolder(transport), ENDPOINT)
             }
             try {
@@ -117,6 +119,31 @@ class McpHttpServer(
             (response as HttpServletResponse).status = HttpServletResponse.SC_UNAUTHORIZED
             response.contentType = "text/plain; charset=utf-8"
             response.writer.apply { write(UNAUTHORIZED); flush() }
+        }
+    }
+
+    /** Feature 071: each message a client posts is shown to [cancels] (an agent's cancel stops its call), then served as sent. */
+    private class ObservingFilter(private val cancels: McpCancels) : Filter {
+        override fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
+            val http = request as HttpServletRequest
+            if (http.method != "POST") return chain.doFilter(request, response)
+            val body = http.inputStream.readBytes()
+            cancels.observe(String(body, Charsets.UTF_8), http.getHeader("Mcp-Session-Id"))
+            chain.doFilter(object : jakarta.servlet.http.HttpServletRequestWrapper(http) {
+                override fun getInputStream(): jakarta.servlet.ServletInputStream {
+                    val bytes = java.io.ByteArrayInputStream(body)
+                    return object : jakarta.servlet.ServletInputStream() {
+                        override fun read(): Int = bytes.read()
+                        override fun read(b: ByteArray, off: Int, len: Int): Int = bytes.read(b, off, len)
+                        override fun isFinished() = bytes.available() == 0
+                        override fun isReady() = true
+                        override fun setReadListener(listener: jakarta.servlet.ReadListener) = listener.onAllDataRead()
+                    }
+                }
+                override fun getReader() = java.io.BufferedReader(java.io.InputStreamReader(getInputStream(), Charsets.UTF_8))
+                override fun getContentLength() = body.size
+                override fun getContentLengthLong() = body.size.toLong()
+            }, response)
         }
     }
 

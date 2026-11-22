@@ -71,3 +71,40 @@ data class FoundEvent(
 
 /** Feature 071: how a walk of [NetworkHistoryView.find] ended: [next] when it reached its limit. */
 data class FindEnd(val next: String?, val notSearched: List<String>?)
+
+/**
+ * Feature 071: a streamed search gathered into one answer — the `network.search` page of what it found,
+ * with how it ended — for callers that want one document (MCP, `--json`). Equal to `network.search`'s
+ * page for the same query and scope (FR-003), plus [state].
+ */
+class FindCollector {
+    private val entries = ArrayList<EntryHits>()
+    var final: FoundEvent? = null
+        private set
+    private var scope: HistoryScope? = null
+    private var saved: SavedFiltersApplied? = null
+
+    val found: Int get() = entries.size
+
+    /** Takes one event; true when it was the final one. */
+    fun take(e: FoundEvent): Boolean {
+        e.items?.forEach { entries += EntryHits(it.entry.id, it.entry.timeMs, it.hits.orEmpty()) }
+        e.scope?.let { scope = it }
+        e.saved?.let { saved = it }
+        if (e.final) final = e
+        return e.final
+    }
+
+    fun page(): SearchPage = SearchPage(entries.toList(), next = final?.next, notSearched = final?.notSearched, degraded = final?.degraded, saved = saved, scope = final?.scope ?: scope)
+
+    /** The page as JSON with the stream's final `state` (and `reason` or `error`). */
+    fun json(): kotlinx.serialization.json.JsonObject {
+        val page = io.yamsergey.dta.protocol.rpc.DtaJson.encodeToJsonElement(SearchPage.serializer(), page()) as kotlinx.serialization.json.JsonObject
+        val end = final
+        return kotlinx.serialization.json.JsonObject(page + listOfNotNull(
+            "state" to io.yamsergey.dta.protocol.rpc.DtaJson.encodeToJsonElement(FindState.serializer(), end?.state ?: FindState.STOPPED),
+            end?.reason?.let { "reason" to io.yamsergey.dta.protocol.rpc.DtaJson.encodeToJsonElement(StopReason.serializer(), it) },
+            end?.error?.let { "error" to kotlinx.serialization.json.JsonPrimitive(it) },
+        ))
+    }
+}

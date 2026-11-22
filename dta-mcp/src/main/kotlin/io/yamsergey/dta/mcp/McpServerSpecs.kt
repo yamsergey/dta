@@ -12,8 +12,8 @@ object McpServerSpecs {
     val CAPABILITIES: McpSchema.ServerCapabilities = McpSchema.ServerCapabilities.builder().tools(false).resources(false, false).build()
 
     /** The catalog's tools, then `app_run` when the server can run apps ([appRun]). */
-    fun tools(tools: McpTools, mapper: McpJsonMapper, appRun: AppRunTool? = null): List<McpServerFeatures.SyncToolSpecification> =
-        catalogTools(tools, mapper) + listOfNotNull(appRun?.let { appRunTool(it, mapper) })
+    fun tools(tools: McpTools, mapper: McpJsonMapper, appRun: AppRunTool? = null, cancels: McpCancels? = null): List<McpServerFeatures.SyncToolSpecification> =
+        catalogTools(tools, mapper, cancels) + listOfNotNull(appRun?.let { appRunTool(it, mapper) })
 
     /** `app_run`, with a progress notification per step when the agent asked for progress. */
     private fun appRunTool(tool: AppRunTool, mapper: McpJsonMapper): McpServerFeatures.SyncToolSpecification =
@@ -41,7 +41,7 @@ object McpServerSpecs {
             }
             .build()
 
-    private fun catalogTools(tools: McpTools, mapper: McpJsonMapper): List<McpServerFeatures.SyncToolSpecification> = tools.tools.map { spec ->
+    private fun catalogTools(tools: McpTools, mapper: McpJsonMapper, cancels: McpCancels?): List<McpServerFeatures.SyncToolSpecification> = tools.tools.map { spec ->
         McpServerFeatures.SyncToolSpecification.builder()
             .tool(
                 McpSchema.Tool.builder()
@@ -53,7 +53,19 @@ object McpServerSpecs {
             .callHandler { exchange, request ->
                 val args = McpTools.arguments(request.arguments()) { mapper.writeValueAsString(it) }
                 val session = runCatching { exchange.sessionId() }.getOrNull()
-                val outcome = runBlocking { tools.invoke(spec.toolName, args, session) }
+                val token = request.meta()?.get("progressToken")
+                // Feature 071: progress as a streamed search finds rows; the agent's cancel stops the call.
+                val progress: (Int) -> Unit = { n ->
+                    if (token != null) runCatching { exchange.progressNotification(McpSchema.ProgressNotification(token, n.toDouble(), null, "$n found")) }
+                }
+                val outcome = try {
+                    runBlocking {
+                        val release = cancels?.claim(spec.toolName, args, coroutineContext[kotlinx.coroutines.Job]!!, session.takeIf { cancels.bySession }) ?: {}
+                        try { tools.invoke(spec.toolName, args, session, progress) } finally { release() }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    ToolOutcome("cancelled by the client", isError = true)
+                }
                 McpSchema.CallToolResult.builder().addTextContent(outcome.text)
                     .apply { outcome.images.forEach { addContent(McpSchema.ImageContent(null, it.data, it.mimeType)) } }
                     .isError(outcome.isError).build()

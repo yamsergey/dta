@@ -117,8 +117,37 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     @Volatile var decide: ((NetworkQuery, io.yamsergey.dta.protocol.network.NetworkEntry) -> Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean>)? = null
     val views = java.util.concurrent.CopyOnWriteArrayList<String?>()
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery, view: String?) = network(serial, pkg, query).also { views += view }
-    override fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, socketUrl: (String) -> String?) =
+    override fun networkDecide(serial: String, pkg: String, view: String, query: NetworkQuery, entry: io.yamsergey.dta.protocol.network.NetworkEntry, stop: io.yamsergey.dta.protocol.network.PatternStop, socketUrl: (String) -> String?) =
         decide?.invoke(query, entry)
+
+    /** Feature 071: streamed searches — the queries asked, and the walk each runs (default: the hits of [searchHits] as rows). */
+    val finds = java.util.concurrent.CopyOnWriteArrayList<NetworkQuery>()
+    val findRunner = io.yamsergey.dta.daemon.network.SearchRunner()
+    @Volatile var findWalk: ((NetworkQuery, Int?) -> (io.yamsergey.dta.protocol.network.PatternStop, (io.yamsergey.dta.protocol.network.FoundItem) -> Unit) -> io.yamsergey.dta.protocol.network.FindEnd)? = null
+    /** Walks that ended because they were stopped. */
+    val findsStopped = java.util.concurrent.atomic.AtomicInteger()
+    @Volatile var findScope = io.yamsergey.dta.protocol.network.HistoryScope(archive = false, entries = 3, run = io.yamsergey.dta.protocol.network.ScopeRun("r1-1", 3, startedMs = 1_700_000_000_000), outside = 120)
+    override suspend fun networkFind(
+        serial: String, pkg: String, query: NetworkQuery, limit: Int?,
+        credit: io.yamsergey.dta.daemon.network.Credit,
+        waitingAt: suspend (Int) -> Unit,
+        started: suspend (io.yamsergey.dta.protocol.network.HistoryScope, io.yamsergey.dta.protocol.network.SavedFiltersApplied?) -> Unit,
+        send: suspend (List<io.yamsergey.dta.protocol.network.FoundItem>) -> Unit,
+    ): io.yamsergey.dta.daemon.DtaDaemon.FindResult {
+        finds += query
+        val scope = findScope.copy(archive = query.archive)
+        started(scope, null)
+        val walk = findWalk?.invoke(query, limit) ?: { _, onItem ->
+            searchHits.forEach { h -> onItem(io.yamsergey.dta.protocol.network.FoundItem(entries.firstOrNull { it.id == h.id } ?: entries.first(), h.hits.ifEmpty { null })) }
+            io.yamsergey.dta.protocol.network.FindEnd(null, null)
+        }
+        val end = try {
+            io.yamsergey.dta.daemon.network.FindPipeline.run(findRunner, credit, waitingAt, walk, send)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            findsStopped.incrementAndGet(); throw e
+        }
+        return io.yamsergey.dta.daemon.DtaDaemon.FindResult(end, scope, null, null)
+    }
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true, id = "abc123")
     /** What network.script.status answers; a clear makes it inactive. */
     @Volatile var scriptStatus = ScriptStatus(active = false)
