@@ -290,6 +290,23 @@ class CliTest {
         assertTrue("History cleared by mcp: 3 entries removed." in stdout, stdout)
     }
 
+    /** D-003: network watch takes --redact (008 FR-012: every option of the operation), and its rows are masked. */
+    @Test
+    fun `network watch --redact prints masked entries`() {
+        assertTrue("--redact" in Cli(runner = { _, _, _ -> 0 }, mcp = { 0 }).parameterNames(listOf("network", "watch")))
+        val watch = kotlin.concurrent.thread { dta("-d", "emulator-5554", "-a", "com.example.shop", "network", "watch", "--redact") }
+        waitFor { "Watching network traffic" in stderr }
+        daemon.ops.events.tryEmit(io.yamsergey.dta.protocol.network.NetworkEntryEvent(
+            io.yamsergey.dta.protocol.network.HttpEntry("r1-1:9", "r1-1", 1_700_000_009_000, "okhttp3", method = "GET", url = "https://api.example.com/p?page=2&access_token=SEED-QUERY-123",
+                state = io.yamsergey.dta.protocol.network.HttpState.COMPLETE, status = 200),
+            io.yamsergey.dta.protocol.network.EntryChange.CREATED,
+        ))
+        waitFor { "page=2" in stdout }
+        daemon.close()
+        watch.join(5_000)
+        assertFalse("SEED-QUERY-123" in stdout + stderr, stdout)
+    }
+
     private fun waitFor(check: () -> Boolean) {
         val deadline = System.currentTimeMillis() + 5_000
         while (!check()) {
