@@ -238,8 +238,10 @@ class NetworkService(
     ): BodyResult {
         val location = "entry $id ${part.name.lowercase()} body"
         val decoding = structured.info
+        // The summary travels with the body: its preview is the body's first characters, redacted alike (or dropped).
+        val shown = info.copy(preview = info.preview?.let { Redactor.body(it, info.contentType, location).text })
         fun withheld(why: String) = BodyResult(
-            info, bytes = 0,
+            shown, bytes = 0,
             redaction = RedactionInfo(withheld = listOf(why)),
             degraded = degraded.orEmpty() + DegradationMarker("network", DegradationCodes.NETWORK_REDACTION_WITHHELD),
             note = "withheld: it cannot be redacted; pass allowUnredacted = true to get it as is",
@@ -257,11 +259,11 @@ class NetworkService(
         val text = r.text ?: return withheld(r.withheld!!)
         val redaction = RedactionInfo(masked = r.masked)
         return when (output) {
-            BodyOutput.Text -> BodyResult(info, text = text, bytes = text.length.toLong(), degraded = degraded, redaction = redaction, decoding = decoding)
+            BodyOutput.Text -> BodyResult(shown, text = text, bytes = text.length.toLong(), degraded = degraded, redaction = redaction, decoding = decoding)
             is BodyOutput.File -> {
                 val bytes = text.toByteArray(Charsets.UTF_8)
                 val file = File(output.path).also { it.absoluteFile.parentFile?.mkdirs(); it.writeBytes(bytes) }
-                BodyResult(info, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), degraded = degraded, redaction = redaction, decoding = decoding)
+                BodyResult(shown, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), degraded = degraded, redaction = redaction, decoding = decoding)
             }
         }
     }

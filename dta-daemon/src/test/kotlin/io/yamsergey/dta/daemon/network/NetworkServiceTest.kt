@@ -100,6 +100,8 @@ class NetworkServiceTest {
         "struct" to (BodyInfo(BodyPart.REQUEST, struct.size.toLong(), contentType = "application/x-protobuf", binary = true, completeness = Completeness.COMPLETE) to struct),
         "chat" to (BodyInfo(BodyPart.MESSAGE, ts.size.toLong(), binary = true, completeness = Completeness.COMPLETE) to ts),
         "cut" to (BodyInfo(BodyPart.RESPONSE, 2, contentType = "text/plain", completeness = Completeness.TRUNCATED, completenessReason = "bound") to "ab".toByteArray()),
+        "previewed" to (BodyInfo(BodyPart.REQUEST, 35, contentType = "application/json", completeness = Completeness.COMPLETE, preview = """{"password":"SECRET-P","name":"ok"}""") to """{"password":"SECRET-P","name":"ok"}""".toByteArray()),
+        "plainPreview" to (BodyInfo(BodyPart.RESPONSE, 13, contentType = "text/plain", completeness = Completeness.COMPLETE, preview = "SECRET-T text") to "SECRET-T text".toByteArray()),
         "unread" to (BodyInfo(BodyPart.RESPONSE, 2, declaredBytes = 2, contentType = "text/plain", completeness = Completeness.NOT_READ, completenessReason = "the app closed the body without reading it; 2 of 2 bytes were captured by the close") to "ok".toByteArray()),
     )
 
@@ -352,5 +354,22 @@ class NetworkServiceTest {
         val allowed = service.body("proto", BodyPart.REQUEST, BodyOutput.File(file.path), redact = true, allowUnredacted = true)
         assertTrue(file.exists())
         assertEquals(false, allowed.redaction!!.applied, "marked as not redacted")
+    }
+
+    /** NET-RED-016: the body's summary travels with the body; its preview is the same text, so it is redacted too. */
+    @Test
+    fun `a redacted body result carries no raw preview`() = withService { service, _ ->
+        val result = service.body("previewed", BodyPart.REQUEST, redact = true)
+        val encoded = DtaJson.encodeToString(BodyResult.serializer(), result)
+        assertTrue("SECRET-P" !in encoded, encoded)
+        assertTrue("\"name\":\"ok\"" in result.body.preview!!, "the preview keeps the rest: ${result.body.preview}")
+        val file = java.io.File(tmp, "p.json")
+        val written = service.body("previewed", BodyPart.REQUEST, BodyOutput.File(file.path), redact = true)
+        assertTrue("SECRET-P" !in DtaJson.encodeToString(BodyResult.serializer(), written))
+        val withheld = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
+        assertTrue("SECRET-T" !in DtaJson.encodeToString(BodyResult.serializer(), withheld), "a withheld body has no preview either")
+        val overridden = service.body("plainPreview", BodyPart.RESPONSE, redact = true, allowUnredacted = true)
+        assertEquals("SECRET-T text", overridden.body.preview, "the explicit override returns it as is, marked not redacted")
+        assertEquals(false, overridden.redaction!!.applied)
     }
 }
