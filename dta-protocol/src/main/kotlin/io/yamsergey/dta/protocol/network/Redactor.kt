@@ -199,7 +199,20 @@ object Redactor {
             },
         )
         is JsonArray -> JsonArray(element.mapIndexed { i, value -> redactJson(value, "$path[$i]", location, masked) })
-        else -> element
+        is JsonPrimitive -> nested(element, path, location, masked) ?: element
+    }
+
+    /** Decision 2026-11-22: JSON carried in a string value, masked inside; null when it is not JSON or holds nothing to mask. */
+    private fun nested(element: JsonPrimitive, path: String, location: String, masked: MutableList<String>): JsonPrimitive? {
+        if (!element.isString) return null
+        val text = element.content.trimStart()
+        if (!(text.startsWith("{") || text.startsWith("["))) return null
+        val parsed = runCatching { json.parseToJsonElement(element.content) }.getOrNull() ?: return null
+        val inner = mutableListOf<String>()
+        val redacted = redactJson(parsed, "$path(json)", location, inner)
+        if (inner.isEmpty()) return null
+        masked += inner
+        return JsonPrimitive(redacted.toString())
     }
 
     /** The named field of a key/value pair object: a string `key` next to a `value`. */

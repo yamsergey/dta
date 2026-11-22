@@ -210,4 +210,21 @@ class RedactorTest {
         assertFalse("SECRET" in Redactor.entry(socket).first.toString())
         assertEquals("no url here", Redactor.text("no url here", "x").first)
     }
+
+    /** Decision 2026-11-22 (4): JSON carried inside a string value is parsed and masked inside, staying a string. */
+    @Test
+    fun `json nested in a string value is masked inside`() {
+        val body = """{"event":"login","data":"{\"token\":\"SECRET-N\",\"user\":\"ana\"}","list":"[{\"password\":\"SECRET-L\"}]","note":"{not json"}"""
+        val r = Redactor.body(body, "application/json", "entry e1 request body")
+        val text = r.text!!
+        assertFalse("SECRET-N" in text || "SECRET-L" in text, text)
+        val parsed = Json.parseToJsonElement(text).jsonObject
+        val data = Json.parseToJsonElement(parsed["data"]!!.jsonPrimitive.content).jsonObject
+        assertEquals(Redactor.MASK, data["token"]!!.jsonPrimitive.content)
+        assertEquals("ana", data["user"]!!.jsonPrimitive.content, "the rest of the nested JSON stays")
+        assertEquals("{not json", parsed["note"]!!.jsonPrimitive.content)
+        assertEquals(listOf("entry e1 request body $.data(json).token", "entry e1 request body $.list(json)[0].password"), r.masked)
+        val untouched = """{"data":"{\"user\":\"ana\"}"}"""
+        assertEquals(untouched, Redactor.body(untouched, "application/json", "x").text, "nested JSON with nothing to mask is kept as written")
+    }
 }
