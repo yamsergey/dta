@@ -190,4 +190,24 @@ class RedactorTest {
         assertEquals("wss://h/socket?room=7&token=${Redactor.MASK}", (m as WsMessageEntry).url)
         assertTrue(info.masked.any { "url.query token" in it }, info.masked.toString())
     }
+
+    /** Free text that quotes a URL (an exception message, a close reason, a script's words) has its query masked. */
+    @Test
+    fun `urls quoted in failures, close reasons and script words are masked`() {
+        val http = HttpEntry(
+            id = "e1", runId = "r", timeMs = 1, library = "urlconnection", method = "GET", url = "https://h/p?page=2&access_token=SECRET-Q",
+            state = HttpState.FAILED, failure = "java.io.FileNotFoundException: https://h/p?page=2&access_token=SECRET-Q",
+            intervention = InterventionRecord("s1", error = "TypeError at https://h/p?api_key=SECRET-E", description = "rewrote https://h/p?session=SECRET-D"),
+        )
+        val (r, info) = Redactor.entry(http)
+        assertFalse("SECRET" in r.toString(), r.toString())
+        assertEquals("java.io.FileNotFoundException: https://h/p?page=2&access_token=${Redactor.MASK}", (r as HttpEntry).failure)
+        assertTrue(info.masked.any { "failure" in it && "access_token" in it }, info.masked.toString())
+        val socket = WsConnectionEntry(
+            id = "c1", runId = "r", timeMs = 1, library = "okhttp3-ws", url = "wss://h/s", state = WsState.FAILED,
+            failure = "Expected HTTP 101 response but was '401' at wss://h/s?token=SECRET-F", closeReason = "bye wss://h/s?token=SECRET-C",
+        )
+        assertFalse("SECRET" in Redactor.entry(socket).first.toString())
+        assertEquals("no url here", Redactor.text("no url here", "x").first)
+    }
 }

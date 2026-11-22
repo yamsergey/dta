@@ -70,6 +70,19 @@ object Redactor {
         return url.substring(0, q + 1) + query + url.substring(fragment) to masked
     }
 
+    private val URL_IN_TEXT = Regex("""[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+""")
+
+    /**
+     * Free text that may quote a URL — an exception message, a close reason, a script's own words:
+     * the query of every URL in it is masked as [url] masks it; the rest of the text is kept.
+     */
+    fun text(text: String, location: String): Pair<String, List<String>> {
+        if ("://" !in text) return text to emptyList()
+        val masked = mutableListOf<String>()
+        val result = URL_IN_TEXT.replace(text) { m -> url(m.value, location).also { (_, l) -> masked += l }.first }
+        return result to masked
+    }
+
     fun body(text: String, contentType: String?, location: String): BodyRedaction {
         val type = contentType?.substringBefore(';')?.trim()?.lowercase()
         if (type == "application/x-www-form-urlencoded") {
@@ -97,6 +110,8 @@ object Redactor {
             return info.copy(preview = r.text)
         }
         fun hdrs(list: List<Header>?, name: String) = list?.let { headers(it, "$at $name").also { (_, m) -> masked += m }.first }
+        fun said(value: String?, name: String) = value?.let { text(it, "$at $name").also { (_, m) -> masked += m }.first }
+        fun script(record: InterventionRecord?) = record?.copy(error = said(record.error, "script error"), description = said(record.description, "script description"))
 
         val redacted = when (entry) {
             is HttpEntry -> {
@@ -104,6 +119,8 @@ object Redactor {
                 masked += m
                 entry.copy(
                     url = u,
+                    failure = said(entry.failure, "failure"),
+                    intervention = script(entry.intervention),
                     requestHeaders = hdrs(entry.requestHeaders, "request"),
                     responseHeaders = hdrs(entry.responseHeaders, "response"),
                     requestBody = preview(entry.requestBody, "request"),
@@ -122,13 +139,20 @@ object Redactor {
             is WsConnectionEntry -> {
                 val (u, m) = url(entry.url, at)
                 masked += m
-                entry.copy(url = u, handshakeHeaders = hdrs(entry.handshakeHeaders, "handshake"))
+                entry.copy(
+                    url = u,
+                    handshakeHeaders = hdrs(entry.handshakeHeaders, "handshake"),
+                    failure = said(entry.failure, "failure"),
+                    closeReason = said(entry.closeReason, "close reason"),
+                    intervention = script(entry.intervention),
+                )
             }
             is WsMessageEntry -> entry.copy(
                 payload = preview(entry.payload, "payload")!!,
                 appPayload = preview(entry.appPayload, "app-payload"),
                 // The socket's URL a message carries (feature 025) is the connection's, masked alike.
                 url = entry.url?.let { u -> url(u, at).also { (_, m) -> masked += m }.first },
+                intervention = script(entry.intervention),
             )
             // Feature 012: the same rules over a link's URI, its query and its extras.
             is LinkEntry -> {
