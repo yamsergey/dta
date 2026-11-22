@@ -8,8 +8,8 @@ import java.sql.Connection
 
 /**
  * Feature 069 (research R1): epochs of the archive as an answer walks them, read from disk in
- * pages by `(epoch, seq)` and decoded only as the walk reaches them. One read transaction: one
- * consistent view for the whole answer, whatever is written meanwhile. [epochs] are in the order
+ * pages by `(epoch, seq)` and decoded only as the walk reaches them. 071: each page is its own read
+ * (see [query]); the seq cursor keeps a walk from giving a row twice. [epochs] are in the order
  * their entries come (first-record order: the earlier epoch first).
  */
 class StoreEntrySource internal constructor(
@@ -46,9 +46,19 @@ class StoreEntrySource internal constructor(
         return query("SELECT 1 FROM entry WHERE entry_id=? AND epoch_id IN (${later.joinToString(",") { "?" }}) LIMIT 1", listOf(entryId) + later) { true }.isNotEmpty()
     }
 
-    private fun <T> query(sql: String, args: List<Any?>, map: (java.sql.ResultSet) -> T): List<T> = db.prepareStatement(sql).use { st ->
-        args.forEachIndexed { i, a -> st.setObject(i + 1, a) }
-        st.executeQuery().use { rs -> buildList { while (rs.next()) add(map(rs)) } }
+    /**
+     * Feature 071: each read ends its transaction once its rows are taken. A walk may run for minutes (no
+     * time limit, or a pattern stuck on one body): a read held open that long keeps SQLite from checkpointing
+     * its WAL, which then grows, and every writer and reader slows with it (measured: opening an entry went
+     * from 0.3 s to 1.9 s beside two stuck searches). The walk's cursor is by seq, so no row comes twice.
+     */
+    private fun <T> query(sql: String, args: List<Any?>, map: (java.sql.ResultSet) -> T): List<T> = try {
+        db.prepareStatement(sql).use { st ->
+            args.forEachIndexed { i, a -> st.setObject(i + 1, a) }
+            st.executeQuery().use { rs -> buildList { while (rs.next()) add(map(rs)) } }
+        }
+    } finally {
+        runCatching { db.rollback() }
     }
 
     /** The latest state of an entry: the last epoch that holds it (as one list of the epochs would). */
