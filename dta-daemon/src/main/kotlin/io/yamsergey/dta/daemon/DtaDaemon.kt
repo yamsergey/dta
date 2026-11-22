@@ -502,16 +502,19 @@ class DtaDaemon(
      * The session as one sequence (feature 048): from what the timeline and the network capture already
      * hold, nothing new is asked of the app. Network's saved filters hide its network rows (065).
      */
-    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String? = null, ignoreSavedFilters: Boolean = false): io.yamsergey.dta.protocol.timeline.SequencePage {
+    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String? = null, ignoreSavedFilters: Boolean = false, redact: Boolean = false): io.yamsergey.dta.protocol.timeline.SequencePage {
         // A bad line or an unknown flow is refused before anything is read.
         io.yamsergey.dta.daemon.timeline.SequenceBuilder.parse(q)
         val only = flow?.let { flows.resolve(serial, pkg, it) }
         val recorded = readRecorded(serial, pkg)
+        // Decision 2026-11-22: built from the redacted events and sockets, so its rows and its query line read the masked text.
+        val (events, sockets, redaction) = if (redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.sequenceInput(recorded.events, recorded.sockets)
+            else Triple(recorded.events, recorded.sockets, null)
         return io.yamsergey.dta.daemon.timeline.SequenceBuilder().build(
-            recorded.events, recorded.sockets, recorded.sources, limit, q, sinceMs, recorded.note,
+            events, sockets, recorded.sources, limit, q, sinceMs, recorded.note,
             flows = flows.list(serial, pkg), only = only, flowsNote = flows.problem(serial, pkg),
             judgement = judgeTimeline(serial, pkg, q, ignoreSavedFilters),
-        )
+        ).copy(redaction = redaction)
     }
 
     private class Recorded(

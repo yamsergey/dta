@@ -179,6 +179,19 @@ class DaemonServerTest {
         watcher.close(); patterned.close()
     }
 
+    /** Decision 2026-11-22 (3): a redacted timeline watch sends events masked as timeline.events masks them. */
+    @Test
+    fun `a redacted timeline watch masks its events`() = runBlocking<Unit> {
+        fake.timelineEvents = listOf(io.yamsergey.dta.protocol.timeline.TimelineEvent("7:6", 6, 6, 6, "network", "network/failed", title = "POST /login failed: token=SEED-TW1"))
+        val watcher = connect()
+        val redacted = withTimeout(5_000) { watcher.timelineEvents(buildJsonObject { put("redact", true) }).take(2).toList() }.last()
+        assertFalse("SEED-TW1" in redacted.toString(), redacted.toString())
+        assertNotNull(redacted["redaction"], "the event says it is redacted")
+        val plain = withTimeout(5_000) { watcher.timelineEvents(JsonObject(emptyMap())).take(2).toList() }.last()
+        assertTrue("SEED-TW1" in plain.toString(), "twin: without redact it is whole")
+        watcher.close()
+    }
+
     @Test
     fun `a watch with history=current first replays the running process, then follows it, losing nothing`() = runBlocking<Unit> {
         val pending = HttpEntry("r1-1:2", "r1-1", 2, "okhttp3", method = "GET", url = "https://api.example.com/2", state = HttpState.PENDING)

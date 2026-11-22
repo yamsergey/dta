@@ -75,4 +75,6 @@ data class SequencePage(
     val flowsNote: String? = null,
     /** Feature 065: what Network's saved filters hid (network rows only); null when none apply. */
     val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
+    /** Present iff redaction was asked (decision 2026-11-22): what was masked. */
+    val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
 )

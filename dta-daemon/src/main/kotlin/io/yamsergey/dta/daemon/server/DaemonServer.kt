@@ -439,6 +439,7 @@ class DaemonServer(
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val ignore = (params["ignoreSavedFilters"] as? JsonPrimitive)?.content == "true"
+                val redact = (params["redact"] as? JsonPrimitive)?.content == "true"
                 val events = ops.timelineWatch(serial, pkg, history, sources, kinds, ignore)
                 val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     events.collect { item ->
@@ -451,8 +452,12 @@ class DaemonServer(
                                     put("device", serial)
                                     put("app", pkg)
                                     when (item) {
-                                        is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event ->
-                                            put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), item.event))
+                                        is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event -> {
+                                            // Decision 2026-11-22: a redacted watch sends events as timeline.events redacts them.
+                                            val (event, redaction) = if (redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.event(item.event) else item.event to null
+                                            put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), event))
+                                            redaction?.let { put("redaction", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.RedactionInfo.serializer(), it)) }
+                                        }
                                         // Feature 065: which of Network's saved filters apply (at the start, on a change).
                                         is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Filters ->
                                             put("saved", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.SavedFiltersApplied.serializer(), item.saved))

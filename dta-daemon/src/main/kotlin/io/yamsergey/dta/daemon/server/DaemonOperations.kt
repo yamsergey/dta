@@ -94,7 +94,7 @@ interface DaemonOperations {
     /** Feature 057: the app's screen-change signal, leased while collected. */
     fun layoutSignal(serial: String, pkg: String): Flow<io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update>
     suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.CauseChain
-    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage
+    suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean, redact: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage
     suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelineHidden
     /** Named flows over the sequence (feature 049). */
     suspend fun timelineFlowStart(serial: String, pkg: String, name: String?): io.yamsergey.dta.protocol.timeline.FlowStarted
@@ -134,7 +134,7 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun layoutSignal(serial: String, pkg: String) = daemon.layoutSignal(serial, pkg)
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean, ignoreSavedFilters: Boolean) =
         daemon.timelineCauses(serial, pkg, event, direction, depth, inferred, ignoreSavedFilters)
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean) = daemon.timelineSequence(serial, pkg, limit, q, sinceMs, flow, ignoreSavedFilters)
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean, redact: Boolean) = daemon.timelineSequence(serial, pkg, limit, q, sinceMs, flow, ignoreSavedFilters, redact)
     override suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean) = daemon.timelineHidden(serial, pkg, ignoreSavedFilters)
     override suspend fun timelineFlowStart(serial: String, pkg: String, name: String?) = daemon.timelineFlowStart(serial, pkg, name)
     override suspend fun timelineFlowEnd(serial: String, pkg: String) = daemon.timelineFlowEnd(serial, pkg)

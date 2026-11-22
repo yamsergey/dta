@@ -197,7 +197,7 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
         hiddenAsks.incrementAndGet()
         return if (ignoreSavedFilters) io.yamsergey.dta.protocol.timeline.TimelineHidden(hidden.saved?.copy(ignored = true, hidden = null)) else hidden
     }
-    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage {
+    override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean, redact: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage {
         sequenceIgnored += ignoreSavedFilters
         return sequence
     }

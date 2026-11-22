@@ -148,7 +148,7 @@ class OperationDispatcher(
                     c.device, c.app, c.string("since"), c.long("sinceMs"),
                     c.strings("sources").orEmpty().toSet(), c.strings("kinds").orEmpty().toSet(), c.long("limit")?.toInt() ?: 100,
                     c.bool("ignoreSavedFilters"),
-                ),
+                ).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.page(it) else it },
             )
         },
         "timeline.hidden" to { c ->
@@ -163,7 +163,8 @@ class OperationDispatcher(
             try {
                 encode(
                     io.yamsergey.dta.protocol.timeline.CauseChain.serializer(),
-                    ops.timelineCauses(c.device, c.app, c.required("event"), direction, c.long("depth")?.toInt() ?: 8, c.bool("inferred"), c.bool("ignoreSavedFilters")),
+                    ops.timelineCauses(c.device, c.app, c.required("event"), direction, c.long("depth")?.toInt() ?: 8, c.bool("inferred"), c.bool("ignoreSavedFilters"))
+                        .let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.chain(it) else it },
                 )
             } catch (e: io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent) {
                 notFound("event", e.id)
@@ -173,7 +174,7 @@ class OperationDispatcher(
             val limit = c.long("limit")?.toInt() ?: io.yamsergey.dta.daemon.timeline.SequenceBuilder.DEFAULT_LIMIT
             if (limit !in 1..io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT) invalid("limit must be within 1..${io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT}, was $limit")
             val flow = c.string("flow")
-            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs"), flow, c.bool("ignoreSavedFilters"))) }
+            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs"), flow, c.bool("ignoreSavedFilters"), c.bool("redact"))) }
         },
         "timeline.flow.start" to { c -> encode(io.yamsergey.dta.protocol.timeline.FlowStarted.serializer(), ops.timelineFlowStart(c.device, c.app, c.string("name"))) },
         "timeline.flow.end" to { c -> encode(io.yamsergey.dta.protocol.timeline.Flow.serializer(), ops.timelineFlowEnd(c.device, c.app)) },
@@ -213,12 +214,12 @@ class OperationDispatcher(
             encode(io.yamsergey.dta.protocol.layout.LayoutSelection.serializer(), ops.layoutSelect(c.device, c.app, c.string("mode") ?: "set", ids, c.string("at"), elements, c.client ?: "client"))
         },
         "web.devtools" to { c -> encode(io.yamsergey.dta.protocol.web.WebDevtools.serializer(), ops.webDevtools(c.device, c.app)) },
-        "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app)) },
+        "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.current(it) else it }) },
         "state.graph" to { c ->
-            encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")))
+            encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.graph(it) else it })
         },
         "state.path" to { c ->
-            encode(io.yamsergey.dta.protocol.timeline.StatePath.serializer(), ops.statePath(c.device, c.app, c.required("from"), c.string("to"), c.strings("facets")))
+            encode(io.yamsergey.dta.protocol.timeline.StatePath.serializer(), ops.statePath(c.device, c.app, c.required("from"), c.string("to"), c.strings("facets")).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.path(it) else it })
         },
         "links.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, linksQuery(c.params))) },
         "links.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },

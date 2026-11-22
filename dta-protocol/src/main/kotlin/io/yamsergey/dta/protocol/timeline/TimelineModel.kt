@@ -275,6 +275,8 @@ data class TimelinePage(
     val bounds: TimelineBoundsInfo = TimelineBoundsInfo(),
     /** Feature 065: network events of this page that Network's saved filters left out; null when none apply. */
     val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
+    /** Present iff redaction was asked (decision 2026-11-22): what was masked. */
+    val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
 )
 
 /**
@@ -336,6 +338,8 @@ data class CurrentState(
     val facets: List<FacetValue>,
     val sources: List<SourceStatus>,
     val disagreements: List<Disagreement> = emptyList(),
+    /** Present iff redaction was asked (decision 2026-11-22): what was masked. */
+    val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
 )
 
 @Serializable
@@ -372,6 +376,8 @@ data class CauseChain(
     val inferredIncluded: Boolean = false,
     /** Feature 065: of [nodes], those Network's saved filters hide in the timeline ([SavedFiltersApplied.hiddenIds]). */
     val saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null,
+    /** Present iff redaction was asked (decision 2026-11-22): what was masked. */
+    val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
 )
 
 @Serializable
@@ -405,6 +411,8 @@ data class StateGraph(
     val window: GraphWindow,
     val merged: Int = 0,
     val notes: List<DegradationMarker> = emptyList(),
+    /** Present iff redaction was asked (decision 2026-11-22): what was masked. */
+    val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
 )
 
 @Serializable
@@ -413,6 +421,8 @@ data class StatePath(
     val to: String,
     val steps: List<Transition>,
     val found: Boolean,
+    /** Present iff redaction was asked (decision 2026-11-22): what was masked. */
+    val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
 )
 
 /**

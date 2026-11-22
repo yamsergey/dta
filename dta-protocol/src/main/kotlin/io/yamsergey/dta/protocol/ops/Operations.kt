@@ -205,6 +205,12 @@ object Catalog {
         cliName = "no-saved-filters",
     )
 
+    /** Decision 2026-11-22: timeline and state answers are redacted as network answers are. */
+    private val TIMELINE_REDACT = ParamSpec(
+        "redact", ParamType.BOOLEAN,
+        "Mask secrets as network outputs do: credentials and sensitive name=value pairs in titles, errors, routes, texts and cause details; arguments, attributes and facets with sensitive names. The answer lists what was masked.",
+    )
+
     private val TIMELINE_SOURCES = ParamSpec(
         "sources", ParamType.STRING_LIST,
         "Sources to include: input, ui, screen, network, nav, app (gaps and process ends always come).",
@@ -577,6 +583,7 @@ object Catalog {
                 TIMELINE_KINDS,
                 ParamSpec("limit", ParamType.INT, "Page size, 1..500 (default 100)."),
                 TIMELINE_IGNORE_SAVED,
+                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -586,6 +593,7 @@ object Catalog {
                 TIMELINE_KINDS,
                 ParamSpec("history", ParamType.ENUM, "current: first the kept events, then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
                 TIMELINE_IGNORE_SAVED,
+                TIMELINE_REDACT,
             ),
             streaming = true, cliOnly = true,
         ),
@@ -599,6 +607,7 @@ object Catalog {
                 ParamSpec("depth", ParamType.INT, "How many links to follow, 1..32 (default 8)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Also follow inferred links (timing and matching data); they are marked inferred."),
                 TIMELINE_IGNORE_SAVED,
+                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -611,6 +620,7 @@ object Catalog {
                 ParamSpec("sinceMs", ParamType.LONG, "Only rows at or after this epoch millisecond (device clock)."),
                 ParamSpec("flow", ParamType.STRING, "Only this flow's rows: an id, or a name only one flow has."),
                 TIMELINE_IGNORE_SAVED,
+                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -675,7 +685,7 @@ object Catalog {
         OperationSpec(
             "state.current",
             "What the app is in now: every facet from every source that is on (the screen's structure, open windows, navigation, the app's own facets), with its source and when it changed, and each source's status.",
-            Scope.APP, cliPathOverride = listOf("state"),
+            Scope.APP, listOf(TIMELINE_REDACT), cliPathOverride = listOf("state"),
         ),
         OperationSpec(
             "state.graph",
@@ -683,6 +693,7 @@ object Catalog {
             Scope.APP,
             listOf(
                 STATE_FACETS,
+                TIMELINE_REDACT,
                 ParamSpec("minHoldMs", ParamType.LONG, "Merge states held for less than this into the next one (default 0)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Give inferred causes to transitions that have no known cause; they are marked inferred."),
             ),
@@ -696,6 +707,7 @@ object Catalog {
                 ParamSpec("from", ParamType.STRING, "A state id or label from state graph.", required = true),
                 ParamSpec("to", ParamType.STRING, "A state id or label; the current state when omitted."),
                 STATE_FACETS,
+                TIMELINE_REDACT,
             ),
             cliPathOverride = listOf("state", "path"),
         ),

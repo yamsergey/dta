@@ -141,6 +141,35 @@ class OperationDispatcherTest {
         assertEquals(listOf(null, null, emptySet<String>(), emptySet<String>(), 100, false), fake.lastTimeline)
     }
 
+    /** Decision 2026-11-22 (3): timeline, tap chain and state answers take redact, as network answers do, and say what was masked. */
+    @Test
+    fun `timeline and state answers are redacted on request`() {
+        fake.timelineEvents = listOf(io.yamsergey.dta.protocol.timeline.TimelineEvent(
+            "7:6", 6, 6, 6, "network", "network/failed", title = "POST /login failed: token=SEED-TL1",
+            causes = listOf(io.yamsergey.dta.protocol.timeline.CauseLink("7:5", io.yamsergey.dta.protocol.timeline.Basis.INFERRED, "text-match", detail = "password=SEED-TL2")),
+        ))
+        fake.currentFacets = listOf(io.yamsergey.dta.protocol.timeline.FacetValue("nav.args", "token=SEED-TL3", "nav", 1, 1))
+        val asked = listOf(
+            "timeline.events" to buildJsonObject { },
+            "timeline.causes" to buildJsonObject { put("event", "7:6") },
+            "state.current" to buildJsonObject { },
+            "state.graph" to buildJsonObject { },
+            "state.path" to buildJsonObject { put("from", "s0") },
+        )
+        for ((op, params) in asked) {
+            val plain = call(op, params).result.toString()
+            assertTrue("SEED-TL" in plain, "twin: $op without redact is whole: $plain")
+            val redacted = call(op, JsonObject(params + ("redact" to kotlinx.serialization.json.JsonPrimitive(true)))).result.jsonObject
+            kotlin.test.assertFalse("SEED-TL" in redacted.toString(), "$op redacted: $redacted")
+            assertTrue(redacted["redaction"] != null, "$op says it is redacted: $redacted")
+        }
+        call("timeline.sequence", buildJsonObject { put("redact", true) })
+        assertEquals("redact", fake.lastTimeline!!.last(), "the sequence is built redacted (its query reads the masked text)")
+        for (op in listOf("timeline.events", "timeline.watch", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path")) {
+            assertTrue(io.yamsergey.dta.protocol.ops.Catalog.all.single { it.name == op }.params.any { it.name == "redact" }, "$op takes redact")
+        }
+    }
+
     @Test
     fun `every timeline answer takes Network's opt-out from its saved filters (065)`() {
         val off = buildJsonObject { put("ignoreSavedFilters", true) }
