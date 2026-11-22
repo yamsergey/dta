@@ -96,8 +96,12 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) =
         (searchPage?.invoke(query) ?: io.yamsergey.dta.protocol.network.SearchPage(searchHits)).also { searches += query }
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = NetworkEntryDetail(entries.first { it.id == id })
-    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
-        BodyResult(BodyInfo(part, 13, contentType = "application/json", completeness = Completeness.COMPLETE), text = "{\"items\":[]}", bytes = 12)
+    /** network.body calls: id, part and whether redaction was asked. */
+    val bodyCalls = java.util.concurrent.CopyOnWriteArrayList<Triple<String, BodyPart, Boolean>>()
+    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult {
+        bodyCalls += Triple(id, part, redact)
+        return BodyResult(BodyInfo(part, 13, contentType = "application/json", completeness = Completeness.COMPLETE), text = "{\"items\":[]}", bytes = 12)
+    }
     override suspend fun networkClear(serial: String, pkg: String) = ClearResult(clearedEntries = 3, clearedAtMs = 1L).also { cleared++ }
     @Volatile var history = io.yamsergey.dta.protocol.network.HistorySummary(
         device = io.yamsergey.dta.protocol.network.DeviceHistory(1_204, 212L shl 20, 1_000, 2_000, archivedEntries = 1_156, keepBytes = 256L shl 20, warnBytes = 512L shl 20),

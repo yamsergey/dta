@@ -131,8 +131,8 @@ class EntryDetailPane(
         tabs.addTab("Headers", scroll(headersPage(detail)))
         val c = client
         if (c != null) {
-            detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, target, id, it, scope, marks)) }
-            detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, target, id, it, scope, marks)) }
+            detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, bodyTarget(), id, it, scope, marks)) }
+            detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, bodyTarget(), id, it, scope, marks)) }
         }
         if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab("Messages", messagesPanel(detail))
         detail.initiator?.let { tabs.addTab("Initiator", scroll(initiatorPage(detail))) }
@@ -254,8 +254,11 @@ class EntryDetailPane(
      */
     private fun messagesPanel(detail: EntryDetail): JComponent {
         val top = FormatControl.top(detail, client, target, scope, edit = ::editFormat, remove = ::removeFormat)
-        return MessagesView(client, target, scope, detail, raw ?: JsonObject(emptyMap()), marks, top, open)
+        return MessagesView(client, bodyTarget(), scope, detail, raw ?: JsonObject(emptyMap()), marks, top, open)
     }
+
+    /** What `network.body` is asked with: the view's redaction too (D-003), as the entry above it is. */
+    private fun bodyTarget(): JsonObject = if (lastRedact) JsonObject(target + ("redact" to JsonPrimitive(true))) else target
 
     /** Feature 039: the connection's format rule — a new one prefilled with its socket, or [rule] to replace. */
     private fun editFormat(rule: String?) {
