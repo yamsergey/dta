@@ -108,6 +108,15 @@ object Redactor {
                     responseHeaders = hdrs(entry.responseHeaders, "response"),
                     requestBody = preview(entry.requestBody, "request"),
                     responseBody = preview(entry.responseBody, "response"),
+                    // Feature 005: the app-side copies a script keeps are the same traffic (FR-017).
+                    appRequest = entry.appRequest?.let { a ->
+                        val (au, am) = url(a.url, "$at app-request")
+                        masked += am
+                        a.copy(url = au, headers = hdrs(a.headers, "app-request")!!, body = preview(a.body, "app-request"))
+                    },
+                    appResponse = entry.appResponse?.let { a ->
+                        a.copy(headers = hdrs(a.headers, "app-response")!!, body = preview(a.body, "app-response"))
+                    },
                 )
             }
             is WsConnectionEntry -> {
@@ -115,7 +124,10 @@ object Redactor {
                 masked += m
                 entry.copy(url = u, handshakeHeaders = hdrs(entry.handshakeHeaders, "handshake"))
             }
-            is WsMessageEntry -> entry.copy(payload = preview(entry.payload, "payload")!!)
+            is WsMessageEntry -> entry.copy(
+                payload = preview(entry.payload, "payload")!!,
+                appPayload = preview(entry.appPayload, "app-payload"),
+            )
             // Feature 012: the same rules over a link's URI, its query and its extras.
             is LinkEntry -> {
                 val (u, m) = url(entry.uri, at)

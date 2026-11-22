@@ -146,4 +146,35 @@ class RedactorTest {
         val noValue = """{"key":"password","other":"stays"}"""
         assertTrue("stays" in Redactor.body(noValue, "application/json", "x").text!!)
     }
+
+    /** NET-RED-020: the app-side copies a script keeps (005 FR-017) are masked like the wire view. */
+    @Test
+    fun `app-side copies of a scripted exchange and message are masked like the wire view`() {
+        val json = """{"token":"SECRET-B","name":"visible"}"""
+        fun body(part: BodyPart) = BodyInfo(part, json.length.toLong(), contentType = "application/json", completeness = Completeness.COMPLETE, preview = json)
+        val http = HttpEntry(
+            id = "e1", runId = "r", timeMs = 1, library = "okhttp3", method = "POST", url = "https://h/p?page=2",
+            state = HttpState.COMPLETE, status = 200,
+            appRequest = HttpRequestSnapshot("https://h/p?page=2&access_token=SECRET-Q", "POST", listOf(Header("Authorization", "Bearer SECRET-H"), Header("Cookie", "s=SECRET-C")), body(BodyPart.APP_REQUEST)),
+            appResponse = HttpResponseSnapshot(200, listOf(Header("Set-Cookie", "s=SECRET-R")), body(BodyPart.APP_RESPONSE)),
+        )
+        val (r, info) = Redactor.entry(http)
+        val text = r.toString()
+        assertFalse("SECRET" in text, text)
+        val app = (r as HttpEntry).appRequest!!
+        assertTrue("page=2" in app.url && "\"name\":\"visible\"" in app.body!!.preview!!, "the rest stays: $app")
+        assertEquals(listOf("Authorization", "Cookie"), app.headers.map { it.name })
+        for (place in listOf("app-request url.query access_token", "app-request.header Authorization", "app-request preview $.token", "app-response.header Set-Cookie", "app-response preview $.token")) {
+            assertTrue(info.masked.any { place in it }, "masked names $place: ${info.masked}")
+        }
+
+        val message = WsMessageEntry(
+            id = "m1", runId = "r", timeMs = 2, library = "okhttp3-ws", connectionId = "c1", direction = Direction.OUT, opcode = MessageOpcode.TEXT,
+            payload = BodyInfo(BodyPart.MESSAGE, 2, completeness = Completeness.COMPLETE, preview = "{}"),
+            appPayload = BodyInfo(BodyPart.APP_MESSAGE, json.length.toLong(), completeness = Completeness.COMPLETE, preview = json),
+        )
+        val (m, mi) = Redactor.entry(message)
+        assertFalse("SECRET" in m.toString(), m.toString())
+        assertTrue(mi.masked.any { "app-payload preview $.token" in it }, mi.masked.toString())
+    }
 }
