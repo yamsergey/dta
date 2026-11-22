@@ -175,6 +175,7 @@ class Cli(
         private val activity by option("--activity", help = "The activity to start; a leading . is relative to the application id; default the launcher activity")
         private val buildOnly by option("--build-only", help = "Only build, with DTA injected: no device, no install, no launch").flag()
         private val noLaunch by option("--no-launch", help = "Install, but do not launch").flag()
+        private val noInstall by option("--no-install", help = "Build with DTA injected, do not install and so do not launch: no device needed").flag()
         private val noInject by option("--no-inject", help = "Build the project as it is, without adding DTA").flag()
         private val noTooling by option("--no-tooling", help = "Do not add Compose's tooling data library").flag()
         private val reinstall by option("--reinstall", help = "Uninstall the app first; this deletes its data").flag()
@@ -188,6 +189,7 @@ class Cli(
 
         override fun run() {
             if (buildOnly && (noLaunch || reinstall || watch)) throw UsageError("--build-only cannot be combined with --no-launch, --reinstall or --watch")
+            if (noInstall && (reinstall || watch)) throw UsageError("--no-install cannot be combined with --reinstall or --watch")
             if (noLaunch && watch) throw UsageError("--watch needs the app launched; drop --no-launch")
             if (timeout <= 0) throw UsageError("--timeout must be a positive number of seconds")
             val request = RunRequest(
@@ -197,7 +199,8 @@ class Cli(
                 activity = activity,
                 device = globals.device,
                 mode = when {
-                    buildOnly -> RunMode.BUILD_ONLY
+                    // --no-install implies no launch; with --no-launch it is CI's build-only run (010 edge case).
+                    buildOnly || noInstall -> RunMode.BUILD_ONLY
                     noLaunch -> RunMode.NO_LAUNCH
                     else -> RunMode.RUN
                 },

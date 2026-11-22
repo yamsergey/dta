@@ -51,7 +51,7 @@ class AppRunTool(private val runner: AppRunner, private val projects: () -> List
                 activity = arguments.string("activity"),
                 device = arguments.string("device"),
                 mode = when {
-                    arguments.flag("buildOnly") -> RunMode.BUILD_ONLY
+                    arguments.flag("buildOnly") || arguments.flag("noInstall") -> RunMode.BUILD_ONLY
                     arguments.flag("noLaunch") -> RunMode.NO_LAUNCH
                     else -> RunMode.RUN
                 },
@@ -100,6 +100,7 @@ class AppRunTool(private val runner: AppRunner, private val projects: () -> List
                 prop("device", "string", "Device serial; omit when one device is connected.")
                 prop("buildOnly", "boolean", "Only build, with DTA injected: no device, install or launch.")
                 prop("noLaunch", "boolean", "Install, but do not launch.")
+                prop("noInstall", "boolean", "Build with DTA injected, do not install and so do not launch: no device needed.")
                 prop("noInject", "boolean", "Build the project as it is, without adding DTA.")
                 prop("noTooling", "boolean", "Do not add Compose's tooling data library.")
                 prop("reinstall", "boolean", "Uninstall the app first; this deletes its data.")

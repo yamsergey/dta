@@ -94,6 +94,15 @@ class AppRunToolTest {
     }
 
     @Test
+    fun `noInstall builds only, alone or with noLaunch`() = runBlocking<Unit> {
+        val tool = AppRunTool(runner, projects = { listOf(File("/work/shop")) })
+        tool.invoke(JsonObject(mapOf("noInstall" to JsonPrimitive(true))))
+        tool.invoke(JsonObject(mapOf("noInstall" to JsonPrimitive(true), "noLaunch" to JsonPrimitive(true))))
+        assertEquals(listOf(RunMode.BUILD_ONLY, RunMode.BUILD_ONLY), requests.map { it.mode })
+        assertTrue("noInstall" in AppRunTool.INPUT_SCHEMA.toString())
+    }
+
+    @Test
     fun `without a project the server's single project is used, several are listed`() = runBlocking<Unit> {
         AppRunTool(runner, projects = { listOf(File("/work/shop")) }).invoke(JsonObject(emptyMap()))
         assertEquals(File("/work/shop"), requests.single().project)

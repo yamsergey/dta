@@ -41,6 +41,7 @@ dta run --variant freeDebug       # any debuggable variant; release is refused
 dta run --module :app --activity .DeepLinkActivity
 dta run --watch                   # then show the network traffic, from the app's start
 dta run --build-only              # CI: build with DTA injected, no device
+dta run --no-launch --no-install  # the same: build with DTA injected, no install, no device
 dta run -- --offline              # Gradle arguments after --
 ```
 

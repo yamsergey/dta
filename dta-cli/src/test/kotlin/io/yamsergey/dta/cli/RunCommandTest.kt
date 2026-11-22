@@ -82,6 +82,18 @@ class RunCommandTest {
     }
 
     @Test
+    fun `no-install builds with injection and needs no device, alone or with no-launch (CI)`() {
+        cli("run", "--no-install")
+        assertEquals(RunMode.BUILD_ONLY, invocation!!.request.mode)
+        assertTrue(invocation!!.request.inject)
+        invocation = null
+        assertEquals(15, cli("run", "--no-launch", "--no-install"), "not a usage error: the run's own exit code")
+        assertEquals(RunMode.BUILD_ONLY, invocation!!.request.mode)
+        assertEquals(ExitCodes.USAGE, cli("run", "--no-install", "--reinstall"))
+        assertEquals(ExitCodes.USAGE, cli("run", "--no-install", "--watch"))
+    }
+
+    @Test
     fun `options that contradict each other are usage errors`() {
         assertEquals(ExitCodes.USAGE, cli("run", "--build-only", "--reinstall"))
         assertEquals(ExitCodes.USAGE, cli("run", "--build-only", "--no-launch"))
