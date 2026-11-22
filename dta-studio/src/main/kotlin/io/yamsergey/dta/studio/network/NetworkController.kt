@@ -56,6 +56,8 @@ data class NetworkViewState(
     /** An archive scope (`all`, an epoch id…): the archived history instead of live traffic (feature 011). */
     val archive: String? = null,
     val loading: Boolean = false,
+    /** D-022: an older page is being loaded (Load older, or the list scrolled to its oldest edge). */
+    val loadingOlder: Boolean = false,
     val watching: Boolean = false,
     val error: String? = null,
     /** Feature 068: a wait of the archiving that lasts, for the IDE's background task; null when none. */
@@ -419,14 +421,27 @@ class NetworkController(private val context: ContextController, private val scop
         list(LiveEvent.Selected(id))
     }
 
-    /** Older entries above the loaded ones (`before` cursor). */
+    private var olderJob: Job? = null
+
+    /**
+     * Older entries above the loaded ones (`before` cursor), D-022: from the Load older row or the list
+     * scrolled to its oldest edge — one page at a time, joined at the cursor (no gap, no duplicate).
+     */
     fun loadOlder() {
+        if (olderJob?.isActive == true) return
         val s = mutable.value
         val cursor = s.list.older ?: return
         val c = context.client ?: return
-        scope.launch {
-            runCatching { c.call("network.list", params(s, before = cursor)) }
-                .onSuccess { r -> if (!older(r.result.jsonObject) && mutable.value.applied.hasSearch) search() }
+        mutable.update { it.copy(loadingOlder = true) }
+        olderJob = scope.launch {
+            try {
+                runCatching { c.call("network.list", params(s, before = cursor)) }
+                    // A page for another query (changed meanwhile) is not joined.
+                    .onSuccess { r -> if (mutable.value.list.older == cursor && !older(r.result.jsonObject) && mutable.value.applied.hasSearch) search() }
+                    .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; if (!superseded(e)) mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName) } }
+            } finally {
+                mutable.update { it.copy(loadingOlder = false) }
+            }
         }
     }
 

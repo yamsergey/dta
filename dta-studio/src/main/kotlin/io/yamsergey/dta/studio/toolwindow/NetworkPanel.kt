@@ -73,7 +73,17 @@ class NetworkPanel(
     private val openHistory: () -> Unit = {},
 ) : JPanel(BorderLayout()) {
     private val model = RowsModel()
-    private val table = JBTable(model).apply {
+    /** D-022: the Load older row, at the list's oldest edge — under the header when the oldest rows are on top, under the rows otherwise. */
+    private val olderTop = OlderRow()
+    private val olderBottom = OlderRow()
+    private val table = object : JBTable(model) {
+        // The Load older row sits under the header, inside the scroll pane's header area: it does not scroll away.
+        override fun configureEnclosingScrollPane() {
+            super.configureEnclosingScrollPane()
+            val pane = javax.swing.SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane::class.java, this) as? javax.swing.JScrollPane ?: return
+            pane.setColumnHeaderView(JPanel(BorderLayout()).apply { add(tableHeader, BorderLayout.CENTER); add(olderTop, BorderLayout.SOUTH) })
+        }
+    }.apply {
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         setShowGrid(false)
         autoResizeMode = JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS
@@ -303,7 +313,7 @@ class NetworkPanel(
         val master = JPanel(BorderLayout()).apply {
             add(JPanel(BorderLayout()).apply { add(toolbar, BorderLayout.NORTH); add(statements, BorderLayout.CENTER); add(webStatus, BorderLayout.SOUTH) }, BorderLayout.NORTH)
             add(strip.component, BorderLayout.WEST)
-            add(scroll, BorderLayout.CENTER)
+            add(JPanel(BorderLayout()).apply { add(scroll, BorderLayout.CENTER); add(olderBottom, BorderLayout.SOUTH) }, BorderLayout.CENTER)
             // Feature 043: what the list shows and what the filters hid sit under it.
             // In one line when it fits, else "N new below" under the caption: never over it.
             add(JPanel(LineOrStack(JBUI.scale(12))).apply {
@@ -339,6 +349,8 @@ class NetworkPanel(
             scrollValue = e.value
             if (programmaticScroll) return@addAdjustmentListener
             Scrolling.event(last.list.following, moved, atEdge())?.let { network.list(it) }
+            // D-022: scrolled to the oldest row, the next older page loads.
+            if (moved && last.list.older != null && !last.loadingOlder && model.sort == null && atOldestEdge()) network.loadOlder()
         }
         setOrder(ListOrder.of(PropertiesComponent.getInstance().getValue(ORDER_KEY)))
         Keyboard.bind(this, ViewKey.START) { if (model.rowCount > 0) table.changeSelection(0, 0, false, false) }
@@ -368,12 +380,19 @@ class NetworkPanel(
         last = s
         // A reload can move the scroll bar too: that is not the person scrolling.
         programmaticScroll = true
-        val added = try { model.update(s.list.rows) } finally { scroll.validate(); programmaticScroll = false }
+        val (added, prepended) = try { model.update(s.list.rows) } finally { scroll.validate(); programmaticScroll = false }
         // Keep the selection on its row by id, whatever moved around it.
         s.list.selectedId?.let { id -> model.indexOf(id)?.let { i -> if (table.selectedRow != i) { model.updating = true; table.setRowSelectionInterval(i, i); model.updating = false } } }
         if (s.list.following && model.sort == null) scrollToEdge()
         // Rows added above what the person is reading push it down; scroll by as much so nothing jumps.
         else if (added > 0 && model.order == ListOrder.NEWEST_FIRST) keepInPlace(added)
+        // D-022: an older page above the rows read: the view moves by as much, the reading position stays.
+        if (prepended > 0 && model.order == ListOrder.OLDEST_FIRST && model.sort == null) keepInPlace(prepended)
+        val more = s.list.older != null && model.sort == null
+        val filteredNow = s.applied.text.isNotBlank() || s.kind != KindChoice.ALL || s.savedApplied?.let { !it.ignored && it.words.isNotEmpty() } == true
+        val olderWords = io.yamsergey.dta.present.network.SavedChip.older(s.list.shown, s.list.history, filteredNow)
+        olderTop.show(more && model.order == ListOrder.OLDEST_FIRST, s.loadingOlder, "↑", olderWords)
+        olderBottom.show(more && model.order == ListOrder.NEWEST_FIRST, s.loadingOlder, "↓", olderWords)
         if (s.list.following != previous.list.following || s.list.paused != previous.list.paused || s.redact != previous.redact ||
             s.hits.total != previous.hits.total || s.applied.hasSearch != previous.applied.hasSearch || s.archive != previous.archive) strip.updateActionsAsync()
 
@@ -440,6 +459,35 @@ class NetworkPanel(
         detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab, rowHits)
         revalidate()
         repaint()
+    }
+
+    /** D-022: whether the view is at the edge where the oldest rows are. */
+    private fun atOldestEdge(): Boolean {
+        val bar = scroll.verticalScrollBar
+        return if (model.order == ListOrder.OLDEST_FIRST) bar.value <= JBUI.scale(4)
+        else bar.value + bar.visibleAmount >= bar.maximum - JBUI.scale(4)
+    }
+
+    /** D-022: "↑ Load 500 older" and what the history holds beyond the rows; hidden when everything is loaded. */
+    private inner class OlderRow : JPanel(BorderLayout(JBUI.scale(12), 0)) {
+        private val link = ActionLink("") { network.loadOlder() }.apply { toolTipText = "Also when you scroll to the oldest row" }
+        // Cut with … when the list is narrow; the link always shows.
+        private val note = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
+
+        init {
+            border = JBUI.Borders.compound(JBUI.Borders.customLineBottom(com.intellij.ui.JBColor.border()), JBUI.Borders.empty(3, 8))
+            add(link, BorderLayout.WEST)
+            add(note, BorderLayout.CENTER)
+            isVisible = false
+        }
+
+        fun show(visible: Boolean, loading: Boolean, arrow: String, words: String) {
+            isVisible = visible
+            if (!visible) return
+            link.text = if (loading) "Loading older…" else "$arrow Load ${NetworkController.PAGE} older"
+            link.isEnabled = !loading
+            note.text = words
+        }
     }
 
     /** Whether the view is at the edge where new rows appear. */
@@ -660,10 +708,13 @@ class NetworkPanel(
             updating = false
         }
 
-        /** Appends, updates in place, or reloads, so rows never jump (patterns.md live list); returns how many were appended. */
-        fun update(next: List<Row>): Int {
+        /**
+         * Appends, updates in place, or reloads, so rows never jump (patterns.md live list); returns how many
+         * were appended and how many older rows came before the ones there (D-022).
+         */
+        fun update(next: List<Row>): Pair<Int, Int> {
             val before = rows
-            if (next === before) return 0
+            if (next === before) return 0 to 0
             updating = true
             rows = next
             if (cache.size > 20_000) cache.clear()
@@ -671,19 +722,28 @@ class NetworkPanel(
                 resort()
                 fireTableDataChanged()
                 updating = false
-                return 0
+                return 0 to 0
             }
             var added = 0
+            var prepended = 0
+            val shift = next.size - before.size
             when {
                 next.size >= before.size && before.indices.all { before[it].id == next[it].id } -> {
                     added = next.size - before.size
                     if (added > 0) order.appended(before.size, next.size).let { fireTableRowsInserted(it.first, it.last) }
                     before.indices.filter { before[it] != next[it] }.forEach { val i = order.shown(it, next.size); fireTableRowsUpdated(i, i) }
                 }
+                // D-022: an older page joined before the rows there (which stay as they were).
+                shift > 0 && before.isNotEmpty() && before.indices.all { before[it].id == next[it + shift].id } -> {
+                    prepended = shift
+                    val range = if (order == ListOrder.OLDEST_FIRST) 0 until shift else before.size until next.size
+                    fireTableRowsInserted(range.first, range.last)
+                    before.indices.filter { before[it] != next[it + shift] }.forEach { val i = order.shown(it + shift, next.size); fireTableRowsUpdated(i, i) }
+                }
                 else -> fireTableDataChanged()
             }
             updating = false
-            return added
+            return added to prepended
         }
 
         override fun getRowCount() = rows.size

@@ -258,6 +258,26 @@ class NetworkControllerTest {
         assertEquals(searches, daemon.ops.searches.size, "the page's own hits, no search of every loaded row")
     }
 
+    /** D-022: Load older (the row above the list, or scrolling to its top) joins the next page under the loaded rows, once. */
+    @Test
+    fun `load older joins the next page without gap, one page at a time, live (D-022)`() = runBlocking<Unit> {
+        pagedHistory(listOf(3, 2, 1, -1, -2), firstPage = 3)
+        session.start()
+        val first = await { it.list.rows.size == 3 && it.watching }
+        assertEquals("l3", first.list.older)
+        // The row and the scroll to the top may both ask: one page is loaded, not two.
+        network.loadOlder(); network.loadOlder()
+        val s = await { it.list.rows.size == 5 && !it.loadingOlder }
+        assertEquals(listOf(-2, -1, 1, 2, 3).map { "r1-1:$it" }, s.list.rows.map { it.id }, "oldest to newest, no gap, no duplicate")
+        assertEquals(null, s.list.older, "everything is loaded")
+        assertEquals(1, daemon.ops.queries.count { it.second.before == "l3" }, "one page asked: ${daemon.ops.queries.map { it.second.before }}")
+        assertEquals(null, s.error)
+        assertTrue(s.watching, "the list stays live")
+        network.loadOlder()
+        kotlinx.coroutines.delay(200)
+        assertEquals(1, daemon.ops.queries.count { it.second.before != null }, "nothing older to load")
+    }
+
     /** A history of [ids] newest first that match "api"; the list pages after [firstPage] rows, the search by its limit. */
     private fun pagedHistory(ids: List<Int>, firstPage: Int) {
         val byId = ids.associateWith { http(it) }

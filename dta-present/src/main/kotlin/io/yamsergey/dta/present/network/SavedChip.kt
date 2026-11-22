@@ -30,12 +30,20 @@ data class SavedChip(val word: String, val key: String, val value: String) {
         fun caption(shown: Int, history: Int, saved: SavedFiltersApplied?, filtered: Boolean, more: Boolean = false): String {
             val savedOn = saved?.takeIf { !it.ignored && it.words.isNotEmpty() }?.words?.size
             if (!filtered && savedOn == null) return "${grouped(history)} entries"
-            // Feature 070: rows loaded so far, not every match — said while more can load.
-            val base = "${grouped(shown)} shown${if (more) ", more to load" else ""} · ${grouped(history)} in the history"
+            // Feature 070: rows loaded so far, not every match; D-022: the Load older row says when more can load.
+            val base = "${grouped(shown)} shown · ${grouped(history)} in the history"
             return if (savedOn == null) base else "$base · $savedOn saved filter${if (savedOn == 1) "" else "s"} on"
         }
 
+        /**
+         * D-022: the Load older row's grey words — how many entries the history holds beyond the rows
+         * shown when nothing filters (with filters no match is counted, 069).
+         */
+        fun older(shown: Int, history: Int, filtered: Boolean): String =
+            if (!filtered && history > shown) "${grouped(history - shown)} older in the history"
+            else "older matches in the history"
+
         /** 125690 as "125 690", as the tab writes counts. */
-        private fun grouped(n: Int): String = n.toString().reversed().chunked(3).joinToString(" ").reversed()
+        fun grouped(n: Int): String = n.toString().reversed().chunked(3).joinToString(" ").reversed()
     }
 }

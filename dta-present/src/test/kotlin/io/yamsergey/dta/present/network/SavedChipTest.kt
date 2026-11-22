@@ -31,11 +31,17 @@ class SavedChipTest {
     }
 
     @Test
-    fun `the caption says when more rows can load, so the rows shown are not read as all matches (070)`() {
-        assertEquals("500 shown, more to load · 650 312 in the history", SavedChip.caption(500, 650_312, null, filtered = true, more = true))
-        assertEquals("500 shown, more to load · 650 312 in the history · 1 saved filter on", SavedChip.caption(500, 650_312, SavedFiltersApplied(listOf("a:1")), filtered = true, more = true))
+    fun `the caption says what is loaded, the Load older row says more can load (070 and D-022)`() {
+        assertEquals("500 shown · 650 312 in the history", SavedChip.caption(500, 650_312, null, filtered = true, more = true))
+        assertEquals("500 shown · 650 312 in the history · 1 saved filter on", SavedChip.caption(500, 650_312, SavedFiltersApplied(listOf("a:1")), filtered = true, more = true))
         assertEquals("12 shown · 650 312 in the history", SavedChip.caption(12, 650_312, null, filtered = true, more = false))
         // No filter: the history's size says it all.
         assertEquals("650 312 entries", SavedChip.caption(500, 650_312, null, filtered = false, more = true))
+    }
+
+    @Test
+    fun `the Load older row counts the history beyond the rows only when nothing filters (D-022 and 069)`() {
+        assertEquals("701 older in the history", SavedChip.older(500, 1_201, filtered = false))
+        assertEquals("older matches in the history", SavedChip.older(500, 1_201, filtered = true))
     }
 }
