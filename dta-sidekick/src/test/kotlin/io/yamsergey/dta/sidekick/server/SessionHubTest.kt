@@ -65,7 +65,8 @@ class SessionHubTest {
         hub.publish("network.entry", JsonPrimitive(2))
         awaitTrue("live got both") { live.received.size == 2 }
         assertTrue(gone.received.isEmpty())
-        assertEquals(1, hub.sessionCount)
+        // The failing session is dropped on its own sender thread, which may finish after live got both.
+        awaitTrue("the failing session dropped") { hub.sessionCount == 1 }
     }
 
     @Test
