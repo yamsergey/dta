@@ -76,6 +76,10 @@ object IndexText {
                 if (append(out, json, PART_CHARS)) cut = true
                 // A decoded field's value is compared unescaped (`\n`, `é`): both forms are kept.
                 if ('\\' in json && append(out, unescape(json), PART_CHARS)) cut = true
+                // Under redaction the decoded JSON is read redacted (006 FR-016): that rendering too.
+                if (Redactor.mayChangeWords(json)) {
+                    Redactor.body(json, "application/json", "").text?.takeIf { it != json }?.let { if (append(out, it, PART_CHARS)) cut = true }
+                }
             }
             // `body:` text also looks in the bytes; the search reads them as Latin-1 when no schema decodes them.
             if (bytes != null && bytes.decoded) {

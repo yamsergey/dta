@@ -227,4 +227,44 @@ class RedactorTest {
         val untouched = """{"data":"{\"user\":\"ana\"}"}"""
         assertEquals(untouched, Redactor.body(untouched, "application/json", "x").text, "nested JSON with nothing to mask is kept as written")
     }
+
+    /** Decision 2026-11-22 (4): free text loses credentials and sensitive name/value pairs, not only URL queries. */
+    @Test
+    fun `free text masks credentials and sensitive name value pairs`() {
+        val cases = listOf(
+            "401 for Authorization: Bearer SECRET-B1.x_y" to "401 for Authorization: ${Redactor.MASK}",
+            "sent Bearer SECRET-B2abc to the proxy" to "sent Bearer ${Redactor.MASK} to the proxy",
+            "Basic U0VDUkVULUIz= refused" to "Basic ${Redactor.MASK} refused",
+            "login token=SECRET-K1 user=ana" to "login token=${Redactor.MASK} user=ana",
+            "password: SECRET-K2, retry in 5s" to "password: ${Redactor.MASK}, retry in 5s",
+            "bad field \"api_key\":\"SECRET-K3\" in request" to "bad field \"api_key\":\"${Redactor.MASK}\" in request",
+            "cut preview {\"session\":\"SECRET-K4" to "cut preview {\"session\":\"${Redactor.MASK}",
+            "<user><password>SECRET-X1</password><name>ana</name></user>" to "<user><password>${Redactor.MASK}</password><name>ana</name></user>",
+            "Authorization: Token SECRET-T1" to "Authorization: ${Redactor.MASK}",
+            "see https://h/p?page=2&token=SECRET-U1" to "see https://h/p?page=2&token=${Redactor.MASK}",
+            "WWW-Authenticate realm is \"api\"; page=2, name=visible" to "WWW-Authenticate realm is \"api\"; page=2, name=visible",
+        )
+        for ((given, expected) in cases) {
+            val (text, masked) = Redactor.text(given, "entry e1 failure")
+            assertEquals(expected, text, given)
+            assertEquals(given != expected, masked.isNotEmpty(), "masked is listed: $masked")
+            assertTrue(masked.all { it.startsWith("entry e1 failure") }, masked.toString())
+        }
+    }
+
+    /** The same rules over header values whose names are not sensitive, and over JSON string values. */
+    @Test
+    fun `free text rules apply to other header values and to json strings`() {
+        val (headers, masked) = Redactor.headers(
+            listOf(Header("Location", "https://h/cb?code=1&access_token=SECRET-H1"), Header("X-Debug", "Bearer SECRET-H2abc"), Header("Accept", "application/json")),
+            "entry e1 response",
+        )
+        assertFalse(headers.any { "SECRET" in it.value }, headers.toString())
+        assertEquals("application/json", headers.last().value)
+        assertTrue(masked.any { "header Location" in it } && masked.any { "header X-Debug" in it }, masked.toString())
+        val body = Redactor.body("""{"message":"failed for token=SECRET-J1","status":"ok"}""", "application/json", "x")
+        assertFalse("SECRET-J1" in body.text!!, body.text)
+        assertTrue("\"status\":\"ok\"" in body.text!!)
+        assertTrue(body.masked.any { "$.message" in it }, body.masked.toString())
+    }
 }

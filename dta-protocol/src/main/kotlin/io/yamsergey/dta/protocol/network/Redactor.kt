@@ -48,8 +48,11 @@ object Redactor {
     fun mayChangeWords(text: String): Boolean {
         if ("\\u" in text) return true
         val lower = text.lowercase()
-        return SENSITIVE_PARTS.any { it in lower }
+        return SENSITIVE_PARTS.any { it in lower } || CREDENTIAL_WORDS.any { it in lower }
     }
+
+    /** Auth schemes free text can quote a credential after (see [text]). */
+    private val CREDENTIAL_WORDS = listOf("bearer", "basic", "digest")
 
     fun headers(headers: List<Header>, location: String): Pair<List<Header>, List<String>> {
         val masked = mutableListOf<String>()
@@ -57,7 +60,12 @@ object Redactor {
             if (isSensitive(h.name)) {
                 masked += "$location.header ${h.name}"
                 h.copy(value = MASK)
-            } else h
+            } else {
+                // Other values are free text: a Location with a token in its query, a debug header quoting a credential.
+                val (value, m) = text(h.value, "$location.header ${h.name}")
+                masked += m
+                if (m.isEmpty()) h else h.copy(value = value)
+            }
         }
         return result to masked
     }
@@ -72,14 +80,47 @@ object Redactor {
 
     private val URL_IN_TEXT = Regex("""[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+""")
 
+    private val SCHEMES = "Bearer|Basic|Digest|Token"
+
+    /** `name=value`, `name: value`, `"name":"value"`; the value may carry an auth scheme, a quoted value may be cut. */
+    private val PAIR_IN_TEXT = Regex(
+        """(?<![A-Za-z0-9_.\-])(["']?)([A-Za-z0-9_.\-]*[A-Za-z][A-Za-z0-9_.\-]*)\1\s*([:=])\s*((?:(?:$SCHEMES)\s+)?)("[^"]*"?|'[^']*'?|[^\s&;,"'<>)\]}]+)""",
+        RegexOption.IGNORE_CASE,
+    )
+    /** A credential after an auth scheme as HTTP writes it (`Bearer`, `Basic`, `Digest`): not a plain word (it has a digit or a token character). */
+    private val CREDENTIAL_IN_TEXT = Regex("""\b(Bearer|Basic|Digest)\s+(?=[A-Za-z0-9\-._~+/]*[0-9\-._~+/])([A-Za-z0-9\-._~+/]{6,}=*)(?![A-Za-z0-9\-._~+/="])""")
+    private val ELEMENT_IN_TEXT = Regex("""<([A-Za-z_][\w.\-]*:)?([A-Za-z_][\w.\-]*)(\s[^>]*)?>([^<]*)</\1?\2>""")
+
     /**
-     * Free text that may quote a URL — an exception message, a close reason, a script's own words:
-     * the query of every URL in it is masked as [url] masks it; the rest of the text is kept.
+     * Free text — an exception message, a close reason, a script's own words, a text body of no
+     * structured format (decision 2026-11-22): the query of every URL in it (as [url] masks it),
+     * credentials after an auth scheme (`Bearer …`, `Basic …`), values of name/value pairs whose
+     * name is sensitive (`token=…`, `password: …`, `"api_key":"…"`) and the content of elements
+     * so named (`<password>…</password>`). The rest of the text is kept.
      */
     fun text(text: String, location: String): Pair<String, List<String>> {
-        if ("://" !in text) return text to emptyList()
+        if (!mayChangeWords(text) && "://" !in text) return text to emptyList()
         val masked = mutableListOf<String>()
-        val result = URL_IN_TEXT.replace(text) { m -> url(m.value, location).also { (_, l) -> masked += l }.first }
+        var result = if ("://" in text) URL_IN_TEXT.replace(text) { m -> url(m.value, location).also { (_, l) -> masked += l }.first } else text
+        result = PAIR_IN_TEXT.replace(result) { m ->
+            val name = m.groupValues[2]
+            val value = m.groupValues[5]
+            val bare = value.trim('"', '\'')
+            if (!isSensitive(name) || bare.startsWith(MASK.dropLast(1)) || bare.isEmpty()) return@replace m.value
+            masked += "$location text $name"
+            val open = value.takeWhile { it == '"' || it == '\'' }.take(1)
+            val close = if (open.isNotEmpty() && value.length > 1 && value.endsWith(open)) open else ""
+            m.value.substring(0, m.groups[4]!!.range.first - m.range.first) + open + MASK + close
+        }
+        result = CREDENTIAL_IN_TEXT.replace(result) { m ->
+            masked += "$location text credential ${m.groupValues[1]}"
+            "${m.groupValues[1]} $MASK"
+        }
+        result = ELEMENT_IN_TEXT.replace(result) { m ->
+            if (!isSensitive(m.groupValues[2]) || m.groupValues[4].isEmpty() || m.groupValues[4] == MASK) return@replace m.value
+            masked += "$location text <${m.groupValues[2]}>"
+            m.value.replaceRange(m.groups[4]!!.range.first - m.range.first, m.groups[4]!!.range.last + 1 - m.range.first, MASK)
+        }
         return result to masked
     }
 
@@ -199,7 +240,16 @@ object Redactor {
             },
         )
         is JsonArray -> JsonArray(element.mapIndexed { i, value -> redactJson(value, "$path[$i]", location, masked) })
-        is JsonPrimitive -> nested(element, path, location, masked) ?: element
+        is JsonPrimitive -> nested(element, path, location, masked) ?: freeText(element, path, location, masked) ?: element
+    }
+
+    /** A string value of free text (decision 2026-11-22): the [text] rules; null when nothing in it is masked. */
+    private fun freeText(element: JsonPrimitive, path: String, location: String, masked: MutableList<String>): JsonPrimitive? {
+        if (!element.isString) return null
+        val (text, m) = text(element.content, "$location $path")
+        if (m.isEmpty()) return null
+        masked += m
+        return JsonPrimitive(text)
     }
 
     /** Decision 2026-11-22: JSON carried in a string value, masked inside; null when it is not JSON or holds nothing to mask. */
