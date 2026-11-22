@@ -67,6 +67,7 @@ object DaemonMain {
                     clients = clients,
                     devices = runCatching { daemon.devices() }.getOrDefault(emptyList()),
                     connections = daemon.openConnections().map { ConnectionInfo(it.serial, it.packageName, "connected") },
+                    archiveStartedOver = daemon.archiveStartedOver(),
                 )
             },
             onStop = ::shutdown,

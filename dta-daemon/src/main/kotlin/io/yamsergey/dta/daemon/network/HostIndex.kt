@@ -456,6 +456,7 @@ class HostIndex(
             earliestMs = epochs.minOfOrNull { it.openedMs },
             latestMs = epochs.maxOfOrNull { it.closedMs ?: clock() },
             installations = installations,
+            startedOver = store.startedOver,
         )
     }
 

@@ -575,6 +575,8 @@ class Formatters(private val style: Style) {
         val since = a.long("earliestMs")?.let { "since ${time(it)}" }
         val hostOnly = o.long("hostOnly")?.takeIf { it > 0 }?.let { "$it kept here only" }
         append(label.format("This computer") + listOfNotNull("${a.long("entries") ?: 0} entries", bytes(a.long("bytes") ?: 0), since, hostOnly).joinToString(" · "))
+        // Feature 071: an archive made anew by its format's rule says so, with why.
+        a.str("startedOver")?.let { append("\n" + label.format("") + style.mark(StatementKind.NOT_CAPTURED, "archive started over: $it")) }
         a.arr("installations").forEach { i ->
             val inst = i.obj
             val version = listOfNotNull(inst.str("versionName"), inst.long("versionCode")?.let { "($it)" }).joinToString(" ").ifEmpty { "unknown version" }
@@ -750,6 +752,8 @@ class Formatters(private val style: Style) {
         appendLine("devices ${devices.size}" + devices.joinToString("") { d -> "\n  ${d.obj.str("serial")} ${d.obj.str("state")}${d.obj.str("model")?.let { " $it" } ?: ""}" })
         val connections = o.arr("connections")
         append("app connections ${connections.size}" + connections.joinToString("") { c -> "\n  ${c.obj.str("device")} ${c.obj.str("app")}" })
+        // Feature 071: the archive was made anew when this daemon opened it.
+        o.str("archiveStartedOver")?.let { append("\n" + style.mark(StatementKind.NOT_CAPTURED, "archive started over: $it")) }
     }
 
     // --- Shared

@@ -73,6 +73,8 @@ data class ArchiveHistory(
     val earliestMs: Long? = null,
     val latestMs: Long? = null,
     val installations: List<ArchiveInstallation> = emptyList(),
+    /** Feature 071: why this computer's archive was made anew when the daemon opened it (its format's rule), or null. */
+    val startedOver: String? = null,
 )
 
 /** Result of `network.history`: the device part is null, with [deviceUnknown] saying why, when the app is not reachable. */

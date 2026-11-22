@@ -77,5 +77,9 @@ class RunCountersTest {
         assertEquals(0, again.entryCount(e.id))
         assertEquals(emptyList(), again.runs(e.id))
         assertNull(again.liveEpoch("dev1", "io.example"))
+        // The reason is not only the store's: `network.history` says it, with the archive's state.
+        val app = io.yamsergey.dta.daemon.network.FakeJournalApp()
+        val host = io.yamsergey.dta.daemon.network.HostIndex(again, device, "io.example") { app }
+        assertEquals(again.startedOver, kotlinx.coroutines.runBlocking { host.history() }.archive.startedOver)
     }
 }

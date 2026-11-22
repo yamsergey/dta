@@ -106,6 +106,8 @@ data class DaemonStatus(
     val clients: List<ClientInfo>,
     val devices: List<DeviceInfo>,
     val connections: List<ConnectionInfo>,
+    /** Feature 071: why the archive was made anew when this daemon opened it (its format's rule); null when it was not, or not opened yet. */
+    val archiveStartedOver: String? = null,
 )
 
 /** Events the daemon pushes to its clients. */

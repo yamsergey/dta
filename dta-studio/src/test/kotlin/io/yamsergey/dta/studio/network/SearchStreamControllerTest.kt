@@ -173,4 +173,43 @@ class SearchStreamControllerTest {
         assertTrue(moved.restart!!.startsWith("The app restarted at "), moved.restart)
         assertTrue("Previous run: 3 entries" in moved.restart!!, moved.restart)
     }
+
+    @Test
+    fun `the app starting again during a search stops it, and the same search starts over in the new run`() = runBlocking<Unit> {
+        val ended = CountDownLatch(1)
+        daemon.ops.findWalk = slowWalk(2, ended)
+        daemon.ops.decide = { _, _ -> EntryDecision(true) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 }
+        // The new run's search: done at once.
+        daemon.ops.findScope = daemon.ops.findScope.copy(run = io.yamsergey.dta.protocol.network.ScopeRun("r2-1", 1, startedMs = 1_700_000_100_000))
+        daemon.ops.listScope = daemon.ops.listScope!!.copy(run = io.yamsergey.dta.protocol.network.ScopeRun("r2-1", 1, startedMs = 1_700_000_100_000))
+        daemon.ops.findWalk = { _, _ -> { _, onItem -> onItem(FoundItem(http(1, run = "r2-1"), listOf(hit("r2-1:1")))); FindEnd(null, null) } }
+        daemon.ops.events.emit(NetworkEntryEvent(http(1, run = "r2-1"), EntryChange.CREATED))
+        assertTrue(ended.await(2, TimeUnit.SECONDS), "the search over the run that ended was stopped")
+        val moved = await { it.find == FindState.DONE && it.scope?.run?.runId == "r2-1" }
+        assertEquals(listOf("r2-1:1"), moved.list.rows.map { it.id }, "nothing of the earlier run's search is mixed in")
+        assertEquals(2, daemon.ops.finds.size)
+        assertTrue(moved.restart != null, "the banner names the run before")
+    }
+
+    @Test
+    fun `an earlier run's late update during a search does not stop it`() = runBlocking<Unit> {
+        val ended = CountDownLatch(1)
+        daemon.ops.findWalk = slowWalk(2, ended)
+        daemon.ops.decide = { _, _ -> EntryDecision(true) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 }
+        daemon.ops.events.emit(NetworkEntryEvent(http(7, run = "r0-1"), EntryChange.UPDATED))
+        delay(500)
+        assertEquals(1L, ended.count, "the search goes on")
+        assertEquals(FindState.SEARCHING, network.state.value.find)
+        assertEquals(1, daemon.ops.finds.size)
+        network.stopSearch()
+        assertTrue(ended.await(2, TimeUnit.SECONDS))
+    }
 }

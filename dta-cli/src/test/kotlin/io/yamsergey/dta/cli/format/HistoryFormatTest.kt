@@ -30,6 +30,21 @@ class HistoryFormatTest {
     }
 
     @Test
+    fun `an archive made anew by its format says so with why, in the history and in the daemon's status (071)`() {
+        val why = "the archive was in format 3, from before the runs' counters (2026-11-22); it was cleared"
+        val history = f.format("network.history", Json.parseToJsonElement("""{"deviceUnknown":"not running","archive":{"entries":0,"bytes":0,"startedOver":"$why"}}"""))
+        assertTrue("archive started over: $why" in history, history)
+        val status = f.format("daemon.status", Json.parseToJsonElement(
+            """{"identity":{"version":"0.10.0","build":"b"},"pid":1,"uptimeMs":1000,"home":"/h","adb":{"available":true,"path":"/adb"},"clients":[],"devices":[],"connections":[],"archiveStartedOver":"$why"}""",
+        ))
+        assertTrue("archive started over: $why" in status, status)
+        val plain = f.format("daemon.status", Json.parseToJsonElement(
+            """{"identity":{"version":"0.10.0","build":"b"},"pid":1,"uptimeMs":1000,"home":"/h","adb":{"available":true,"path":"/adb"},"clients":[],"devices":[],"connections":[]}""",
+        ))
+        assertTrue("started over" !in plain, plain)
+    }
+
+    @Test
     fun `an unknown device part says why, and a held trim its reason`() {
         val unknown = f.format("network.history", Json.parseToJsonElement(
             """{"deviceUnknown":"the app is not running","archive":{"entries":0,"bytes":0}}""",

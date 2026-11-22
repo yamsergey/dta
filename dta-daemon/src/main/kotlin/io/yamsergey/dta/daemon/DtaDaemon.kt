@@ -82,7 +82,11 @@ class DtaDaemon(
     private val injectedTooling = io.yamsergey.dta.daemon.inject.InjectedTooling(dataDir)
 
     /** The host's network store (feature 011): opened on first use, one per daemon. */
-    private val hostStore by lazy { io.yamsergey.dta.daemon.store.HostStore(java.io.File(dataDir, "store")) }
+    private val hostStoreOpened = lazy { io.yamsergey.dta.daemon.store.HostStore(java.io.File(dataDir, "store")) }
+    private val hostStore by hostStoreOpened
+
+    /** Feature 071: why the archive was made anew when it was opened, for `daemon.status`; null when not, or not opened yet. */
+    internal fun archiveStartedOver(): String? = if (hostStoreOpened.isInitialized()) hostStore.startedOver else null
     private val deviceIdentities = io.yamsergey.dta.daemon.device.DeviceIdentities { serial -> runAdb(listOf("-s", serial, "shell", "getprop")) }
     private val hostIndexes = java.util.concurrent.ConcurrentHashMap<ConnectionKey, io.yamsergey.dta.daemon.network.HostIndex>()
 
