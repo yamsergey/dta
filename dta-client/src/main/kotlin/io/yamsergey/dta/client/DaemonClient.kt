@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -84,7 +85,15 @@ class DaemonClient private constructor(private val timeout: Duration) {
         pending[id] = deferred
         try {
             send(DtaJson.encodeToString(Message.serializer(), Request(id, method, params))).await()
-            val response = withTimeout(timeout) { deferred.await() }
+            val response = try {
+                withTimeout(timeout) { deferred.await() }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Feature 071: the caller went away; the daemon stops the work too.
+                if (method != DaemonMethods.REQUEST_CANCEL) runCatching { send(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), DaemonMethods.REQUEST_CANCEL, buildJsonObject { put("id", id) }))) }
+                throw e
+            }
             response.error?.let { throw DaemonCallException(it.code, it.message, it.details) }
             return response.result ?: JsonObject(emptyMap())
         } finally {
@@ -152,6 +161,49 @@ class DaemonClient private constructor(private val timeout: Duration) {
             dropped.cancel()
             runCatching { send(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), unsubscribe, buildJsonObject { put("subscription", id) }))) }
         }
+    }
+
+    /**
+     * Feature 071 (contracts/find.md): a streamed search. The first element is `{"selection": Selected}`
+     * (its result holds `stream`), then each `network.found` event's data (FoundEvent) until one with a
+     * final state; then the flow ends. After each event is taken, [grant] rows of credit go back (by
+     * default as many as it brought): a collector that is slow slows the search. Cancelling the flow
+     * stops the search.
+     */
+    fun find(params: JsonObject, window: Int = 500, grant: (JsonObject) -> Int = { e -> (e["items"] as? kotlinx.serialization.json.JsonArray)?.size ?: 0 }): Flow<JsonObject> = callbackFlow<JsonObject> {
+        val early = kotlinx.coroutines.channels.Channel<Event>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val listening = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { events.collect { early.send(it) } }
+        val started = DtaJson.decodeFromJsonElement(Selected.serializer(), request(DaemonMethods.NETWORK_FIND, JsonObject(params + ("window" to JsonPrimitive(window)))))
+        val id = (started.result.jsonObject["stream"] as JsonPrimitive).content
+        var ended = false
+        send(buildJsonObject { put("selection", DtaJson.encodeToJsonElement(Selected.serializer(), started)) })
+        val job = launch {
+            for (event in early) {
+                val data = event.data as? JsonObject
+                when (event.name) {
+                    DaemonEvents.NETWORK_FOUND -> if (data != null && (data["stream"] as? JsonPrimitive)?.content == id) {
+                        send(data)
+                        val state = (data["state"] as? JsonPrimitive)?.content
+                        if (state != "searching" && state != "waiting") { ended = true; close(); return@launch }
+                        val n = grant(data)
+                        if (n > 0) findMore(id, n)
+                    }
+                    DaemonEvents.REPLACED, DaemonEvents.STOPPING -> close(DaemonGoneException(describe(event)))
+                }
+            }
+        }
+        val dropped = launch { close(DaemonGoneException(gone.filterNotNull().first())) }
+        awaitClose {
+            listening.cancel()
+            job.cancel()
+            dropped.cancel()
+            if (!ended) runCatching { send(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), DaemonMethods.NETWORK_FIND_STOP, buildJsonObject { put("stream", id) }))) }
+        }
+    }.buffer(kotlinx.coroutines.channels.Channel.RENDEZVOUS)
+
+    /** Feature 071: [n] more rows for stream [stream] (a caller that keeps its own credit, see [find]'s grant). */
+    fun findMore(stream: String, n: Int) {
+        runCatching { send(DtaJson.encodeToString(Message.serializer(), Request(ids.incrementAndGet(), DaemonMethods.NETWORK_FIND_MORE, buildJsonObject { put("stream", stream); put("n", n) }))) }
     }
 
     /** Lifecycle events (`daemon.replaced`, `daemon.stopping`) and every other push. */

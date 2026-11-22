@@ -167,6 +167,8 @@ object ClientErrorCodes {
     const val NOT_AVAILABLE = -32014
     /** 070: the answer was abandoned for a newer query of the same view; nobody waits for it. */
     const val SUPERSEDED = -32015
+    /** Feature 071: the client cancelled the call (`request.cancel`). */
+    const val CANCELLED = -32016
 }
 
 private val STORE = ParamSpec("store", ParamType.STRING, "The store as data.list shows it: db:<file>, prefs:<name>, datastore:<file>.", required = true, positional = true)

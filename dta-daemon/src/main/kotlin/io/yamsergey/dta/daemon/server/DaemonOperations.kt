@@ -53,6 +53,14 @@ interface DaemonOperations {
     fun networkCopied(serial: String, pkg: String): Flow<String> = kotlinx.coroutines.flow.emptyFlow()
     /** Feature 067: the live entry [id] as this computer holds it now, for a decision again. */
     suspend fun networkLiveEntry(serial: String, pkg: String, id: String): io.yamsergey.dta.protocol.network.NetworkEntry? = null
+    /** Feature 071: [query]'s rows streamed as found (see [io.yamsergey.dta.daemon.DtaDaemon.networkFind]). */
+    suspend fun networkFind(
+        serial: String, pkg: String, query: NetworkQuery, limit: Int?,
+        credit: io.yamsergey.dta.daemon.network.Credit,
+        waitingAt: suspend (Int) -> Unit,
+        started: suspend (io.yamsergey.dta.protocol.network.HistoryScope, io.yamsergey.dta.protocol.network.SavedFiltersApplied?) -> Unit,
+        send: suspend (List<io.yamsergey.dta.protocol.network.FoundItem>) -> Unit,
+    ): io.yamsergey.dta.daemon.DtaDaemon.FindResult = throw UnsupportedOperationException("streamed search is not available here")
     /** Feature 067: a client went away: its views' match sets are dropped. */
     fun networkViewsClosed(prefix: String) {}
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail
@@ -175,6 +183,13 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
     override fun networkCopied(serial: String, pkg: String) = daemon.networkCopied(serial, pkg)
     override suspend fun networkLiveEntry(serial: String, pkg: String, id: String) = daemon.networkLiveEntry(serial, pkg, id)
     override fun networkViewsClosed(prefix: String) = daemon.networkViewsClosed(prefix)
+    override suspend fun networkFind(
+        serial: String, pkg: String, query: NetworkQuery, limit: Int?,
+        credit: io.yamsergey.dta.daemon.network.Credit,
+        waitingAt: suspend (Int) -> Unit,
+        started: suspend (io.yamsergey.dta.protocol.network.HistoryScope, io.yamsergey.dta.protocol.network.SavedFiltersApplied?) -> Unit,
+        send: suspend (List<io.yamsergey.dta.protocol.network.FoundItem>) -> Unit,
+    ) = daemon.networkFind(serial, pkg, query, limit, credit, waitingAt, started, send)
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = daemon.networkEntry(serial, pkg, id, redact)
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
         daemon.networkBody(serial, pkg, id, part, output, redact, allowUnredacted)

@@ -358,6 +358,9 @@ class OperationDispatcher(
         return query(renamed)
     }
 
+    /** Feature 071: a streamed search's query, read as `network.list` reads its params. */
+    internal fun networkQuery(params: JsonObject): NetworkQuery = query(params)
+
     private fun query(params: JsonObject): NetworkQuery {
         val filterKeys = NetworkFilter.serializer().descriptor.let { d -> (0 until d.elementsCount).map { d.getElementName(it) } }
         val archive = (params["archiveScope"] as? JsonPrimitive)?.content?.let { text ->

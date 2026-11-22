@@ -163,6 +163,26 @@ class DaemonServer(
                 DaemonMethods.TIMELINE_SUBSCRIBE -> scope.launch { subscribeTimeline(request) }
                 DaemonMethods.LAYOUT_SUBSCRIBE -> scope.launch { subscribeLayout(request) }
                 DaemonMethods.SELECTION_SUBSCRIBE -> scope.launch { subscribeSelection(request) }
+                DaemonMethods.NETWORK_FIND -> scope.launch { find(request) }
+                DaemonMethods.NETWORK_FIND_MORE -> {
+                    val id = (request.params?.get("stream") as? JsonPrimitive)?.content
+                    val n = (request.params?.get("n") as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+                    val run = id?.let { finds[it] }
+                    run?.second?.more(n)
+                    respond(request.id, buildJsonObject { put("more", run != null) })
+                }
+                DaemonMethods.NETWORK_FIND_STOP -> {
+                    val id = (request.params?.get("stream") as? JsonPrimitive)?.content
+                    val run = id?.let { finds[it] }
+                    if (run != null) { stopReasons.putIfAbsent(id, io.yamsergey.dta.protocol.network.StopReason.STOP); run.first.cancel() }
+                    respond(request.id, buildJsonObject { put("stopped", run != null) })
+                }
+                DaemonMethods.REQUEST_CANCEL -> {
+                    val id = (request.params?.get("id") as? JsonPrimitive)?.content?.toLongOrNull()
+                    val call = id?.let { calls[it] }
+                    if (call != null) { cancelled += id; call.cancel() }
+                    respond(request.id, buildJsonObject { put("cancelled", call != null) })
+                }
                 DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, DaemonMethods.SELECTION_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
@@ -177,7 +197,7 @@ class DaemonServer(
                     respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("stopping", true) })))
                     requestStop("stopped by a client (${hello?.client?.name?.lowercase()})")
                 }
-                else -> scope.launch {
+                else -> scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     try {
                         val params = if (request.method == "network.list" || request.method == "network.search") withView(request.params) else request.params
                         val selected = dispatcher.dispatch(request.method, params, hello?.client?.let { who(it) })
@@ -192,10 +212,81 @@ class DaemonServer(
                         }
                     } catch (e: ClientException) {
                         error(request.id, e.code, e.message ?: "failed", e.data)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        // Feature 071: cancelled by its client (request.cancel); a closed session hears nothing.
+                        if (cancelled.remove(request.id)) error(request.id, io.yamsergey.dta.protocol.ops.ClientErrorCodes.CANCELLED, "cancelled by the client")
+                        throw e
                     } catch (e: Exception) {
                         error(request.id, ErrorCodes.INTERNAL, "${e.javaClass.simpleName}: ${e.message}")
                     }
+                }.also { job ->
+                    calls[request.id] = job
+                    job.invokeOnCompletion { calls.remove(request.id) }
+                    job.start()
                 }
+            }
+        }
+
+        /** Feature 071: this client's running calls (for request.cancel and its going away). */
+        private val calls = ConcurrentHashMap<Long, Job>()
+        private val cancelled = ConcurrentHashMap.newKeySet<Long>()
+
+        /** Feature 071: this client's streamed searches, with their credit, and why each was stopped. */
+        private val finds = ConcurrentHashMap<String, Pair<Job, io.yamsergey.dta.daemon.network.Credit>>()
+        private val stopReasons = ConcurrentHashMap<String, io.yamsergey.dta.protocol.network.StopReason>()
+
+        /**
+         * `network.find` (feature 071, contracts/find.md): answers the stream's id at once, then
+         * `network.found` events — waiting, searching with rows, and one final state. Nothing follows it.
+         */
+        private suspend fun find(request: Request) {
+            val params = request.params ?: JsonObject(emptyMap())
+            try {
+                val resolution = selector.resolve(Scope.APP, (params["device"] as? JsonPrimitive)?.content, (params["app"] as? JsonPrimitive)?.content)
+                val serial = resolution.serial!!
+                val pkg = resolution.pkg!!
+                val limit = (params["limit"] as? JsonPrimitive)?.content?.let { it.toIntOrNull()?.takeIf { n -> n >= 1 } ?: throw ClientException(ErrorCodes.INVALID_PARAMS, "limit must be a number of rows, 1 or more; was $it") }
+                val window = (params["window"] as? JsonPrimitive)?.content?.toIntOrNull()?.coerceAtLeast(1) ?: FIND_WINDOW
+                val query = try {
+                    dispatcher.networkQuery(JsonObject(params - "device" - "app" - "limit" - "window" - "view"))
+                } catch (e: io.yamsergey.dta.protocol.rpc.InvalidParamsException) {
+                    throw ClientException(ErrorCodes.INVALID_PARAMS, e.message ?: "invalid query")
+                }
+                val id = "f${subscriptionIds.incrementAndGet()}"
+                val credit = io.yamsergey.dta.daemon.network.Credit(window)
+                fun found(e: io.yamsergey.dta.protocol.network.FoundEvent) = event(DaemonEvents.NETWORK_FOUND, io.yamsergey.dta.protocol.network.FoundEvent.serializer(), e)
+                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                    val st = io.yamsergey.dta.protocol.network.FindState.SEARCHING
+                    try {
+                        val r = ops.networkFind(serial, pkg, query, limit, credit,
+                            waitingAt = { position -> found(io.yamsergey.dta.protocol.network.FoundEvent(id, io.yamsergey.dta.protocol.network.FindState.WAITING, position = position)) },
+                            started = { scope, saved -> found(io.yamsergey.dta.protocol.network.FoundEvent(id, st, scope = scope, saved = saved)) },
+                            send = { items -> found(io.yamsergey.dta.protocol.network.FoundEvent(id, st, items = items)) },
+                        )
+                        val state = if (r.end.next != null) io.yamsergey.dta.protocol.network.FindState.LIMIT else io.yamsergey.dta.protocol.network.FindState.DONE
+                        found(io.yamsergey.dta.protocol.network.FoundEvent(id, state, next = r.end.next, notSearched = r.end.notSearched, scope = r.scope, saved = r.saved, redaction = r.redaction))
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        val reason = stopReasons.remove(id) ?: io.yamsergey.dta.protocol.network.StopReason.CANCELLED
+                        if (reason != io.yamsergey.dta.protocol.network.StopReason.CLOSED) {
+                            found(io.yamsergey.dta.protocol.network.FoundEvent(id, io.yamsergey.dta.protocol.network.FindState.STOPPED, reason = reason))
+                        }
+                        throw e
+                    } catch (e: ClientException) {
+                        found(io.yamsergey.dta.protocol.network.FoundEvent(id, io.yamsergey.dta.protocol.network.FindState.FAILED, error = e.message))
+                    } catch (e: Exception) {
+                        found(io.yamsergey.dta.protocol.network.FoundEvent(id, io.yamsergey.dta.protocol.network.FindState.FAILED, error = e.message ?: e.javaClass.simpleName))
+                    } finally {
+                        finds.remove(id)
+                    }
+                }
+                finds[id] = job to credit
+                respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject { put("stream", id) })))
+                // Started after the answer: the client knows its stream before the first event.
+                job.start()
+            } catch (e: ClientException) {
+                error(request.id, e.code, e.message ?: "failed", e.data)
+            } catch (e: Exception) {
+                error(request.id, ErrorCodes.INVALID_PARAMS, e.message ?: "invalid search")
             }
         }
 
@@ -574,6 +665,9 @@ class DaemonServer(
             sessions -= this
             subscriptions.values.forEach { it.cancel() }
             subscriptions.clear()
+            // Feature 071: a client that went away stops its searches and its calls.
+            finds.forEach { (id, run) -> stopReasons[id] = io.yamsergey.dta.protocol.network.StopReason.CLOSED; run.first.cancel() }
+            calls.values.forEach { it.cancel() }
             ops.networkViewsClosed(viewPrefix)
         }
     }
@@ -592,6 +686,9 @@ internal fun who(kind: io.yamsergey.dta.protocol.ops.ClientKind): String = when 
     io.yamsergey.dta.protocol.ops.ClientKind.CLI -> "cli"
     io.yamsergey.dta.protocol.ops.ClientKind.MCP, io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP -> "mcp"
 }
+
+/** Feature 071: the first credit of a stream when the client does not say (contracts/find.md). */
+private const val FIND_WINDOW = 500
 
 /** Feature 067: an entry that left a live view's matches (it matched before, it does not now). */
 private object LEFT

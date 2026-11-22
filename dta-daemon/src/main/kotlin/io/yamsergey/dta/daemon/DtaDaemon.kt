@@ -91,7 +91,7 @@ class DtaDaemon(
 
     private fun hostIndex(serial: String, pkg: String): io.yamsergey.dta.daemon.network.HostIndex =
         hostIndexes.computeIfAbsent(ConnectionKey(serial, pkg)) { key ->
-            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }, readEnvelope = { m, text -> formats.envelope(pkg, m.url, m.direction, text) }, wordsFingerprint = { schemas.fingerprint(pkg) }) {
+            io.yamsergey.dta.daemon.network.HostIndex(hostStore, deviceIdentities.of(serial), pkg, decoding = { BodyDecoding(schemas.rules(pkg)) }, readEnvelope = { m, text -> formats.envelope(pkg, m.url, m.direction, text) }, wordsFingerprint = { schemas.fingerprint(pkg) }, searches = searches) {
                 if (kotlinx.coroutines.currentCoroutineContext()[HeldOnly] != null) {
                     connections.held(key) ?: throw io.yamsergey.dta.daemon.connection.ConnectionLostException("${key.packageName} is not connected")
                 } else {
@@ -365,7 +365,7 @@ class DtaDaemon(
     }
 
     /** Feature 071 (research R6): where streamed searches run, apart from requests and the feed. */
-    val searches = io.yamsergey.dta.daemon.network.SearchRunner()
+    private val searches = io.yamsergey.dta.daemon.network.SearchRunner()
 
     /** Feature 071: masked or withheld locations a streamed answer lists before it only counts them. */
     private val MAX_LOCATIONS = 1_000

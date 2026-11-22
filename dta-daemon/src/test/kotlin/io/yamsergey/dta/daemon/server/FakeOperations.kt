@@ -90,8 +90,30 @@ class FakeOperations : DaemonOperations {
     var searchQuery: NetworkQuery? = null
     override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) =
         io.yamsergey.dta.protocol.network.SearchPage(emptyList()).also { searchQuery = query }
+    /** Feature 071: the walk a streamed search runs here, and the runner it runs on. */
+    val searches = io.yamsergey.dta.daemon.network.SearchRunner()
+    var findWalk: (io.yamsergey.dta.protocol.network.PatternStop, (io.yamsergey.dta.protocol.network.FoundItem) -> Unit) -> io.yamsergey.dta.protocol.network.FindEnd = { _, _ -> io.yamsergey.dta.protocol.network.FindEnd(null, null) }
+    var findQuery: NetworkQuery? = null
+    override suspend fun networkFind(
+        serial: String, pkg: String, query: NetworkQuery, limit: Int?,
+        credit: io.yamsergey.dta.daemon.network.Credit,
+        waitingAt: suspend (Int) -> Unit,
+        started: suspend (io.yamsergey.dta.protocol.network.HistoryScope, io.yamsergey.dta.protocol.network.SavedFiltersApplied?) -> Unit,
+        send: suspend (List<io.yamsergey.dta.protocol.network.FoundItem>) -> Unit,
+    ): io.yamsergey.dta.daemon.DtaDaemon.FindResult {
+        findQuery = query
+        val scope = io.yamsergey.dta.protocol.network.HistoryScope(archive = query.archive, entries = 3, run = io.yamsergey.dta.protocol.network.ScopeRun("r1", 3))
+        started(scope, null)
+        val end = io.yamsergey.dta.daemon.network.FindPipeline.run(searches, credit, waitingAt, findWalk, send)
+        return io.yamsergey.dta.daemon.DtaDaemon.FindResult(end, scope, null, null)
+    }
+
+    /** Feature 071: a paged call that waits until cancelled when its line says so; [cancelledCalls] counts them. */
+    val cancelledCalls = java.util.concurrent.atomic.AtomicInteger()
+
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage {
         lastQuery = query
+        if (query.q == "wait-forever") try { kotlinx.coroutines.awaitCancellation() } finally { cancelledCalls.incrementAndGet() }
         if (query.filter?.runs == io.yamsergey.dta.protocol.network.RunScope.CURRENT) {
             duringHistory()
             return NetworkPage(history, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = history.size, stored = history.size, persisted = true))

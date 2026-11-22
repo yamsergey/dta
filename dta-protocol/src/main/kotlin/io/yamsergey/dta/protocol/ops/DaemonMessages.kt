@@ -122,6 +122,8 @@ object DaemonEvents {
     const val LAYOUT_SIGNAL = "layout.signal"
     /** Feature 055: data `subscription`, `device`, `app`, `selection` (LayoutSelection), `by`. */
     const val LAYOUT_SELECTION = "layout.selection"
+    /** Feature 071: a streamed search's rows and state (FoundEvent). */
+    const val NETWORK_FOUND = "network.found"
     const val REPLACED = "daemon.replaced"
     const val STOPPING = "daemon.stopping"
 }
@@ -150,4 +152,12 @@ object DaemonMethods {
     /** Feature 055: the app's shared layout selection, now and at every change. */
     const val SELECTION_SUBSCRIBE = "selection.subscribe"
     const val SELECTION_UNSUBSCRIBE = "selection.unsubscribe"
+    /** Feature 071 (contracts/find.md): a streamed search; `network.found` events until a final state. */
+    const val NETWORK_FIND = "network.find"
+    /** Feature 071: more rows for a stream (`stream`, `n`). */
+    const val NETWORK_FIND_MORE = "network.find.more"
+    /** Feature 071: stops a stream (`stream`); its last event says stopped. */
+    const val NETWORK_FIND_STOP = "network.find.stop"
+    /** Feature 071: cancels a running call of this client (`id`); it answers CANCELLED. */
+    const val REQUEST_CANCEL = "request.cancel"
 }

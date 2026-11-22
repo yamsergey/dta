@@ -61,6 +61,8 @@ class HostIndex(
         { _, text -> io.yamsergey.dta.protocol.network.WsFormats.detect(text) },
     /** Feature 070: names the app's schemas now; decoded bodies' words are written again when it changes. */
     private val wordsFingerprint: () -> String = { "" },
+    /** Feature 071 (research R6): where answers that read bodies walk, apart from the other work; null: on the caller. */
+    private val searches: SearchRunner? = null,
     private val connection: suspend () -> AppConnection,
 ) {
     /** Feature 070 (research R5): the app's word index, written in the background ([indexWords]). */
@@ -177,8 +179,8 @@ class HostIndex(
     }
 
     /** Feature 071: the view of [query]'s scope over the live history: its current run, or (switch on) everything. */
-    private fun scopedView(query: NetworkQuery, epochId: String?, ctx: HistoryContext): NetworkHistoryView =
-        if (query.archive) wholeView(epochId, ctx) else liveView(epochId, ctx, runBound(epochId, ctx))
+    private fun scopedView(query: NetworkQuery, epochId: String?, ctx: HistoryContext, stop: io.yamsergey.dta.protocol.network.PatternStop = io.yamsergey.dta.protocol.network.PatternStop.NONE): NetworkHistoryView =
+        if (query.archive) wholeView(epochId, ctx, stop) else liveView(epochId, ctx, runBound(epochId, ctx), stop)
 
     /** Feature 071 (FR-004, FR-014): what an answer of [query] covers, from kept counters. */
     private fun scopeOf(query: NetworkQuery, epochId: String?, ctx: HistoryContext): io.yamsergey.dta.protocol.network.HistoryScope {
@@ -312,9 +314,17 @@ class HostIndex(
         }
     }
 
-    /** Feature 069: a pass over [query]'s scope (071) on one read of the disk (one transaction), outside the mutex. */
-    private fun <T> livePass(query: NetworkQuery, epochId: String?, ctx: HistoryContext, pass: (NetworkHistoryView) -> T): T =
-        pass(scopedView(query, epochId, ctx))
+    /**
+     * Feature 069: a pass over [query]'s scope (071) on one read of the disk (one transaction), outside
+     * the mutex. 071: one that reads bodies walks on the search pool; any pass stops when its caller is
+     * cancelled, also inside a match.
+     */
+    private suspend fun <T> livePass(query: NetworkQuery, epochId: String?, ctx: HistoryContext, pass: (NetworkHistoryView) -> T): T {
+        val runner = searches
+        if (runner != null && needsBodies(query)) return runner.run { stop -> pass(scopedView(query, epochId, ctx, stop)) }
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        return pass(scopedView(query, epochId, ctx, io.yamsergey.dta.protocol.network.PatternStop { job?.isActive == false }))
+    }
 
     suspend fun list(query: NetworkQuery): NetworkPage = list(query, pass = { v -> v.list(query) })
 
