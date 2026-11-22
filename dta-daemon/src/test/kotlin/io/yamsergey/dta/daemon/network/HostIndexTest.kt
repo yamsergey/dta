@@ -56,6 +56,8 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
     val records = mutableListOf<NetworkEntry>()
     val bodies = HashMap<Pair<String, BodyPart>, ByteArray>()
     var runId = "r1-1"
+    /** D-033: how long the app takes to say its journal's identity (a busy app with a large journal). */
+    @Volatile var identityDelayMs = 0L
     /** Feature 071: the app's process runs as its context reports them. */
     var processRuns: List<io.yamsergey.dta.protocol.network.ProcessRun> = emptyList()
     var reason: String? = "storage-new"
@@ -136,7 +138,7 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
         requests += method
         fun str(k: String) = (params?.get(k) as? JsonPrimitive)?.content
         return when (method) {
-            "network_identity" -> RpcResult(DtaJson.encodeToJsonElement(JournalIdentityResult.serializer(), JournalIdentityResult(journalId, reason, entriesOverride ?: latest().size, persisted, context())))
+            "network_identity" -> { if (identityDelayMs > 0) kotlinx.coroutines.delay(identityDelayMs); RpcResult(DtaJson.encodeToJsonElement(JournalIdentityResult.serializer(), JournalIdentityResult(journalId, reason, entriesOverride ?: latest().size, persisted, context()))) }
             "network_journal" -> {
                 // As the sidekick does: positions are segment:line, unreadable and evicted lines are counted and skipped.
                 val after = str("after")

@@ -635,7 +635,22 @@ class HostIndex(
     }
 
     /** An entry of the live history, else of the archive (marked); the archive answers with the app gone. */
-    suspend fun entry(id: String): NetworkEntryDetail = mutex.withLock {
+    suspend fun entry(id: String): NetworkEntryDetail {
+        // D-033: with the feed live this computer's copy follows the app within its lag, so an entry it holds is
+        // answered from it — without asking the app and without the mutex, which the feed's batches wait for (a
+        // busy app took seconds to say its journal's identity, and archiving waited as long). Archived epochs never change.
+        if (feedSub != null) {
+            val e = epoch
+            val ctx = context
+            if (e != null && ctx != null && store.entry(e.id, id) != null) return liveView(e.id, ctx).entry(id)
+        }
+        store.findArchived(device.key, packageName, id)?.let { (archivedEpoch, _) ->
+            if (epoch?.let { store.entry(it.id, id) } == null) return archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch))
+        }
+        return entryLocked(id)
+    }
+
+    private suspend fun entryLocked(id: String): NetworkEntryDetail = mutex.withLock {
         val app = runCatching { connection() }.getOrNull()
         if (app != null) {
             if (!sync(app)) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), app.request("network_entry", buildJsonObject { put("id", id) }))

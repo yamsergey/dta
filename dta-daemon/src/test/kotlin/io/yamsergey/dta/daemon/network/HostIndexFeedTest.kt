@@ -246,4 +246,38 @@ class HostIndexFeedTest {
         now += 11_000
         assertEquals(null, host.history().device?.feedLagMs, "nothing came in the last 10 s")
     }
+
+    /** D-033: opening an entry this computer holds never waits on the app, and never holds the feed. */
+    @Test
+    fun `an entry already archived opens without asking the app, and the feed is not held meanwhile`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        repeat(3) { http(app) }
+        val host = index(app)
+        assertNotNull(host.openFeed()?.subscription)
+        app.identityDelayMs = 3_000
+        val asked = app.requests.size
+        val started = System.nanoTime()
+        val detail = host.entry("r1-1:2")
+        val openMs = (System.nanoTime() - started) / 1_000_000
+        assertEquals("r1-1:2", detail.entry.id)
+        assertTrue(openMs < 500, "opened in $openMs ms")
+        assertEquals(emptyList(), app.requests.drop(asked), "the app was not asked")
+        // A batch the app writes meanwhile is applied at once.
+        repeat(2) { http(app) }
+        val (applied, applyMs) = run { val t = System.nanoTime(); host.apply(app.batch(3)) to (System.nanoTime() - t) / 1_000_000 }
+        assertEquals(HostIndex.Applied.APPLIED, applied)
+        assertTrue(applyMs < 500, "applied in $applyMs ms")
+        assertEquals("r1-1:5", host.entry("r1-1:5").entry.id)
+    }
+
+    /** D-033, the other side: an entry this computer does not hold yet is still answered (the app is asked). */
+    @Test
+    fun `an entry not archived yet is still found`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        repeat(3) { http(app) }
+        val host = index(app)
+        assertNotNull(host.openFeed()?.subscription)
+        http(app) // written by the app, its batch not here yet
+        assertEquals("r1-1:4", host.entry("r1-1:4").entry.id)
+    }
 }
