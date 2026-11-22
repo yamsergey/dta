@@ -30,6 +30,17 @@ Server messages the server never sent:
 
 `description(text)` says in a few words what the handler did, e.g. `description("simulated checkout outage")`. It is stored on the entry (`intervention.description`, up to 200 characters; several calls join with "; ") and shown next to what DTA recorded. Only what a handler actually does changes traffic: a description of a call that changed nothing goes to the script log with the entry id instead. Unknown fields in a returned object are ignored, so `return {delayMs: 10}` does nothing — use `sleep(10)`.
 
+## Pitfalls
+
+- One script per app: `network_script_set` replaces the active script, so put every rule in one source. To change one rule, read `source` from `network_script_status`, edit it and set it again.
+- The script persists across app restarts (it applies from the first request of the new process, before any client connects) until `network_script_clear`. An app update or a data clear removes it.
+- `sleep(ms)` blocks the calling thread: the thread that made the request, or delivers the response or message, waits. A synchronous call on the app's main thread freezes the app for that long. Timers (`every`, `after`) run on DTA's own thread.
+- Calls already in flight keep the script they started with: a new or cleared script applies to calls that start afterwards.
+- The runtime is Rhino (an ES6 subset): no `async`/`Promise`, `URL`, `console` or `setTimeout`. Test URLs with string methods or regexes; log with `log(...)`.
+- Header names keep the library's spelling and are matched as written: `req.headers["Authorization"]` does not find `authorization`, and setting a name in another case adds a second header.
+- Bodies are the bytes of the wire: `text()` on a binary body throws ("use bytes()"); protobuf is not decoded for the script.
+- A handler that throws or returns `null` leaves the call unchanged; the error goes to `network_script_logs` and the `errors` count of `network_script_status`. Read both after installing.
+
 ## Recipes
 
 ```js
