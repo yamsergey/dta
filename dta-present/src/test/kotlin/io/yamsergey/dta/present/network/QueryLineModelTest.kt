@@ -253,4 +253,53 @@ class QueryLineModelTest {
         assertEquals(null, nav.hitsOf("none"))
         kotlin.test.assertTrue(ms < 500, "100 000 lookups over 50 000 hits took $ms ms")
     }
+
+    @Test
+    fun `typos is offered as a key with on and off (decision 2026-11-22)`() {
+        assertTrue(QueryLineModel("ty").suggestions(2).any { it.text == "typos:" && it.hint!!.contains("off by default") })
+        assertEquals(listOf("typos:on", "typos:off"), QueryLineModel("typos:").suggestions(6).map { it.text })
+        assertEquals(emptyList(), QueryLineModel("typos:on ty").suggestions(11).filter { it.text == "typos:" }, "given once")
+    }
+
+    @Test
+    fun `the words are marked exactly unless typos are on`() {
+        val text = "the token expired"
+        assertEquals(emptyList(), QueryLineModel("tokan").marks.spans(text))
+        assertEquals(listOf("token"), QueryLineModel("typos:on tokan").marks.spans(text).map { text.substring(it) })
+        assertEquals(listOf("token"), QueryLineModel("TOKEN").marks.spans(text).map { text.substring(it) })
+    }
+
+    @Test
+    fun `body filters are marked in the bodies they look in, and the line finds with them alone (D-034)`() {
+        val line = QueryLineModel("body:main req:screen resp:/\\d{3}/ -body:skip")
+        assertTrue(line.finds, "a body filter alone points at hits")
+        assertEquals(false, line.hasSearch, "no search words")
+        assertEquals(false, QueryLineModel("host:a.test").finds)
+        assertEquals(false, QueryLineModel("body:main status:9").finds, "a line with problems is not applied")
+        val m = line.marks
+        val text = """{"screen":"domain","code":200,"skip":1}"""
+        fun shown(x: SearchMarks) = x.spans(text).map { text.substring(it) }
+        assertEquals(emptyList(), shown(m), "headers and URLs: no body filter")
+        assertEquals(listOf("screen", "main"), shown(m.inBody(SearchMarks.BodySide.REQUEST)))
+        assertEquals(listOf("main", "200"), shown(m.inBody(SearchMarks.BodySide.RESPONSE)))
+        assertEquals(listOf("main"), shown(m.inBody(SearchMarks.BodySide.ANY)), "a message: body: only")
+    }
+
+    @Test
+    fun `body text is found again in a pretty-printed body`() {
+        val pretty = "{\n  \"screen\": \"Main\",\n  \"items\": [\n    1,\n    2\n  ]\n}"
+        assertEquals(listOf("\"screen\": \"Main\""), SearchMarks.textSpans(pretty, "\"screen\":\"main\"").map { pretty.substring(it) })
+        assertEquals(listOf("[\n    1,\n    2"), SearchMarks.textSpans(pretty, "[1,2").map { pretty.substring(it) })
+        assertEquals(listOf("Main"), SearchMarks.textSpans(pretty, "main").map { pretty.substring(it) })
+        assertEquals(emptyList(), SearchMarks.textSpans(pretty, "rain"))
+    }
+
+    @Test
+    fun `a pattern is marked everywhere it matches, and a runaway one stops`() {
+        assertEquals(listOf(0..2, 8..10), SearchMarks.patternSpans("200 ok, 404", "\\d+"))
+        assertEquals(emptyList(), SearchMarks.patternSpans("x", "("), "does not compile")
+        val t0 = System.nanoTime()
+        SearchMarks.patternSpans("x".repeat(5_000), "(x+x+)+y")
+        assertTrue(System.nanoTime() - t0 < 2_000_000_000L, "took ${(System.nanoTime() - t0) / 1_000_000} ms")
+    }
 }

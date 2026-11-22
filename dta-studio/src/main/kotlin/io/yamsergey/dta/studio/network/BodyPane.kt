@@ -41,8 +41,8 @@ class BodyPane(
     private val entryId: String,
     private val ref: BodyRef,
     private val scope: CoroutineScope,
-    /** Feature 040: search words to mark in the text modes. */
-    private val marks: List<String> = emptyList(),
+    /** Feature 040, D-034: search words and the body filters that look in this body, to mark in the text modes. */
+    private val marks: io.yamsergey.dta.present.network.SearchMarks = io.yamsergey.dta.present.network.SearchMarks(),
 ) : JPanel(BorderLayout()) {
     private val header = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     /** The view modes: given the row's width, so they can turn into a list (070). */

@@ -212,4 +212,28 @@ class SearchStreamControllerTest {
         network.stopSearch()
         assertTrue(ended.await(2, TimeUnit.SECONDS))
     }
+
+    /** D-034: a body filter's hit, in the request body (the Payload tab). */
+    private fun bodyHit(id: String) = SearchHit(id, SearchPlace.REQUEST_BODY, "main", 11, 15, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("{\"screen\":\"domain\"}", 13, 17), io.yamsergey.dta.protocol.network.BodyPart.REQUEST)
+
+    @Test
+    fun `body-main alone - its rows carry where it matched, kept through a re-typed line and live decisions (D-034)`() = runBlocking<Unit> {
+        daemon.ops.findWalk = { _, _ -> { _, onItem -> (2 downTo 1).forEach { onItem(FoundItem(http(it), listOf(bodyHit("r1-1:$it")))) }; FindEnd(null, null) } }
+        session.start()
+        await { it.watching }
+        network.setQuery("body:main")
+        val done = await { it.find == FindState.DONE }
+        assertTrue(done.applied.finds, "a body filter alone finds")
+        assertEquals(2, done.hits.total, "each listed row has its hit")
+        assertEquals(SearchPlace.REQUEST_BODY, done.hits.hitsOf("r1-1:1")!!.single().place)
+        assertEquals(io.yamsergey.dta.present.network.HitTab.REQUEST, done.hits.tabOf(done.hits.hitsOf("r1-1:1")!!), "the detail opens on the Payload tab")
+        // The same filters and no words: searched again, which must not drop the stream's hits.
+        network.setQuery("body:main ")
+        delay(200)
+        assertEquals(2, network.state.value.hits.total, "hits stay")
+        daemon.ops.decide = { _, e -> EntryDecision(true, hits = listOf(bodyHit(e.id))) to false }
+        daemon.ops.events.emit(NetworkEntryEvent(http(9), EntryChange.CREATED))
+        val live = await { s -> s.list.rows.any { it.id == "r1-1:9" } && s.hits.total == 3 }
+        assertEquals(SearchPlace.REQUEST_BODY, live.hits.hitsOf("r1-1:9")!!.single().place, "a live entry's body hit joins too")
+    }
 }

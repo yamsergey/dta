@@ -15,7 +15,6 @@ import io.yamsergey.dta.present.network.ContentLines
 import io.yamsergey.dta.present.network.EntryDetail
 import io.yamsergey.dta.present.network.EntryKind
 import io.yamsergey.dta.present.network.EntryRow
-import io.yamsergey.dta.present.network.Highlights
 import io.yamsergey.dta.present.network.Span
 import io.yamsergey.dta.present.network.SpanKind
 import io.yamsergey.dta.present.network.envelopeOf
@@ -57,7 +56,7 @@ class MessagesView(
     detail: EntryDetail,
     /** The `network.entry` result: the messages' own JSON (stored sizes, to tell a cut preview). */
     raw: JsonObject,
-    private val marks: List<String>,
+    private val marks: io.yamsergey.dta.present.network.SearchMarks,
     /** The tab's top line: the format control and the caption. */
     top: JComponent,
     /** A double-click opens the message as an entry of its own (025). */
@@ -219,7 +218,7 @@ class MessagesView(
             font = mono
             ipad = JBUI.insetsLeft(12)
             val text = line.joinToString("") { it.text }
-            val hits = Highlights.spans(text, marks)
+            val hits = marks.spans(text)
             var at = 0
             line.forEach { span ->
                 val attrs = attributes(span.kind)

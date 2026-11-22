@@ -64,7 +64,7 @@ class EntryDetailPane(
     private var target: JsonObject = JsonObject(emptyMap())
     private var side = Side.WIRE
     private var lastRedact = false
-    private var marks: List<String> = emptyList()
+    private var marks = io.yamsergey.dta.present.network.SearchMarks()
     private var hitTab: io.yamsergey.dta.present.network.HitTab? = null
     private var hits: List<io.yamsergey.dta.protocol.network.SearchHit> = emptyList()
     private val navigator = FrameNavigator(project)
@@ -88,8 +88,8 @@ class EntryDetailPane(
      */
     fun show(
         client: DaemonClient?, target: JsonObject, id: String?, redact: Boolean, gone: Boolean, unlisted: Boolean = false,
-        /** Feature 040: search words to mark, and the tab of the hit when one was moved to. */
-        marks: List<String> = emptyList(), hitTab: io.yamsergey.dta.present.network.HitTab? = null,
+        /** Feature 040: search words (D-034: and body filters) to mark, and the tab of the hit when one was moved to. */
+        marks: io.yamsergey.dta.present.network.SearchMarks = io.yamsergey.dta.present.network.SearchMarks(), hitTab: io.yamsergey.dta.present.network.HitTab? = null,
         /** Feature 041: the entry's hits, for the "Found in" line. */
         hits: List<io.yamsergey.dta.protocol.network.SearchHit> = emptyList(),
         /** D-023: the selection's live revision; a new one reads the entry again, in place. */
@@ -111,7 +111,8 @@ class EntryDetailPane(
         this.client = client
         this.target = target
         shown = id
-        side = Side.WIRE
+        // D-034: a hit only in what the app saw (a script changed the body) opens that side, where it is.
+        side = if (appSideOnly(hits)) Side.APP else Side.WIRE
         loading?.cancel()
         val c = client ?: return empty("No DTA daemon connected.")
         empty("Loading…")
@@ -172,8 +173,8 @@ class EntryDetailPane(
         tabs.addTab("Headers", scroll(headersPage(detail)))
         val c = client
         if (c != null) {
-            detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, bodyTarget(), id, it, scope, marks)) }
-            detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, bodyTarget(), id, it, scope, marks)) }
+            detail.request?.body?.let { tabs.addTab("Payload", BodyPane(project, c, bodyTarget(), id, it, scope, marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.REQUEST))) }
+            detail.response?.body?.let { tabs.addTab("Response", BodyPane(project, c, bodyTarget(), id, it, scope, marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.RESPONSE))) }
         }
         if (detail.messages.isNotEmpty() || detail.messagesMore != null) tabs.addTab(detail.messagesTitle, messagesPanel(detail).also { v -> message?.let { (v as? MessagesView)?.select(it) } })
         detail.initiator?.let { tabs.addTab("Initiator", scroll(initiatorPage(detail))) }
@@ -192,6 +193,23 @@ class EntryDetailPane(
         io.yamsergey.dta.present.network.HitTab.HEADERS -> "Headers"
         io.yamsergey.dta.present.network.HitTab.REQUEST, io.yamsergey.dta.present.network.HitTab.MESSAGE -> "Payload"
         io.yamsergey.dta.present.network.HitTab.RESPONSE -> "Response"
+    }
+
+    /** D-034: a hit's place — on the side (wire or what the app saw) where it is, then its tab. */
+    private fun open(f: io.yamsergey.dta.present.network.FoundPlace) {
+        val wanted = if (isAppSide(f.first)) Side.APP else Side.WIRE
+        val hasAppSide = raw?.let { EntryDetail.of(it, side).intervention?.hasAppSide } == true
+        if (wanted != side && (wanted == Side.WIRE || hasAppSide)) { side = wanted; render(shownGone) }
+        selectTab(f.tab)
+    }
+
+    private fun isAppSide(h: io.yamsergey.dta.protocol.network.SearchHit) = h.part == io.yamsergey.dta.protocol.network.BodyPart.APP_REQUEST ||
+        h.part == io.yamsergey.dta.protocol.network.BodyPart.APP_RESPONSE || h.part == io.yamsergey.dta.protocol.network.BodyPart.APP_MESSAGE
+
+    /** Every body hit is in what the app saw: none on the wire. */
+    private fun appSideOnly(hits: List<io.yamsergey.dta.protocol.network.SearchHit>): Boolean {
+        val bodies = hits.filter { it.part != null }
+        return bodies.isNotEmpty() && bodies.all(::isAppSide) && hits.none { it.part == null }
     }
 
     private fun selectTab(t: io.yamsergey.dta.present.network.HitTab) {
@@ -222,7 +240,7 @@ class EntryDetailPane(
         val found = io.yamsergey.dta.present.network.Hits.foundIn(hits)
         if (found.isNotEmpty()) {
             header.add(row(listOf<JComponent>(JBLabel("Found in").apply { foreground = JBColor.GRAY }) + found.map { f ->
-                ActionLink(f.label) { selectTab(f.tab) }.apply { toolTipText = f.first.excerpt.render { "[$it]" } }
+                ActionLink(f.label) { open(f) }.apply { toolTipText = f.first.excerpt.render { "[$it]" } }
             }))
         }
         detail.connection?.let { link ->
@@ -299,7 +317,7 @@ class EntryDetailPane(
      */
     private fun messagesPanel(detail: EntryDetail): JComponent {
         val top = FormatControl.top(detail, client, target, scope, edit = ::editFormat, remove = ::removeFormat)
-        return MessagesView(client, bodyTarget(), scope, detail, raw ?: JsonObject(emptyMap()), marks, top, open)
+        return MessagesView(client, bodyTarget(), scope, detail, raw ?: JsonObject(emptyMap()), marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.ANY), top, open)
     }
 
     /** What `network.body` is asked with: the view's redaction too (D-003), as the entry above it is. */

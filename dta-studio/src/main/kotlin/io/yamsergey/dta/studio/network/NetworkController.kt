@@ -323,7 +323,7 @@ class NetworkController(private val context: ContextController, private val scop
      */
     private fun older(page: JsonObject): Boolean {
         val hits = page["hits"] as? JsonObject
-        if (!mutable.value.applied.hasSearch || hits == null) { list(LiveEvent.Older(page)); return false }
+        if (!mutable.value.applied.finds || hits == null) { list(LiveEvent.Older(page)); return false }
         val times = (page["entries"] as? kotlinx.serialization.json.JsonArray).orEmpty().associate { e ->
             val o = e.jsonObject
             (o["id"] as JsonPrimitive).content to ((o["timeMs"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L)
@@ -378,7 +378,7 @@ class NetworkController(private val context: ContextController, private val scop
         searchJob?.cancel()
         val s = mutable.value
         val c = context.client
-        if (!s.applied.hasSearch || c == null || s.device == null || s.app == null) {
+        if (!s.applied.finds || c == null || s.device == null || s.app == null) {
             mutable.update { it.copy(hits = HitNavigator(), searching = false, searchStatements = emptyList()) }
             return
         }
@@ -394,8 +394,7 @@ class NetworkController(private val context: ContextController, private val scop
     private fun streamed(s: NetworkViewState): Boolean {
         // D-021: what the list asks is the last valid line.
         if (s.applied.parsed.problems.isNotEmpty()) return false
-        val f = s.applied.parsed.filter
-        return s.applied.hasSearch || f.bodyContains != null || f.requestContains != null || f.responseContains != null || f.bodyPattern != null || f.requestPattern != null || f.responsePattern != null
+        return s.applied.finds
     }
 
     private var findStream: SearchStream? = null
@@ -801,7 +800,7 @@ class NetworkController(private val context: ContextController, private val scop
         noteRun(entry, created = change != "updated")
         mutable.update { s ->
             val withRow = s.copy(list = s.list.reduce(event)).followSelected(event)
-            if (s.applied.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
+            if (s.applied.finds && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
         }
     }
 

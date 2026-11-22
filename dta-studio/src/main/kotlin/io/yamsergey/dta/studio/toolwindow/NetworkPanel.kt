@@ -297,8 +297,8 @@ class NetworkPanel(
         Toggle("Scroll to the Newest", AllIcons.RunConfigurations.Scroll_down, on = { last.list.following }) { state ->
             if (state) { network.list(LiveEvent.JumpToEnd); scrollToEdge() } else network.list(LiveEvent.ScrolledAway)
         },
-        Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { last.applied.hasSearch && last.hits.total > 0 }) { stepHit(forward = false) },
-        Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { last.applied.hasSearch && last.hits.total > 0 }) { stepHit(forward = true) },
+        Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { last.applied.finds && last.hits.total > 0 }) { stepHit(forward = false) },
+        Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { last.applied.finds && last.hits.total > 0 }) { stepHit(forward = true) },
         com.intellij.openapi.actionSystem.Separator.getInstance(),
         Toggle("Redact Secrets", AllIcons.Actions.ToggleVisibility, on = { last.redact }) { network.setRedact(it) },
         com.intellij.openapi.actionSystem.Separator.getInstance(),
@@ -441,7 +441,7 @@ class NetworkPanel(
         olderTop.show(more && model.order == ListOrder.OLDEST_FIRST, s.loadingOlder, "↑", olderWords)
         olderBottom.show(more && model.order == ListOrder.NEWEST_FIRST, s.loadingOlder, "↓", olderWords)
         if (s.list.following != previous.list.following || s.list.paused != previous.list.paused || s.redact != previous.redact ||
-            s.hits.total != previous.hits.total || s.applied.hasSearch != previous.applied.hasSearch || s.archive != previous.archive) strip.updateActionsAsync()
+            s.hits.total != previous.hits.total || s.applied.finds != previous.applied.finds || s.archive != previous.archive) strip.updateActionsAsync()
 
         // Set from the archive browser too: the switch follows the state.
         if ((source.selectedItem as? SourceChoice)?.scope != s.archive) {
@@ -470,7 +470,7 @@ class NetworkPanel(
         keptText.text = "The list keeps the last valid query: ${s.applied.text.trim().ifEmpty { "none (everything)" }}"
         problemRow.isVisible = problems.isNotEmpty()
         hitLabel.text = when {
-            !s.applied.hasSearch -> ""
+            !s.applied.finds -> ""
             s.searching && s.hits.total == 0 -> "Searching…"
             else -> s.hits.label
         }
@@ -510,11 +510,12 @@ class NetworkPanel(
         // Reached by a link (025): bring the row into view; one the filters hide is still shown, saying so.
         if (selectedRow != null && s.list.selectedId != previous.list.selectedId) table.scrollRectToVisible(table.getCellRect(selectedRow, 0, true))
         val unlisted = s.list.selectedId != null && selectedRow == null && !s.list.selectedGone && !s.loading
-        val terms = if (s.applied.hasSearch) s.applied.parsed.terms.map { it.text } else emptyList()
-        // Feature 041: any selected row that matched opens on its hit, saying where the words are.
-        val rowHits = s.list.selectedId?.takeIf { s.applied.hasSearch }?.let { s.hits.hitsOf(it) }.orEmpty()
+        // D-034: the search words and the body filters are marked, each where it applies.
+        val marks = if (s.applied.finds) s.applied.marks else io.yamsergey.dta.present.network.SearchMarks()
+        // Feature 041: any selected row that matched opens on its hit, saying where the words (or the body filter) are.
+        val rowHits = s.list.selectedId?.takeIf { s.applied.finds }?.let { s.hits.hitsOf(it) }.orEmpty()
         val hitTab = rowHits.takeIf { it.isNotEmpty() }?.let { s.hits.tabOf(it) }
-        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab, rowHits, s.selectedRevision)
+        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, marks, hitTab, rowHits, s.selectedRevision)
         revalidate()
         repaint()
     }
@@ -707,7 +708,7 @@ class NetworkPanel(
 
     /** Down the list = the next hit, whichever order the list shows. */
     private fun stepHit(forward: Boolean) {
-        if (!last.applied.hasSearch) return
+        if (!last.applied.finds) return
         if (forward) network.nextHit() else network.previousHit()
     }
 
@@ -822,7 +823,7 @@ class NetworkPanel(
             if (r == null || table.convertColumnIndexToModel(column) != 1) return text.getTableCellRendererComponent(table, value, selected, focus, row, column)
             request.background = when {
                 selected -> com.intellij.ui.render.RenderingUtil.getBackground(table, true)
-                last.applied.hasSearch && last.hits.current?.id == r.id -> io.yamsergey.dta.studio.ui.SEARCH_MARK
+                last.applied.finds && last.hits.current?.id == r.id -> io.yamsergey.dta.studio.ui.SEARCH_MARK
                 else -> table.background
             }
             request.font = table.font
@@ -850,7 +851,7 @@ class NetworkPanel(
             val r = value as? EntryRow ?: return
             // Feature 040: rows holding the search words are tinted; the current hit more.
             // Feature 041: with only the matches listed every row is one: only the current hit stands out.
-            if (!selected && last.applied.hasSearch && last.hits.hitsOf(r.id) != null) {
+            if (!selected && last.applied.finds && last.hits.hitsOf(r.id) != null) {
                 if (last.hits.current?.id == r.id) background = io.yamsergey.dta.studio.ui.SEARCH_MARK
             }
             val muted = SimpleTextAttributes.GRAYED_ATTRIBUTES

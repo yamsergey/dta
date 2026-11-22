@@ -84,6 +84,27 @@ class BodyViewsRenderTest : BasePlatformTestCase() {
         }
     }
 
+    /** D-034: a body: filter's text is marked in the body as shown (pretty-printed), inside a word too; a req: one only in a request. */
+    fun `test the editor marks where body-main matched`() {
+        val editor = BodyEditor(project)
+        val text = io.yamsergey.dta.present.network.PrettyJson.format("""{"screen":"domain","code":200}""")!!
+        val line = io.yamsergey.dta.present.network.QueryLineModel("body:main resp:/\\d{3}/")
+        try {
+            editor.show(text, "json", marks = line.marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.REQUEST))
+            editor.addNotify()
+            repeat(50) { PlatformTestUtil.dispatchAllEventsInIdeEventQueue(); Thread.sleep(20) }
+            fun marked() = EditorFactory.getInstance().allEditors.last().markupModel.allHighlighters
+                .filter { it.getTextAttributes(null)?.backgroundColor == io.yamsergey.dta.studio.ui.SEARCH_MARK }.map { text.substring(it.startOffset, it.endOffset) }
+            assertEquals(listOf("main"), marked())
+            render(editor, "editor-body-filter", 900, 300)
+            editor.show(text, "json", marks = line.marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.RESPONSE))
+            repeat(50) { PlatformTestUtil.dispatchAllEventsInIdeEventQueue(); Thread.sleep(20) }
+            assertEquals(listOf("main", "200"), marked())
+        } finally {
+            editor.removeNotify()
+        }
+    }
+
     @Suppress("unused")
     private val background = Color.WHITE
 }

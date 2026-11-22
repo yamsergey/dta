@@ -26,6 +26,15 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
 
     val hasSearch: Boolean get() = parsed.hasSearch && parsed.problems.isEmpty()
 
+    /** What the detail marks: the search words (one typo away with `typos:on`) and the body filters (D-034). */
+    val marks: SearchMarks get() = if (parsed.problems.isEmpty()) SearchMarks.of(parsed) else SearchMarks()
+
+    /**
+     * The line finds something to point at — search words, or a body filter (text or pattern): its
+     * rows carry hits, the detail opens on them and marks them (071: a body filter is a search too).
+     */
+    val finds: Boolean get() = hasSearch || marks.bodies.isNotEmpty()
+
     fun withText(t: String) = copy(text = t)
 
     /** Feature 043, Enter: the words to save and the line that stays. */
@@ -147,6 +156,7 @@ data class QueryLineModel(val text: String = "", private val nowMs: () -> Long =
             "has" -> listOf("intervention")
             "run" -> listOf("current", "all")
             "since", "until" -> listOf("5m", "15m", "1h", "1d")
+            "typos" -> listOf("on", "off")
             else -> emptyList()
         }
         return values.distinct().filter { it.startsWith(value, ignoreCase = true) && it != value }.map { Suggestion("$n$key:$it", from) }
@@ -274,11 +284,123 @@ object Highlights {
 
     /**
      * Where the search words are in a text as shown (pretty-printed bodies move the offsets the
-     * hits give): found again with the same fuzzy match, in order.
+     * hits give): found again with the same match as the search (exact unless [typos]), in order.
      */
-    fun spans(text: String, terms: List<String>): List<IntRange> {
+    fun spans(text: String, terms: List<String>, typos: Boolean = false): List<IntRange> {
         if (terms.isEmpty() || text.isEmpty()) return emptyList()
         val t = io.yamsergey.dta.protocol.network.Fuzzy.Text(text)
-        return terms.flatMap { term -> t.find(term).map { it.start until it.end } }.distinct().sortedBy { it.first }
+        return terms.flatMap { term -> t.find(term, typos).map { it.start until it.end } }.distinct().sortedBy { it.first }
+    }
+}
+
+/**
+ * D-034: what the detail marks in the texts it shows, found again in each text as shown — the
+ * search words everywhere, the body filters (`body:` / `req:` / `resp:` text and patterns) only in
+ * the bodies they apply to ([inBody]). Exclusions are not marked: they are not in a listed entry.
+ */
+data class SearchMarks(
+    val words: List<String> = emptyList(),
+    /** `typos:on`: the words are found one typo away too, as the search found them. */
+    val typos: Boolean = false,
+    val bodies: List<BodyMark> = emptyList(),
+    /** This text is a body: of the request ([BodySide.REQUEST]), response, or a message ([BodySide.ANY]). */
+    private val body: BodySide? = null,
+) {
+    enum class BodySide { ANY, REQUEST, RESPONSE }
+
+    /** A body filter's text or pattern and the bodies it looks in. */
+    data class BodyMark(val text: String, val pattern: Boolean, val side: BodySide)
+
+    val isEmpty: Boolean get() = words.isEmpty() && bodies.isEmpty()
+
+    /** The marks for a body of [side]: the words, and the body filters that look there. */
+    fun inBody(side: BodySide): SearchMarks = copy(bodies = bodies.filter { it.side == BodySide.ANY || it.side == side }, body = side)
+
+    /** Spans in [text] as shown, in order, overlapping ones merged. */
+    fun spans(text: String): List<IntRange> {
+        if (text.isEmpty() || isEmpty) return emptyList()
+        val all = Highlights.spans(text, words, typos) + if (body == null) emptyList() else bodies.flatMap { m -> if (m.pattern) patternSpans(text, m.text) else textSpans(text, m.text) }
+        return merged(all)
+    }
+
+    companion object {
+        /** At most this many marks per body filter in one text. */
+        const val MAX = 1000
+        /** A pattern is marked for at most this long on the UI thread; past it, the Found in line says where. */
+        const val PATTERN_MS = 200L
+
+        fun of(p: ParsedQuery): SearchMarks {
+            val f = p.filter
+            val bodies = listOfNotNull(
+                f.bodyContains?.let { BodyMark(it, false, BodySide.ANY) },
+                f.requestContains?.let { BodyMark(it, false, BodySide.REQUEST) },
+                f.responseContains?.let { BodyMark(it, false, BodySide.RESPONSE) },
+                f.bodyPattern?.let { BodyMark(it, true, BodySide.ANY) },
+                f.requestPattern?.let { BodyMark(it, true, BodySide.REQUEST) },
+                f.responsePattern?.let { BodyMark(it, true, BodySide.RESPONSE) },
+            )
+            return SearchMarks(p.terms.map { it.text }, p.typos, bodies)
+        }
+
+        /**
+         * `body:` text as the filter matches it (a substring, case ignored), found again in a body as
+         * shown: a pretty-printed one adds white space around JSON's `{ } [ ] , :`, so there it may differ.
+         */
+        fun textSpans(text: String, needle: String): List<IntRange> {
+            if (needle.isEmpty()) return emptyList()
+            val out = ArrayList<IntRange>()
+            var i = text.indexOf(needle, ignoreCase = true)
+            while (i >= 0 && out.size < MAX) { out += i until i + needle.length; i = text.indexOf(needle, i + needle.length, ignoreCase = true) }
+            if (out.isNotEmpty() || needle.none { it in JSON_PUNCTUATION || it.isWhitespace() }) return out
+            val loose = buildString {
+                needle.trim().forEachIndexed { k, c ->
+                    val prev = if (k > 0) needle.trim()[k - 1] else null
+                    if (c.isWhitespace()) { if (prev?.isWhitespace() != true) append("\\s*"); return@forEachIndexed }
+                    if (prev != null && !prev.isWhitespace() && (prev in JSON_PUNCTUATION || c in JSON_PUNCTUATION)) append("\\s*")
+                    append(java.util.regex.Pattern.quote(c.toString()))
+                }
+            }
+            val m = java.util.regex.Pattern.compile(loose, java.util.regex.Pattern.CASE_INSENSITIVE or java.util.regex.Pattern.UNICODE_CASE).matcher(text)
+            while (out.size < MAX && m.find()) if (m.end() > m.start()) out += m.start() until m.end()
+            return out
+        }
+
+        /** A body pattern's matches in a text as shown; none when it does not compile, those found so far when it takes too long here. */
+        fun patternSpans(text: String, pattern: String): List<IntRange> {
+            val p = (io.yamsergey.dta.protocol.network.BodyPattern.compile(pattern) as? io.yamsergey.dta.protocol.network.BodyPattern.Result.Ok)?.pattern ?: return emptyList()
+            val out = ArrayList<IntRange>()
+            val m = p.matcher(Deadline(text, System.nanoTime() + PATTERN_MS * 1_000_000))
+            try {
+                while (out.size < MAX && m.find()) if (m.end() > m.start()) out += m.start() until m.end()
+            } catch (_: Deadline.Late) {
+                // A runaway pattern on the UI thread: what was found is marked; the hits say the rest.
+            }
+            return out
+        }
+
+        /** Text whose reads end the match once [until] (nanoTime) has passed. */
+        private class Deadline(private val text: CharSequence, private val until: Long) : CharSequence {
+            class Late : RuntimeException(null, null, false, false)
+            private var reads = 0
+            override val length: Int get() = text.length
+            override fun get(index: Int): Char {
+                if (++reads and 1023 == 0 && System.nanoTime() > until) throw Late()
+                return text[index]
+            }
+            override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = Deadline(text.subSequence(startIndex, endIndex), until)
+            override fun toString(): String = text.toString()
+        }
+
+        private const val JSON_PUNCTUATION = "{}[],:"
+
+        private fun merged(spans: List<IntRange>): List<IntRange> {
+            val sorted = spans.filter { !it.isEmpty() }.sortedBy { it.first }
+            val out = ArrayList<IntRange>()
+            for (r in sorted) {
+                val last = out.lastOrNull()
+                if (last != null && r.first <= last.last + 1) out[out.size - 1] = last.first..maxOf(last.last, r.last) else out += r
+            }
+            return out
+        }
     }
 }

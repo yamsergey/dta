@@ -38,11 +38,11 @@ open class Page : JPanel(GridBagLayout()), Scrollable {
     fun title(text: String) = line(JBLabel(text).apply { font = font.deriveFont(Font.BOLD) }, top = if (row == 0) 0 else 12)
 
     /** Feature 040: search words marked wherever a field holds them (name or value). */
-    var marks: List<String> = emptyList()
+    var marks: io.yamsergey.dta.present.network.SearchMarks = io.yamsergey.dta.present.network.SearchMarks()
 
     /** Name and value in two aligned columns; the value wraps and can be selected and copied. */
     fun field(name: String, value: String, mono: Boolean = false) {
-        val nameMarked = io.yamsergey.dta.present.network.Highlights.spans(name, marks).isNotEmpty()
+        val nameMarked = marks.spans(name).isNotEmpty()
         add(JBLabel(name).apply {
             foreground = if (nameMarked) JBColor.foreground() else JBColor.GRAY
             if (nameMarked) { isOpaque = true; background = SEARCH_MARK }
@@ -94,7 +94,7 @@ open class Page : JPanel(GridBagLayout()), Scrollable {
     /** Read-only wrapping text that looks like a label. */
     private fun mark(area: JTextArea) {
         val painter = javax.swing.text.DefaultHighlighter.DefaultHighlightPainter(SEARCH_MARK)
-        io.yamsergey.dta.present.network.Highlights.spans(area.text, marks).forEach { area.highlighter.addHighlight(it.first, it.last + 1, painter) }
+        marks.spans(area.text).forEach { area.highlighter.addHighlight(it.first, it.last + 1, painter) }
     }
 
     private class Value(text: String, mono: Boolean) : JTextArea(text) {

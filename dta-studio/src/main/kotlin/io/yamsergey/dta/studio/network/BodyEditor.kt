@@ -28,13 +28,13 @@ class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
     private var extension: String = "txt"
     private var editable: Boolean = false
 
-    private var marks: List<String> = emptyList()
+    private var marks: io.yamsergey.dta.present.network.SearchMarks = io.yamsergey.dta.present.network.SearchMarks()
 
     /**
      * Shows [text] highlighted as a file with [extension] (`json`, `xml`, `html`, `graphql`, `txt`);
-     * the search words in [marks] are marked and the first is scrolled into view (feature 040).
+     * the search words and body filters in [marks] are marked and the first is scrolled into view (040, D-034).
      */
-    fun show(text: String, extension: String, editable: Boolean = false, marks: List<String> = emptyList()) {
+    fun show(text: String, extension: String, editable: Boolean = false, marks: io.yamsergey.dta.present.network.SearchMarks = io.yamsergey.dta.present.network.SearchMarks()) {
         this.text = text
         this.extension = extension
         this.editable = editable
@@ -43,7 +43,7 @@ class BodyEditor(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun mark(e: EditorEx) {
-        val spans = io.yamsergey.dta.present.network.Highlights.spans(e.document.text, marks)
+        val spans = marks.spans(e.document.text)
         if (spans.isEmpty()) return
         val attributes = com.intellij.openapi.editor.markup.TextAttributes().apply { backgroundColor = io.yamsergey.dta.studio.ui.SEARCH_MARK }
         spans.forEach {
