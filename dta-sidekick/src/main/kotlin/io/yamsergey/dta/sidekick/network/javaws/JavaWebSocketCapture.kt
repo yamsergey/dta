@@ -30,6 +30,15 @@ internal object JavaWebSocketCapture {
     private const val CLIENT = "org.java_websocket.client.WebSocketClient"
     private const val IMPL = "org.java_websocket.WebSocketImpl"
     private const val CONN = "Lorg/java_websocket/WebSocket;"
+    private const val ADAPTER = "org.java_websocket.WebSocketAdapter"
+
+    /** A handshake's fields in the library's order (`Handshakedata.iterateHttpFields`, `getFieldValue`). */
+    private fun fields(handshake: Any): List<io.yamsergey.dta.protocol.network.Header> {
+        val type = Class.forName("org.java_websocket.handshake.Handshakedata", false, handshake.javaClass.classLoader)
+        val names = type.getMethod("iterateHttpFields").invoke(handshake) as Iterator<*>
+        val value = type.getMethod("getFieldValue", String::class.java)
+        return names.asSequence().filterIsInstance<String>().map { io.yamsergey.dta.protocol.network.Header(it, value.invoke(handshake, it) as? String ?: "") }.toList()
+    }
 
     fun install(loader: ClassLoader?, recorder: NetworkRecorder, initiators: Initiators, scripting: WsScripting, injector: WsInjector): LibraryState {
         val clientClass = EntryHooks.load(CLIENT, loader)
@@ -74,6 +83,18 @@ internal object JavaWebSocketCapture {
             sockets[self]?.let { recorder.wsFailed(it, params[1] as? Throwable ?: IllegalStateException("websocket error")) }
         }
 
+        // The request head as sent (the library writes its fields in name order, as it holds them):
+        // the engine tells the client it sent the handshake through WebSocketAdapter, a client's base class.
+        val adapterHooks = EntryHooks.load(ADAPTER, loader)?.let { adapterClass ->
+            EntryHooks(adapterClass).apply {
+                on(NetworkEvents.HANDSHAKE, "onWebsocketHandshakeSentAsClient", "(${CONN}Lorg/java_websocket/handshake/ClientHandshake;)V") { self, params ->
+                    val id = sockets[self] ?: return@on
+                    val request = params[1] ?: return@on
+                    recorder.wsHandshake(id, fields(request))
+                }
+            }
+        }
+
         val impl = EntryHooks(implClass)
         impl.control(NetworkEvents.SENT_TEXT, "send", "(Ljava/lang/String;)V") { self, params ->
             val id = sockets[self] ?: return@control EntryHooks.PROCEED
@@ -98,7 +119,7 @@ internal object JavaWebSocketCapture {
             sockets[self]?.let(injector::flush)
         }
 
-        return EntryHooks.state(NetworkLibraries.JAVA_WEBSOCKET, client, impl)
+        return EntryHooks.state(NetworkLibraries.JAVA_WEBSOCKET, *listOfNotNull(client, adapterHooks, impl).toTypedArray())
     }
 
     /** `WebSocketClient.onWebsocketMessage(engine, …)`, as the engine calls it for a server message; ping by `sendPing()`. */
