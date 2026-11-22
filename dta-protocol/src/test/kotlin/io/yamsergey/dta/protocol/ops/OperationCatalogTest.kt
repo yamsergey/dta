@@ -151,4 +151,30 @@ class OperationCatalogTest {
             assertTrue("recent" !in text && "narrower" !in text, "$op view: 069 R13 removed match-set reuse: $text")
         }
     }
+
+    private fun texts(op: OperationSpec) = listOf(op.description) + op.params.map { it.description }
+
+    /**
+     * Texts name other operations so each surface can call them: an agent sees tool names
+     * (network_list — it has no network.list to call), the CLI its commands (dta network list).
+     */
+    @Test
+    fun `agent texts name operations by tool name and cli texts by command`() {
+        val dotted = Regex("""(?<![\w.])(${Catalog.all.sortedByDescending { it.name.length }.joinToString("|") { Regex.escape(it.name) }})(?![\w-]|\.[a-z])""")
+        val tool = Regex("""\b(${Catalog.all.joinToString("|") { it.toolName }})\b""")
+        val agentLeaks = Catalog.agentTools.flatMap { op -> texts(op).flatMap { t -> dotted.findAll(t).map { "${op.toolName}: ${it.value}" } } }
+        assertEquals(emptyList(), agentLeaks, "catalog names in agent texts")
+        val cliLeaks = Catalog.cliCommands.flatMap { op -> texts(op).flatMap { t -> (dotted.findAll(t) + tool.findAll(t)).map { "${op.name}: ${it.value}" } } }
+        assertEquals(emptyList(), cliLeaks, "catalog or tool names in CLI texts")
+
+        val agentEntryId = Catalog.agentTools.single { it.name == "network.entry" }.param("id")!!.description
+        assertTrue("network_list" in agentEntryId, agentEntryId)
+        val cliEntryId = Catalog.cliCommands.single { it.name == "network.entry" }.param("id")!!.description
+        assertTrue("dta network list" in cliEntryId, cliEntryId)
+        val cliEpoch = Catalog.cliCommands.single { it.name == "archive.delete" }.param("epoch")!!.description
+        assertTrue("dta archive list" in cliEpoch, cliEpoch)
+        val agentEpoch = Catalog.agentTools.single { it.name == "archive.delete" }.param("epoch")!!.description
+        assertTrue("archive_list" in agentEpoch, agentEpoch)
+        assertEquals(Catalog.all.map { it.name }, Catalog.cliCommands.map { it.name })
+    }
 }

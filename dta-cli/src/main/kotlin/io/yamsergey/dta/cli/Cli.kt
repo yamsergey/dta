@@ -103,7 +103,7 @@ class Cli(
     private fun buildTree(): Root {
         val root = Root()
         val groups = mutableMapOf<List<String>, CoreCliktCommand>(emptyList<String>() to root)
-        Catalog.all.forEach { spec ->
+        Catalog.cliCommands.forEach { spec ->
             val path = spec.cliPath
             for (i in 1 until path.size) {
                 val prefix = path.take(i)

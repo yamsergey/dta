@@ -33,7 +33,7 @@ private fun runApp(invocation: RunInvocation, runner: Runner): Int {
     println(if (invocation.globals.json) RunFormat.json(result) else format.summary(result))
     if (invocation.watch && result.outcome == RunOutcome.CONNECTED) {
         // Hand over to `dta network watch --history current` for the same device and app.
-        val watch = Catalog.all.first { it.name == "network.watch" }
+        val watch = Catalog.cliCommands.first { it.name == "network.watch" }
         val globals = Globals().apply {
             device = result.device?.serial
             app = result.applicationId

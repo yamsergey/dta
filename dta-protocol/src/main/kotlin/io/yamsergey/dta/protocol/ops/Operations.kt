@@ -64,6 +64,10 @@ data class OperationSpec(
     private val cliPathOverride: List<String>? = null,
 ) {
     val toolName: String get() = name.replace('.', '_')
+
+    /** This operation with its description and its params' descriptions passed through [f]. */
+    internal fun mapTexts(f: (String) -> String): OperationSpec =
+        copy(description = f(description), params = params.map { it.copy(description = f(it.description)) })
     val cliPath: List<String> get() = cliPathOverride ?: name.split('.')
 
     fun param(name: String): ParamSpec? = params.firstOrNull { it.name == name }
@@ -160,7 +164,7 @@ object ClientErrorCodes {
     const val SUPERSEDED = -32015
 }
 
-private val STORE = ParamSpec("store", ParamType.STRING, "The store as data list shows it: db:<file>, prefs:<name>, datastore:<file>.", required = true, positional = true)
+private val STORE = ParamSpec("store", ParamType.STRING, "The store as data.list shows it: db:<file>, prefs:<name>, datastore:<file>.", required = true, positional = true)
 private val PASSPHRASE = ParamSpec("passphrase", ParamType.STRING, "SQLCipher passphrase, only for an encrypted database the app has not opened.")
 
 object Catalog {
@@ -291,7 +295,7 @@ object Catalog {
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets (tokens, cookies, passwords) in URLs and headers."),
                 ParamSpec(
                     "archive", ParamType.STRING,
-                    "Archived history instead of the live one (what the device cleared, or earlier installs): all, version:<name>, <fromMs>..<toMs>, or an epoch id from archive list. Entries come marked with their epoch.",
+                    "Archived history instead of the live one (what the device cleared, or earlier installs): all, version:<name>, <fromMs>..<toMs>, or an epoch id from archive.list. Entries come marked with their epoch.",
                 ),
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
                 ParamSpec("allRows", ParamType.BOOLEAN, "With search words: list every entry the filters keep, hits marked, instead of only the matches.", cliName = "all-rows"),
@@ -362,14 +366,14 @@ object Catalog {
                 ParamSpec("runs", ParamType.ENUM, "current: only the running process; all (default): earlier runs too.", enumValues = listOf("current", "all")),
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
                 ParamSpec("archive", ParamType.STRING, "Archived history instead of the live one (as network.list)."),
-                ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network list.", cliShort = "-q", cliName = "query"),
+                ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network.list.", cliShort = "-q", cliName = "query"),
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
             ),
         ),
         OperationSpec(
             "network.watch", "Follow new network entries as they happen, until interrupted. With history=current, the running process's entries come first.", Scope.APP,
             NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")) +
-                ParamSpec("q", ParamType.STRING, "Query line, as in network list: its filters apply, and search words list only the entries holding them (each with its hits).", cliShort = "-q", cliName = "query") +
+                ParamSpec("q", ParamType.STRING, "Query line, as in network.list: its filters apply, and search words list only the entries holding them (each with its hits).", cliShort = "-q", cliName = "query") +
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
             streaming = true, cliOnly = true,
         ),
@@ -395,7 +399,7 @@ object Catalog {
                 "the history shows it as an incoming message marked injected. Blocks until delivered.",
             Scope.APP,
             listOf(
-                ParamSpec("connection", ParamType.STRING, "WebSocket connection id (network_list, type ws-connection). Optional when the app has exactly one open connection."),
+                ParamSpec("connection", ParamType.STRING, "WebSocket connection id (network.list with kinds ws-connection, or q kind:ws-connection status:open). Optional when the app has exactly one open connection."),
                 ParamSpec("text", ParamType.STRING, "Text message.", positional = true),
                 ParamSpec("base64", ParamType.STRING, "Binary message, base64. Give text or base64."),
                 ParamSpec("waitMs", ParamType.LONG, "How long to wait for a frame on the library's reading thread before delivering from DTA's thread (default 1000; 0 delivers now)."),
@@ -448,7 +452,7 @@ object Catalog {
         OperationSpec(
             "network.format.add",
             "Say how the app's own WebSocket protocol is built, for the sockets a URL glob matches: a regex with named groups (kind, id, topic, payload) and/or field paths into JSON. " +
-                "From then on network_list and network_entry give each matching text message an envelope (format = the rule's name, kind, id, topic, payload), before DTA's built-in formats. " +
+                "From then on network.list and network.entry give each matching text message an envelope (format = the rule's name, kind, id, topic, payload), before DTA's built-in formats. " +
                 "Try it first with network.format.test.",
             Scope.APP,
             RULE_PARAMS,
@@ -457,7 +461,7 @@ object Catalog {
             "network.format.test",
             "Try a format rule on a connection's latest text messages without keeping it: how many it reads, a few envelopes it read, texts it did not read.",
             Scope.APP,
-            RULE_PARAMS + ParamSpec("connection", ParamType.STRING, "ws-connection id from network_list; default the newest connection whose URL urlPattern matches."),
+            RULE_PARAMS + ParamSpec("connection", ParamType.STRING, "ws-connection id from network.list; default the newest connection whose URL urlPattern matches."),
         ),
         OperationSpec("network.format.list", "List the app's WebSocket message format rules.", Scope.APP),
         OperationSpec(
@@ -503,7 +507,7 @@ object Catalog {
             "One link that reached the app, in full: URI parts, action, categories, flags, every extra (or why it could not be read), the activity, delivery and referrer.",
             Scope.APP,
             listOf(
-                ParamSpec("id", ParamType.STRING, "The link's id from links list.", required = true, positional = true),
+                ParamSpec("id", ParamType.STRING, "The link's id from links.list.", required = true, positional = true),
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in the URI, query parameters and extras."),
             ),
             cliPathOverride = listOf("links", "entry"),
@@ -553,7 +557,7 @@ object Catalog {
             "Why an event happened, and what it led to. Each link says how it is known: exact (from recorded data, e.g. a request issued while a click was handled), declared (stated by the app), or inferred (from timing and matching data, only with inferred=true). Events without a known cause say so, with how many inferred candidates exist.",
             Scope.APP,
             listOf(
-                ParamSpec("event", ParamType.STRING, "An event id from timeline events.", required = true, positional = true),
+                ParamSpec("event", ParamType.STRING, "An event id from timeline.events.", required = true, positional = true),
                 ParamSpec("direction", ParamType.ENUM, "causes (default): back to the roots; effects: forward to what followed from it.", enumValues = listOf("causes", "effects")),
                 ParamSpec("depth", ParamType.INT, "How many links to follow, 1..32 (default 8)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Also follow inferred links (timing and matching data); they are marked inferred."),
@@ -720,7 +724,7 @@ object Catalog {
         ),
         OperationSpec(
             "data.proto.read",
-            "A Proto DataStore's message, decoded by field number, or by a message type of the app's protobuf schemas (network schema add/sync).",
+            "A Proto DataStore's message, decoded by field number, or by a message type of the app's protobuf schemas (network.schema.add or network.schema.sync).",
             Scope.APP,
             listOf(STORE, ParamSpec("type", ParamType.STRING, "Message type (full name) to decode with.")),
         ),
@@ -867,8 +871,8 @@ object Catalog {
             "Delete archived network history: one epoch, one install, an app's whole archive, or everything closed before a time. Without confirm it only says what it would remove. The live history is never deleted here: clearing it on the device archives it.",
             Scope.NONE,
             listOf(
-                ParamSpec("epoch", ParamType.STRING, "An epoch id from archive list."),
-                ParamSpec("installation", ParamType.LONG, "An install id from archive list."),
+                ParamSpec("epoch", ParamType.STRING, "An epoch id from archive.list."),
+                ParamSpec("installation", ParamType.LONG, "An install id from archive.list."),
                 ParamSpec("packageName", ParamType.STRING, "An app's whole archive, on every device."),
                 ParamSpec("closedBeforeMs", ParamType.LONG, "Every epoch closed before this epoch millisecond; with packageName, only that app's."),
                 ParamSpec("confirm", ParamType.BOOLEAN, "Delete for real; without it the answer only says what would go."),
@@ -886,7 +890,34 @@ object Catalog {
 
     fun find(name: String): OperationSpec? = byName[name]
 
-    val agentTools: List<OperationSpec> get() = all.filterNot { it.cliOnly }
+    /**
+     * The operations offered to agents, their texts naming other operations by tool name
+     * (`network_list`): an agent has no `network.list` to call.
+     */
+    val agentTools: List<OperationSpec> by lazy { all.filterNot { it.cliOnly }.map { op -> op.mapTexts { textFor(Surface.AGENT, it) } } }
+
+    /** Every operation as the CLI shows it, its texts naming other operations by command (`dta network list`). */
+    val cliCommands: List<OperationSpec> by lazy { all.map { op -> op.mapTexts { textFor(Surface.CLI, it) } } }
+
+    /** Who reads a catalog text. */
+    enum class Surface { AGENT, CLI }
+
+    /**
+     * Catalog texts name other operations by their catalog name (`network.list`); each surface shows
+     * the name it can call. Longest names first, and not followed by `.word`, so `network.history`
+     * does not match inside `network.history.set`.
+     */
+    private val reference: Regex by lazy {
+        Regex("""(?<![\w.])(${all.map { it.name }.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }})(?![\w-]|\.[a-z])""")
+    }
+
+    fun textFor(surface: Surface, text: String): String = reference.replace(text) { m ->
+        val op = byName.getValue(m.value)
+        when (surface) {
+            Surface.AGENT -> op.toolName
+            Surface.CLI -> "dta " + op.cliPath.joinToString(" ")
+        }
+    }
 }
 
 /** Feature 039: what a WebSocket message format rule takes (network.format.add and network.format.test). */
