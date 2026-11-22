@@ -12,12 +12,16 @@ interface BodySink {
     fun close()
 }
 
-/** Outcome of teeing one body. [reason] is set unless [completeness] is complete. */
+/**
+ * Outcome of teeing one body. [reason] is set unless [completeness] is complete. [error] is what the
+ * library raised to the app while it read the body (a connection cut mid-body): the exchange failed.
+ */
 data class BodyCapture(
     val storedBytes: Long,
     val observedBytes: Long,
     val completeness: Completeness,
     val reason: String?,
+    val error: Throwable? = null,
 )
 
 /**
@@ -66,13 +70,21 @@ class BodyRecorder(
         deliver(BodyCapture(0, 0, Completeness.OMITTED, reason))
     }
 
+    /** [error]: the read the app made failed with it (the body ended with an error, not by the app). */
     @Synchronized
-    fun finish(endOfStream: Boolean) {
+    fun finish(endOfStream: Boolean, error: Throwable? = null) {
         if (finished) return
         finished = true
         closeSink()
         val capture = when {
-            dropReason != null -> BodyCapture(stored, observed, Completeness.DROPPED, dropReason)
+            dropReason != null -> BodyCapture(stored, observed, Completeness.DROPPED, dropReason, error)
+            error != null -> BodyCapture(
+                stored, observed,
+                if (observed == declaredBytes) Completeness.COMPLETE else Completeness.PARTIALLY_OBSERVED,
+                "reading the body failed after $observed " + (if (declaredBytes != null) "of $declaredBytes " else "") +
+                    "bytes: ${error.javaClass.name}: ${error.message}",
+                error,
+            )
             observed > stored -> BodyCapture(
                 stored, observed, Completeness.TRUNCATED,
                 "per-body bound of $bound bytes reached; $observed bytes observed",
@@ -145,7 +157,7 @@ class TeeInputStream(
         val b = try {
             super.read()
         } catch (e: Throwable) {
-            recorder.finish(endOfStream = false)
+            recorder.finish(endOfStream = false, error = e)
             throw e
         }
         if (b == -1) recorder.finish(endOfStream = true) else recorder.accept(byteArrayOf(b.toByte()), 0, 1)
@@ -156,7 +168,7 @@ class TeeInputStream(
         val n = try {
             `in`.read(b, off, len)
         } catch (e: Throwable) {
-            recorder.finish(endOfStream = false)
+            recorder.finish(endOfStream = false, error = e)
             throw e
         }
         if (n == -1) recorder.finish(endOfStream = true) else recorder.accept(b, off, n)

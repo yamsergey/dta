@@ -65,7 +65,7 @@ class NetworkRecorder(
     }
 
     fun httpRequestBody(id: String, contentType: String?, declaredBytes: Long?, encoding: String? = null): BodyRecorder =
-        bodyRecorder(id, BodyPart.REQUEST, contentType, encoding, declaredBytes) { info ->
+        bodyRecorder(id, BodyPart.REQUEST, contentType, encoding, declaredBytes) { info, _ ->
             updateHttp(id) { it.copy(requestBody = info) }
         }
 
@@ -73,10 +73,18 @@ class NetworkRecorder(
         updateHttp(id) { it.copy(status = status, responseHeaders = headers, protocol = protocol ?: it.protocol) }
     }
 
-    /** Completes the exchange when the returned recorder finishes. */
+    /**
+     * Completes the exchange when the returned recorder finishes; a read of the body that failed
+     * (the connection cut mid-body) fails it with that error, as the app got it (FR-006).
+     */
     fun httpResponseBody(id: String, contentType: String?, encoding: String?, declaredBytes: Long?, endedAtMs: Long? = null): BodyRecorder =
-        bodyRecorder(id, BodyPart.RESPONSE, contentType, encoding, declaredBytes) { info ->
-            updateHttp(id) { it.copy(responseBody = info, state = terminal(it), durationMs = (endedAtMs ?: clock()) - it.timeMs) }
+        bodyRecorder(id, BodyPart.RESPONSE, contentType, encoding, declaredBytes) { info, capture ->
+            updateHttp(id) {
+                val ended = (endedAtMs ?: clock()) - it.timeMs
+                val error = capture.error
+                if (error != null && it.state != HttpState.FAILED) it.copy(responseBody = info, state = HttpState.FAILED, failure = describe(error), durationMs = ended)
+                else it.copy(responseBody = info, state = terminal(it), durationMs = ended)
+            }
         }
 
     /** For responses without a body. */
@@ -280,7 +288,7 @@ class NetworkRecorder(
         contentType: String?,
         encoding: String?,
         declaredBytes: Long?,
-        onInfo: (BodyInfo) -> Unit,
+        onInfo: (BodyInfo, BodyCapture) -> Unit,
     ): BodyRecorder {
         val sink = try {
             store.openBodySink(id, part)
@@ -297,6 +305,7 @@ class NetworkRecorder(
                         binary = BodyCodec.isBinary(contentType, head ?: ByteArray(0)),
                         preview = head?.let { BodyCodec.preview(it, contentType) },
                     ),
+                    capture,
                 )
             }
         }
