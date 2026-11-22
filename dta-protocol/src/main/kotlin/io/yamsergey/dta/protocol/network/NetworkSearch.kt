@@ -116,7 +116,11 @@ class NetworkSearch(
     private fun bodyPlace(entry: NetworkEntry, info: BodyInfo, part: BodyPart, place: SearchPlace): Place? {
         if (info.completeness == Completeness.TRUNCATED) truncated++
         if (info.binary) {
-            decoded?.invoke(entry, part)?.let { return Place(place, it, part) }
+            decoded?.invoke(entry, part)?.let { json ->
+                if (!redact) return Place(place, json, part)
+                // Decoded protobuf is redacted as JSON (006 FR-016), and searched as it is shown.
+                return Redactor.body(json, "application/json", "").text?.let { Place(place, it, part) } ?: run { notSearched++; null }
+            }
             val body = bodyBytes(entry, part) ?: run { if (info.storedBytes > 0) notSearched++; return null }
             if (!body.decoded) { notSearched++; return null }
             if (redact) { notSearched++; return null }

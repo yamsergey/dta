@@ -52,4 +52,16 @@ class HistoryRedactionTest {
         val out = DtaJson.encodeToString(NetworkPage.serializer(), wide) + DtaJson.encodeToString(SearchPage.serializer(), v.search(NetworkQuery(q = "body:/.+/", redact = true)))
         assertFalse(listOf("SEED-TOKEN-abc", "seed@example.com", "SEED-PROTO-1").any { it in out }, "no excerpt carries a masked value: $out")
     }
+
+    /** Words inside a binary body a schema decodes are searched in its redacted rendering, excerpts included. */
+    @Test
+    fun `search reads a decoded binary body as redacted`() {
+        val v = view()
+        assertEquals(emptyList(), v.search(NetworkQuery(q = "SEED-PROTO-1", redact = true)).entries.map { it.id })
+        assertEquals(listOf("r1:2"), v.search(NetworkQuery(q = "SEED-PROTO-1")).entries.map { it.id }, "twin: found without redaction")
+        val near = v.search(NetworkQuery(q = "ord-42", redact = true))
+        assertEquals(listOf("r1:2"), near.entries.map { it.id }, "a harmless value is still found")
+        val out = DtaJson.encodeToString(SearchPage.serializer(), near)
+        assertFalse("SEED-PROTO-1" in out, "the excerpt around it shows the mask: $out")
+    }
 }
