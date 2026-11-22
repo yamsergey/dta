@@ -78,7 +78,7 @@ class NetworkFilterPatternTest {
     fun `the match is recorded with its span`() {
         val e = eval(NetworkFilter(responsePattern = """"price":\d+\.\d+"""))
         e.matches(quote)
-        val hit = e.patternHits[quote.id]!!.single()
+        val hit = e.filterHits[quote.id]!!.single()
         assertEquals(SearchPlace.RESPONSE_BODY, hit.place)
         assertEquals("/\"price\":\\d+\\.\\d+/", hit.term)
         assertEquals("\"price\":19.57", texts[quote.id to BodyPart.RESPONSE]!!.substring(hit.start, hit.end))

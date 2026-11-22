@@ -43,8 +43,15 @@ class NetworkFilterEval(
 
     private val needleBytes = HashMap<String, ByteArray>()
 
-    /** Feature 053: where the body pattern matched, by entry id (first match per body). */
-    val patternHits = LinkedHashMap<String, MutableList<SearchHit>>()
+    /**
+     * Where the body filters matched, by entry id: the first match per body of each `body:` / `req:` /
+     * `resp:` text (D-034: every listed entry can show where its body filter matched) and pattern (053).
+     * Kept only for entries the whole filter keeps.
+     */
+    val filterHits = LinkedHashMap<String, MutableList<SearchHit>>()
+
+    /** The hits of the entry being matched, kept once it matches as a whole. */
+    private var pending: MutableList<SearchHit>? = null
 
     /** Feature 053: binary bodies no schema decodes, which patterns do not look at. */
     var patternBinary = 0
@@ -64,6 +71,14 @@ class NetworkFilterEval(
 
     /** Null when [entry] does not match; otherwise where it matched (empty when no location applies). */
     fun matches(entry: NetworkEntry): List<MatchLocation>? {
+        val found = ArrayList<SearchHit>()
+        pending = found
+        val out = try { match(entry) } finally { pending = null }
+        if (out != null && found.isNotEmpty()) filterHits.getOrPut(entry.id) { mutableListOf() } += found
+        return out
+    }
+
+    private fun match(entry: NetworkEntry): List<MatchLocation>? {
         val locations = mutableListOf<MatchLocation>()
         filter.kinds?.let { if (kindOf(entry) !in it) return null }
         filter.intervened?.let { wanted -> if ((entry.intervention != null) != wanted) return null }
@@ -164,7 +179,9 @@ class NetworkFilterEval(
     private fun bodyHits(entry: NetworkEntry, needle: String, parts: (BodyPart) -> Boolean): List<MatchLocation> =
         bodies(entry).filter { parts(it.second) }.mapNotNull { (info, part) ->
             decodedHit(entry, info, part, needle)?.let { return@mapNotNull it }
-            if (contains(entry, info, part, needle)) location(part, info.binary) else null
+            val at = firstIn(entry, info, part, needle) ?: return@mapNotNull null
+            pending?.add(SearchHit(entry.id, place(part), needle, at.start, at.end, at.excerpt, part, binary = at.binary))
+            location(part, info.binary)
         }.distinct()
 
     private fun pattern(text: String) = compiled.getOrPut(text) {
@@ -185,10 +202,10 @@ class NetworkFilterEval(
             val haystack = (if (decodedJson != null) shown(decodedJson, "application/json") else shown(String(body.bytes, Charsets.UTF_8), info.contentType))
                 ?: return@mapNotNull null
             val found = BodyPattern.find(p, haystack, check) ?: return@mapNotNull null
-            patternHits.getOrPut(entry.id) { mutableListOf() } += SearchHit(
+            pending?.add(SearchHit(
                 entry.id, place(part), "/$text/", found.first, found.second,
                 Fuzzy.excerpt(haystack, Fuzzy.Span(found.first, found.second)), part,
-            )
+            ))
             if (decodedJson != null) {
                 val paths = DecodedFields.paths(haystack) { v -> BodyPattern.find(p, v, check) != null }
                 if (paths.isNotEmpty()) fieldPaths.getOrPut(entry.id) { mutableListOf() } += paths
@@ -242,6 +259,12 @@ class NetworkFilterEval(
         val paths = DecodedFields.paths(json, needle, ignoreCase = true)
         if (paths.isEmpty()) return null
         fieldPaths.getOrPut(entry.id) { mutableListOf() } += paths
+        // In the decoded JSON as network.body gives it; a value written escaped there is named by its field.
+        val at = json.indexOf(needle, ignoreCase = true)
+        pending?.add(
+            if (at >= 0) SearchHit(entry.id, place(part), needle, at, at + needle.length, Fuzzy.excerpt(json, Fuzzy.Span(at, at + needle.length)), part)
+            else SearchHit(entry.id, place(part), needle, 0, 0, Fuzzy.Excerpt("field ${paths.first()}", 0, 0), part),
+        )
         return when (part) {
             BodyPart.REQUEST, BodyPart.APP_REQUEST -> MatchLocation.REQUEST_BODY_DECODED
             BodyPart.RESPONSE, BodyPart.APP_RESPONSE -> MatchLocation.RESPONSE_BODY_DECODED
@@ -249,19 +272,40 @@ class NetworkFilterEval(
         }
     }
 
-    private fun contains(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): Boolean {
-        val body = bodyBytes(entry, part) ?: return false
-        if (!info.binary) return shown(String(body.bytes, Charsets.UTF_8), info.contentType)?.contains(needle, ignoreCase = true) == true
+    /** Where `body:` text first is: [start]..[end] in the body's text (in its bytes when [binary]). */
+    private class Found(val start: Int, val end: Int, val excerpt: Fuzzy.Excerpt, val binary: Boolean)
+
+    private fun firstIn(entry: NetworkEntry, info: BodyInfo, part: BodyPart, needle: String): Found? {
+        val body = bodyBytes(entry, part) ?: return null
+        if (!info.binary) {
+            val text = shown(String(body.bytes, Charsets.UTF_8), info.contentType) ?: return null
+            val at = text.indexOf(needle, ignoreCase = true).takeIf { it >= 0 } ?: return null
+            return Found(at, at + needle.length, Fuzzy.excerpt(text, Fuzzy.Span(at, at + needle.length)), false)
+        }
         if (redact) {
             // Bytes no schema decodes cannot be redacted, so they are not matched while redacting.
             notRedactable++
-            return false
+            return null
         }
         if (!body.decoded) {
             binaryNotSearched++
-            return false
+            return null
         }
-        return indexOf(body.bytes, needleBytes.getOrPut(needle) { needle.toByteArray(Charsets.UTF_8) }) >= 0
+        val n = needleBytes.getOrPut(needle) { needle.toByteArray(Charsets.UTF_8) }
+        val at = indexOf(body.bytes, n).takeIf { it >= 0 } ?: return null
+        return Found(at, at + n.size, binaryExcerpt(body.bytes, at, at + n.size), true)
+    }
+
+    /** The bytes around a match as Latin-1, unprintable ones as dots (as search words' binary hits show them). */
+    private fun binaryExcerpt(bytes: ByteArray, start: Int, end: Int): Fuzzy.Excerpt {
+        val from = (start - 40).coerceAtLeast(0)
+        val to = (end + 40).coerceAtMost(bytes.size)
+        val window = String(bytes, from, to - from, Charsets.ISO_8859_1)
+        val e = Fuzzy.excerpt(window, Fuzzy.Span(start - from, end - from))
+        val pre = if (from > 0 && !e.text.startsWith("…")) "…" else ""
+        val post = if (to < bytes.size && !e.text.endsWith("…")) "…" else ""
+        val text = pre + e.text.map { c -> if (c.code in 32..126 || c == '…') c else '.' }.joinToString("") + post
+        return Fuzzy.Excerpt(text, e.start + pre.length, e.end + pre.length)
     }
 
     private fun indexOf(haystack: ByteArray, needle: ByteArray): Int {

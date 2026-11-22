@@ -181,6 +181,9 @@ class WordNeedsTest {
                     if (!d.match) { if (!t.cut && !WordNeeds.holds(need, t.text)) left++; continue }
                     kept++
                     assertTrue(t.cut || WordNeeds.holds(need, t.text), "run $run «$line» redact=${query.redact}: ${e.id} kept but its index text lacks $need\n${t.text}")
+                    // D-034: an entry a body filter keeps says where that filter matched.
+                    val bodyFilters = filter?.let { f -> listOfNotNull(f.bodyContains, f.requestContains, f.responseContains, f.bodyPattern?.let { "/$it/" }, f.requestPattern?.let { "/$it/" }, f.responsePattern?.let { "/$it/" }) }.orEmpty()
+                    for (b in bodyFilters) assertTrue(d.hits.orEmpty().any { it.term == b }, "run $run «$line»: ${e.id} kept by $b without a hit for it: ${d.hits}")
                 }
             }
         }

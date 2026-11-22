@@ -111,7 +111,7 @@ class NetworkHistoryView private constructor(
             onlyHits -> pageHits
             else -> page.mapNotNull { e -> search.hits(e)?.let { e.id to it } }.toMap()
         }
-        // Feature 053: where the body patterns matched, next to the words' hits.
+        // Feature 053, D-034: where the body filters (text and patterns) matched, next to the words' hits.
         val hits = withPatternHits(wordHits, eval, page.map { it.id })
         val coverage = ctx.coverage.copy(searched = src.count(links), notSearched = notSearched(eval, search))
         val earliest = src.first(links)
@@ -148,7 +148,7 @@ class NetworkHistoryView private constructor(
                 check()
                 val matched = if (eval != null) eval.matches(entry) ?: continue else null
                 val words = if (search != null) search.hits(entry) else null
-                val spans = eval?.patternHits?.remove(entry.id)
+                val spans = eval?.filterHits?.remove(entry.id)
                 val fields = eval?.fieldPaths?.remove(entry.id)
                 if (onlyHits && words == null) continue
                 if (limit != null && given == limit) return@use FindEnd(last, notSearched(eval, search))
@@ -178,7 +178,7 @@ class NetworkHistoryView private constructor(
         for (entry in src.walk(false, true, null)!!) {
             seen += entry.id
             if (entry is LinkEntry && filter?.kinds == null) continue
-            if (eval != null && eval.matches(entry) == null) continue
+            if (eval != null) { val kept = eval.matches(entry); eval.filterHits.remove(entry.id); if (kept == null) continue }
             if (search != null && search.hits(entry) == null) continue
             ids += entry.id
         }
@@ -193,8 +193,9 @@ class NetworkHistoryView private constructor(
     fun search(query: NetworkQuery, stop: () -> Unit = {}): SearchPage = query.resolved().let { (filter, terms) -> sources.open(filter, WordNeeds.of(filter, terms, words = true)).use { src ->
         val ctx = context()
         val check = checker(stop)
-        val patterns = filter?.let { it.bodyPattern != null || it.requestPattern != null || it.responsePattern != null } == true
-        if (terms.isEmpty() && !patterns) throw InvalidParamsException("query: no search words; give words, a \"phrase\" or a body:/pattern/ to find (filters alone are network.list)")
+        // D-034: a body filter (text or pattern) finds too: its hits say where it matched.
+        val bodies = filter?.let { it.bodyPattern != null || it.requestPattern != null || it.responsePattern != null || it.bodyContains != null || it.requestContains != null || it.responseContains != null } == true
+        if (terms.isEmpty() && !bodies) throw InvalidParamsException("query: no search words; give words, a \"phrase\", body:text or a body:/pattern/ to find (other filters alone are network.list)")
         val newest = query.order == Order.NEWEST_FIRST
         val links = filter?.kinds != null
         val unknown = { InvalidParamsException("unknown cursor '${query.before}'; it may have been evicted or cleared") }
@@ -202,7 +203,7 @@ class NetworkHistoryView private constructor(
         val s = search(src, terms, query.redact)
         fun hitsOf(entry: NetworkEntry): List<SearchHit>? {
             if (eval != null && eval.matches(entry) == null) return null
-            return (if (s != null) s.hits(entry) ?: return null else emptyList()) + eval?.patternHits?.get(entry.id).orEmpty()
+            return (if (s != null) s.hits(entry) ?: return null else emptyList()) + eval?.filterHits?.get(entry.id).orEmpty()
         }
         // The cursor must be an entry with hits (feature 040).
         query.before?.let { before ->
@@ -235,7 +236,7 @@ class NetworkHistoryView private constructor(
         if (locations == null) return@use EntryDecision(false)
         val words = if (s != null) s.hits(entry) else emptyList()
         if (words == null) return@use EntryDecision(false, byPreview = s!!.byPreview > 0)
-        val hits = words + eval?.patternHits?.get(entry.id).orEmpty()
+        val hits = words + eval?.filterHits?.get(entry.id).orEmpty()
         EntryDecision(true, locations.ifEmpty { null }, hits.ifEmpty { null }, byPreview = (s?.byPreview ?: 0) > 0)
     }
 
@@ -243,9 +244,9 @@ class NetworkHistoryView private constructor(
         NetworkSearch(it, { id -> (src.byId(id) as? WsConnectionEntry)?.url }, decoded, bodyBytes, redact)
     }
 
-    /** Feature 053: the words' hits plus the pattern spans, for the entries in [ids]. */
+    /** Feature 053, D-034: the words' hits plus the body filters' spans, for the entries in [ids]. */
     private fun withPatternHits(words: Map<String, List<SearchHit>>?, eval: NetworkFilterEval?, ids: List<String>): Map<String, List<SearchHit>>? {
-        val spans = eval?.patternHits?.takeIf { it.isNotEmpty() } ?: return words
+        val spans = eval?.filterHits?.takeIf { it.isNotEmpty() } ?: return words
         return ids.mapNotNull { id ->
             val all = words?.get(id).orEmpty() + spans[id].orEmpty()
             all.takeIf { it.isNotEmpty() }?.let { id to it }
