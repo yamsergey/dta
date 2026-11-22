@@ -60,6 +60,32 @@ class HostIndexFeedTest {
         assertEquals(app.bodies[e.id to BodyPart.RESPONSE]!!.decodeToString(), host.storedBody(e.id, BodyPart.RESPONSE)?.second?.decodeToString())
     }
 
+    /** D-009: an entry the app wrote that its batch has not brought yet is the app's to answer, not "evicted". */
+    @Test
+    fun `an entry asked for before its batch arrives is answered`() = runBlocking<Unit> {
+        val app = FakeJournalApp().apply { attachBodies = true }
+        repeat(3) { http(app) }
+        val host = index(app)
+        assertNotNull(host.openFeed()?.subscription)
+        val e = http(app) // written; its batch is still on the way
+        assertEquals(e.id, host.entry(e.id).entry.id)
+    }
+
+    /** D-009: the app restarted on a new channel before the background loop noticed; its feed is gone with the old one. */
+    @Test
+    fun `a subscription of an earlier connection does not stand for the app now connected`() = runBlocking<Unit> {
+        val first = FakeJournalApp().apply { attachBodies = true }
+        repeat(3) { http(first) }
+        var app = first
+        val host = HostIndex(HostStore(dir).also { stores += it }, DeviceIdentity("dev1", "emulator-5554"), "io.example") { app }
+        assertNotNull(host.openFeed()?.subscription)
+        // The same journal, now read by a new process over a new channel.
+        val second = FakeJournalApp().apply { attachBodies = true; records += first.records; bodies += first.bodies }
+        app = second
+        val e = http(second)
+        assertEquals(listOf(e.id) + first.records.map { it.id }.reversed(), host.list(NetworkQuery(limit = 100)).entries.map { it.id })
+    }
+
     @Test
     fun `once read to the end it subscribes from there, and batches from that position go in`() = runBlocking<Unit> {
         val app = FakeJournalApp().apply { attachBodies = true }

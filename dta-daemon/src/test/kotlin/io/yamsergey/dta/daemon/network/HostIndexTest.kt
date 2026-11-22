@@ -117,10 +117,12 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
         deviceBytes = deviceBytes.takeIf { reportsSize }, archivedThrough = archivedThrough, keepBytes = keep.takeIf { reportsSize }, warnBytes = warn.takeIf { reportsSize }), CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE))
 
     /** The sidekick's own answer over the same history: the reference the host must equal. */
-    fun deviceAnswer(query: NetworkQuery): NetworkPage = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context, bodyBytes = { e, part ->
+    fun deviceAnswer(query: NetworkQuery): NetworkPage = deviceView().list(query)
+
+    private fun deviceView() = NetworkHistoryView({ latest() }, { id -> latest().firstOrNull { it.id == id } }, ::context, bodyBytes = { e, part ->
         val info = NetworkHistoryView.bodyOf(e, part)
         info?.let { bodies[e.id to part]?.let { BodyCodec.decode(it, info.encoding).let { d -> NetworkFilterEval.BodyBytes(d.bytes, d.decoded) } } }
-    }).list(query)
+    })
 
     override val hello = HelloResult(PROTOCOL_VERSION, "dta-sidekick", "0.11.0", "io.example")
     override val events: SharedFlow<Event> = MutableSharedFlow()
@@ -166,6 +168,8 @@ open class FakeJournalApp(var journalId: String = "j1", var persisted: Boolean =
                 val slice = bytes.copyOfRange(offset, minOf(bytes.size, offset + str("length")!!.toInt()))
                 RpcResult(DtaJson.encodeToJsonElement(BodyRangeResult.serializer(), BodyRangeResult(bytes.size.toLong(), offset.toLong(), slice.size.toLong())), listOf(slice))
             }
+            "network_entry" -> RpcResult(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.NetworkEntryDetail.serializer(),
+                deviceView().entry(str("id")!!)))
             "network_list" -> {
                 listCalls++
                 RpcResult(DtaJson.encodeToJsonElement(NetworkPage.serializer(), deviceAnswer(NetworkQuery.parse(params))))

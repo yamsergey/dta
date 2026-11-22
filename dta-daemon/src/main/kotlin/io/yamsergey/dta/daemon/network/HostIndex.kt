@@ -528,6 +528,8 @@ class HostIndex(
         }
         val (archivedEpoch, _) = store.findArchived(device.key, packageName, id) ?: run {
             if (app == null) connection() // the app is gone and the archive has nothing: say why the app cannot answer
+            // D-009: subscribed, a record the app wrote may still be on its way in a batch; the app answers for it.
+            if (app != null && feedSub != null) return DtaJson.decodeFromJsonElement(NetworkEntryDetail.serializer(), app.request("network_entry", buildJsonObject { put("id", id) }))
             return liveView(epoch?.id, context ?: emptyContext()).entry(id)
         }
         archiveView(listOf(archivedEpoch)).entry(id).copy(archived = mark(archivedEpoch))
@@ -623,8 +625,9 @@ class HostIndex(
         var current = currentEpoch(app, identity)
         val saved = store.cursor(device.key, packageName)
         // Feature 068: subscribed to this journal, the feed brings what is written; no page is read.
+        // D-009: only a subscription on this very channel; one of an earlier connection (the app restarted) brings nothing.
         if (feedSub != null) {
-            if (saved?.journalId == identity.journalId) { lag = 0; return true }
+            if (feedConnection === app && saved?.journalId == identity.journalId) { lag = 0; return true }
             feedSub = null
         }
         var position = saved?.position
@@ -714,6 +717,10 @@ class HostIndex(
     @Volatile
     private var feedSub: String? = null
 
+    /** The channel [feedSub] was opened on. */
+    @Volatile
+    private var feedConnection: AppConnection? = null
+
     val feedLive: Boolean get() = feedSub != null
 
     /**
@@ -753,6 +760,7 @@ class HostIndex(
             io.yamsergey.dta.protocol.network.FeedOpenParams(saved.journalId, saved.position ?: "0:0")).jsonObject
         val result = DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.FeedOpenResult.serializer(), app.request("network_feed_open", params))
         feedSub = result.subscription
+        feedConnection = app
         return result
     }
 
