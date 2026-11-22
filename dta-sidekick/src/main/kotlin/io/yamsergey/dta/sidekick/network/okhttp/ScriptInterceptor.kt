@@ -156,9 +156,13 @@ internal class ScriptInterceptor(
 
     private fun recordOn(id: String, record: InterventionRecord) = recorder.recordIntervention(id, record)
 
+    /** Records a call that failed before the network layer; else names the app's error on the last attempt (FR-006). */
     private fun failedBeforeNetwork(chain: Interceptor.Chain, request: Request, error: IOException) {
         try {
-            if (contexts.entries(chain.call()).isNotEmpty()) return
+            contexts.entries(chain.call()).lastOrNull()?.let { last ->
+                recorder.httpAppFailure(last, error)
+                return
+            }
             val id = recorder.httpStarted(NetworkLibraries.OKHTTP3, request.method, request.url.toString(), headers(request.headers),
                 initiators.forCall(chain.call(), InitiatorSite.CALL))
             recorder.httpFailed(id, error)

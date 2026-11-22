@@ -96,6 +96,20 @@ class NetworkRecorder(
         updateHttp(id) { it.copy(state = HttpState.FAILED, failure = describe(error), durationMs = (endedAtMs ?: clock()) - it.timeMs) }
     }
 
+    /**
+     * The error the library raised to the app for an exchange that already failed on the connection,
+     * when it differs (OkHttp turns the socket a cancel closed into "Canceled"): the failure names what
+     * the app got first, then what happened on the connection. Timing stays the connection's.
+     */
+    fun httpAppFailure(id: String, error: Throwable) = guard {
+        updateHttp(id) {
+            val app = describe(error)
+            val wire = it.failure
+            if (it.state != HttpState.FAILED || wire == null || wire == app || wire.startsWith(app)) it
+            else it.copy(failure = "$app (on the connection: $wire)")
+        }
+    }
+
     /** Feature 060: a failure told as text (a web page's request: there is no exception). */
     fun httpFailed(id: String, failure: String, endedAtMs: Long? = null) = guard {
         updateHttp(id) { it.copy(state = HttpState.FAILED, failure = failure, durationMs = (endedAtMs ?: clock()) - it.timeMs) }

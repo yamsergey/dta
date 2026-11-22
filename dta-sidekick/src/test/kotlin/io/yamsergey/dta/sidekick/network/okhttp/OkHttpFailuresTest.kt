@@ -84,4 +84,42 @@ class OkHttpFailuresTest {
         assertNull(e.failure)
         assertEquals(Completeness.COMPLETE, e.responseBody!!.completeness)
     }
+
+    /** D-008 (NET-HTTP-018): the app's callback gets OkHttp's "Canceled"; the entry names it, not only the closed socket. */
+    @Test
+    fun `a cancelled call names the error the app got`() {
+        server.enqueue(MockResponse().setBody("late").setHeadersDelay(3, TimeUnit.SECONDS))
+        val call = client.newCall(Request.Builder().url(server.url("/slow")).build())
+        val got = java.util.concurrent.CompletableFuture<IOException>()
+        call.enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) { got.complete(e) }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.close(); got.complete(null) }
+        })
+        server.takeRequest(5, TimeUnit.SECONDS)
+        Thread.sleep(200)
+        call.cancel()
+        val error = assertNotNull(got.get(5, TimeUnit.SECONDS), "the app's call failed")
+        val e = only()
+        assertEquals(HttpState.FAILED, e.state)
+        val named = "${error.javaClass.name}: ${error.message}"
+        assertTrue(e.failure.orEmpty().startsWith(named), "failure '${e.failure}' names what the app got: $named")
+        assertNull(e.status)
+        assertTrue(e.durationMs!! < 3_000, "ended at the cancel")
+    }
+
+    /** The twin of the cancel: a failure the app sees as it happened on the connection is stated once, unchanged. */
+    @Test
+    fun `a failure the app sees unchanged is stated as it is`() {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        val error = try {
+            client.newBuilder().retryOnConnectionFailure(false).build()
+                .newCall(Request.Builder().url(server.url("/drop")).build()).execute().close()
+            fail("the dropped connection must fail")
+        } catch (e: IOException) {
+            e
+        }
+        val e = only()
+        assertEquals(HttpState.FAILED, e.state)
+        assertEquals("${error.javaClass.name}: ${error.message}", e.failure)
+    }
 }
