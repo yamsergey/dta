@@ -137,6 +137,16 @@ class NetworkPanel(
             "${completionShortcut()} or Down lists every filter at the caret.</html>"
     }
     private val hitLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
+    /** D-021: what is wrong with the line, under it, and which query the list keeps meanwhile. */
+    private val problemText = wrapping(DtaColors.of("status-server"))
+    private val keptText = wrapping(com.intellij.ui.JBColor.GRAY)
+    private val problemRow = JPanel().apply {
+        layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+        border = JBUI.Borders.empty(0, 8, 2, 8)
+        isVisible = false
+        add(problemText)
+        add(keptText)
+    }
     private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
     private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
@@ -244,8 +254,8 @@ class NetworkPanel(
         Toggle("Scroll to the Newest", AllIcons.RunConfigurations.Scroll_down, on = { last.list.following }) { state ->
             if (state) { network.list(LiveEvent.JumpToEnd); scrollToEdge() } else network.list(LiveEvent.ScrolledAway)
         },
-        Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { last.line.hasSearch && last.hits.total > 0 }) { stepHit(forward = false) },
-        Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { last.line.hasSearch && last.hits.total > 0 }) { stepHit(forward = true) },
+        Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { last.applied.hasSearch && last.hits.total > 0 }) { stepHit(forward = false) },
+        Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { last.applied.hasSearch && last.hits.total > 0 }) { stepHit(forward = true) },
         com.intellij.openapi.actionSystem.Separator.getInstance(),
         Toggle("Redact Secrets", AllIcons.Actions.ToggleVisibility, on = { last.redact }) { network.setRedact(it) },
         com.intellij.openapi.actionSystem.Separator.getInstance(),
@@ -287,7 +297,7 @@ class NetworkPanel(
         }
         val toolbar = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
-            listOf(queryRow, chipRow, viewRow).forEach { it.alignmentX = LEFT_ALIGNMENT; add(it) }
+            listOf(queryRow, problemRow, chipRow, viewRow).forEach { it.alignmentX = LEFT_ALIGNMENT; add(it) }
         }
         bindQuery()
         val master = JPanel(BorderLayout()).apply {
@@ -365,7 +375,7 @@ class NetworkPanel(
         // Rows added above what the person is reading push it down; scroll by as much so nothing jumps.
         else if (added > 0 && model.order == ListOrder.NEWEST_FIRST) keepInPlace(added)
         if (s.list.following != previous.list.following || s.list.paused != previous.list.paused || s.redact != previous.redact ||
-            s.hits.total != previous.hits.total || s.line.hasSearch != previous.line.hasSearch || s.archive != previous.archive) strip.updateActionsAsync()
+            s.hits.total != previous.hits.total || s.applied.hasSearch != previous.applied.hasSearch || s.archive != previous.archive) strip.updateActionsAsync()
 
         // Set from the archive browser too: the switch follows the state.
         if ((source.selectedItem as? SourceChoice)?.scope != s.archive) {
@@ -388,18 +398,19 @@ class NetworkPanel(
             }
             chips.isVisible = s.saved.saved.isNotEmpty()
         }
-        hitLabel.foreground = if (problems.isEmpty()) com.intellij.ui.JBColor.GRAY else DtaColors.of("status-server")
+        // D-021: the problem under the field (wrapping), never beside it: the field keeps its width.
+        problemText.text = problems.joinToString("\n") { it.message }
+        keptText.text = "The list keeps the last valid query: ${s.applied.text.trim().ifEmpty { "none (everything)" }}"
+        problemRow.isVisible = problems.isNotEmpty()
         hitLabel.text = when {
-            problems.isNotEmpty() -> problems.first().message
-            !s.line.hasSearch -> ""
+            !s.applied.hasSearch -> ""
             s.searching && s.hits.total == 0 -> "Searching…"
             else -> s.hits.label
         }
-        hitLabel.toolTipText = problems.takeIf { it.size > 1 }?.joinToString("<br>", "<html>", "</html>") { it.message }
         // The caption keeps its width while traffic arrives (024); it starts over on new filters or a cleared list.
-        if (s.line != previous.line || s.list.history < previous.list.history) caption.reset()
+        if (s.applied != previous.applied || s.list.history < previous.list.history) caption.reset()
         // Feature 069: rows shown and the history's size; matches are not counted.
-        val filtered = s.line.text.isNotBlank() || s.kind != io.yamsergey.dta.present.network.KindChoice.ALL
+        val filtered = s.applied.text.isNotBlank() || s.kind != io.yamsergey.dta.present.network.KindChoice.ALL
         caption.text = io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.history, s.savedApplied, filtered, more = s.list.older != null)
         if (s.hits != previous.hits) table.repaint()
         statements.removeAll()
@@ -413,7 +424,7 @@ class NetworkPanel(
         empty.text = when {
             s.app == null -> ""
             s.loading -> "Loading…"
-            s.list.rows.isEmpty() && s.saved.saved.isEmpty() && s.line.text.isBlank() && s.kind == io.yamsergey.dta.present.network.KindChoice.ALL -> "No traffic yet. Requests appear here as the app makes them."
+            s.list.rows.isEmpty() && s.saved.saved.isEmpty() && s.applied.text.isBlank() && s.kind == io.yamsergey.dta.present.network.KindChoice.ALL -> "No traffic yet. Requests appear here as the app makes them."
             s.list.rows.isEmpty() -> "Nothing matches these filters."
             else -> ""
         }
@@ -422,9 +433,9 @@ class NetworkPanel(
         // Reached by a link (025): bring the row into view; one the filters hide is still shown, saying so.
         if (selectedRow != null && s.list.selectedId != previous.list.selectedId) table.scrollRectToVisible(table.getCellRect(selectedRow, 0, true))
         val unlisted = s.list.selectedId != null && selectedRow == null && !s.list.selectedGone && !s.loading
-        val terms = if (s.line.hasSearch) s.line.parsed.terms.map { it.text } else emptyList()
+        val terms = if (s.applied.hasSearch) s.applied.parsed.terms.map { it.text } else emptyList()
         // Feature 041: any selected row that matched opens on its hit, saying where the words are.
-        val rowHits = s.list.selectedId?.takeIf { s.line.hasSearch }?.let { s.hits.hitsOf(it) }.orEmpty()
+        val rowHits = s.list.selectedId?.takeIf { s.applied.hasSearch }?.let { s.hits.hitsOf(it) }.orEmpty()
         val hitTab = rowHits.takeIf { it.isNotEmpty() }?.let { s.hits.tabOf(it) }
         detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, terms, hitTab, rowHits)
         revalidate()
@@ -590,7 +601,7 @@ class NetworkPanel(
 
     /** Down the list = the next hit, whichever order the list shows. */
     private fun stepHit(forward: Boolean) {
-        if (!last.line.hasSearch) return
+        if (!last.applied.hasSearch) return
         if (forward) network.nextHit() else network.previousHit()
     }
 
@@ -688,7 +699,7 @@ class NetworkPanel(
         val r = value as? EntryRow ?: return
             // Feature 040: rows holding the search words are tinted; the current hit more.
             // Feature 041: with only the matches listed every row is one: only the current hit stands out.
-            if (!selected && last.line.hasSearch && last.hits.hitsOf(r.id) != null) {
+            if (!selected && last.applied.hasSearch && last.hits.hitsOf(r.id) != null) {
                 if (last.hits.current?.id == r.id) background = io.yamsergey.dta.studio.ui.SEARCH_MARK
             }
             val kind = SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, DtaColors.of(r.kind.token))
@@ -752,6 +763,19 @@ class NetworkPanel(
             }
         }
     }
+}
+
+/** A read-only text that wraps at its width (a sentence under a field). */
+private fun wrapping(color: java.awt.Color) = com.intellij.ui.components.JBTextArea().apply {
+    isEditable = false
+    isFocusable = false
+    lineWrap = true
+    wrapStyleWord = true
+    isOpaque = false
+    border = JBUI.Borders.empty(1, 0)
+    font = com.intellij.util.ui.UIUtil.getLabelFont()
+    foreground = color
+    alignmentX = java.awt.Component.LEFT_ALIGNMENT
 }
 
 /** The user's Basic Completion shortcut, as the placeholder names it. */

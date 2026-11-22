@@ -35,6 +35,8 @@ data class NetworkViewState(
     val list: LiveList = LiveList(),
     /** Feature 040: the query line — filters and search words — is the view's whole query. */
     val line: QueryLineModel = QueryLineModel(),
+    /** D-021: the last line without problems — what the list, the watch and the search ask (an invalid line never reaches the daemon). */
+    val applied: QueryLineModel = QueryLineModel(),
     /** Statements about the list as a whole: eviction, runs not searched, degradation. */
     val statements: List<Statement> = emptyList(),
     /** Feature 040: the search words' hits, in the list's order, and the current one. */
@@ -91,12 +93,13 @@ class NetworkController(private val context: ContextController, private val scop
      * a changed filter part is a new query, a changed search part only a new search.
      */
     fun setQuery(text: String) {
-        val before = mutable.value.line
-        val line = before.withText(text)
+        // D-021: compared with what the list asks now, not with an invalid line typed meanwhile.
+        val before = mutable.value.applied
+        val line = mutable.value.line.withText(text)
         if (line.parsed.problems.isNotEmpty()) { mutable.update { it.copy(line = line) }; return }
         // New words are being searched from now on: never "No matches" (or the old words' hits) while the list loads.
         val newWords = before.parsed.terms != line.parsed.terms
-        mutable.update { if (newWords && line.hasSearch) it.copy(line = line, hits = HitNavigator(), searching = true) else it.copy(line = line) }
+        mutable.update { if (newWords && line.hasSearch) it.copy(line = line, applied = line, hits = HitNavigator(), searching = true) else it.copy(line = line, applied = line) }
         val sameFilters = before.parsed.problems.isEmpty() && before.parsed.filter == line.parsed.filter && before.parsed.exclude == line.parsed.exclude
         // Feature 041: only the matches are listed, so other words are other rows.
         if (sameFilters && before.parsed.terms == line.parsed.terms) search() else requery()
@@ -117,7 +120,7 @@ class NetworkController(private val context: ContextController, private val scop
         val commit = mutable.value.line.withText(text).commit()
         if (commit.words.isEmpty()) return false
         val rest = mutable.value.line.withText(commit.rest)
-        mutable.update { it.copy(line = rest) }
+        mutable.update { it.copy(line = rest, applied = if (rest.parsed.problems.isEmpty()) rest else it.applied) }
         changeSaved("network.filters.add", "words", commit.words.joinToString(" "))
         return true
     }
@@ -128,7 +131,7 @@ class NetworkController(private val context: ContextController, private val scop
     /** A click on a chip: its word back in the line for editing; Enter saves it again. */
     fun editSaved(word: String) {
         val text = listOf(word, mutable.value.line.text.trim()).filter { it.isNotEmpty() }.joinToString(" ")
-        mutable.update { it.copy(line = it.line.withText(text)) }
+        mutable.update { it.line.withText(text).let { line -> it.copy(line = line, applied = if (line.parsed.problems.isEmpty()) line else it.applied) } }
         changeSaved("network.filters.remove", "word", word)
     }
 
@@ -252,7 +255,7 @@ class NetworkController(private val context: ContextController, private val scop
      */
     private fun older(page: JsonObject): Boolean {
         val hits = page["hits"] as? JsonObject
-        if (!mutable.value.line.hasSearch || hits == null) { list(LiveEvent.Older(page)); return false }
+        if (!mutable.value.applied.hasSearch || hits == null) { list(LiveEvent.Older(page)); return false }
         val times = (page["entries"] as? kotlinx.serialization.json.JsonArray).orEmpty().associate { e ->
             val o = e.jsonObject
             (o["id"] as JsonPrimitive).content to ((o["timeMs"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L)
@@ -296,7 +299,7 @@ class NetworkController(private val context: ContextController, private val scop
                 if (!older(r.result.jsonObject)) unsearched = true
             }
             list(LiveEvent.Selected(id))
-            if (unsearched && mutable.value.line.hasSearch) search()
+            if (unsearched && mutable.value.applied.hasSearch) search()
         }
     }
 
@@ -307,7 +310,7 @@ class NetworkController(private val context: ContextController, private val scop
         searchJob?.cancel()
         val s = mutable.value
         val c = context.client
-        if (!s.line.hasSearch || c == null || s.device == null || s.app == null) {
+        if (!s.applied.hasSearch || c == null || s.device == null || s.app == null) {
             mutable.update { it.copy(hits = HitNavigator(), searching = false, searchStatements = emptyList()) }
             return
         }
@@ -336,7 +339,7 @@ class NetworkController(private val context: ContextController, private val scop
         val done = runCatching {
             while (true) {
                 val params = JsonObject(
-                    target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive((need - got.size).let { if (it > 0) it.coerceAtMost(SEARCH_PAGE) else CATCH_UP_PAGE }), "order" to JsonPrimitive("newest-first")) +
+                    target(s) + s.applied.params(s.kind) + mapOf("limit" to JsonPrimitive((need - got.size).let { if (it > 0) it.coerceAtMost(SEARCH_PAGE) else CATCH_UP_PAGE }), "order" to JsonPrimitive("newest-first")) +
                         (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) +
                         (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
                 )
@@ -397,7 +400,7 @@ class NetworkController(private val context: ContextController, private val scop
 
     private fun loaded(page: JsonObject) = LiveEvent.Loaded(page, quiet = quietNext.also { quietNext = false })
 
-    private fun filtering(s: NetworkViewState) = s.line.hasSearch
+    private fun filtering(s: NetworkViewState) = s.applied.hasSearch
 
     fun setRedact(on: Boolean) {
         mutable.update { it.copy(redact = on) }
@@ -423,7 +426,7 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return
         scope.launch {
             runCatching { c.call("network.list", params(s, before = cursor)) }
-                .onSuccess { r -> if (!older(r.result.jsonObject) && mutable.value.line.hasSearch) search() }
+                .onSuccess { r -> if (!older(r.result.jsonObject) && mutable.value.applied.hasSearch) search() }
         }
     }
 
@@ -444,7 +447,7 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return done(Result.failure(IllegalStateException("No DTA daemon connected.")))
         scope.launch {
             val params = JsonObject(
-                target(s) + s.line.params(s.kind) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                target(s) + s.applied.params(s.kind) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
                     (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
             )
             val result = runCatching { c.call("network.export", params).result.jsonObject }
@@ -492,7 +495,7 @@ class NetworkController(private val context: ContextController, private val scop
             try {
                 val s = mutable.value
                 val live = mapOf("view" to JsonPrimitive(VIEW)) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
-                client.networkEvents(JsonObject(target(s) + s.line.params(s.kind) + live)).collect { data ->
+                client.networkEvents(JsonObject(target(s) + s.applied.params(s.kind) + live)).collect { data ->
                     if (data["selection"] != null) {
                         liveDecisions = ((data["selection"] as? JsonObject)?.get("result") as? JsonObject)?.get("liveQuery")?.let { (it as? JsonPrimitive)?.content == "true" } == true
                         // Subscribed first, then listed: nothing between the two is missed; overlap merges by id.
@@ -522,7 +525,7 @@ class NetworkController(private val context: ContextController, private val scop
                         }
                         list(if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry))
                         // New traffic may hold the words: the hits are refreshed once it settles.
-                        if (mutable.value.line.hasSearch) search(debounceMs = SEARCH_SETTLE_MS)
+                        if (mutable.value.applied.hasSearch) search(debounceMs = SEARCH_SETTLE_MS)
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -560,7 +563,7 @@ class NetworkController(private val context: ContextController, private val scop
     private fun target(s: NetworkViewState) = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())
 
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
-        target(s) + s.line.params(s.kind) + mapOf("limit" to JsonPrimitive(PAGE)) +
+        target(s) + s.applied.params(s.kind) + mapOf("limit" to JsonPrimitive(PAGE)) +
             (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
             (s.archive?.let { mapOf("archive" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
     )
@@ -583,7 +586,7 @@ class NetworkController(private val context: ContextController, private val scop
         val event = if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry)
         mutable.update { s ->
             val withRow = s.copy(list = s.list.reduce(event))
-            if (s.line.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
+            if (s.applied.hasSearch && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
         }
     }
 

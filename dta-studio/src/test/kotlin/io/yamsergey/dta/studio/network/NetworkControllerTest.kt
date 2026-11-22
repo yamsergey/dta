@@ -351,6 +351,31 @@ class NetworkControllerTest {
         assertEquals(lists, daemon.ops.queries.size)
     }
 
+    /**
+     * D-021: an invalid line keeps the list of the last valid query, live and without an error; the
+     * kind switch applies to that query — the invalid one never reaches the daemon.
+     */
+    @Test
+    fun `an invalid line keeps the last valid query live, and a kind switch applies to it (D-021)`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        network.setQuery("url:example")
+        until { daemon.ops.queries.any { it.second.q == "url:example" } }
+        await { it.watching && it.applied.text == "url:example" }
+        network.setQuery("url:example status:abc")
+        val bad = await { it.line.text == "url:example status:abc" }
+        assertEquals("url:example", bad.applied.text, "the list keeps the last valid query")
+        assertTrue(bad.line.parsed.problems.isNotEmpty())
+        network.setKind(io.yamsergey.dta.present.network.KindChoice.HTTP)
+        until { daemon.ops.queries.any { it.second.q == "http url:example" } }
+        val s = await { it.watching && it.kind == io.yamsergey.dta.present.network.KindChoice.HTTP && !it.loading }
+        assertEquals(null, s.error)
+        assertEquals(3, s.list.rows.size, "the last valid query's rows")
+        assertTrue(daemon.ops.queries.none { it.second.q?.contains("abc") == true }, "the invalid line never reached the daemon: ${daemon.ops.queries.map { it.second.q }}")
+        assertTrue(daemon.ops.searches.none { it.q?.contains("abc") == true })
+        assertEquals("url:example status:abc", s.line.text, "the field keeps what was typed")
+    }
+
     @Test
     fun `the kind switch queries WebSocket traffic only, then everything again, and stays out of the line (043)`() = runBlocking<Unit> {
         session.start()
