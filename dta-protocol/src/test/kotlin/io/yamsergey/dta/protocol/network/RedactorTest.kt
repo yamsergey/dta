@@ -72,31 +72,40 @@ class RedactorTest {
         assertEquals(listOf("entry e2 request form password"), result.masked)
     }
 
+    /** Decision 2026-11-22 (4): text of other formats is masked by the free-text rules, saying what, instead of withheld whole. */
     @Test
-    fun `unrecognized formats are withheld, stating why`() {
-        for ((text, type) in listOf("token SECRET" to "text/plain", "<a>SECRET</a>" to "application/xml", "not json {" to null)) {
+    fun `text of other formats is masked by name and value, not withheld`() {
+        for ((text, type, expected) in listOf(
+            Triple("token=SECRET-1 user=ana", "text/plain", "token=${Redactor.MASK} user=ana"),
+            Triple("<a><password>SECRET-2</password><b>keep</b></a>", "application/xml", "<a><password>${Redactor.MASK}</password><b>keep</b></a>"),
+            Triple("""{"email":"SECRET-3","na""", null, """{"email":"${Redactor.MASK}","na"""),
+            Triple("42[\"auth\",{\"token\":\"SECRET-4\"}]", "text/plain", "42[\"auth\",{\"token\":\"${Redactor.MASK}\"}]"),
+            Triple("nothing to hide here", "text/plain", "nothing to hide here"),
+        )) {
             val result = Redactor.body(text, type, "entry e3 response")
-            assertNull(result.text, "$type must not pass through")
-            assertTrue("entry e3 response" in result.withheld!!, result.withheld)
+            assertEquals(expected, result.text, "$type: $text")
+            assertNull(result.withheld)
+            assertEquals(text != expected, result.masked.isNotEmpty(), "masked is listed: ${result.masked}")
+            assertTrue(result.masked.all { it.startsWith("entry e3 response text") }, result.masked.toString())
         }
     }
 
     @Test
-    fun `entries get urls and headers masked, previews redacted or dropped`() {
+    fun `entries get urls and headers masked, previews redacted`() {
         val entry = HttpEntry(
             "e1", "r", 1, "okhttp3", method = "POST", url = "https://h/login?token=SECRET-Q", state = HttpState.COMPLETE,
             requestHeaders = listOf(Header("Authorization", "Bearer SECRET-H")),
             requestBody = BodyInfo(BodyPart.REQUEST, 10, contentType = "application/json", completeness = Completeness.COMPLETE, preview = """{"password":"SECRET-P"}"""),
-            responseBody = BodyInfo(BodyPart.RESPONSE, 10, contentType = "text/plain", completeness = Completeness.COMPLETE, preview = "SECRET-PLAIN"),
+            responseBody = BodyInfo(BodyPart.RESPONSE, 10, contentType = "text/plain", completeness = Completeness.COMPLETE, preview = "session=SECRET-PLAIN; ok"),
         )
         val (redacted, info) = Redactor.entry(entry)
         val text = redacted.toString()
         assertFalse(listOf("SECRET-Q", "SECRET-H", "SECRET-P", "SECRET-PLAIN").any { it in text }, text)
         redacted as HttpEntry
         assertTrue(redacted.requestBody!!.preview!!.contains(Redactor.MASK))
-        assertNull(redacted.responseBody!!.preview)
-        assertTrue(info.masked.isNotEmpty())
-        assertTrue(info.withheld.any { "response preview" in it }, "${info.withheld}")
+        assertEquals("session=${Redactor.MASK}; ok", redacted.responseBody!!.preview, "a text preview is masked, not dropped")
+        assertTrue(info.masked.any { "response preview text session" in it }, "${info.masked}")
+        assertTrue(info.withheld.isEmpty(), "${info.withheld}")
     }
 
     @Test

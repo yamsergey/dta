@@ -101,7 +101,7 @@ class NetworkServiceTest {
         "chat" to (BodyInfo(BodyPart.MESSAGE, ts.size.toLong(), binary = true, completeness = Completeness.COMPLETE) to ts),
         "cut" to (BodyInfo(BodyPart.RESPONSE, 2, contentType = "text/plain", completeness = Completeness.TRUNCATED, completenessReason = "bound") to "ab".toByteArray()),
         "previewed" to (BodyInfo(BodyPart.REQUEST, 35, contentType = "application/json", completeness = Completeness.COMPLETE, preview = """{"password":"SECRET-P","name":"ok"}""") to """{"password":"SECRET-P","name":"ok"}""".toByteArray()),
-        "plainPreview" to (BodyInfo(BodyPart.RESPONSE, 13, contentType = "text/plain", completeness = Completeness.COMPLETE, preview = "SECRET-T text") to "SECRET-T text".toByteArray()),
+        "plainPreview" to (BodyInfo(BodyPart.RESPONSE, 22, contentType = "text/plain", completeness = Completeness.COMPLETE, preview = "token=SECRET-T, page 2") to "token=SECRET-T, page 2".toByteArray()),
         "unread" to (BodyInfo(BodyPart.RESPONSE, 2, declaredBytes = 2, contentType = "text/plain", completeness = Completeness.NOT_READ, completenessReason = "the app closed the body without reading it; 2 of 2 bytes were captured by the close") to "ok".toByteArray()),
     )
 
@@ -366,10 +366,20 @@ class NetworkServiceTest {
         val file = java.io.File(tmp, "p.json")
         val written = service.body("previewed", BodyPart.REQUEST, BodyOutput.File(file.path), redact = true)
         assertTrue("SECRET-P" !in DtaJson.encodeToString(BodyResult.serializer(), written))
-        val withheld = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
-        assertTrue("SECRET-T" !in DtaJson.encodeToString(BodyResult.serializer(), withheld), "a withheld body has no preview either")
+        val plain = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
+        assertTrue("SECRET-T" !in DtaJson.encodeToString(BodyResult.serializer(), plain), "a plain text body's preview is masked too")
         val overridden = service.body("plainPreview", BodyPart.RESPONSE, redact = true, allowUnredacted = true)
-        assertEquals("SECRET-T text", overridden.body.preview, "the explicit override returns it as is, marked not redacted")
+        assertEquals("token=SECRET-T, page 2", overridden.body.preview, "the explicit override returns it as is, marked not redacted")
         assertEquals(false, overridden.redaction!!.applied)
+    }
+
+    /** Decision 2026-11-22 (4): a text body of no structured format is masked by name and value and says what, not withheld. */
+    @Test
+    fun `a plain text body is masked under redaction, not withheld`() = withService { service, _ ->
+        val result = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
+        assertEquals("token=${io.yamsergey.dta.protocol.network.Redactor.MASK}, page 2", result.text)
+        assertEquals(listOf("entry plainPreview response body text token"), result.redaction!!.masked)
+        assertTrue(result.redaction!!.withheld.isEmpty())
+        assertTrue(result.degraded.orEmpty().none { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_REDACTION_WITHHELD })
     }
 }

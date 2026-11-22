@@ -12,9 +12,10 @@ import kotlinx.serialization.json.JsonPrimitive
  * names look like secrets or personal data in URLs, JSON and form bodies (a sensitive
  * JSON key masks its whole value, nested objects included; a key/value pair object —
  * `{"key": "user.email", "value": …}`, as in OTLP attributes — is the field its key names,
- * feature 006). Formats it
- * cannot inspect are withheld rather than passed through, and every masked or withheld
- * location is listed, so redacted output is safe to share and says what it hid.
+ * feature 006; JSON inside a string value too). Text of other formats, and free text, by
+ * name/value rules ([text], decision 2026-11-22); only binary that does not decode is withheld
+ * (by the daemon). Every masked or withheld location is listed, so redacted output is safe to
+ * share and says what it hid.
  */
 object Redactor {
 
@@ -135,7 +136,9 @@ object Redactor {
             val masked = mutableListOf<String>()
             return BodyRedaction(redactJson(parsed, "$", location, masked).toString(), masked, null)
         }
-        return BodyRedaction(null, emptyList(), "$location (${type ?: "unrecognized format"} not inspected)")
+        // Decision 2026-11-22: text of any other format (plain, XML, a frame protocol, a cut preview) by the free-text rules.
+        val (masked, where) = text(text, location)
+        return BodyRedaction(masked, where, null)
     }
 
     /** List form of an entry: URL, headers and previews. Withheld previews are dropped. */
