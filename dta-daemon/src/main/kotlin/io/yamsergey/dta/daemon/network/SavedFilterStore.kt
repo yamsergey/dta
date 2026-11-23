@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.network
 
+import io.yamsergey.dta.daemon.store.OwnerOnlyFiles
 import io.yamsergey.dta.protocol.rpc.InvalidParamsException
 import io.yamsergey.dta.protocol.network.NetworkQuery
 import io.yamsergey.dta.protocol.network.QueryLine
@@ -117,10 +118,7 @@ class SavedFilterStore(
 
     private fun save(pkg: String, s: SavedFilters): SavedFilters {
         apps[pkg] = s
-        val f = file(pkg).apply { parentFile.mkdirs() }
-        val tmp = File(f.path + ".tmp")
-        tmp.writeText(json.encodeToString(SavedFilters.serializer(), s))
-        Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        OwnerOnlyFiles.write(file(pkg), json.encodeToString(SavedFilters.serializer(), s))
         return s
     }
 

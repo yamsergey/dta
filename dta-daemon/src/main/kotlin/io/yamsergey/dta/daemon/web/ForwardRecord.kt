@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.web
 
+import io.yamsergey.dta.daemon.store.OwnerOnlyFiles
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -36,11 +37,6 @@ class ForwardRecord(private val file: File) {
     }
 
     private fun write(m: Map<String, Map<Int, String>>) {
-        runCatching {
-            file.parentFile?.mkdirs()
-            val tmp = File(file.parentFile, file.name + ".tmp")
-            tmp.writeText(json.encodeToString(shape, m))
-            if (!tmp.renameTo(file)) { file.delete(); tmp.renameTo(file) }
-        }
+        runCatching { OwnerOnlyFiles.write(file, json.encodeToString(shape, m)) }
     }
 }

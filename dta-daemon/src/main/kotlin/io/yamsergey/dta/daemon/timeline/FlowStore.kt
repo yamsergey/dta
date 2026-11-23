@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.timeline
 
+import io.yamsergey.dta.daemon.store.OwnerOnlyFiles
 import io.yamsergey.dta.protocol.rpc.InvalidParamsException
 import io.yamsergey.dta.protocol.timeline.Flow
 import io.yamsergey.dta.protocol.timeline.FlowStarted
@@ -105,10 +106,7 @@ class FlowStore(private val dataDir: File) {
 
     private fun save(serial: String, pkg: String, s: Stored) {
         apps[serial to pkg] = s
-        val f = file(serial, pkg).apply { parentFile.mkdirs() }
-        val tmp = File(f.path + ".tmp")
-        tmp.writeText(json.encodeToString(Stored.serializer(), s))
-        Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        OwnerOnlyFiles.write(file(serial, pkg), json.encodeToString(Stored.serializer(), s))
     }
 
     private fun file(serial: String, pkg: String) = File(File(File(dataDir, "flows"), safe(serial)), "${safe(pkg)}.json")

@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.network.proto
 
+import io.yamsergey.dta.daemon.store.OwnerOnlyFiles
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet
 import com.google.protobuf.Descriptors
 import kotlinx.serialization.Serializable
@@ -37,8 +38,8 @@ class SchemaRegistry(
         val types = types(files)
         val set = SchemaSet(name, source, files.map { it.name }, types.keys.toList(), clock())
         val dir = dir(pkg).apply { mkdirs() }
-        File(dir, "$name.desc").writeBytes(FileDescriptorSet.newBuilder().addAllFile(files.map { it.toProto() }).build().toByteArray())
-        File(dir, "$name.json").writeText(json.encodeToString(SchemaSet.serializer(), set))
+        OwnerOnlyFiles.write(File(dir, "$name.desc"), FileDescriptorSet.newBuilder().addAllFile(files.map { it.toProto() }).build().toByteArray())
+        OwnerOnlyFiles.write(File(dir, "$name.json"), json.encodeToString(SchemaSet.serializer(), set))
         state(pkg).sets[name] = Loaded(set, types)
         return set
     }
@@ -84,8 +85,8 @@ class SchemaRegistry(
         val replaced = state.sets.containsKey(name)
         val set = SchemaSet(name, SchemaSource.PROTO_SOURCES, compiled.map { it.name }, types.keys.toList(), clock(), stamped)
         val dir = dir(pkg).apply { mkdirs() }
-        File(dir, "$name.desc").writeBytes(FileDescriptorSet.newBuilder().addAllFile(compiled.map { it.toProto() }).build().toByteArray())
-        File(dir, "$name.json").writeText(json.encodeToString(SchemaSet.serializer(), set))
+        OwnerOnlyFiles.write(File(dir, "$name.desc"), FileDescriptorSet.newBuilder().addAllFile(compiled.map { it.toProto() }).build().toByteArray())
+        OwnerOnlyFiles.write(File(dir, "$name.json"), json.encodeToString(SchemaSet.serializer(), set))
         state.sets[name] = Loaded(set, types)
 
         // The origin's derived mappings are replaced as a whole.
@@ -230,7 +231,7 @@ class SchemaRegistry(
 
     private fun saveMappings(pkg: String, state: AppState) {
         val dir = dir(pkg).apply { mkdirs() }
-        File(dir, MAPPINGS).writeText(json.encodeToString(MappingsFile.serializer(), state.mappings))
+        OwnerOnlyFiles.write(File(dir, MAPPINGS), json.encodeToString(MappingsFile.serializer(), state.mappings))
     }
 
     private fun dir(pkg: String) = File(dataDir, "schemas/$pkg")

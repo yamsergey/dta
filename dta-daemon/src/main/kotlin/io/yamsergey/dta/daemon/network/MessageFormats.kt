@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.network
 
+import io.yamsergey.dta.daemon.store.OwnerOnlyFiles
 import io.yamsergey.dta.daemon.network.proto.SchemaException
 import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
@@ -145,7 +146,7 @@ class MessageFormats(
 
     private fun save(pkg: String, file: RulesFile) {
         apps[pkg] = file
-        file(pkg).apply { parentFile.mkdirs() }.writeText(json.encodeToString(RulesFile.serializer(), file))
+        OwnerOnlyFiles.write(file(pkg), json.encodeToString(RulesFile.serializer(), file))
     }
 
     private fun file(pkg: String) = File(File(dataDir, "formats"), "$pkg.json")
