@@ -62,7 +62,9 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     )
 
     override fun devices() = deviceList
-    override fun apps(serial: String) = AppList(serial, "com.example.shop", listOf(AppInfo("com.example.shop", true)))
+    /** The apps `apps.list` names (tests swap it). */
+    @Volatile var appInfos: List<AppInfo> = listOf(AppInfo("com.example.shop", true))
+    override fun apps(serial: String) = AppList(serial, "com.example.shop", appInfos)
     val appEventFlow = MutableSharedFlow<io.yamsergey.dta.protocol.ops.AppConnectionEvent>(extraBufferCapacity = 100)
     override fun appEvents(serial: String?): Flow<io.yamsergey.dta.protocol.ops.AppConnectionEvent> = appEventFlow
     override suspend fun capabilityReport(serial: String, pkg: String) = IdentityReport(1, "0.1.0", pkg, emptyList())

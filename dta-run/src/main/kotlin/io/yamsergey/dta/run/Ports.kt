@@ -56,6 +56,9 @@ interface DaemonView {
 
     /** Whether the daemon sees the app's sidekick on the device right now. */
     suspend fun sidekickPresent(serial: String, applicationId: String): Boolean
+
+    /** D-069: why the daemon's last connect to the app failed, or null. */
+    suspend fun connectError(serial: String, applicationId: String): String? = null
 }
 
 /** The daemon could not be reached or refused this client (version), with the statement. */

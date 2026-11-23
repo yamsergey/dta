@@ -88,7 +88,12 @@ data class AdbInfo(val path: String? = null, val available: Boolean, val reason:
 data class DeviceInfo(val serial: String, val state: String, val model: String? = null)
 
 @Serializable
-data class AppInfo(val packageName: String, val foreground: Boolean)
+data class AppInfo(
+    val packageName: String,
+    val foreground: Boolean,
+    /** D-069: why the daemon's last connect to the app failed (none since it connected, or never tried). */
+    val connectError: String? = null,
+)
 
 @Serializable
 data class AppList(val device: String, val foreground: String? = null, val apps: List<AppInfo>)

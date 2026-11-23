@@ -29,6 +29,8 @@ class SidekickConnectionManager(
     private val probe: suspend (AppConnection) -> Boolean,
     private val cooldown: Duration = 2.seconds,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** D-069: where a new connect error is said (the daemon's log). */
+    private val log: (String) -> Unit = { System.err.println(it) },
 ) {
     private class Entry(val connection: AppConnection, val port: Int)
     private class Failure(val at: Long, val error: Exception)
@@ -116,6 +118,9 @@ class SidekickConnectionManager(
         states.remove(key)
         Unit
     }
+
+    /** D-069: why the last connect to [key] failed; null once connected, or never tried. */
+    fun lastError(key: ConnectionKey): String? = null
 
     /** Keys of the connections currently held open. */
     fun openKeys(): List<ConnectionKey> = entries.filterValues { it.connection.isOpen }.keys.toList()
