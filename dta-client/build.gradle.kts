@@ -34,11 +34,16 @@ dependencies {
  * 009). The build time orders two builds of the same version, so a rebuilt CLI replaces an
  * older daemon. It lives in this jar because the CLI and the plugin both ship it; CI sets
  * DTA_BUILD_TIME once per run so the CLI and the plugin of one release share one identity.
+ *
+ * D-075: without DTA_BUILD_TIME the time is taken when the product's [sources] (or the version, the
+ * SHA) change, and kept while they do not: a CLI and a plugin built one after the other from one
+ * source state carry one identity and run together; an edit gives a newer one.
  */
 abstract class VersionResource : DefaultTask() {
     @get:Input abstract val version: Property<String>
     @get:Input abstract val sha: Property<String>
     @get:Input @get:Optional abstract val buildTime: Property<String>
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val sources: ConfigurableFileCollection
     @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
     @TaskAction
@@ -62,9 +67,12 @@ val versionResource = tasks.register<VersionResource>("versionResource") {
     version = project.version.toString()
     sha = gitSha.orElse("unknown")
     buildTime = providers.environmentVariable("DTA_BUILD_TIME")
+    // The product: every module's main sources and the build files that decide what goes into it (tests do not).
+    sources.from(rootProject.fileTree(rootDir) {
+        include("*/src/main/**", "*/build.gradle.kts", "build.gradle.kts", "settings.gradle.kts", "gradle.properties", "gradle/libs.versions.toml")
+        exclude("**/build/**", ".intellijPlatform/**")
+    })
     outputDir = layout.buildDirectory.dir("generated/version")
-    // Without DTA_BUILD_TIME a new build time on every build is the point; never reuse an old file.
-    outputs.upToDateWhen { false }
 }
 
 sourceSets.main {
