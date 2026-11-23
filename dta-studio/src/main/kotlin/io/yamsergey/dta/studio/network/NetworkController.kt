@@ -101,6 +101,25 @@ class NetworkController(private val context: ContextController, private val scop
                 .distinctUntilChanged()
                 .collect { reload(it) }
         }
+        // D-054: the app ended (or its link was lost) and connected again: perhaps a new run, which the
+        // search or list must start over in at once, even when no entry of the new run ever matches.
+        scope.launch {
+            val last = HashMap<Pair<String, String>, String>()
+            context.appConnections.collect { e ->
+                val before = last.put(e.device to e.app, e.state)
+                if (e.state == "connected" && (before == "ended" || before == "lost")) appStarted(e.device, e.app)
+            }
+        }
+    }
+
+    /** D-054 (071 restart rule): the shown app connected again; a new run is listed at once, the banner names the one before. */
+    private fun appStarted(device: String, app: String) {
+        val s = mutable.value
+        if (s.device != device || s.app != app || s.archive != null) return
+        // With the switch on the scope is the whole history: only a search that failed while the app was down starts again.
+        if (s.archiveOn && s.find != io.yamsergey.dta.protocol.network.FindState.FAILED && s.error == null) return
+        if (!s.archiveOn && restartFrom == null) restartFrom = s.scope?.run
+        requery()
     }
 
     private data class Target(val device: String?, val app: String?, val hasDta: Boolean, val generation: Int, val client: DaemonClient?)
@@ -471,7 +490,9 @@ class NetworkController(private val context: ContextController, private val scop
     /** Feature 071: a new scope; the app started again since the last one: the banner names the run before. */
     private fun NetworkViewState.withScope(next: io.yamsergey.dta.protocol.network.HistoryScope): NetworkViewState {
         val from = restartFrom
-        if (from == null || next.run == null || next.run!!.runId == from.runId) return copy(scope = next)
+        if (from == null || next.run == null) return copy(scope = next)
+        // D-054: the app connected again to the same run (its link came back): no restart; a later entry of a newer run still tells one.
+        if (next.run!!.runId == from.runId) { restartFrom = null; return copy(scope = next) }
         restartFrom = null
         return copy(scope = next, restart = io.yamsergey.dta.present.network.ScopeCaption.restarted(next.run!!, next.previous ?: from))
     }

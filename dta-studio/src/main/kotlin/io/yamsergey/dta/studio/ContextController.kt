@@ -49,6 +49,11 @@ class ContextController(
 
     private var watch: Job? = null
 
+    private val connectionsFlow = kotlinx.coroutines.flow.MutableSharedFlow<AppConnectionEvent>(extraBufferCapacity = 64)
+
+    /** D-054: every app connection change as the daemon reported it, none conflated (an app that ended and connected again). */
+    val appConnections: kotlinx.coroutines.flow.SharedFlow<AppConnectionEvent> = connectionsFlow
+
     init {
         scope.launch {
             session.collect { s ->
@@ -129,7 +134,9 @@ class ContextController(
     private fun onAppEvent(data: JsonObject, watched: String?) {
         if (watched == null) {
             if (data["selection"] == null) {
-                apply(ContextEvent.AppConnection(DtaJson.decodeFromJsonElement(AppConnectionEvent.serializer(), JsonObject(data - "subscription"))))
+                val event = DtaJson.decodeFromJsonElement(AppConnectionEvent.serializer(), JsonObject(data - "subscription"))
+                apply(ContextEvent.AppConnection(event))
+                connectionsFlow.tryEmit(event)
                 refreshDevices()
             }
             return
@@ -143,6 +150,7 @@ class ContextController(
         }
         val event = DtaJson.decodeFromJsonElement(AppConnectionEvent.serializer(), JsonObject(data - "subscription"))
         apply(ContextEvent.AppConnection(event))
+        connectionsFlow.tryEmit(event)
         // An app that just connected may be new to the app list (a fresh install, a second app).
         if (event.state == "connected") refreshApps()
     }
