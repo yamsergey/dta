@@ -12,6 +12,8 @@ import io.yamsergey.dta.protocol.ops.VersionIdentity
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -91,6 +93,32 @@ class AppsWatchTest {
         assertEquals(2, DtaJson.decodeFromJsonElement(Selected.serializer(), all[0]["selection"]!!).result.jsonObject["apps"]!!.jsonArray.size)
         assertEquals(listOf("emulator-5554", "emulator-5556"), all.drop(1).map { decode(it).device })
         assertEquals(listOf("refused"), oneApp.await().drop(1).map { decode(it).state })
+        client.close()
+    }
+
+    /**
+     * D-052: the answer means "watching". The server follows the app events before it answers, so an
+     * event that happens as soon as the client has the answer reaches it.
+     */
+    @Test
+    fun `the server follows the app events before it answers, an event right after the answer is delivered`() = runBlocking<Unit> {
+        val client = connect()
+        repeat(20) { n ->
+            val subscribedAtAnswer = mutableListOf<Int>()
+            val all = withTimeout(5_000) {
+                client.appEvents(buildJsonObject { put("device", "emulator-5554") })
+                    .onEach { data ->
+                        if (data["selection"] != null) {
+                            subscribedAtAnswer += fake.appEventFlow.subscriptionCount.value
+                            fake.appEventFlow.emit(event("emulator-5554", "com.example.shop", "connected-$n"))
+                        }
+                    }
+                    .take(2).toList()
+            }
+            assertEquals(listOf(1), subscribedAtAnswer, "try $n: following when the answer came")
+            assertEquals("connected-$n", decode(all[1]).state)
+            withTimeout(5_000) { fake.appEventFlow.subscriptionCount.first { it == 0 } }
+        }
         client.close()
     }
 }
