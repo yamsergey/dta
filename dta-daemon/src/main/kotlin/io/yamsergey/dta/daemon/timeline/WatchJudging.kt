@@ -7,8 +7,11 @@ import io.yamsergey.dta.protocol.timeline.TimelineEvent
 /**
  * Feature 065: Network's saved filters on `timeline watch`, one batch of live events at a time.
  * Only network events are judged, by entry id, with Network's own evaluator ([judge]); a verdict
- * is kept until the saved words change ([words] is cheap, [judge] reads the history). An entry the
- * history does not hold yet is shown and asked again next time. Which filters apply is said once,
+ * is kept until the saved words change ([words] is cheap, [judge] reads the history). A network row
+ * whose entry the history does not hold yet (the timeline got it first: a fresh daemon still catching
+ * up the app's journal, a batch on its way) is held back, and what follows waits behind it, so the
+ * order stays; it is judged again on each batch and shown after [holdMs] if still not judged, never
+ * lost (D-068: shown at once, rows the filters hide reached the watch). Which filters apply is said once,
  * at the start ([start]) and when they change or cannot be read ([Batch.saved]); hidden rows are
  * not counted one by one: the person who saved the filters knows (2026-11-15).
  */
@@ -38,16 +41,24 @@ class WatchJudging(
         return now.takeIf { it.isNotEmpty() }?.let { SavedFiltersApplied(it) }
     }
 
+    /** Events not given yet, oldest first, with when each was first seen (D-068). */
+    private val held = ArrayList<Pair<TimelineEvent, Long>>()
+
+    /**
+     * [events] (the next live batch, may be empty) after the rows held from earlier batches: what can be
+     * given now, in order, the rows the filters hide left out.
+     */
     suspend fun judge(events: List<TimelineEvent>): Batch {
+        val at = clock()
+        events.forEach { held += it to at }
         val now = words()
-        val entries = events.mapNotNull { it.network?.entryId }.distinct()
-        if (entries.isEmpty()) return Batch(events, announce(now))
+        val entries = held.mapNotNull { it.first.network?.entryId }.distinct()
         if (now != knownFor) {
             known.clear()
             knownFor = now
         }
         var saved = announce(now)
-        if (now.isEmpty()) return Batch(events, saved)
+        if (entries.isEmpty() || now.isEmpty()) return Batch(release(held.size), saved)
         if (entries.any { it !in known }) {
             val j = judge()
             if (j.words != knownFor) {
@@ -65,8 +76,16 @@ class WatchJudging(
                 saved = j.summary(0, 0)?.copy(hidden = null)
             }
         }
-        val kept = events.filter { e -> e.network?.let { known[it.entryId] } != Judgement.Verdict.HIDDEN }
-        return Batch(kept, saved)
+        // Given up to the first row still not judged and held for less than the bound.
+        val waiting = held.indexOfFirst { (e, since) -> e.network?.let { it.entryId !in known } == true && at - since < holdMs }
+        val ready = release(if (waiting < 0) held.size else waiting)
+        return Batch(ready.filter { e -> e.network?.let { known[it.entryId] } != Judgement.Verdict.HIDDEN }, saved)
+    }
+
+    private fun release(n: Int): List<TimelineEvent> {
+        val out = held.subList(0, n).map { it.first }
+        held.subList(0, n).clear()
+        return out
     }
 
     private fun announce(now: List<String>): SavedFiltersApplied? {
