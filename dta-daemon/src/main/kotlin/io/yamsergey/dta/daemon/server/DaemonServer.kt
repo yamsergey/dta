@@ -458,7 +458,9 @@ class DaemonServer(
                             val replayed = HashMap<String, NetworkEntry>()
                             var cursor: String? = null
                             do {
-                                val page = ops.network(serial, pkg, NetworkQuery(filter = filter.copy(runs = RunScope.CURRENT), limit = 1000, order = Order.OLDEST_FIRST, before = cursor, ignoreSavedFilters = true))
+                                // Feature 071 (FR-002, D-079): the switch scopes the replay as it scopes the live part: every run with it.
+                                val replayScope = if (archive) NetworkQuery(filter = filter, archive = true) else NetworkQuery(filter = filter.copy(runs = RunScope.CURRENT))
+                                val page = ops.network(serial, pkg, replayScope.copy(limit = 1000, order = Order.OLDEST_FIRST, before = cursor, ignoreSavedFilters = true))
                                 page.entries.forEach { entry ->
                                     replayed[entry.id] = entry
                                     undecided.send(NetworkEntryEvent(entry, EntryChange.CREATED))
