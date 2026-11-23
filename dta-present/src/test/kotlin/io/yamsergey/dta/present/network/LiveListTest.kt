@@ -113,12 +113,18 @@ class LiveListTest {
         assertEquals(ids(older), ids(dup))
     }
 
+    /** D-057 (042 US3: "no longer in the list" stays for eviction or a clear): the selection is kept, marked gone. */
     @Test
-    fun `clear empties the list and the selection`() {
+    fun `clear empties the list and keeps the selection, no longer in the list`() {
         val cleared = loaded.reduce(Selected("r1-1:2")).reduce(Cleared)
         assertEquals(emptyList(), cleared.rows)
-        assertEquals(null, cleared.selectedId)
+        assertEquals(0, cleared.history)
+        assertEquals("r1-1:2", cleared.selectedId)
+        assertTrue(cleared.selectedGone)
         assertTrue(cleared.following)
+        assertFalse(loaded.reduce(Cleared).selectedGone, "nothing selected, nothing gone")
+        // Listed again after the clear (the Archive switch on keeps it): it is in the list again.
+        assertFalse(cleared.reduce(LiveEvent.Merged(page(2))).selectedGone)
     }
 
     @Test

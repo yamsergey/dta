@@ -414,6 +414,30 @@ class NetworkControllerTest {
         assertTrue(cleared.statements.any { it.detail == "History cleared by cli: 3 entries removed." }, "${cleared.statements}")
     }
 
+    /** D-057 (042 US3): after a clear the selected entry is still shown, called no longer in the list, and the caption's count is the daemon's again. */
+    @Test
+    fun `after a clear the selection says no longer in the list and the scope is read again (D-057)`() = runBlocking<Unit> {
+        session.start()
+        val loaded = await { it.list.rows.size == 3 && it.watching }
+        assertEquals(3L, loaded.scope?.entries)
+        network.list(io.yamsergey.dta.present.network.LiveEvent.Selected("r1-1:2"))
+        daemon.ops.listed = { emptyList() }
+        daemon.ops.listScope = daemon.ops.listScope!!.copy(entries = 0, run = daemon.ops.listScope!!.run!!.copy(entries = 0))
+        daemon.connect(ClientKind.CLI).client.call("network.clear", kotlinx.serialization.json.JsonObject(mapOf(
+            "device" to JsonPrimitive("emulator-5554"), "app" to JsonPrimitive("com.example.shop"),
+        )))
+        val cleared = await { it.list.rows.isEmpty() && it.scope?.entries == 0L }
+        assertEquals("r1-1:2", cleared.list.selectedId)
+        assertTrue(cleared.list.selectedGone, "no longer in the list")
+        assertEquals(0L, cleared.scope!!.run!!.entries)
+        assertEquals(null, cleared.error)
+        assertTrue(cleared.watching)
+        // The tab's own Clear History does the same.
+        daemon.ops.listScope = daemon.ops.listScope!!.copy(entries = 5)
+        network.clear()
+        await { it.scope?.entries == 5L && it.list.selectedGone }
+    }
+
     /** D-053 (071 FR-004): with the Archive switch on, the export has the list's scope, as `dta network export --archive`. */
     @Test
     fun `export follows the Archive switch, off the current run, on everything kept (D-053)`() = runBlocking<Unit> {
