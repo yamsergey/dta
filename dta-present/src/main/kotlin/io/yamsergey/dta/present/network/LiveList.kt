@@ -85,7 +85,8 @@ data class LiveList(
             val known = index.keys
             val merged = (kept + fresh.filter { it.id !in known }).sortedWith(ORDER)
             val added = merged.size - rows.size
-            copy(rows = merged, index = indexOf(merged), history = history(event.page, merged.size), newCount = if (following) 0 else newCount + added)
+            copy(rows = merged, index = indexOf(merged), history = history(event.page, merged.size), newCount = if (following) 0 else newCount + added,
+                selectedGone = selectedGone && selectedId !in byId)
         }
         is LiveEvent.Older -> {
             val known = index.keys
@@ -98,7 +99,8 @@ data class LiveList(
         LiveEvent.JumpToEnd -> copy(following = true, newCount = 0)
         LiveEvent.Pause -> copy(paused = true)
         LiveEvent.Resume -> pending.fold(copy(paused = false, pending = emptyList())) { list, e -> list.apply(e) }
-        LiveEvent.Cleared -> LiveList()
+        // D-057 (042 US3): the selected entry stays shown, said to be no longer in the list.
+        LiveEvent.Cleared -> LiveList(selectedId = selectedId, selectedGone = selectedId != null)
     }
 
     private fun apply(event: LiveEvent): LiveList {

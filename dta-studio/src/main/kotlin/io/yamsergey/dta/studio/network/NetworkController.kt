@@ -648,13 +648,25 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return
         scope.launch {
             runCatching { c.call("network.clear", target(s)) }
-                .onSuccess { list(LiveEvent.Cleared) }
+                .onSuccess { list(LiveEvent.Cleared); afterClear(c) }
                 .onFailure { e -> mutable.update { it.copy(error = e.message) } }
         }
     }
 
     /** Where an export's [done] runs (the UI thread; tests have none). */
     @Volatile internal var uiContext: kotlin.coroutines.CoroutineContext = kotlinx.coroutines.Dispatchers.Main
+
+    /**
+     * D-057: after a clear the list is asked again: the caption's counts are the daemon's (not the run's
+     * count before the clear), and what the history still holds (the Archive switch on) is listed.
+     */
+    private fun afterClear(client: DaemonClient) {
+        scope.launch {
+            runCatching { client.call("network.list", params(mutable.value)).result.jsonObject }
+                .onSuccess { page -> mutable.update { it.copy(list = it.list.reduce(LiveEvent.Merged(page)), savedApplied = applied(page)).withPageScope(page) } }
+                .onFailure { e -> if (e is kotlinx.coroutines.CancellationException) throw e; if (!superseded(e)) mutable.update { it.copy(error = e.message ?: e.javaClass.simpleName) } }
+        }
+    }
 
     /** Feature 026: `network.export` of what the list shows, to [path]; [done] on the UI thread. */
     fun export(path: String, done: (Result<JsonObject>) -> Unit) {
@@ -735,6 +747,7 @@ class NetworkController(private val context: ContextController, private val scop
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
                         val cleared = Statements.forCleared(data)!!
                         mutable.update { it.copy(list = it.list.reduce(LiveEvent.Cleared), statements = it.statements.filter { s -> s.word != "cleared" } + cleared) }
+                        afterClear(client)
                     } else {
                         val event = data["event"]?.jsonObject ?: return@collect
                         val entry = event["entry"]?.jsonObject ?: return@collect
