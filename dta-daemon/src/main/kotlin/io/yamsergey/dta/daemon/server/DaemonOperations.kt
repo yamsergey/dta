@@ -53,6 +53,10 @@ interface DaemonOperations {
     fun networkCopied(serial: String, pkg: String): Flow<String> = kotlinx.coroutines.flow.emptyFlow()
     /** Feature 067: the live entry [id] as this computer holds it now, for a decision again. */
     suspend fun networkLiveEntry(serial: String, pkg: String, id: String): io.yamsergey.dta.protocol.network.NetworkEntry? = null
+    /** Feature 071 (D-079): the app's current run as this computer knows it; null when not known (nothing is scoped then). */
+    fun networkCurrentRun(serial: String, pkg: String): String? = null
+    /** Feature 071 (FR-004, D-079): what a live watch of [query] covers, as a list answer states it; null when not known. */
+    suspend fun networkScope(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.HistoryScope? = null
     /** Feature 071: [query]'s rows streamed as found (see [io.yamsergey.dta.daemon.DtaDaemon.networkFind]). */
     suspend fun networkFind(
         serial: String, pkg: String, query: NetworkQuery, limit: Int?,

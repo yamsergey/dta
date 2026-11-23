@@ -156,6 +156,11 @@ class FakeOperations : DaemonOperations {
         }
         return io.yamsergey.dta.protocol.network.EntryDecision(true) to false
     }
+    /** D-079: the app's current run (null: not known); the scope a watch states. */
+    var currentRun: String? = null
+    override fun networkCurrentRun(serial: String, pkg: String) = currentRun
+    override suspend fun networkScope(serial: String, pkg: String, query: NetworkQuery) =
+        currentRun?.let { io.yamsergey.dta.protocol.network.HistoryScope(query.archive, if (query.archive) 4 else 2, outside = if (query.archive) null else 2) }
     override fun networkEvents(serial: String, pkg: String, onSubscribed: suspend () -> Unit): Flow<NetworkEntryEvent> =
         events.onSubscription { onSubscribed() }
     override suspend fun networkScriptSet(serial: String, pkg: String, source: String) = ScriptStatus(active = true).also { calls += "script:$source" }
