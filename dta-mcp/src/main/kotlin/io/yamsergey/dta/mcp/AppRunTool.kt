@@ -113,9 +113,9 @@ class AppRunTool(private val runner: AppRunner, private val projects: () -> List
             }
         }
 
-        /** A real run as a daemon client of [kind]. */
-        fun real(kind: ClientKind): AppRunner = { request, progress ->
-            val environment = RunEnvironment(kind)
+        /** A real run as a daemon client of [kind]; [connect]: the host's way to the daemon (the plugin's starts it from its own jars). */
+        fun real(kind: ClientKind, connect: (suspend () -> io.yamsergey.dta.client.DaemonLauncher.Connected)? = null): AppRunner = { request, progress ->
+            val environment = if (connect != null) RunEnvironment(kind, connect = connect) else RunEnvironment(kind)
             try {
                 environment.session.run(request, progress)
             } finally {

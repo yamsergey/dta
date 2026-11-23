@@ -44,6 +44,26 @@ class SidekickConnectionTest {
         register("hang") { Thread.sleep(1_000); JsonPrimitive("late") }
     }
 
+    /**
+     * D-050: a caller cancelled while the dial waits (a subscription that went away, the app's process
+     * ending) is a cancellation, not "cannot reach sidekick": wrapped, the connection manager cached it for
+     * its cooldown and the next query answered "cannot reach sidekick (StandaloneCoroutine was cancelled)".
+     */
+    @Test
+    fun `a dial whose caller is cancelled ends as a cancellation, not as cannot reach`() = runBlocking {
+        // Takes the TCP connection and never answers the WebSocket handshake: the dial waits.
+        java.net.ServerSocket(0, 50, java.net.InetAddress.getLoopbackAddress()).use { silent ->
+            val accepted = Thread { runCatching { while (true) silent.accept() } }.apply { isDaemon = true; start() }
+            val e = assertFailsWith<Exception> {
+                kotlinx.coroutines.withTimeout(300.milliseconds) {
+                    SidekickConnection.connect(uri = URI("ws://127.0.0.1:${silent.localPort}/"), expectedPackage = "com.example.fixture")
+                }
+            }
+            assertTrue(e is kotlinx.coroutines.TimeoutCancellationException, "a cancellation, not wrapped: $e")
+            accepted.interrupt()
+        }
+    }
+
     @Test
     fun `connects, completes hello, and fetches identity`() = runBlocking {
         TestWsServer(registryWithDiagnostics()).use { server ->

@@ -13,9 +13,14 @@ class RunEnvironment(
     kind: ClientKind,
     home: DtaHome = DtaHome.resolve(),
     version: VersionInfo = VersionInfo.current(),
+    /**
+     * How this host reaches the daemon. The plugin's own connect starts it from the plugin's daemon jars;
+     * the default spawns from the current classpath, which in the IDE is the IDE's (no DaemonMain).
+     */
+    connect: suspend () -> DaemonLauncher.Connected = { DaemonLauncher(home = home, version = version).ensure(kind) },
 ) {
     val sidekickVersion: String = version.version
-    private val daemon = ClientDaemonView(connect = { DaemonLauncher(home = home, version = version).ensure(kind) })
+    private val daemon = ClientDaemonView(connect = connect)
     private val device = AdbDeviceActions(adb = {
         daemon.adbPath() ?: throw DaemonUnavailableException("The DTA daemon has no adb: set ANDROID_HOME or DTA_ADB and restart it with `dta daemon stop`.")
     })

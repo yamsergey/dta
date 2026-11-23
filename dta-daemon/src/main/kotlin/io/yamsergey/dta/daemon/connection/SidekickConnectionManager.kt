@@ -73,7 +73,9 @@ class SidekickConnectionManager(
         } catch (e: Exception) {
             // No half-open state: a failed dial never leaves its forward behind.
             runCatching { forwardOps.remove(key.serial, port) }
-            failures[key] = Failure(clock(), e)
+            // D-050: a dial its caller cancelled (a subscription gone as the app restarted) says nothing of the
+            // app; cached, the next query got "cannot reach sidekick (StandaloneCoroutine was cancelled)".
+            if (e !is kotlinx.coroutines.CancellationException) failures[key] = Failure(clock(), e)
             if (e is VersionIncompatibleException) change(key, "refused", e.message)
             throw e
         }

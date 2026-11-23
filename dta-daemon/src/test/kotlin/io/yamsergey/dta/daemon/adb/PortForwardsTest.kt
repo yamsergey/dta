@@ -19,11 +19,20 @@ class PortForwardsTest {
         var procNetUnix: String = PROC_NET_UNIX_WITH_FIXTURE
         var forwardStdout: String = "37543\n"
         var pidof: String = ""
+        /** `cat /proc/uptime /proc/<pid>/stat`: empty when the process's age cannot be read. */
+        var uptimeAndStat: String = ""
+        /** The socket appears from this scan on (1 = the first); 0: as [procNetUnix] says. */
+        var bindsAtScan = 0
+        var scans = 0
 
         fun run(args: List<String>): AdbExec.Result {
             commands += args
             return when {
-                args.contains("/proc/net/unix") -> AdbExec.Result(0, procNetUnix, "")
+                args.contains("/proc/uptime") -> AdbExec.Result(if (uptimeAndStat.isEmpty()) 1 else 0, uptimeAndStat, "")
+                args.contains("/proc/net/unix") -> {
+                    scans++
+                    AdbExec.Result(0, if (bindsAtScan in 1..scans) PROC_NET_UNIX_WITH_FIXTURE else procNetUnix, "")
+                }
                 args.contains("pidof") -> AdbExec.Result(if (pidof.isBlank()) 1 else 0, pidof, "")
                 args.contains("forward") && !args.contains("--remove") && !args.contains("--list") ->
                     AdbExec.Result(0, forwardStdout, "")
@@ -72,6 +81,82 @@ class PortForwardsTest {
         val e = assertFailsWith<AppWithoutDtaException> { forwards.forward(key) }
         assertEquals("io.yamsergey.dta.fixture.channel is running on emulator-5554 without DTA — build it with DTA", e.message)
         assertTrue(fake.commands.none { it.contains("forward") }, "no forward may be created")
+    }
+
+    /** `/proc/uptime` then `/proc/<pid>/stat` of a process started [ageMs] ago (Android's clock ticks: 100 a second). */
+    private fun uptimeAndStat(ageMs: Long): String {
+        val uptimeMs = 3_600_000L
+        val startTicks = (uptimeMs - ageMs) / 10
+        val fields = (3..52).map { if (it == 22) startTicks.toString() else "0" }.toMutableList()
+        fields[0] = "S"
+        return "${uptimeMs / 1000.0} 7000.00\n27080 (yamsergey.dta.fixture.channel) ${fields.joinToString(" ")}\n"
+    }
+
+    private class Clock {
+        var now = 0L
+        val slept = mutableListOf<Long>()
+        fun sleep(ms: Long) { slept += ms; now += ms }
+    }
+
+    /**
+     * D-050: a process that has just started has no socket for a moment. Asked in that moment, the answer was
+     * "without DTA — build it with DTA", wrong for an app that is starting: a young process is given a short
+     * grace for its sidekick to listen.
+     */
+    @Test
+    fun `a young process whose sidekick listens a moment later is forwarded, not called without DTA`() {
+        val fake = FakeAdb()
+        fake.procNetUnix = "Num RefCount Protocol\n0000: 0002 0000 @some_other_socket\n"
+        fake.pidof = "27080\n"
+        fake.uptimeAndStat = uptimeAndStat(ageMs = 1_000)
+        fake.bindsAtScan = 3
+        val clock = Clock()
+        val forwards = PortForwards({ fake.run(it) }, clock = { clock.now }, sleep = clock::sleep)
+
+        assertEquals(37543, forwards.forward(key))
+        assertEquals(3, fake.scans)
+        assertTrue(clock.slept.isNotEmpty() && clock.now < PortForwards.YOUNG_MS, "waited a moment only: ${clock.slept}")
+    }
+
+    @Test
+    fun `a young process that never listens is called without DTA once it is no longer young`() {
+        val fake = FakeAdb()
+        fake.procNetUnix = "Num RefCount Protocol\n0000: 0002 0000 @some_other_socket\n"
+        fake.pidof = "27080\n"
+        fake.uptimeAndStat = uptimeAndStat(ageMs = 2_000)
+        val clock = Clock()
+        val forwards = PortForwards({ fake.run(it) }, clock = { clock.now }, sleep = clock::sleep)
+
+        assertFailsWith<AppWithoutDtaException> { forwards.forward(key) }
+        assertTrue(clock.now in (PortForwards.YOUNG_MS - 2_000)..PortForwards.YOUNG_MS, "waited until the process was ${PortForwards.YOUNG_MS} ms old: ${clock.now}")
+        assertTrue(fake.commands.none { it.contains("forward") }, "no forward may be created")
+    }
+
+    @Test
+    fun `an older process without the socket is called without DTA at once`() {
+        val fake = FakeAdb()
+        fake.procNetUnix = "Num RefCount Protocol\n0000: 0002 0000 @some_other_socket\n"
+        fake.pidof = "27080\n"
+        fake.uptimeAndStat = uptimeAndStat(ageMs = 60_000)
+        val clock = Clock()
+        val forwards = PortForwards({ fake.run(it) }, clock = { clock.now }, sleep = clock::sleep)
+
+        assertFailsWith<AppWithoutDtaException> { forwards.forward(key) }
+        assertEquals(emptyList(), clock.slept)
+        assertEquals(1, fake.scans)
+    }
+
+    @Test
+    fun `a young process that ends while waiting is called not running`() {
+        val fake = FakeAdb()
+        fake.procNetUnix = "Num RefCount Protocol\n0000: 0002 0000 @some_other_socket\n"
+        fake.pidof = "27080\n"
+        fake.uptimeAndStat = uptimeAndStat(ageMs = 500)
+        val clock = Clock()
+        val forwards = PortForwards({ fake.run(it) }, clock = { clock.now }, sleep = { ms -> clock.sleep(ms); fake.pidof = "" })
+
+        val e = assertFailsWith<AppNotRunningException> { forwards.forward(key) }
+        assertTrue(e !is AppWithoutDtaException, "the process ended: not running, not without DTA")
     }
 
     @Test
