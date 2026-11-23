@@ -72,6 +72,40 @@ class DaemonSessionTest {
         assertTrue(again.statements.any { "replaced by 0.1.0 (build 2026-12-31T00:00:00Z)" in it }, "${again.statements}")
     }
 
+    /**
+     * D-065 (robot): a replaced daemon answers for a moment after it said so (it stops ~100 ms later), and
+     * the replacer starts its own one only after that. Reconnecting at once joined the dying daemon (its stop
+     * read "stopped" with Start); reconnecting once it was gone started this IDE's own daemon beside the
+     * replacer's ("another DTA daemon serves …"). The reconnect waits for the daemon the replacement named.
+     */
+    @Test
+    fun `after a replacement the reconnect waits for the daemon that replaced it`() = runBlocking<Unit> {
+        val by = VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)
+        val newer = TestDaemon(identity = by)
+        try {
+            val oldGone = java.util.concurrent.atomic.AtomicBoolean(false)
+            val connects = AtomicInteger()
+            val running = { if (oldGone.get()) newer else daemon }
+            val session = DaemonSession(
+                connect = { connects.incrementAndGet(); running().connect(ClientKind.IDE) },
+                scope = scope,
+                conflicting = { running().connect(ClientKind.IDE).client },
+            ).also { it.start() }
+            session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
+            daemon.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(by))
+            kotlinx.coroutines.delay(300)
+            daemon.server.stop("replaced by ${by.display}")
+            oldGone.set(true)
+            val again = session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { c -> c.statements.any { s -> "replaced by" in s } } }
+            assertEquals(2, connects.get(), "${again.statements}")
+            assertEquals(by, again.client.daemon.identity)
+            kotlinx.coroutines.delay(300)
+            assertIs<DaemonSession.State.Connected>(session.state.value)
+        } finally {
+            newer.close()
+        }
+    }
+
     @Test
     fun `a stopped daemon is stated and not restarted behind the person's back`() = runBlocking<Unit> {
         val connects = AtomicInteger()
@@ -89,6 +123,76 @@ class DaemonSessionTest {
         val session = DaemonSession(connect = { daemon.connect(ClientKind.IDE) }, scope = scope).also { it.start() }
         session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
         daemon.server.stop(null)
+        val lost = session.awaitState { it as? DaemonSession.State.Failed }
+        assertTrue("connection" in lost.message, lost.message)
+        assertEquals("Retry", lost.action)
+    }
+
+    /**
+     * D-065: a CLI of another build replaced the plugin's daemon (the plugin is now older: a conflict),
+     * then `dta daemon stop` stopped that newer one. The conflict is no longer true: the plugin says the
+     * daemon stopped and offers Start (never error-free silence, never a restart behind the person's back),
+     * and Start connects again.
+     */
+    @Test
+    fun `a conflict follows the newer daemon - its stop is stated with Start, and Start connects again`() = runBlocking<Unit> {
+        val newer = TestDaemon(identity = VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1))
+        try {
+            val connects = AtomicInteger()
+            val following = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
+            lateinit var session: DaemonSession
+            session = DaemonSession(
+                connect = { if (connects.incrementAndGet() == 2) throw conflict else daemon.connect(ClientKind.IDE) },
+                scope = scope,
+                // Awaited once as the replacement, then followed as the conflict: the stop comes once it is followed.
+                conflicting = { newer.connect(ClientKind.IDE).client.also { if (session.state.value is DaemonSession.State.Conflict) following.complete(Unit) } },
+            ).also { it.start() }
+            session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
+            daemon.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)))
+            session.awaitState { it as? DaemonSession.State.Conflict }
+            withTimeout(5_000) { following.await() }
+            newer.server.stop("stopped by a client (cli)")
+            val stopped = session.awaitState { it as? DaemonSession.State.Failed }
+            assertTrue("stopped by a client" in stopped.message, stopped.message)
+            assertEquals("Start", stopped.action)
+            assertEquals(2, connects.get(), "not restarted behind the person's back")
+            session.retry()
+            session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { connects.get() == 3 } }
+        } finally {
+            newer.close()
+        }
+    }
+
+    @Test
+    fun `a conflict whose newer daemon is replaced by this version connects again by itself`() = runBlocking<Unit> {
+        val newer = TestDaemon(identity = VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1))
+        val mine = TestDaemon(identity = VersionIdentity("0.1.0", "2027-01-01T00:00:00Z", 1))
+        val replaced = java.util.concurrent.atomic.AtomicBoolean(false)
+        try {
+            val connects = AtomicInteger()
+            val following = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
+            val session = DaemonSession(
+                connect = { if (connects.incrementAndGet() == 1) throw conflict else mine.connect(ClientKind.IDE) },
+                scope = scope,
+                conflicting = { (if (replaced.get()) mine else newer).connect(ClientKind.IDE).client.also { following.complete(Unit) } },
+            ).also { it.start() }
+            session.awaitState { it as? DaemonSession.State.Conflict }
+            withTimeout(5_000) { following.await() }
+            replaced.set(true)
+            newer.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2027-01-01T00:00:00Z", 1)))
+            session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { connects.get() == 2 } }
+        } finally {
+            newer.close()
+            mine.close()
+        }
+    }
+
+    @Test
+    fun `a conflict whose newer daemon is already gone is stated as lost, with a retry`() = runBlocking<Unit> {
+        val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
+        val session = DaemonSession(connect = { throw conflict }, scope = scope, conflicting = { null }).also { it.start() }
         val lost = session.awaitState { it as? DaemonSession.State.Failed }
         assertTrue("connection" in lost.message, lost.message)
         assertEquals("Retry", lost.action)

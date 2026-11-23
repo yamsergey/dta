@@ -7,14 +7,18 @@ import io.yamsergey.dta.client.VersionConflictException
 import io.yamsergey.dta.protocol.ops.DaemonEvents
 import io.yamsergey.dta.protocol.ops.DaemonReplacedEvent
 import io.yamsergey.dta.protocol.ops.DaemonStoppingEvent
+import io.yamsergey.dta.protocol.ops.VersionIdentity
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * The IDE's one connection to the shared daemon (research R4, FR-015/016). It starts or joins
@@ -24,6 +28,8 @@ import kotlinx.coroutines.runBlocking
 class DaemonSession(
     private val connect: suspend () -> DaemonLauncher.Connected,
     private val scope: CoroutineScope,
+    /** D-065: a connection to the running daemon whatever its version (null when none runs), to follow one this IDE conflicts with. */
+    private val conflicting: (suspend () -> DaemonClient?)? = null,
 ) {
     sealed interface State {
         data object Starting : State
@@ -53,6 +59,7 @@ class DaemonSession(
             connect()
         } catch (e: VersionConflictException) {
             mutable.value = State.Conflict(e.message!!)
+            followConflict()
             return
         } catch (e: DaemonStartException) {
             mutable.value = State.Failed(e.message!!)
@@ -63,13 +70,39 @@ class DaemonSession(
         }
         val client = connected.client
         mutable.value = State.Connected(client, client.daemon.identity.display, listOfNotNull(note) + connected.statements)
-        // One place decides what the end of the connection means: replaced, stopped, or lost.
+        ended(client)
+    }
+
+    /**
+     * D-065: the conflict lasts only while the newer daemon runs. It is followed as any connection is
+     * (without using it), so its end is stated: stopped (Start, never restarted behind the person's
+     * back), replaced (connected again), or gone (Retry). Without it the conflict banner would outlive it.
+     */
+    private suspend fun followConflict() {
+        val follow = conflicting ?: return
+        val client = runCatching { follow() }.getOrNull()
+        if (client == null) {
+            mutable.value = State.Failed("Lost the connection to the DTA daemon: it is no longer running.")
+            return
+        }
+        // A retry or dispose ends the follow: the newer daemon keeps no connection of this IDE.
+        try {
+            ended(client)
+        } finally {
+            withContext(NonCancellable) { runCatching { client.close() } }
+        }
+    }
+
+    /** One place decides what the end of a connection means: replaced, stopped, or lost. */
+    private suspend fun ended(client: DaemonClient) {
         client.awaitGone()
         val ended = client.endedBy
         when (ended?.name) {
             DaemonEvents.REPLACED -> {
                 val by = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), ended.data!!).by.display }.getOrDefault("a newer version")
                 mutable.value = State.Replaced(by)
+                val replacer = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), ended.data!!).by }.getOrNull()
+                if (replacer != null) awaitReplacement(replacer)
                 start(note = "the DTA daemon was replaced by $by; reconnected")
             }
             DaemonEvents.STOPPING -> {
@@ -80,10 +113,34 @@ class DaemonSession(
         }
     }
 
+    /**
+     * D-065: the replaced daemon answers for a moment after it said so, and the replacer starts its own
+     * daemon only once it is gone. Joining at once would join the dying one ("stopped" with Start); starting
+     * one would race the replacer's ("another DTA daemon serves …"). So the reconnect waits, without
+     * starting anything, until the daemon running is the one the replacement named, or until
+     * [REPLACEMENT_WAIT_MS] (the replacer gave up: this IDE starts its own).
+     */
+    private suspend fun awaitReplacement(by: VersionIdentity) {
+        val follow = conflicting ?: return
+        val deadline = System.currentTimeMillis() + REPLACEMENT_WAIT_MS
+        while (System.currentTimeMillis() < deadline) {
+            val running = runCatching { follow() }.getOrNull()
+            val found = running?.daemon?.identity == by
+            running?.let { withContext(NonCancellable) { runCatching { it.close() } } }
+            if (found) return
+            delay(100)
+        }
+    }
+
     /** Closes this IDE's connection; the daemon keeps running for its other clients. */
     fun dispose() {
         val current = mutable.value
         job?.cancel()
         if (current is State.Connected) runBlocking { runCatching { current.client.close() } }
+    }
+
+    private companion object {
+        /** The launcher's own wait for a replaced daemon (10 s) plus its start timeout (20 s). */
+        const val REPLACEMENT_WAIT_MS = 30_000L
     }
 }

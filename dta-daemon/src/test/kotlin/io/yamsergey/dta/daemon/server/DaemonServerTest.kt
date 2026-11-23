@@ -263,6 +263,18 @@ class DaemonServerTest {
         assertFalse(state.stateFile.exists())
     }
 
+    /** D-065: a replaced daemon then stops (daemon.stopping follows daemon.replaced); the connection ended by the replacement. */
+    @Test
+    fun `a replacement stays what ended a connection though the stop follows it`() = runBlocking<Unit> {
+        val bystander = connect(ClientKind.IDE)
+        val newer = identity.copy(build = "2026-10-29T10:00:00Z")
+        connect(id = newer).request("daemon.replace", DaemonClient.replaceParams(newer))
+        withTimeout(3_000) { bystander.awaitGone() }
+        withTimeout(3_000) { while (state.stateFile.exists()) delay(50) }
+        delay(300)
+        assertEquals("daemon.replaced", bystander.endedBy?.name, "${bystander.goneReason}")
+    }
+
     @Test
     fun `one client may send from many coroutines at once`() = runBlocking<Unit> {
         val client = connect()
