@@ -15,7 +15,14 @@ import io.yamsergey.dta.protocol.timeline.TimelineEvent
 class WatchJudging(
     private val words: suspend () -> List<String>,
     private val judge: suspend () -> Judgement,
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** How long a network row whose entry the history does not hold yet is held back (D-068). */
+    private val holdMs: Long = HOLD_MS,
 ) {
+    companion object {
+        const val HOLD_MS = 10_000L
+    }
+
     class Batch(val events: List<TimelineEvent>, val saved: SavedFiltersApplied?)
 
     private val known = HashMap<String, Judgement.Verdict>()
