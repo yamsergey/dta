@@ -10,11 +10,13 @@ import io.yamsergey.dta.protocol.ops.DaemonStoppingEvent
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * The IDE's one connection to the shared daemon (research R4, FR-015/016). It starts or joins
@@ -55,6 +57,7 @@ class DaemonSession(
             connect()
         } catch (e: VersionConflictException) {
             mutable.value = State.Conflict(e.message!!)
+            followConflict()
             return
         } catch (e: DaemonStartException) {
             mutable.value = State.Failed(e.message!!)
@@ -65,7 +68,31 @@ class DaemonSession(
         }
         val client = connected.client
         mutable.value = State.Connected(client, client.daemon.identity.display, listOfNotNull(note) + connected.statements)
-        // One place decides what the end of the connection means: replaced, stopped, or lost.
+        ended(client)
+    }
+
+    /**
+     * D-065: the conflict lasts only while the newer daemon runs. It is followed as any connection is
+     * (without using it), so its end is stated: stopped (Start, never restarted behind the person's
+     * back), replaced (connected again), or gone (Retry). Without it the conflict banner would outlive it.
+     */
+    private suspend fun followConflict() {
+        val follow = conflicting ?: return
+        val client = runCatching { follow() }.getOrNull()
+        if (client == null) {
+            mutable.value = State.Failed("Lost the connection to the DTA daemon: it is no longer running.")
+            return
+        }
+        // A retry or dispose ends the follow: the newer daemon keeps no connection of this IDE.
+        try {
+            ended(client)
+        } finally {
+            withContext(NonCancellable) { runCatching { client.close() } }
+        }
+    }
+
+    /** One place decides what the end of a connection means: replaced, stopped, or lost. */
+    private suspend fun ended(client: DaemonClient) {
         client.awaitGone()
         val ended = client.endedBy
         when (ended?.name) {

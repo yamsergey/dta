@@ -22,7 +22,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Service(Service.Level.APP)
 class DtaApplicationService(scope: CoroutineScope) : Disposable {
     val version: VersionInfo = VersionInfo.current()
-    val session = DaemonSession(connect = { connect(ClientKind.IDE) }, scope = scope)
+    val session = DaemonSession(
+        connect = { connect(ClientKind.IDE) },
+        scope = scope,
+        // D-065: the newer daemon a conflict names, followed until it ends (never started from here).
+        conflicting = { DaemonLauncher(version = version, spawner = { _, _, _ -> error("following never starts a daemon") }).existing(ClientKind.IDE) },
+    )
     private val started = AtomicBoolean(false)
 
     /** Starts (or joins) the daemon the first time any project needs it. */
