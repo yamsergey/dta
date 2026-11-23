@@ -23,6 +23,8 @@ class AppConnectionWatcher(
     private val instances: (serial: String?) -> List<ConnectionKey>,
     private val manager: SidekickConnectionManager,
     private val interval: Duration = 1.seconds,
+    /** D-074: the socket id discovery last saw for an app (a new one is a new process). */
+    private val socketOf: (ConnectionKey) -> String? = { null },
 ) {
     fun events(serial: String?): Flow<AppConnectionEvent> = channelFlow {
         launch(start = CoroutineStart.UNDISPATCHED) {
@@ -34,7 +36,7 @@ class AppConnectionWatcher(
         while (isActive) {
             // A failed look (adb hiccup) keeps what we knew rather than ending every app.
             val running = runCatching { instances(serial).toSet() }.getOrDefault(known)
-            running.forEach { key -> runCatching { manager.connect(key) } }
+            running.forEach { key -> runCatching { manager.connect(key, background = true, socket = socketOf(key)) } }
             (known - running).forEach { key -> manager.ended(key) }
             known = running
             delay(interval)

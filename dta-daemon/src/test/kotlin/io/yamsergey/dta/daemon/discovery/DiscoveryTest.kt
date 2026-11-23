@@ -48,11 +48,17 @@ class DiscoveryTest {
         val instances = discovery().listInstances()
         assertEquals(
             listOf(
-                SidekickInstance("emulator-5554", "io.yamsergey.dta.fixture.channel"),
-                SidekickInstance("emulator-5554", "com.example.other"),
+                SidekickInstance("emulator-5554", "io.yamsergey.dta.fixture.channel", "52412"),
+                SidekickInstance("emulator-5554", "com.example.other", "52413"),
             ),
             instances,
         )
+    }
+
+    /** D-074: the socket's inode tells a new process of the app (it ends the background backoff). */
+    @Test
+    fun `each instance names its socket`() {
+        assertEquals(listOf("52412", "52413"), discovery().listInstances().map { it.socket })
     }
 
     @Test

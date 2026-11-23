@@ -87,10 +87,11 @@ class SidekickConnectionManagerTest {
                 forward = { forwards.forward(it) },
                 remove = { serial, port -> forwards.remove(serial, port) },
             ),
-            connector = { key, _ ->
+            connector = { key, port ->
                 dialCount.incrementAndGet()
                 if (dialDelay > Duration.ZERO) delay(dialDelay)
-                if (dialShouldFail) throw ConnectException("cannot reach sidekick in ${key.packageName} — restart the app and retry")
+                // Each try is on its own forward, so the message names a new port (D-074).
+                if (dialShouldFail) throw ConnectException("cannot reach sidekick at ws://127.0.0.1:$port/ (request timed out) — restart the app and retry")
                 FakeConnection(key.packageName).also { built += it }
             },
             probe = { connection -> runCatching { connection.request("ping", null, 2.seconds) }.isSuccess },
@@ -280,6 +281,47 @@ class SidekickConnectionManagerTest {
         delay(100)
         cancelled.cancelAndJoin()
         assertEquals(null, h.manager.lastError(key), "a cancelled dial is no error of the app")
+    }
+
+    /**
+     * D-074: apps left running that nobody selected, whose sidekick does not answer (a frozen background
+     * process), were dialled by the watcher every few seconds, each on a new adb forward: 151 tries in
+     * 20 min, then the emulator's adbd wedged. A background connect that keeps failing backs off to once
+     * a minute; a client's own call still tries after the 2 s cooldown; no try leaves its forward.
+     */
+    @Test
+    fun `a background connect that keeps failing backs off to once a minute, a client's call still tries`() = runBlocking<Unit> {
+        val h = Harness()
+        h.dialShouldFail = true
+        repeat(600) { runCatching { h.manager.connect(key, background = true) }; h.now += 1_000 } // 10 min, once a second
+        val dials = h.dialCount.get()
+        assertTrue(dials in 8..16, "tries in 10 min backed off (2, 4, 8, 16, 32 s, then 60 s): $dials")
+        assertTrue(h.forwards.active.isEmpty(), "no try leaves its forward behind")
+        assertEquals(1, h.logged.size, "one failing streak is one log line, whatever port each try had: ${h.logged}")
+
+        h.now += 2_000
+        assertFailsWith<ConnectException> { h.manager.connect(key) }
+        assertEquals(dials + 1, h.dialCount.get(), "a client's call is not held by the background backoff")
+    }
+
+    @Test
+    fun `a new socket of the app ends the backoff, and so does a connection`() = runBlocking<Unit> {
+        val h = Harness()
+        h.dialShouldFail = true
+        repeat(5) { runCatching { h.manager.connect(key, background = true, socket = "111") }; h.now += 1_000 }
+        val dials = h.dialCount.get()
+        runCatching { h.manager.connect(key, background = true, socket = "111") }
+        assertEquals(dials, h.dialCount.get(), "the same socket: still backing off")
+        h.dialShouldFail = false
+        h.manager.connect(key, background = true, socket = "222") // the app restarted: a new socket, tried at once
+        assertEquals(dials + 1, h.dialCount.get())
+
+        h.manager.close(key)
+        h.dialShouldFail = true
+        runCatching { h.manager.connect(key, background = true, socket = "222") }
+        h.now += 2_000
+        runCatching { h.manager.connect(key, background = true, socket = "222") }
+        assertEquals(dials + 3, h.dialCount.get(), "after a connection the streak starts again at 2 s")
     }
 
     @Test

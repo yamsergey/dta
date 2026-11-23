@@ -33,7 +33,8 @@ class SidekickConnectionManager(
     private val log: (String) -> Unit = { System.err.println(it) },
 ) {
     private class Entry(val connection: AppConnection, val port: Int)
-    private class Failure(val at: Long, val error: Exception)
+    /** A failed dial: when, why, how many in a row ([streak]) and on which socket of the app. */
+    private class Failure(val at: Long, val error: Exception, val streak: Int = 1, val socket: String? = null)
 
     private val locks = ConcurrentHashMap<ConnectionKey, Mutex>()
     private val entries = ConcurrentHashMap<ConnectionKey, Entry>()
@@ -45,17 +46,26 @@ class SidekickConnectionManager(
     /** `connected`, `lost`, `refused`, `ended` — each published once per change of state. */
     val changes: SharedFlow<AppConnectionEvent> = changeFlow.asSharedFlow()
 
-    suspend fun connect(key: ConnectionKey): AppConnection = lockFor(key).withLock {
+    /**
+     * [background]: the watcher's connect of an app nobody asked for (D-074); [socket]: its socket's id
+     * as discovery saw it.
+     */
+    suspend fun connect(key: ConnectionKey, background: Boolean = false, socket: String? = null): AppConnection = lockFor(key).withLock {
         entries[key]?.let { entry ->
             if (probe(entry.connection)) return entry.connection
             teardown(key, entry)
             change(key, "lost", "the app's sidekick stopped answering on its channel")
         }
 
-        failures[key]?.let { failure ->
-            if (clock() - failure.at < cooldown.inWholeMilliseconds) throw failure.error
-            failures.remove(key)
+        val previous = failures[key]
+        previous?.let { failure ->
+            val since = clock() - failure.at
+            if (since < cooldown.inWholeMilliseconds) throw failure.error
+            // D-074: the watcher's try of an app nobody asked for backs off while the same socket keeps failing.
+            val sameSocket = socket == null || failure.socket == null || socket == failure.socket
+            if (background && sameSocket && since < backoffMs(failure.streak)) throw failure.error
         }
+        fun failure(e: Exception) = Failure(clock(), e, streak = if (previous != null && (socket == null || previous.socket == null || previous.socket == socket)) previous.streak + 1 else 1, socket = socket)
 
         val port = try {
             forwardOps.forward(key)
@@ -64,7 +74,7 @@ class SidekickConnectionManager(
             // moment the app starts or its sidekick listens. Cached, a look in the instant between a new
             // process and its socket (the watcher, a view re-subscribing) answered the next query
             // "without DTA" (D-050).
-            if (!e.isPreflight()) failures[key] = Failure(clock(), e)
+            if (!e.isPreflight()) failures[key] = failure(e) else failures.remove(key)
             failed(key, e)
             throw e
         }
@@ -72,6 +82,7 @@ class SidekickConnectionManager(
         try {
             val connection = connector(key, port)
             entries[key] = Entry(connection, port)
+            failures.remove(key)
             lastErrors.remove(key)
             change(key, "connected", null)
             connection
@@ -80,7 +91,7 @@ class SidekickConnectionManager(
             runCatching { forwardOps.remove(key.serial, port) }
             // D-050: a dial its caller cancelled (a subscription gone as the app restarted) says nothing of the
             // app; cached, the next query got "cannot reach sidekick (StandaloneCoroutine was cancelled)".
-            if (e !is kotlinx.coroutines.CancellationException) failures[key] = Failure(clock(), e)
+            if (e !is kotlinx.coroutines.CancellationException) failures[key] = failure(e)
             failed(key, e)
             if (e is VersionIncompatibleException) change(key, "refused", e.message)
             throw e
@@ -131,8 +142,18 @@ class SidekickConnectionManager(
     private fun failed(key: ConnectionKey, e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) return
         val text = e.message ?: e.javaClass.simpleName
-        if (lastErrors.put(key, text) != text) runCatching { log("${java.time.Instant.now()} connect ${key.packageName} on ${key.serial} failed: $text") }
+        val before = lastErrors.put(key, text)
+        // D-074: each try is on a new forward, so its message names a new port: the same error all the same.
+        if (before?.let(::withoutPorts) != withoutPorts(text)) {
+            val streak = failures[key]?.streak ?: 1
+            runCatching { log("${java.time.Instant.now()} connect ${key.packageName} on ${key.serial} failed: $text" + if (streak > 1) " ($streak in a row)" else "") }
+        }
     }
+
+    private fun withoutPorts(text: String) = text.replace(Regex(":\\d+"), ":<port>")
+
+    /** D-074: how long the watcher waits after [streak] failures in a row: 2 s, doubling, at most a minute. */
+    private fun backoffMs(streak: Int): Long = (cooldown.inWholeMilliseconds shl (streak - 1).coerceIn(0, 10)).coerceAtMost(MAX_BACKOFF_MS)
 
     /** Keys of the connections currently held open. */
     fun openKeys(): List<ConnectionKey> = entries.filterValues { it.connection.isOpen }.keys.toList()
@@ -154,6 +175,10 @@ class SidekickConnectionManager(
 
     /** Not running, or running without a sidekick socket (AppWithoutDtaException is one of these). */
     private fun Exception.isPreflight() = this is io.yamsergey.dta.daemon.adb.AppNotRunningException
+
+    private companion object {
+        const val MAX_BACKOFF_MS = 60_000L
+    }
 
     private fun lockFor(key: ConnectionKey): Mutex = locks.computeIfAbsent(key) { Mutex() }
 }
