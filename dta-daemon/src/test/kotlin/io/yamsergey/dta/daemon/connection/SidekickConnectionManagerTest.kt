@@ -8,7 +8,9 @@ import io.yamsergey.dta.protocol.rpc.HelloResult
 import io.yamsergey.dta.protocol.rpc.PROTOCOL_VERSION
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.runBlocking
@@ -221,6 +223,24 @@ class SidekickConnectionManagerTest {
         h.forwards.withoutDta = false // the sidekick binds within the cooldown
         h.now += 100
         assertEquals("com.example.fixture", h.manager.connect(key).hello.packageName)
+    }
+
+    /**
+     * D-050: a connect whose caller was cancelled while it dialled (a subscription that went away as the
+     * app restarted) is no failure of the app: the next call dials instead of getting it for the cooldown.
+     */
+    @Test
+    fun `a dial cancelled by its caller leaves no failure - the next call dials`() = runBlocking {
+        val h = Harness()
+        h.dialDelay = 5.seconds
+        val first = launch { h.manager.connect(key) }
+        delay(100)
+        first.cancelAndJoin()
+        assertTrue(h.forwards.active.isEmpty(), "the cancelled dial's forward is removed")
+        h.dialDelay = Duration.ZERO
+        h.now += 100 // within the cooldown
+        assertEquals("com.example.fixture", h.manager.connect(key).hello.packageName)
+        assertEquals(2, h.dialCount.get())
     }
 
     @Test
