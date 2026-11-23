@@ -61,6 +61,15 @@ class DiscoveryTest {
         assertEquals(listOf("52412", "52413"), discovery().listInstances().map { it.socket })
     }
 
+    /** D-074: a watched device is scanned with one adb shell call, no device listing. */
+    @Test
+    fun `one device is scanned with one adb call`() {
+        val commands = mutableListOf<List<String>>()
+        val instances = discovery(commands = commands).listInstances("emulator-5554")
+        assertEquals(listOf("io.yamsergey.dta.fixture.channel", "com.example.other"), instances.map { it.packageName })
+        assertEquals(listOf(listOf("-s", "emulator-5554", "shell", "cat", "/proc/net/unix")), commands)
+    }
+
     @Test
     fun `offline and unauthorized devices are never scanned`() {
         val commands = mutableListOf<List<String>>()

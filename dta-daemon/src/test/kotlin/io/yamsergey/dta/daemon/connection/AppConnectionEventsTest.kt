@@ -175,6 +175,29 @@ class AppConnectionEventsTest {
         assertTrue(dials.get() in 1..10, "150 s of polling, backed off: ${dials.get()} tries (every 2 s would be ~75)")
     }
 
+    /**
+     * D-074: each watching client ran its own scan loop (adb devices + cat /proc/net/unix every second);
+     * with the plugin, a CLI watch and a run that was 3 scans a second. Watchers share one scan per device.
+     */
+    @Test
+    fun `watchers of a device share one scan, which stops with the last of them`() = runBlocking {
+        val h = Harness()
+        val scans = java.util.concurrent.atomic.AtomicInteger()
+        val watcher = AppConnectionWatcher(instances = { scans.incrementAndGet(); listOf(key) }, manager = h.manager, interval = 50.milliseconds)
+        val one = launch { watcher.events(null).collect {} }
+        kotlinx.coroutines.delay(1_000)
+        val alone = scans.get()
+        val more = listOf(launch { watcher.events(null).collect {} }, launch { watcher.events("emulator-5554").collect {} })
+        kotlinx.coroutines.delay(1_000)
+        val shared = scans.get() - alone
+        assertTrue(shared <= alone * 3 / 2, "3 watchers scanned $shared times in the second 1 s, one alone $alone")
+        (more + one).forEach { it.cancel() }
+        kotlinx.coroutines.delay(200)
+        val stopped = scans.get()
+        kotlinx.coroutines.delay(300)
+        assertEquals(stopped, scans.get(), "no watcher: no scan")
+    }
+
     @Test
     fun `the watcher only reports the device it watches`() = runBlocking {
         val h = Harness()

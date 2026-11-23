@@ -44,6 +44,9 @@ class SidekickDiscovery(
             }
             .toList()
 
+    /** D-074: only [serial]'s apps (stub). */
+    fun listInstances(serial: String?): List<SidekickInstance> = listInstances().filter { serial == null || it.serial == serial }
+
     fun listInstances(): List<SidekickInstance> =
         listDevices()
             .filter { it.state == Device.State.ONLINE }
