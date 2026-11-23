@@ -304,12 +304,14 @@ class RunSession(
         private suspend fun timeout(connecting: TimeSource.Monotonic.ValueTimeMark, serial: String, appId: String): RunResult {
             val alive = device.pidOf(serial, appId) != null
             val socket = alive && daemon.sidekickPresent(serial, appId)
+            // D-069: why the daemon's connects failed, when it knows (it was swallowed: the run only timed out).
+            val lastError = if (socket) runCatching { daemon.connectError(serial, appId) }.getOrNull() else null
             val seconds = request.timeout.inWholeSeconds
             val (cause, next) = when {
                 !alive -> "$appId ended before DTA connected; it may have crashed at start." to "Look at `adb logcat` for the crash, then run again."
                 !socket -> "$appId is running, but its DTA sidekick is not listening (injection: ${injection?.outcome?.name?.lowercase() ?: "unknown"})." to
                     "Check that the installed app is the build dta run made: run again with --reinstall if another build replaced it."
-                else -> "$appId's sidekick is listening, but the daemon did not connect within $seconds s." to
+                else -> "$appId's sidekick is listening, but the daemon did not connect within $seconds s." + (lastError?.let { " The daemon's last connect error: $it" } ?: "") to
                     "Run `dta apps` to see the connection state, or run again with a longer --timeout."
             }
             return fail(
@@ -318,6 +320,7 @@ class RunSession(
                     put("processAlive", alive)
                     put("socketPresent", socket)
                     put("injection", injection?.outcome?.name?.lowercase())
+                    lastError?.let { put("lastConnectError", it) }
                 },
             )
         }

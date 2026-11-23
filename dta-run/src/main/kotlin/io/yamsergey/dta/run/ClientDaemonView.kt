@@ -106,6 +106,9 @@ class ClientDaemonView(private val connect: suspend () -> DaemonLauncher.Connect
     override suspend fun sidekickPresent(serial: String, applicationId: String): Boolean =
         DtaJson.decodeFromJsonElement(AppList.serializer(), call("apps.list", mapOf("device" to serial))).apps.any { it.packageName == applicationId }
 
+    override suspend fun connectError(serial: String, applicationId: String): String? =
+        DtaJson.decodeFromJsonElement(AppList.serializer(), call("apps.list", mapOf("device" to serial))).apps.firstOrNull { it.packageName == applicationId }?.connectError
+
     /** The adb the daemon resolved, or null when it has none. */
     suspend fun adbPath(): String? = DtaJson.decodeFromJsonElement(DaemonStatus.serializer(), call("daemon.status")).adb.path
 

@@ -39,6 +39,7 @@ class SidekickConnectionManager(
     private val entries = ConcurrentHashMap<ConnectionKey, Entry>()
     private val failures = ConcurrentHashMap<ConnectionKey, Failure>()
     private val states = ConcurrentHashMap<ConnectionKey, String>()
+    private val lastErrors = ConcurrentHashMap<ConnectionKey, String>()
     private val changeFlow = MutableSharedFlow<AppConnectionEvent>(extraBufferCapacity = 256)
 
     /** `connected`, `lost`, `refused`, `ended` — each published once per change of state. */
@@ -64,12 +65,14 @@ class SidekickConnectionManager(
             // process and its socket (the watcher, a view re-subscribing) answered the next query
             // "without DTA" (D-050).
             if (!e.isPreflight()) failures[key] = Failure(clock(), e)
+            failed(key, e)
             throw e
         }
 
         try {
             val connection = connector(key, port)
             entries[key] = Entry(connection, port)
+            lastErrors.remove(key)
             change(key, "connected", null)
             connection
         } catch (e: Exception) {
@@ -78,6 +81,7 @@ class SidekickConnectionManager(
             // D-050: a dial its caller cancelled (a subscription gone as the app restarted) says nothing of the
             // app; cached, the next query got "cannot reach sidekick (StandaloneCoroutine was cancelled)".
             if (e !is kotlinx.coroutines.CancellationException) failures[key] = Failure(clock(), e)
+            failed(key, e)
             if (e is VersionIncompatibleException) change(key, "refused", e.message)
             throw e
         }
@@ -114,13 +118,21 @@ class SidekickConnectionManager(
             runCatching { forwardOps.remove(key.serial, entry.port) }
         }
         failures.remove(key)
+        lastErrors.remove(key)
         if (states.containsKey(key)) change(key, "ended", null)
         states.remove(key)
         Unit
     }
 
     /** D-069: why the last connect to [key] failed; null once connected, or never tried. */
-    fun lastError(key: ConnectionKey): String? = null
+    fun lastError(key: ConnectionKey): String? = lastErrors[key]
+
+    /** D-069: kept for the apps list, and said in the log when it is new (a cached retry is not). */
+    private fun failed(key: ConnectionKey, e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) return
+        val text = e.message ?: e.javaClass.simpleName
+        if (lastErrors.put(key, text) != text) runCatching { log("${java.time.Instant.now()} connect ${key.packageName} on ${key.serial} failed: $text") }
+    }
 
     /** Keys of the connections currently held open. */
     fun openKeys(): List<ConnectionKey> = entries.filterValues { it.connection.isOpen }.keys.toList()

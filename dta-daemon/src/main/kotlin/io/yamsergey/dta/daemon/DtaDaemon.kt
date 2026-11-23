@@ -921,7 +921,7 @@ class DtaDaemon(
     fun apps(serial: String): AppList {
         val foreground = foregroundDetector.foregroundPackage(serial)
         val withDta = discovery.listInstances().filter { it.serial == serial }.map { it.packageName }.distinct()
-        return AppList(serial, foreground, withDta.map { AppInfo(it, it == foreground) })
+        return AppList(serial, foreground, withDta.map { AppInfo(it, it == foreground, connections.lastError(ConnectionKey(serial, it))) })
     }
 
     fun foregroundPackage(serial: String): String? = foregroundDetector.foregroundPackage(serial)
