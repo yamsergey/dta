@@ -21,6 +21,7 @@ class ResultBound(private val maxBytes: Int = DEFAULT_MAX_BYTES) {
         if (full.toByteArray().size <= maxBytes) return full
         val result = selected.result as? JsonObject
         return when {
+            result != null && result["entries"] is JsonArray && operation in PAGED -> cutList(selected, result, "entries", "call again with before = next (the page goes on there), or use narrower filters", paged = true)
             result != null && result["entries"] is JsonArray -> cutList(selected, result, "entries", "use limit with before (the page cursor), sinceMs, or narrower filters")
             result != null && result["windows"] is JsonArray -> cutTree(selected, result)
             result != null && result["matches"] is JsonArray -> cutList(selected, result, "matches", "narrow the filter (text, type, resourceId) or search under a rootId")
@@ -35,13 +36,19 @@ class ResultBound(private val maxBytes: Int = DEFAULT_MAX_BYTES) {
         }
     }
 
-    private fun cutList(selected: Selected, result: JsonObject, key: String, how: String): String {
+    /**
+     * [paged]: the list is a network page whose cursor is a row's id (`before`): the cut page's `next`
+     * is the last row kept, so the next call goes on at the cut and nothing is skipped (D-049, 071 FR-003).
+     */
+    private fun cutList(selected: Selected, result: JsonObject, key: String, how: String, paged: Boolean = false): String {
         val items = (result[key] as JsonArray)
         var keep = items.size
         var text: String
         do {
             keep = if (keep > 64) keep * 3 / 4 else keep - 1
-            val cut = JsonObject(result + (key to JsonArray(items.take(keep.coerceAtLeast(0)))))
+            val kept = items.take(keep.coerceAtLeast(0))
+            val next = if (paged) (kept.lastOrNull() as? JsonObject)?.get("id") else null
+            val cut = JsonObject(result + (key to JsonArray(kept)) + (if (next != null) mapOf("next" to next) else emptyMap()))
             text = encode(Selected(selected.selection, cut), truncated("${items.size - keep} of ${items.size} $key (the last ones)", how))
         } while (text.toByteArray().size > maxBytes && keep > 0)
         return text
@@ -86,6 +93,9 @@ class ResultBound(private val maxBytes: Int = DEFAULT_MAX_BYTES) {
 
     companion object {
         const val DEFAULT_MAX_BYTES = 65_536
+
+        /** Operations whose entries page with `before` = an entry id (feature 069). */
+        private val PAGED = setOf("network.list", "network.search")
 
         fun fromEnv(env: Map<String, String> = System.getenv()) = ResultBound(env["DTA_MCP_MAX_BYTES"]?.toIntOrNull() ?: DEFAULT_MAX_BYTES)
     }
