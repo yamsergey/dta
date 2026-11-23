@@ -8,8 +8,11 @@ import io.yamsergey.dta.protocol.ops.AppList
 import io.yamsergey.dta.protocol.ops.DeviceInfo
 import io.yamsergey.dta.protocol.ops.Selected
 import io.yamsergey.dta.protocol.rpc.DtaJson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -107,8 +110,17 @@ class ContextController(
         // D-038: with no device chosen (none online when the devices were read: a hung emulator, adb
         // restarting), every device is watched; an app connecting on one says the devices changed.
         watch = scope.launch {
-            runCatching {
-                c.appEvents(buildJsonObject { device?.let { put("device", it) } }).collect { data -> onAppEvent(data, device) }
+            try {
+                c.appEvents(buildJsonObject { device?.let { put("device", it) } }).collect { data ->
+                    // D-052: a watch replaced by the next one says nothing more, neither events nor "watching".
+                    currentCoroutineContext().ensureActive()
+                    onAppEvent(data, device)
+                }
+            } catch (e: CancellationException) {
+                // Replaced (or the scope ended): the next watch owns "watching"; a late false here would undo its true.
+                throw e
+            } catch (_: Exception) {
+                // The daemon went away: the session says so, and a new connection follows the device again.
             }
             watchingFlow.value = false
         }

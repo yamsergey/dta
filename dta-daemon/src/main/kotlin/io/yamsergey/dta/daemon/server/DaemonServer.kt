@@ -508,8 +508,12 @@ class DaemonServer(
                 val apps = serials.map { DtaJson.encodeToJsonElement(AppList.serializer(), ops.apps(it)) }
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val events = ops.appEvents(device)
-                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                // D-052: following before the answer, sending after it. The answer means "watching": an
+                // event right after it is not lost, and the client knows its subscription before the first one.
+                val answered = kotlinx.coroutines.CompletableDeferred<Unit>()
+                val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                     events.collect { e ->
+                        answered.await()
                         if ((device == null || e.device == device) && (app == null || e.app == app)) {
                             val data = DtaJson.encodeToJsonElement(AppConnectionEvent.serializer(), e) as JsonObject
                             send(Event(name = DaemonEvents.APP_CONNECTION, seq = seq.incrementAndGet(), data = JsonObject(data + ("subscription" to JsonPrimitive(id)))))
@@ -521,8 +525,7 @@ class DaemonServer(
                     request.id,
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("subscription", id); put("apps", JsonArray(apps)) })),
                 )
-                // Started after the answer: a client knows its subscription before the first event.
-                job.start()
+                answered.complete(Unit)
             } catch (e: ClientException) {
                 error(request.id, e.code, e.message ?: "failed", e.data)
             } catch (e: Exception) {
