@@ -80,6 +80,7 @@ class SidekickConnectionManagerTest {
         var dialShouldFail = false
         var built = mutableListOf<FakeConnection>()
         var now = 0L
+        val logged = mutableListOf<String>()
 
         val manager = SidekickConnectionManager(
             forwardOps = ForwardOps(
@@ -95,6 +96,7 @@ class SidekickConnectionManagerTest {
             probe = { connection -> runCatching { connection.request("ping", null, 2.seconds) }.isSuccess },
             cooldown = 2.seconds,
             clock = { now },
+            log = { logged += it },
         )
     }
 
@@ -241,6 +243,43 @@ class SidekickConnectionManagerTest {
         h.now += 100 // within the cooldown
         assertEquals("com.example.fixture", h.manager.connect(key).hello.packageName)
         assertEquals(2, h.dialCount.get())
+    }
+
+    /**
+     * D-069: a connect that keeps failing left no trace (the watcher's runCatching, the cached failure), and
+     * `dta run` could only say "the daemon did not connect within 30 s". The last error is kept per app for
+     * the apps list and logged once per new error; a connection clears it; a cancel is no error of the app.
+     */
+    @Test
+    fun `the last connect error is kept and logged once, a connection clears it, a cancel is none`() = runBlocking<Unit> {
+        val h = Harness()
+        h.dialShouldFail = true
+        assertFailsWith<ConnectException> { h.manager.connect(key) }
+        assertTrue("cannot reach sidekick" in h.manager.lastError(key).orEmpty(), "${h.manager.lastError(key)}")
+        h.now += 500
+        assertFailsWith<ConnectException> { h.manager.connect(key) } // the cached failure
+        h.now += 3_000
+        assertFailsWith<ConnectException> { h.manager.connect(key) } // dialled again, the same error
+        assertEquals(1, h.logged.size, "the same error is logged once: ${h.logged}")
+        assertTrue(key.packageName in h.logged.single() && "cannot reach sidekick" in h.logged.single(), h.logged.single())
+
+        h.now += 3_000
+        h.forwards.withoutDta = true
+        assertFailsWith<AppWithoutDtaException> { h.manager.connect(key) }
+        assertTrue("without DTA" in h.manager.lastError(key).orEmpty())
+        assertEquals(2, h.logged.size, "a new error is logged: ${h.logged}")
+
+        h.forwards.withoutDta = false
+        h.dialShouldFail = false
+        h.manager.connect(key)
+        assertEquals(null, h.manager.lastError(key), "connected: no error")
+
+        h.manager.close(key)
+        h.dialDelay = 5.seconds
+        val cancelled = launch { h.manager.connect(key) }
+        delay(100)
+        cancelled.cancelAndJoin()
+        assertEquals(null, h.manager.lastError(key), "a cancelled dial is no error of the app")
     }
 
     @Test

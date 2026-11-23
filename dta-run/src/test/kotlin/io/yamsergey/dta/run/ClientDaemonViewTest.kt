@@ -58,4 +58,13 @@ class ClientDaemonViewTest {
         assertFalse(view.sidekickPresent("emulator-5554", "com.other"))
         assertEquals("/sdk/adb", view.adbPath())
     }
+
+    /** D-069: the daemon's last connect error for the app, as apps.list names it. */
+    @Test
+    fun `the daemon's last connect error for the app`() = runBlocking<Unit> {
+        assertEquals(null, view.connectError("emulator-5554", "com.example.shop"))
+        daemon.ops.appInfos = listOf(io.yamsergey.dta.protocol.ops.AppInfo("com.example.shop", true, connectError = "hello failed: timed out"))
+        assertEquals("hello failed: timed out", view.connectError("emulator-5554", "com.example.shop"))
+        assertEquals(null, view.connectError("emulator-5554", "com.other"))
+    }
 }

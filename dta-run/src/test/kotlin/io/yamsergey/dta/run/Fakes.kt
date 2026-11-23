@@ -97,6 +97,7 @@ class FakeDaemon(
     var outcomes: MutableList<ConnectionOutcome> = mutableListOf(ConnectionOutcome.Connected),
     var socket: Boolean = false,
     var unavailable: DaemonUnavailableException? = null,
+    var connectError: String? = null,
 ) : DaemonView {
     val calls = mutableListOf<String>()
     var watched: Pair<String, String>? = null
@@ -120,6 +121,8 @@ class FakeDaemon(
     }
 
     override suspend fun sidekickPresent(serial: String, applicationId: String): Boolean = socket
+
+    override suspend fun connectError(serial: String, applicationId: String): String? = connectError
 }
 
 class Harness(

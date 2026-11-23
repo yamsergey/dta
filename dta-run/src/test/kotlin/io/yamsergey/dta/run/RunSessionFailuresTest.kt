@@ -181,6 +181,13 @@ class RunSessionFailuresTest {
         val slow = Harness(device = FakeDevice(pids = mutableListOf(null, 7)), daemon = FakeDaemon(outcomes = mutableListOf(ConnectionOutcome.TimedOut), socket = true))
         val f3 = slow.run().failed(StepName.CONNECT, ExitCode.CONNECT)
         assertTrue("--timeout" in f3.next, f3.next)
+        assertEquals(null, f3.details!!["lastConnectError"], "no error known: none named")
+
+        // D-069: the daemon's last connect error is named, not swallowed.
+        val failing = Harness(device = FakeDevice(pids = mutableListOf(null, 7)), daemon = FakeDaemon(outcomes = mutableListOf(ConnectionOutcome.TimedOut), socket = true, connectError = "cannot reach sidekick at ws://127.0.0.1:5/ (timed out)"))
+        val f4 = failing.run().failed(StepName.CONNECT, ExitCode.CONNECT)
+        assertTrue("The daemon's last connect error: cannot reach sidekick at ws://127.0.0.1:5/ (timed out)" in f4.cause, f4.cause)
+        assertEquals(JsonPrimitive("cannot reach sidekick at ws://127.0.0.1:5/ (timed out)"), f4.details!!["lastConnectError"])
     }
 
     @Test
