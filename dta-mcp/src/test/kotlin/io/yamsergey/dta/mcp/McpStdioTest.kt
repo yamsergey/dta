@@ -58,6 +58,23 @@ class McpStdioTest {
         assertTrue("before" in doc["truncated"]!!.jsonObject["how"]!!.jsonPrimitive.content)
     }
 
+    /**
+     * D-049 (NET-QRY-084, 071 FR-003): a network page cut to fit goes on where the cut is: its next is
+     * the last row kept, so paging with before = next lists what the plugin lists, none skipped.
+     */
+    @Test
+    fun `a cut network page goes on from the last row kept`() {
+        val entries = buildJsonArray { repeat(200) { i -> add(buildJsonObject { put("id", "r1-1:${200 - i}"); put("url", "https://api.example.com/" + "x".repeat(100)) }) } }
+        for (op in listOf("network.list", "network.search")) {
+            val doc = DtaJson.parseToJsonElement(ResultBound(4_000).apply(op, Selected(null, buildJsonObject { put("entries", entries) }))).jsonObject
+            val kept = doc["result"]!!.jsonObject["entries"]!!.jsonArray
+            assertEquals(kept.last().jsonObject["id"]!!.jsonPrimitive.content, doc["result"]!!.jsonObject["next"]?.jsonPrimitive?.content, "$op: next is the last row kept")
+        }
+        // A page that fits keeps its own next (null: nothing more).
+        val small = DtaJson.parseToJsonElement(ResultBound(100_000).apply("network.list", Selected(null, buildJsonObject { put("entries", entries) }))).jsonObject
+        assertEquals(null, small["result"]!!.jsonObject["next"])
+    }
+
     @Test
     fun `trees are cut at a depth and say how to get the rest`() {
         fun node(depth: Int): JsonObject = buildJsonObject {
