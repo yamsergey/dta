@@ -45,7 +45,11 @@ class SidekickConnectionManager(
     /** `connected`, `lost`, `refused`, `ended` — each published once per change of state. */
     val changes: SharedFlow<AppConnectionEvent> = changeFlow.asSharedFlow()
 
-    suspend fun connect(key: ConnectionKey): AppConnection = lockFor(key).withLock {
+    /**
+     * [background]: the watcher's connect of an app nobody asked for (D-074); [socket]: its socket's id
+     * as discovery saw it.
+     */
+    suspend fun connect(key: ConnectionKey, background: Boolean = false, socket: String? = null): AppConnection = lockFor(key).withLock {
         entries[key]?.let { entry ->
             if (probe(entry.connection)) return entry.connection
             teardown(key, entry)

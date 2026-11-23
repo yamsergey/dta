@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonElement
@@ -149,6 +150,29 @@ class AppConnectionEventsTest {
             collected.await()
         }
         assertEquals(listOf("connected", "lost", "connected"), events.map { it.state })
+    }
+
+    /**
+     * D-074: the watcher connects every app with a sidekick socket, selected or not. One whose sidekick does
+     * not answer is tried with the background backoff, not every cooldown.
+     */
+    @Test
+    fun `the watcher backs off from an app whose sidekick does not answer`() = runBlocking {
+        val start = System.nanoTime()
+        val dials = java.util.concurrent.atomic.AtomicInteger()
+        val manager = SidekickConnectionManager(
+            forwardOps = ForwardOps(forward = { 40000 }, remove = { _, _ -> }),
+            connector = { _, _ -> dials.incrementAndGet(); throw ConnectException("cannot reach sidekick (request timed out)") },
+            probe = { true },
+            cooldown = 2.seconds,
+            clock = { (System.nanoTime() - start) / 10_000 }, // 100 times faster: 1.5 s here is 150 s
+            log = {},
+        )
+        val watcher = AppConnectionWatcher(instances = { listOf(key) }, manager = manager, interval = 10.milliseconds)
+        val job = launch { watcher.events(null).collect {} }
+        kotlinx.coroutines.delay(1_500)
+        job.cancel()
+        assertTrue(dials.get() in 1..10, "150 s of polling, backed off: ${dials.get()} tries (every 2 s would be ~75)")
     }
 
     @Test

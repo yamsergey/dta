@@ -55,6 +55,12 @@ class DiscoveryTest {
         )
     }
 
+    /** D-074: the socket's inode tells a new process of the app (it ends the background backoff). */
+    @Test
+    fun `each instance names its socket`() {
+        assertEquals(listOf("52412", "52413"), discovery().listInstances().map { it.socket })
+    }
+
     @Test
     fun `offline and unauthorized devices are never scanned`() {
         val commands = mutableListOf<List<String>>()

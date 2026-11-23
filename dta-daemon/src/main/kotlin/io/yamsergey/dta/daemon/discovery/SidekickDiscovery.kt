@@ -6,7 +6,12 @@ data class Device(val serial: String, val state: State) {
     enum class State { ONLINE, OFFLINE, UNAUTHORIZED }
 }
 
-data class SidekickInstance(val serial: String, val packageName: String)
+data class SidekickInstance(
+    val serial: String,
+    val packageName: String,
+    /** D-074: the socket's inode in /proc/net/unix; a new one is a new process of the app. */
+    val socket: String? = null,
+)
 
 /** THE identity currency for (device, app) across all daemon components. */
 data class ConnectionKey(val serial: String, val packageName: String)
