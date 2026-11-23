@@ -48,7 +48,10 @@ class ResultBound(private val maxBytes: Int = DEFAULT_MAX_BYTES) {
             keep = if (keep > 64) keep * 3 / 4 else keep - 1
             val kept = items.take(keep.coerceAtLeast(0))
             val next = if (paged) (kept.lastOrNull() as? JsonObject)?.get("id") else null
-            val cut = JsonObject(result + (key to JsonArray(kept)) + (if (next != null) mapOf("next" to next) else emptyMap()))
+            // D-064: what a page says per row (archive marks, hits, matches, fields) goes with its row.
+            val keptIds = if (paged) kept.mapNotNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.content }.toSet() else emptySet()
+            val perRow = if (paged) BY_ROW.mapNotNull { k -> (result[k] as? JsonObject)?.let { m -> k to JsonObject(m.filterKeys { it in keptIds }) } }.toMap() else emptyMap()
+            val cut = JsonObject(result + (key to JsonArray(kept)) + perRow + (if (next != null) mapOf("next" to next) else emptyMap()))
             text = encode(Selected(selected.selection, cut), truncated("${items.size - keep} of ${items.size} $key (the last ones)", how))
         } while (text.toByteArray().size > maxBytes && keep > 0)
         return text
@@ -96,6 +99,9 @@ class ResultBound(private val maxBytes: Int = DEFAULT_MAX_BYTES) {
 
         /** Operations whose entries page with `before` = an entry id (feature 069). */
         private val PAGED = setOf("network.list", "network.search")
+
+        /** A network page's maps by row id (NetworkPage, SearchPage): cut with the rows. */
+        private val BY_ROW = listOf("archived", "hits", "matches", "fields")
 
         fun fromEnv(env: Map<String, String> = System.getenv()) = ResultBound(env["DTA_MCP_MAX_BYTES"]?.toIntOrNull() ?: DEFAULT_MAX_BYTES)
     }
