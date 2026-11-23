@@ -23,10 +23,11 @@ class WatchJudgingTest {
     private var judged = 0
     private var words = listOf("-host:beacon")
     private var passing = NetworkHistoryView.Passing(setOf("order"), setOf("order", "beacon1", "beacon2"))
-    private val watch = WatchJudging({ words }) {
+    private var now = 0L
+    private val watch = WatchJudging({ words }, {
         judged++
         Judgement(words, passing = passing)
-    }
+    }, clock = { now }, holdMs = 10_000)
 
     @Test
     fun `a watch says at its start which filters apply`() = runBlocking {
@@ -81,12 +82,43 @@ class WatchJudgingTest {
         assertEquals(emptyList(), batch.saved?.words)
     }
 
+    /**
+     * D-068: the timeline gets a network row before the host's network history holds its entry (a fresh
+     * daemon catching up the app's journal, a batch on its way). Shown at once, a row the filters hide
+     * reached the watch. It is held until the history can judge it; what comes after it waits behind it.
+     */
     @Test
-    fun `an entry the history does not hold yet is shown and asked again`() = runBlocking {
+    fun `a row the history does not hold yet is held until judged, and what follows waits behind it`() = runBlocking {
         watch.start()
-        assertEquals(1, watch.judge(listOf(req("unknown"))).events.size)
-        watch.judge(listOf(req("unknown")))
-        assertEquals(2, judged)
+        val t = tap()
+        assertEquals(emptyList(), watch.judge(listOf(req("beacon3"), t)).events.map { it.id }, "nothing shown before beacon3 is judged")
+        assertEquals(emptyList(), watch.judge(emptyList()).events.map { it.id }, "still not in the history: still held")
+        passing = NetworkHistoryView.Passing(setOf("order"), setOf("order", "beacon1", "beacon2", "beacon3"))
+        assertEquals(listOf(t.id), watch.judge(emptyList()).events.map { it.id }, "beacon3 judged hidden; the tap follows")
+        assertEquals(3, judged, "asked again on each batch while held")
+    }
+
+    @Test
+    fun `a held row the history never judges is shown after the bound, in order`() = runBlocking {
+        watch.start()
+        val r = req("unknown")
+        val t = tap()
+        assertEquals(emptyList(), watch.judge(listOf(r, t)).events.map { it.id })
+        now = 9_999
+        assertEquals(emptyList(), watch.judge(emptyList()).events.map { it.id })
+        now = 10_000
+        assertEquals(listOf(r.id, t.id), watch.judge(emptyList()).events.map { it.id }, "shown, never lost")
+    }
+
+    @Test
+    fun `a held row that turns out shown comes in order with the rest`() = runBlocking {
+        watch.start()
+        val r = req("late")
+        val t = tap()
+        val o = req("order")
+        assertEquals(emptyList(), watch.judge(listOf(r, t)).events.map { it.id })
+        passing = NetworkHistoryView.Passing(setOf("order", "late"), setOf("order", "late", "beacon1", "beacon2"))
+        assertEquals(listOf(r.id, t.id, o.id), watch.judge(listOf(o)).events.map { it.id })
     }
 
     @Test
