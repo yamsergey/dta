@@ -1,6 +1,7 @@
 package io.yamsergey.dta.daemon.connection
 
 import io.yamsergey.dta.daemon.adb.AppNotRunningException
+import io.yamsergey.dta.daemon.adb.AppWithoutDtaException
 import io.yamsergey.dta.daemon.discovery.ConnectionKey
 import io.yamsergey.dta.protocol.rpc.Event
 import io.yamsergey.dta.protocol.rpc.HelloResult
@@ -48,10 +49,13 @@ private class FakeForwards {
     val active = mutableMapOf<ConnectionKey, Int>()
     val removed = mutableListOf<Int>()
     var refuse = false
+    /** The process runs but its sidekick does not listen (yet): an app starting, or one built without DTA. */
+    var withoutDta = false
     private var nextPort = 40000
 
     fun forward(key: ConnectionKey): Int {
         if (refuse) throw AppNotRunningException("${key.packageName} is not running on ${key.serial} — launch it first")
+        if (withoutDta) throw AppWithoutDtaException("${key.packageName} is running on ${key.serial} without DTA — build it with DTA")
         val port = nextPort++
         active[key] = port
         return port
@@ -201,6 +205,20 @@ class SidekickConnectionManagerTest {
         h.forwards.refuse = true
         assertFailsWith<AppNotRunningException> { h.manager.connect(key) }
         h.forwards.refuse = false // the app starts within the cooldown
+        h.now += 100
+        assertEquals("com.example.fixture", h.manager.connect(key).hello.packageName)
+    }
+
+    /**
+     * D-050: a process that has just started has no sidekick socket for a moment. A look in that moment
+     * (the watcher, a view re-subscribing) must not answer the next call "without DTA" once it listens.
+     */
+    @Test
+    fun `without DTA is never cached - a sidekick that listens right after is connected`() = runBlocking {
+        val h = Harness()
+        h.forwards.withoutDta = true
+        assertFailsWith<AppWithoutDtaException> { h.manager.connect(key) }
+        h.forwards.withoutDta = false // the sidekick binds within the cooldown
         h.now += 100
         assertEquals("com.example.fixture", h.manager.connect(key).hello.packageName)
     }
