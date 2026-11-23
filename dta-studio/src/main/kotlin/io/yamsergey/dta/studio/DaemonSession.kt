@@ -28,6 +28,8 @@ class DaemonSession(
     private val scope: CoroutineScope,
     /** D-065: a connection to the running daemon whatever its version (null when none runs), to follow one this IDE conflicts with. */
     private val conflicting: (suspend () -> DaemonClient?)? = null,
+    /** Whether a daemon's process still runs (D-065: a replaced one is not joined again). */
+    private val isAlive: (Long) -> Boolean = { pid -> ProcessHandle.of(pid).map { it.isAlive }.orElse(false) },
 ) {
     sealed interface State {
         data object Starting : State
