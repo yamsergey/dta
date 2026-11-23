@@ -57,9 +57,11 @@ class SidekickConnectionManager(
         val port = try {
             forwardOps.forward(key)
         } catch (e: Exception) {
-            // "Not running" is cheap to check again and stale the moment the app starts: cached,
-            // it would answer the first query after a restart (and the watcher's racing look).
-            if (!e.isNotRunning()) failures[key] = Failure(clock(), e)
+            // "Not running" and "without DTA" are the pre-flight's: cheap to check again, and stale the
+            // moment the app starts or its sidekick listens. Cached, a look in the instant between a new
+            // process and its socket (the watcher, a view re-subscribing) answered the next query
+            // "without DTA" (D-050).
+            if (!e.isPreflight()) failures[key] = Failure(clock(), e)
             throw e
         }
 
@@ -131,8 +133,8 @@ class SidekickConnectionManager(
         changeFlow.tryEmit(AppConnectionEvent(key.serial, key.packageName, state, reason))
     }
 
-    private fun Exception.isNotRunning() =
-        this is io.yamsergey.dta.daemon.adb.AppNotRunningException && this !is io.yamsergey.dta.daemon.adb.AppWithoutDtaException
+    /** Not running, or running without a sidekick socket (AppWithoutDtaException is one of these). */
+    private fun Exception.isPreflight() = this is io.yamsergey.dta.daemon.adb.AppNotRunningException
 
     private fun lockFor(key: ConnectionKey): Mutex = locks.computeIfAbsent(key) { Mutex() }
 }
