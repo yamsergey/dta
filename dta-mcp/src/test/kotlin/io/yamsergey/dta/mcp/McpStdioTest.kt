@@ -75,6 +75,37 @@ class McpStdioTest {
         assertEquals(null, small["result"]!!.jsonObject["next"])
     }
 
+    /**
+     * D-064 (MCP-STUDIO-005): with archive: true a page marks each archived row (`archived`, by id), and
+     * `hits`, `matches` and `fields` are by id too. The cut kept them whole: over a long-kept history the
+     * marks alone passed the bound, so the cut went on to no rows at all and archive: true answered [].
+     */
+    @Test
+    fun `a cut network page keeps only the marks of the rows it keeps`() {
+        val ids = (1..800).map { "r1-1:${800 - it}" }
+        val entries = buildJsonArray { ids.forEach { id -> add(buildJsonObject { put("id", id); put("url", "https://api.example.com/" + "x".repeat(40)) }) } }
+        fun byId(value: () -> kotlinx.serialization.json.JsonElement) = buildJsonObject { ids.forEach { put(it, value()) } }
+        val page = buildJsonObject {
+            put("entries", entries)
+            put("archived", byId { buildJsonObject { put("epoch", "ba415517-69df-473d-aeb4-79d8aa9629e4"); put("reason", "REINSTALLED"); put("closedMs", 1795413650000) } })
+            put("hits", byId { buildJsonArray { add(buildJsonObject { put("where", "url"); put("text", "x") }) } })
+            put("matches", byId { buildJsonArray { add(buildJsonObject { put("part", "response") }) } })
+            put("fields", byId { buildJsonArray { add(JsonPrimitive("$.a")) } })
+        }
+        for (op in listOf("network.list", "network.search")) {
+            val text = ResultBound(65_536).apply(op, Selected(null, page))
+            assertTrue(text.toByteArray().size <= 65_536, "$op: ${text.length}")
+            val result = DtaJson.parseToJsonElement(text).jsonObject["result"]!!.jsonObject
+            val kept = result["entries"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+            assertTrue(kept.size >= 100, "$op: the rows fill the bound, not the marks of rows cut away: ${kept.size}")
+            assertEquals(ids.take(kept.size), kept, "$op: the newest rows, in order")
+            for (key in listOf("archived", "hits", "matches", "fields")) {
+                assertEquals(kept.toSet(), result[key]!!.jsonObject.keys, "$op: $key holds the kept rows' only")
+            }
+            assertEquals(kept.last(), result["next"]?.jsonPrimitive?.content, "$op: goes on from the last row kept")
+        }
+    }
+
     @Test
     fun `trees are cut at a depth and say how to get the rest`() {
         fun node(depth: Int): JsonObject = buildJsonObject {
