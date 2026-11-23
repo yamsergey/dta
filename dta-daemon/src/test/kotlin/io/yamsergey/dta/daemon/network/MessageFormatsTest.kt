@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.network
 
+import io.yamsergey.dta.daemon.store.assertOwnerOnly
 import io.yamsergey.dta.daemon.network.proto.SchemaException
 import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
@@ -99,4 +100,10 @@ class MessageFormatsTest {
         assertEquals("only the first ${BodyInfo.PREVIEW_CHARS} characters are known (the message is not copied from the app yet)", use.unread.single().reason)
     }
 
+
+    @Test
+    fun `rules are readable only by their owner (011 FR-012, D-051)`() {
+        MessageFormats(dir).add("app", orders)
+        assertOwnerOnly(dir)
+    }
 }

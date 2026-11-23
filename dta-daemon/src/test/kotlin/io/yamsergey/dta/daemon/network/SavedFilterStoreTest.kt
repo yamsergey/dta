@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.network
 
+import io.yamsergey.dta.daemon.store.assertOwnerOnly
 import io.yamsergey.dta.protocol.rpc.InvalidParamsException
 import io.yamsergey.dta.protocol.network.NetworkQuery
 import io.yamsergey.dta.protocol.network.RecentFilter
@@ -186,5 +187,11 @@ class SavedFilterStoreTest {
         val j = judge(store())
         assertEquals(Judgement.Verdict.SHOWN, j.verdict("n:2"))
         assertNotNull(j.summary(0, 0)?.problem)
+    }
+
+    @Test
+    fun `saved filters are readable only by their owner (011 FR-012, D-051)`() {
+        store().add("app", "-url:/health")
+        assertOwnerOnly(dir)
     }
 }

@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.timeline
 
+import io.yamsergey.dta.daemon.store.assertOwnerOnly
 import io.yamsergey.dta.protocol.rpc.InvalidParamsException
 import java.io.File
 import java.nio.file.Files
@@ -113,5 +114,11 @@ class FlowStoreTest {
         assertTrue(File(dir, "flows/$d/$a.json.bad").isFile)
         fresh.start(d, a, "One", newestMs = 1)
         assertNull(fresh.problem(d, a))
+    }
+
+    @Test
+    fun `flows are readable only by their owner (011 FR-012, D-051)`() {
+        store.start(d, a, "One", newestMs = 1_000)
+        assertOwnerOnly(dir)
     }
 }

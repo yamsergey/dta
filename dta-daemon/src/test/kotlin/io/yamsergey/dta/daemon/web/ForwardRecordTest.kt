@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.web
 
+import io.yamsergey.dta.daemon.store.assertOwnerOnly
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
@@ -44,5 +45,14 @@ class ForwardRecordTest {
         assertEquals(emptyMap(), ForwardRecord(f).all())
         ForwardRecord(f).clear()
         assertEquals(emptyMap(), ForwardRecord(f).all())
+    }
+
+    @Test
+    fun `the record is readable only by its owner (011 FR-012, D-051)`() {
+        val f = file()
+        ForwardRecord(f).add("emulator-5554", 40001, "webview_devtools_remote_123")
+        assertOwnerOnly(f.parentFile)
+        ForwardRecord(f).remove("emulator-5554", 40001)
+        assertOwnerOnly(f.parentFile)
     }
 }

@@ -1,5 +1,6 @@
 package io.yamsergey.dta.daemon.network.proto
 
+import io.yamsergey.dta.daemon.store.assertOwnerOnly
 import io.yamsergey.dta.protocol.network.BodyInfo
 import io.yamsergey.dta.protocol.network.BodyPart
 import io.yamsergey.dta.protocol.network.Completeness
@@ -151,5 +152,11 @@ class SchemaRegistryTest {
         r.addMapping(pkg, BodyMappingSpec("*/proto/order", MappingPart.REQUEST, "fixture", "fixture.v1.Order"))
         assertEquals(emptyList(), r.schemas("com.other"))
         assertNull(r.rules("com.other").firstNotNullOfOrNull { it.select(http("http://h/proto/order")) })
+    }
+
+    @Test
+    fun `schema files are readable only by their owner (011 FR-012, D-051)`() {
+        registry().addSchema(pkg, "fixture", sources)
+        assertOwnerOnly(dir)
     }
 }
