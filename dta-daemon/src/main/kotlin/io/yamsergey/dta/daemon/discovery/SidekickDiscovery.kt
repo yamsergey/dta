@@ -24,7 +24,8 @@ data class ConnectionKey(val serial: String, val packageName: String)
 class SidekickDiscovery(
     private val runAdb: (List<String>) -> AdbExec.Result,
 ) {
-    private val socketPattern = Regex("""@dta_sidekick_([A-Za-z0-9._]+)""")
+    /** The socket's inode (the field before its path, D-074) and the package. */
+    private val socketPattern = Regex("""(?:(\d+)\s+)?@dta_sidekick_([A-Za-z0-9._]+)""")
 
     fun listDevices(): List<Device> =
         runAdb(listOf("devices", "-l")).stdout
@@ -49,7 +50,7 @@ class SidekickDiscovery(
             .flatMap { device ->
                 val scan = runAdb(listOf("-s", device.serial, "shell", "cat", "/proc/net/unix"))
                 socketPattern.findAll(scan.stdout)
-                    .map { SidekickInstance(device.serial, it.groupValues[1]) }
-                    .distinct()
+                    .map { SidekickInstance(device.serial, it.groupValues[2], it.groupValues[1].ifEmpty { null }) }
+                    .distinctBy { it.packageName }
             }
 }
