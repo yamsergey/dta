@@ -11,6 +11,7 @@ import io.yamsergey.dta.protocol.rpc.DtaJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,8 +29,11 @@ class DaemonSession(
     private val scope: CoroutineScope,
     /** D-065: a connection to the running daemon whatever its version (null when none runs), to follow one this IDE conflicts with. */
     private val conflicting: (suspend () -> DaemonClient?)? = null,
-    /** Whether a daemon's process still runs (D-065: a replaced one is not joined again). */
-    private val isAlive: (Long) -> Boolean = { pid -> ProcessHandle.of(pid).map { it.isAlive }.orElse(false) },
+    /**
+     * Whether a daemon's process still runs (D-065: a replaced one is not joined again). The IDE passes
+     * the process check; in-process test daemons share the test's pid, so none is waited for by default.
+     */
+    private val isAlive: (Long) -> Boolean = { false },
 ) {
     sealed interface State {
         data object Starting : State
@@ -101,6 +105,9 @@ class DaemonSession(
             DaemonEvents.REPLACED -> {
                 val by = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), ended.data!!).by.display }.getOrDefault("a newer version")
                 mutable.value = State.Replaced(by)
+                // The replaced daemon answers until it stops (~100 ms later): joined again, its stop would read "stopped".
+                val deadline = System.currentTimeMillis() + REPLACED_EXIT_MS
+                while (isAlive(client.daemon.pid) && System.currentTimeMillis() < deadline) delay(50)
                 start(note = "the DTA daemon was replaced by $by; reconnected")
             }
             DaemonEvents.STOPPING -> {
@@ -116,5 +123,10 @@ class DaemonSession(
         val current = mutable.value
         job?.cancel()
         if (current is State.Connected) runBlocking { runCatching { current.client.close() } }
+    }
+
+    private companion object {
+        /** Past it the launcher stops a replaced daemon that still runs (DaemonLauncher.retire). */
+        const val REPLACED_EXIT_MS = 10_000L
     }
 }

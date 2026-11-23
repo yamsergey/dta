@@ -27,6 +27,7 @@ class DtaApplicationService(scope: CoroutineScope) : Disposable {
         scope = scope,
         // D-065: the newer daemon a conflict names, followed until it ends (never started from here).
         conflicting = { DaemonLauncher(version = version, spawner = { _, _, _ -> error("following never starts a daemon") }).existing(ClientKind.IDE) },
+        isAlive = { pid -> ProcessHandle.of(pid).map { it.isAlive }.orElse(false) },
     )
     private val started = AtomicBoolean(false)
 

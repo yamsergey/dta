@@ -64,7 +64,7 @@ class DaemonSessionTest {
     @Test
     fun `replaced by a newer daemon, it says so and connects again`() = runBlocking<Unit> {
         val connects = AtomicInteger()
-        val session = DaemonSession(connect = { connects.incrementAndGet(); daemon.connect(ClientKind.IDE) }, scope = scope, isAlive = { false }).also { it.start() }
+        val session = DaemonSession(connect = { connects.incrementAndGet(); daemon.connect(ClientKind.IDE) }, scope = scope).also { it.start() }
         session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
         val other: DaemonClient = daemon.connect(ClientKind.CLI).client
         other.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)))
