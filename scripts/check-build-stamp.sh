@@ -13,6 +13,15 @@ trap 'rm -f -- $probe' EXIT
 rm -f -- $probe
 a=$(stamp); sleep 2; b=$(stamp)
 [[ $a == $b ]] || { echo "FAIL unchanged sources restamped: $a then $b"; exit 1; }
+# Gate 4 (D-075 reopened): what the robot IDE runs. The CLI, then the plugin's sandbox, from unchanged sources: one stamp,
+# though the builds leave tool directories beside the modules (.kotlin/ appeared between the two and restamped the plugin).
+tooldir=.d075-tool-dir-probe; trap 'rm -f -- $probe; rm -rf -- $tooldir' EXIT
+./gradlew -q --console=plain :dta-cli:installDist >/dev/null 2>&1 || exit 2; cli=$(grep '^build=' $props)
+mkdir -p $tooldir/sessions; echo x > $tooldir/sessions/s.salive
+./gradlew -q --console=plain :dta-studio:prepareSandbox_runStudioForUiTests >/dev/null 2>&1 || exit 2; plugin=$(grep '^build=' $props)
+rm -rf -- $tooldir
+[[ $cli == $plugin ]] || { echo "FAIL the plugin's sandbox restamped the CLI's sources: $cli then $plugin"; exit 1; }
+b=$plugin
 echo "// D-075 probe: a source change $(date +%s%N)" > $probe; sleep 1
 c=$(stamp)
 [[ $c > $b ]] || { echo "FAIL a source change kept the stamp: $b then $c"; exit 1; }
