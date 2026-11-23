@@ -642,7 +642,9 @@ class NetworkController(private val context: ContextController, private val scop
         scope.launch {
             val params = JsonObject(
                 target(s) + s.applied.params(s.kind) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
-                    (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
+                    (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: emptyMap()) +
+                    // D-053 (071 FR-004): the switch's scope, as the list has it.
+                    (if (s.archiveOn && s.archive == null) mapOf("archive" to JsonPrimitive(true)) else emptyMap()) + ("output" to JsonPrimitive(path)),
             )
             val result = runCatching { c.call("network.export", params).result.jsonObject }
             kotlinx.coroutines.withContext(uiContext) { done(result) }
