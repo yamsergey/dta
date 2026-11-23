@@ -126,6 +126,7 @@ class Runner(
         val apps = spec.name == "apps.watch"
         val timeline = spec.name == "timeline.watch"
         val layout = spec.name == "layout.watch"
+        val network = !apps && !timeline && !layout
         val events = when {
             apps -> client.appEvents(params)
             timeline -> client.timelineEvents(params)
@@ -138,7 +139,8 @@ class Runner(
                 val selection = data["selection"]
                 when {
                     // The apps running at the start are data: JSON mode prints them as the first line.
-                    selection != null && globals.json && apps -> out.println(LINE.encodeToString(JsonElement.serializer(), selection))
+                    // Feature 071 (FR-004, D-079): so is a network watch's answer, which states its scope (archive, scope).
+                    selection != null && globals.json && (apps || network) -> out.println(LINE.encodeToString(JsonElement.serializer(), selection))
                     selection != null -> if (!globals.json) {
                         val selected = DtaJson.decodeFromJsonElement(Selected.serializer(), selection)
                         selection(selected.selection)?.let(err::println)
