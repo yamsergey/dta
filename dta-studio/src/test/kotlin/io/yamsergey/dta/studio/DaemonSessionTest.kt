@@ -73,29 +73,32 @@ class DaemonSessionTest {
     }
 
     /**
-     * D-065 (robot): a replaced daemon answers for a moment after it said so (it stops ~100 ms later).
-     * Reconnecting at once joined that dying daemon, whose stop then read "The DTA daemon stopped: replaced by …"
-     * with Start: the reconnect waits until the replaced daemon is gone.
+     * D-065 (robot): a replaced daemon answers for a moment after it said so (it stops ~100 ms later), and
+     * the replacer starts its own one only after that. Reconnecting at once joined the dying daemon (its stop
+     * read "stopped" with Start); reconnecting once it was gone started this IDE's own daemon beside the
+     * replacer's ("another DTA daemon serves …"). The reconnect waits for the daemon the replacement named.
      */
     @Test
-    fun `after a replacement the reconnect waits for the replaced daemon to end, never joining it again`() = runBlocking<Unit> {
-        val newer = TestDaemon()
+    fun `after a replacement the reconnect waits for the daemon that replaced it`() = runBlocking<Unit> {
+        val by = VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)
+        val newer = TestDaemon(identity = by)
         try {
             val oldGone = java.util.concurrent.atomic.AtomicBoolean(false)
             val connects = AtomicInteger()
+            val running = { if (oldGone.get()) newer else daemon }
             val session = DaemonSession(
-                connect = { connects.incrementAndGet(); if (oldGone.get()) newer.connect(ClientKind.IDE) else daemon.connect(ClientKind.IDE) },
+                connect = { connects.incrementAndGet(); running().connect(ClientKind.IDE) },
                 scope = scope,
-                isAlive = { !oldGone.get() },
+                conflicting = { running().connect(ClientKind.IDE).client },
             ).also { it.start() }
             session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
-            val by = VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)
             daemon.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(by))
             kotlinx.coroutines.delay(300)
             daemon.server.stop("replaced by ${by.display}")
             oldGone.set(true)
             val again = session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { c -> c.statements.any { s -> "replaced by" in s } } }
             assertEquals(2, connects.get(), "${again.statements}")
+            assertEquals(by, again.client.daemon.identity)
             kotlinx.coroutines.delay(300)
             assertIs<DaemonSession.State.Connected>(session.state.value)
         } finally {

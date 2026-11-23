@@ -293,8 +293,10 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
 }
 
 /** An in-process daemon over [ops] with a connect function for [Runner]. */
-class TestDaemon(val ops: CannedOperations = CannedOperations()) : AutoCloseable {
-    val identity = VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1)
+class TestDaemon(
+    val ops: CannedOperations = CannedOperations(),
+    val identity: VersionIdentity = VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1),
+) : AutoCloseable {
     private val home: File = Files.createTempDirectory("dta-cli").toFile()
     private val state = StateFile(File(home, "daemon"))
     private val selector = Selector(ops::devices, ops::apps)
