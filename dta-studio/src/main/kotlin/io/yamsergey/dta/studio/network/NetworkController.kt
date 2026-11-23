@@ -495,6 +495,7 @@ class NetworkController(private val context: ContextController, private val scop
     /** Feature 071: a new scope; the app started again since the last one: the banner names the run before. */
     private fun NetworkViewState.withScope(next: io.yamsergey.dta.protocol.network.HistoryScope): NetworkViewState {
         val from = restartFrom
+        if (from == null) restartAsks.set(0)
         if (from == null || next.run == null) return copy(scope = next)
         // D-054: still the run before: the daemon may name the new run a moment after the app connected (asked again a few
         // times), or the link came back to the same run (no restart; a later entry of a newer run still tells one).
@@ -526,14 +527,18 @@ class NetworkController(private val context: ContextController, private val scop
         if (s.archiveOn || s.archive != null) return
         val shown = s.scope?.run?.runId ?: return
         val run = (entry["runId"] as? JsonPrimitive)?.content ?: return
-        if (run == shown || restartAsks.get() > 0) return
+        // Each newer run is asked for once (its entries keep coming while the list is asked again).
+        if (run == shown || run == notedRun) return
         // Only a newer run moves the view: an earlier run's late update stays out (the daemon drops it too).
         val started = run.removePrefix("r").substringBefore('-').toLongOrNull() ?: return
         val shownStarted = shown.removePrefix("r").substringBefore('-').toLongOrNull() ?: return
         if (started <= shownStarted) return
+        notedRun = run
         if (restartFrom == null) restartFrom = s.scope?.run
         requery()
     }
+
+    @Volatile private var notedRun: String? = null
 
     /** Feature 071: Next past the last hit found while the search runs waits for the next one; the direction. */
     @Volatile private var pendingStep: Boolean? = null
