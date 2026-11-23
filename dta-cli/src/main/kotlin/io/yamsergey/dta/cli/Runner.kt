@@ -150,7 +150,7 @@ class Runner(
                                 when {
                                     timeline -> "Watching the app's timeline; Ctrl-C to stop."
                                     layout -> "Watching the app's screen changes; Ctrl-C to stop."
-                                    else -> "Watching network traffic; Ctrl-C to stop."
+                                    else -> formatters.watchScopeLine(selected.result)
                                 },
                             )
                         }
