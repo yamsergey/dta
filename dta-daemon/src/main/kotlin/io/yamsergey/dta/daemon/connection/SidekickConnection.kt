@@ -222,6 +222,9 @@ class SidekickConnection private constructor(
                     .connectTimeout(java.time.Duration.ofSeconds(5))
                     .buildAsync(uri, connection.Listener())
                     .await()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // D-050: the caller went away while dialling; not a failure to reach the app.
+                throw e
             } catch (e: Exception) {
                 throw ConnectException(
                     "cannot reach sidekick at $uri (${e.message ?: e.javaClass.simpleName}) — " +
