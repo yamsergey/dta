@@ -36,9 +36,10 @@ class SearchRunner(val walks: Int = WALKS) : AutoCloseable {
     /**
      * Runs the blocking [walk] on the search pool once a place is free; [waitingAt] hears the position
      * (searches ahead plus this one) when it has to wait. Cancelling the caller stops the walk through
-     * the [PatternStop] it is given, also inside a match.
+     * the [PatternStop] it is given, also inside a match. [admitted] runs once it has its place, before
+     * the walk (contracts/find.md: `waiting` first when over the limit, then `searching`).
      */
-    suspend fun <T> run(waitingAt: suspend (Int) -> Unit = {}, walk: (PatternStop) -> T): T {
+    suspend fun <T> run(waitingAt: suspend (Int) -> Unit = {}, admitted: suspend () -> Unit = {}, walk: (PatternStop) -> T): T {
         if (!admission.tryAcquire()) {
             val position = waitingNow.incrementAndGet()
             try {
@@ -49,6 +50,7 @@ class SearchRunner(val walks: Int = WALKS) : AutoCloseable {
             }
         }
         try {
+            admitted()
             val job = currentCoroutineContext().job
             return withContext(dispatcher) { walk(PatternStop { !job.isActive }) }
         } finally {
@@ -108,12 +110,13 @@ object FindPipeline {
         credit: Credit,
         waitingAt: suspend (Int) -> Unit,
         walk: (stop: PatternStop, onItem: (FoundItem) -> Unit) -> FindEnd,
+        admitted: suspend () -> Unit = {},
         send: suspend (List<FoundItem>) -> Unit,
     ): FindEnd = coroutineScope {
         val rows = Channel<FoundItem>(BUFFER)
         val walking = async {
             try {
-                runner.run(waitingAt) { stop ->
+                runner.run(waitingAt, admitted) { stop ->
                     walk(stop) { item ->
                         // Blocks while the buffer is full: the walk goes no further ahead of the viewer.
                         val sent = rows.trySendBlocking(item)

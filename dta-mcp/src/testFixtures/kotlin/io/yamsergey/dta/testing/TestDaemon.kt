@@ -138,7 +138,6 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     ): io.yamsergey.dta.daemon.DtaDaemon.FindResult {
         finds += query
         val scope = findScope.copy(archive = query.archive)
-        started(scope, null)
         // By default the rows a list of [query] gives here, newest first, with the hits a search gives here (the old answers, streamed).
         val walk = findWalk?.invoke(query, limit) ?: { _, onItem ->
             queries += pkg to query
@@ -151,7 +150,7 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
             io.yamsergey.dta.protocol.network.FindEnd(null, null)
         }
         val end = try {
-            io.yamsergey.dta.daemon.network.FindPipeline.run(findRunner, credit, waitingAt, walk, send)
+            io.yamsergey.dta.daemon.network.FindPipeline.run(findRunner, credit, waitingAt, walk, admitted = { started(scope, null) }, send = send)
         } catch (e: kotlinx.coroutines.CancellationException) {
             findsStopped.incrementAndGet(); throw e
         }

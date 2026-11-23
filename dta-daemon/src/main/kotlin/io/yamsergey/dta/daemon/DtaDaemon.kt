@@ -397,13 +397,13 @@ class DtaDaemon(
         val service = networkService(serial, pkg)
         var saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null
         val pass = savedFilters.applied(pkg, query, { q -> service.find(q, limit) to q }, { p, applied -> saved = applied; p })
-        started(pass.first.scope, saved)
         val masked = mutableListOf<String>()
         val withheld = mutableListOf<String>()
         var moreMasked = 0
         var moreWithheld = 0
         val hasRules = formats.list(pkg).isNotEmpty()
-        val end = io.yamsergey.dta.daemon.network.FindPipeline.run(searches, credit, waitingAt, pass.first.walk) { items ->
+        // D-049 (contracts/find.md): `searching` with its scope once the walk has its place, after any `waiting`.
+        val end = io.yamsergey.dta.daemon.network.FindPipeline.run(searches, credit, waitingAt, pass.first.walk, admitted = { started(pass.first.scope, saved) }) { items ->
             val shown = if (!query.redact) items else items.map { item ->
                 service.redactItem(item).let { (r, info) ->
                     // A stream may mask in every row: the first locations are listed, the rest counted.

@@ -104,8 +104,7 @@ class FakeOperations : DaemonOperations {
     ): io.yamsergey.dta.daemon.DtaDaemon.FindResult {
         findQuery = query
         val scope = io.yamsergey.dta.protocol.network.HistoryScope(archive = query.archive, entries = 3, run = io.yamsergey.dta.protocol.network.ScopeRun("r1", 3))
-        started(scope, null)
-        val end = io.yamsergey.dta.daemon.network.FindPipeline.run(searches, credit, waitingAt, findWalk, send)
+        val end = io.yamsergey.dta.daemon.network.FindPipeline.run(searches, credit, waitingAt, findWalk, admitted = { started(scope, null) }, send = send)
         return io.yamsergey.dta.daemon.DtaDaemon.FindResult(end, scope, null, null)
     }
 
