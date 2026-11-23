@@ -361,6 +361,29 @@ class CliTest {
         plain.join(5_000); archive.join(5_000)
     }
 
+    /** D-079 (071 FR-004 in --json too): the first line is the subscription's answer, with its scope; events follow. */
+    @Test
+    fun `network watch --json prints the scope first, then the events`() {
+        val watch = kotlin.concurrent.thread { dta("--json", "-d", "emulator-5554", "-a", "com.example.shop", "network", "watch") }
+        waitFor { stdout.lines().any { it.startsWith("{") } }
+        daemon.ops.events.tryEmit(io.yamsergey.dta.protocol.network.NetworkEntryEvent(
+            io.yamsergey.dta.protocol.network.HttpEntry("r1-1:9", "r1-1", 1_700_000_009_000, "okhttp3", method = "GET", url = "https://api.example.com/p", state = io.yamsergey.dta.protocol.network.HttpState.COMPLETE, status = 200),
+            io.yamsergey.dta.protocol.network.EntryChange.CREATED,
+        ))
+        waitFor { "r1-1:9" in stdout }
+        daemon.close()
+        watch.join(5_000)
+        val lines = stdout.lines().filter { it.isNotBlank() }
+        val first = DtaJson.decodeFromString(Selected.serializer(), lines[0])
+        val result = first.result.jsonObject
+        assertEquals("false", result["archive"]!!.jsonPrimitive.content, lines[0])
+        val scope = DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), result["scope"]!!)
+        assertEquals(false, scope.archive)
+        assertEquals(1_234L, scope.outside)
+        assertEquals("emulator-5554", first.selection!!.device)
+        assertTrue("r1-1:9" in lines[1], lines[1])
+    }
+
     /** D-003: network watch takes --redact (008 FR-012: every option of the operation), and its rows are masked. */
     @Test
     fun `network watch --redact prints masked entries`() {

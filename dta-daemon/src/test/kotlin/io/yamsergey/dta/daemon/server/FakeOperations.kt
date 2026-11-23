@@ -88,6 +88,8 @@ class FakeOperations : DaemonOperations {
     /** The current process's entries a watch with history=current replays; [duringHistory] runs while it is read. */
     var history: List<io.yamsergey.dta.protocol.network.NetworkEntry> = emptyList()
     var duringHistory: suspend () -> Unit = {}
+    /** D-079: what a replay with the archive switch reads (every run); null: as without it. */
+    var archiveHistory: List<io.yamsergey.dta.protocol.network.NetworkEntry>? = null
     var searchQuery: NetworkQuery? = null
     override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) =
         io.yamsergey.dta.protocol.network.SearchPage(emptyList()).also { searchQuery = query }
@@ -114,6 +116,9 @@ class FakeOperations : DaemonOperations {
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage {
         lastQuery = query
         if (query.q == "wait-forever") try { kotlinx.coroutines.awaitCancellation() } finally { cancelledCalls.incrementAndGet() }
+        archiveHistory?.takeIf { query.archive && query.filter?.runs != io.yamsergey.dta.protocol.network.RunScope.CURRENT }?.let {
+            return NetworkPage(it, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = it.size, stored = it.size, persisted = true))
+        }
         if (query.filter?.runs == io.yamsergey.dta.protocol.network.RunScope.CURRENT) {
             duringHistory()
             return NetworkPage(history, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = history.size, stored = history.size, persisted = true))

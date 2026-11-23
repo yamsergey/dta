@@ -109,4 +109,28 @@ class WatchRunScopeTest {
         val (_, ids) = watch(emptyMap())
         assertEquals(listOf("r1:1", "r2:1", "r1:2", "r1:3", "r2:2", "r2:3"), ids)
     }
+
+    /** Replays with [params] and returns the ids delivered until [last] arrived. */
+    private fun replayed(params: Map<String, JsonPrimitive>, last: String): List<String> = runBlocking {
+        val client = DaemonClient.connect(server.port, state.token()!!, ClientKind.CLI, identity)
+        val events = CopyOnWriteArrayList<JsonObject>()
+        val job = launch { client.networkEvents(JsonObject(params)).collect { if (it["event"] != null) events += it } }
+        withTimeout(10_000) { while (events.none { it.id() == last }) delay(20) }
+        delay(300)
+        job.cancel()
+        client.close()
+        events.mapNotNull { it.id() }
+    }
+
+    /** FR-002: the switch sets the scope the same way for everything, the replayed history too. */
+    @Test
+    fun `history=current with archive replays every run, without it the current run`() {
+        fake.currentRun = "r2"
+        fake.history = listOf(http("r2", 1).entry)
+        fake.archiveHistory = listOf(http("r1", 1).entry, http("r1", 2).entry, http("r2", 1).entry)
+        assertEquals(listOf("r1:1", "r1:2", "r2:1"), replayed(mapOf("history" to JsonPrimitive("current"), "archive" to JsonPrimitive(true)), "r2:1"))
+        assertTrue(fake.lastQuery!!.archive, "the replay asked with the switch")
+        assertEquals(listOf("r2:1"), replayed(mapOf("history" to JsonPrimitive("current")), "r2:1"))
+        assertFalse(fake.lastQuery!!.archive)
+    }
 }
