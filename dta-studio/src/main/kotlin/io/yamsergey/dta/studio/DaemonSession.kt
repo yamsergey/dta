@@ -7,6 +7,7 @@ import io.yamsergey.dta.client.VersionConflictException
 import io.yamsergey.dta.protocol.ops.DaemonEvents
 import io.yamsergey.dta.protocol.ops.DaemonReplacedEvent
 import io.yamsergey.dta.protocol.ops.DaemonStoppingEvent
+import io.yamsergey.dta.protocol.ops.VersionIdentity
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -29,11 +30,6 @@ class DaemonSession(
     private val scope: CoroutineScope,
     /** D-065: a connection to the running daemon whatever its version (null when none runs), to follow one this IDE conflicts with. */
     private val conflicting: (suspend () -> DaemonClient?)? = null,
-    /**
-     * Whether a daemon's process still runs (D-065: a replaced one is not joined again). The IDE passes
-     * the process check; in-process test daemons share the test's pid, so none is waited for by default.
-     */
-    private val isAlive: (Long) -> Boolean = { false },
 ) {
     sealed interface State {
         data object Starting : State
@@ -105,9 +101,8 @@ class DaemonSession(
             DaemonEvents.REPLACED -> {
                 val by = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), ended.data!!).by.display }.getOrDefault("a newer version")
                 mutable.value = State.Replaced(by)
-                // The replaced daemon answers until it stops (~100 ms later): joined again, its stop would read "stopped".
-                val deadline = System.currentTimeMillis() + REPLACED_EXIT_MS
-                while (isAlive(client.daemon.pid) && System.currentTimeMillis() < deadline) delay(50)
+                val replacer = runCatching { DtaJson.decodeFromJsonElement(DaemonReplacedEvent.serializer(), ended.data!!).by }.getOrNull()
+                if (replacer != null) awaitReplacement(replacer)
                 start(note = "the DTA daemon was replaced by $by; reconnected")
             }
             DaemonEvents.STOPPING -> {
@@ -115,6 +110,25 @@ class DaemonSession(
                 mutable.value = State.Failed("The DTA daemon stopped: $reason.", action = "Start")
             }
             else -> mutable.value = State.Failed("Lost the connection to the DTA daemon: ${client.goneReason}.")
+        }
+    }
+
+    /**
+     * D-065: the replaced daemon answers for a moment after it said so, and the replacer starts its own
+     * daemon only once it is gone. Joining at once would join the dying one ("stopped" with Start); starting
+     * one would race the replacer's ("another DTA daemon serves …"). So the reconnect waits, without
+     * starting anything, until the daemon running is the one the replacement named, or until
+     * [REPLACEMENT_WAIT_MS] (the replacer gave up: this IDE starts its own).
+     */
+    private suspend fun awaitReplacement(by: VersionIdentity) {
+        val follow = conflicting ?: return
+        val deadline = System.currentTimeMillis() + REPLACEMENT_WAIT_MS
+        while (System.currentTimeMillis() < deadline) {
+            val running = runCatching { follow() }.getOrNull()
+            val found = running?.daemon?.identity == by
+            running?.let { withContext(NonCancellable) { runCatching { it.close() } } }
+            if (found) return
+            delay(100)
         }
     }
 
@@ -126,7 +140,7 @@ class DaemonSession(
     }
 
     private companion object {
-        /** Past it the launcher stops a replaced daemon that still runs (DaemonLauncher.retire). */
-        const val REPLACED_EXIT_MS = 10_000L
+        /** The launcher's own wait for a replaced daemon (10 s) plus its start timeout (20 s). */
+        const val REPLACEMENT_WAIT_MS = 30_000L
     }
 }

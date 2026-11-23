@@ -136,15 +136,17 @@ class DaemonSessionTest {
      */
     @Test
     fun `a conflict follows the newer daemon - its stop is stated with Start, and Start connects again`() = runBlocking<Unit> {
-        val newer = TestDaemon()
+        val newer = TestDaemon(identity = VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1))
         try {
             val connects = AtomicInteger()
             val following = kotlinx.coroutines.CompletableDeferred<Unit>()
             val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
-            val session = DaemonSession(
+            lateinit var session: DaemonSession
+            session = DaemonSession(
                 connect = { if (connects.incrementAndGet() == 2) throw conflict else daemon.connect(ClientKind.IDE) },
                 scope = scope,
-                conflicting = { newer.connect(ClientKind.IDE).client.also { following.complete(Unit) } },
+                // Awaited once as the replacement, then followed as the conflict: the stop comes once it is followed.
+                conflicting = { newer.connect(ClientKind.IDE).client.also { if (session.state.value is DaemonSession.State.Conflict) following.complete(Unit) } },
             ).also { it.start() }
             session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
             daemon.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)))
@@ -164,22 +166,26 @@ class DaemonSessionTest {
 
     @Test
     fun `a conflict whose newer daemon is replaced by this version connects again by itself`() = runBlocking<Unit> {
-        val newer = TestDaemon()
+        val newer = TestDaemon(identity = VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1))
+        val mine = TestDaemon(identity = VersionIdentity("0.1.0", "2027-01-01T00:00:00Z", 1))
+        val replaced = java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             val connects = AtomicInteger()
             val following = kotlinx.coroutines.CompletableDeferred<Unit>()
             val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
             val session = DaemonSession(
-                connect = { if (connects.incrementAndGet() == 1) throw conflict else daemon.connect(ClientKind.IDE) },
+                connect = { if (connects.incrementAndGet() == 1) throw conflict else mine.connect(ClientKind.IDE) },
                 scope = scope,
-                conflicting = { newer.connect(ClientKind.IDE).client.also { following.complete(Unit) } },
+                conflicting = { (if (replaced.get()) mine else newer).connect(ClientKind.IDE).client.also { following.complete(Unit) } },
             ).also { it.start() }
             session.awaitState { it as? DaemonSession.State.Conflict }
             withTimeout(5_000) { following.await() }
+            replaced.set(true)
             newer.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2027-01-01T00:00:00Z", 1)))
             session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { connects.get() == 2 } }
         } finally {
             newer.close()
+            mine.close()
         }
     }
 

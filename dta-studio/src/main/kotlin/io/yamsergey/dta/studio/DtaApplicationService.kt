@@ -25,9 +25,9 @@ class DtaApplicationService(scope: CoroutineScope) : Disposable {
     val session = DaemonSession(
         connect = { connect(ClientKind.IDE) },
         scope = scope,
-        // D-065: the newer daemon a conflict names, followed until it ends (never started from here).
+        // D-065: the running daemon whatever its version (never started from here): the newer one a conflict
+        // names, followed until it ends, and the one a replacement names, awaited before reconnecting.
         conflicting = { DaemonLauncher(version = version, spawner = { _, _, _ -> error("following never starts a daemon") }).existing(ClientKind.IDE) },
-        isAlive = { pid -> ProcessHandle.of(pid).map { it.isAlive }.orElse(false) },
     )
     private val started = AtomicBoolean(false)
 
