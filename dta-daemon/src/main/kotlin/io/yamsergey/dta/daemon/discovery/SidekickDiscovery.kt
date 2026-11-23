@@ -44,16 +44,31 @@ class SidekickDiscovery(
             }
             .toList()
 
-    /** D-074: only [serial]'s apps (stub). */
-    fun listInstances(serial: String?): List<SidekickInstance> = listInstances().filter { serial == null || it.serial == serial }
+    /**
+     * D-074: the apps of [serial] with one adb shell call (every device when null). A device that is gone
+     * has none; any other failed look throws, so a watcher keeps what it knew.
+     */
+    fun listInstances(serial: String?): List<SidekickInstance> {
+        if (serial == null) return listInstances()
+        val scan = runAdb(listOf("-s", serial, "shell", "cat", "/proc/net/unix"))
+        if (scan.exitCode != 0) {
+            val why = (scan.stderr + scan.stdout).lowercase()
+            if ("not found" in why || "offline" in why || "unauthorized" in why) return emptyList()
+            throw IllegalStateException("scan of $serial failed: ${scan.stderr.trim()}")
+        }
+        return instancesIn(serial, scan.stdout)
+    }
+
+    private fun instancesIn(serial: String, unix: String): List<SidekickInstance> =
+        socketPattern.findAll(unix)
+            .map { SidekickInstance(serial, it.groupValues[2], it.groupValues[1].ifEmpty { null }) }
+            .distinctBy { it.packageName }
+            .toList()
 
     fun listInstances(): List<SidekickInstance> =
         listDevices()
             .filter { it.state == Device.State.ONLINE }
             .flatMap { device ->
-                val scan = runAdb(listOf("-s", device.serial, "shell", "cat", "/proc/net/unix"))
-                socketPattern.findAll(scan.stdout)
-                    .map { SidekickInstance(device.serial, it.groupValues[2], it.groupValues[1].ifEmpty { null }) }
-                    .distinctBy { it.packageName }
+                instancesIn(device.serial, runAdb(listOf("-s", device.serial, "shell", "cat", "/proc/net/unix")).stdout)
             }
 }

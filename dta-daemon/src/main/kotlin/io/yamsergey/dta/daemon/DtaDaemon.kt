@@ -200,7 +200,7 @@ class DtaDaemon(
     /** Keeps watched apps connected and says when that changes (feature 009, FR-017). */
     private val watcher = io.yamsergey.dta.daemon.connection.AppConnectionWatcher(
         instances = { serial ->
-            discovery.listInstances().filter { serial == null || it.serial == serial }.map { i -> ConnectionKey(i.serial, i.packageName).also { k -> i.socket?.let { s -> sidekickSockets[k] = s } } }
+            discovery.listInstances(serial).map { i -> ConnectionKey(i.serial, i.packageName).also { k -> i.socket?.let { s -> sidekickSockets[k] = s } } }
         },
         manager = connections,
         socketOf = { sidekickSockets[it] },

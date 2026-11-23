@@ -2,12 +2,18 @@ package io.yamsergey.dta.daemon.connection
 
 import io.yamsergey.dta.daemon.discovery.ConnectionKey
 import io.yamsergey.dta.protocol.ops.AppConnectionEvent
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -17,6 +23,10 @@ import kotlin.time.Duration.Companion.seconds
  * ended, a link that died while the app runs is lost and re-dialled. The daemon does the
  * looking so its clients never poll. Events come from the [manager], the only owner of
  * connection state.
+ *
+ * D-074: one scan loop for all watchers. Each watcher ran its own (adb devices + cat /proc/net/unix
+ * every [interval] per client); now each watched device is scanned once per [interval], whoever
+ * watches it, and the loop stops with the last watcher.
  */
 class AppConnectionWatcher(
     /** Running apps with a sidekick on [serial], or on every device when null. */
@@ -25,21 +35,64 @@ class AppConnectionWatcher(
     private val interval: Duration = 1.seconds,
     /** D-074: the socket id discovery last saw for an app (a new one is a new process). */
     private val socketOf: (ConnectionKey) -> String? = { null },
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
+    /** What each watcher watches: a device, or every device ([ALL]). */
+    private val watching = ConcurrentHashMap<Any, String>()
+    private var loop: Job? = null
+
     fun events(serial: String?): Flow<AppConnectionEvent> = channelFlow {
         launch(start = CoroutineStart.UNDISPATCHED) {
             manager.changes.collect { if (serial == null || it.device == serial) send(it) }
         }
         // Connected before this watcher came: no change will say so.
         manager.connectedKeys().filter { serial == null || it.serial == serial }.forEach { send(AppConnectionEvent(it.serial, it.packageName, "connected")) }
+        val token = Any()
+        join(token, serial ?: ALL)
+        try {
+            awaitCancellation()
+        } finally {
+            leave(token)
+        }
+    }
+
+    @Synchronized
+    private fun join(token: Any, target: String) {
+        watching[token] = target
+        if (loop?.isActive != true) loop = scope.launch { scan() }
+    }
+
+    @Synchronized
+    private fun leave(token: Any) {
+        watching.remove(token)
+        if (watching.isEmpty()) {
+            loop?.cancel()
+            loop = null
+        }
+    }
+
+    private suspend fun scan() {
         var known = emptySet<ConnectionKey>()
-        while (isActive) {
-            // A failed look (adb hiccup) keeps what we knew rather than ending every app.
-            val running = runCatching { instances(serial).toSet() }.getOrDefault(known)
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            val targets = watching.values.toSet().let { t -> if (ALL in t) listOf<String?>(null) else t.toList() }
+            val running = HashSet<ConnectionKey>()
+            val looked = HashSet<String?>()
+            for (target in targets) {
+                // A failed look (adb hiccup) keeps what we knew rather than ending every app.
+                val found = runCatching { instances(target) }.getOrElse { known.filter { k -> target == null || k.serial == target } }
+                running += found
+                looked += target
+            }
             running.forEach { key -> runCatching { manager.connect(key, background = true, socket = socketOf(key)) } }
-            (known - running).forEach { key -> manager.ended(key) }
+            // Only apps of a device looked at this round can have ended.
+            (known - running).filter { k -> null in looked || k.serial in looked }.forEach { key -> manager.ended(key) }
             known = running
             delay(interval)
         }
+    }
+
+    private companion object {
+        /** Not a serial: every device. */
+        const val ALL = "\u0000all"
     }
 }
