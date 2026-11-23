@@ -251,7 +251,8 @@ class DaemonClient private constructor(private val timeout: Duration) {
                     is Response -> pending[message.id]?.complete(message)
                     is Event -> {
                         if (message.name == DaemonEvents.REPLACED || message.name == DaemonEvents.STOPPING) {
-                            endedBy = message
+                            // D-065: the first word ends it; a replaced daemon's stop follows its replacement.
+                            if (endedBy == null) endedBy = message
                             events.tryEmit(message)
                             lost(describe(message))
                         } else {
