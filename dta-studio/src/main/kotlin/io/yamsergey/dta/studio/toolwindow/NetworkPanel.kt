@@ -429,7 +429,8 @@ class NetworkPanel(
         ) { sep -> Row("$SEPARATOR${sep.group}", 0, JsonObject(mapOf("separator" to JsonPrimitive(sep.text)))) }
         val (added, prepended) = try { model.update(shownRows) } finally { scroll.validate(); programmaticScroll = false }
         // Keep the selection on its row by id, whatever moved around it.
-        s.list.selectedId?.let { id -> model.indexOf(id)?.let { i -> if (table.selectedRow != i) { model.updating = true; table.setRowSelectionInterval(i, i); model.updating = false } } }
+        model.updating = true
+        try { TableSelection.follow(table.selectionModel, s.list.selectedId?.let(model::indexOf)) } finally { model.updating = false }
         if (s.list.following && model.sort == null) scrollToEdge()
         // Rows added above what the person is reading push it down; scroll by as much so nothing jumps.
         else if (added > 0 && model.order == ListOrder.NEWEST_FIRST) keepInPlace(added)
