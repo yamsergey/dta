@@ -46,7 +46,7 @@ import javax.swing.ListCellRenderer
 /**
  * Feature 042 (design system "Lists of app content"): a socket's messages, each row its summary
  * and the first lines of the message as Formatted shows it, coloured; "▸ N more lines" expands
- * the row in place (→ / ← and a click on that line); a double-click opens the message on its
+ * the row in place (→ / ← and a click on that line); a double-click or Enter opens the message on its
  * own (all body modes). Nothing depends on a column's width.
  */
 class MessagesView(
@@ -102,6 +102,8 @@ class MessagesView(
                 if (onMore) toggle(index) else if (e.clickCount == 2) open(items[index].row.id)
             }
         })
+        // D-055 (025 FR-002): Enter opens the selected message, as a double-click does.
+        list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { open(items[it].row.id) } }, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), WHEN_FOCUSED)
         list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { expand(it, true) } }, KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), WHEN_FOCUSED)
         list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { expand(it, false) } }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), WHEN_FOCUSED)
         add(top, BorderLayout.NORTH)
