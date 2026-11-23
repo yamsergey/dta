@@ -414,6 +414,26 @@ class NetworkControllerTest {
         assertTrue(cleared.statements.any { it.detail == "History cleared by cli: 3 entries removed." }, "${cleared.statements}")
     }
 
+    /** D-053 (071 FR-004): with the Archive switch on, the export has the list's scope, as `dta network export --archive`. */
+    @Test
+    fun `export follows the Archive switch, off the current run, on everything kept (D-053)`() = runBlocking<Unit> {
+        network.uiContext = kotlinx.coroutines.Dispatchers.Unconfined
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        val out = java.io.File.createTempFile("d053", ".har").apply { deleteOnExit() }
+        suspend fun exported(): io.yamsergey.dta.protocol.network.NetworkQuery {
+            val before = daemon.ops.queries.size
+            val done = kotlinx.coroutines.CompletableDeferred<Result<kotlinx.serialization.json.JsonObject>>()
+            network.export(out.path) { done.complete(it) }
+            withTimeout(5_000) { done.await() }.getOrThrow()
+            return daemon.ops.queries.drop(before).first().second
+        }
+        assertEquals(false, exported().archive, "off: the app's current run")
+        network.setArchiveOn(true)
+        await { it.archiveOn && it.list.rows.size == 3 }
+        assertEquals(true, exported().archive, "on: everything this computer keeps, as the list")
+    }
+
     @Test
     fun `clear empties the app's history and the list`() = runBlocking<Unit> {
         session.start()

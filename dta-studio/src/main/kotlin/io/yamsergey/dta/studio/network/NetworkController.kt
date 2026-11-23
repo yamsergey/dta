@@ -632,6 +632,9 @@ class NetworkController(private val context: ContextController, private val scop
         }
     }
 
+    /** Where an export's [done] runs (the UI thread; tests have none). */
+    @Volatile internal var uiContext: kotlin.coroutines.CoroutineContext = kotlinx.coroutines.Dispatchers.Main
+
     /** Feature 026: `network.export` of what the list shows, to [path]; [done] on the UI thread. */
     fun export(path: String, done: (Result<JsonObject>) -> Unit) {
         val s = mutable.value
@@ -642,7 +645,7 @@ class NetworkController(private val context: ContextController, private val scop
                     (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: emptyMap()) + ("output" to JsonPrimitive(path)),
             )
             val result = runCatching { c.call("network.export", params).result.jsonObject }
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { done(result) }
+            kotlinx.coroutines.withContext(uiContext) { done(result) }
         }
     }
 
