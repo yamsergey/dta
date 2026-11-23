@@ -118,7 +118,10 @@ class NetworkController(private val context: ContextController, private val scop
         if (s.device != device || s.app != app || s.archive != null) return
         // With the switch on the scope is the whole history: only a search that failed while the app was down starts again.
         if (s.archiveOn && s.find != io.yamsergey.dta.protocol.network.FindState.FAILED && s.error == null) return
-        if (!s.archiveOn && restartFrom == null) restartFrom = s.scope?.run
+        if (!s.archiveOn) {
+            if (restartFrom == null) restartFrom = s.scope?.run
+            restartAsks.set(RESTART_ASKS)
+        }
         requery()
     }
 
@@ -423,6 +426,8 @@ class NetworkController(private val context: ContextController, private val scop
     /** Feature 071: the Archive switch; a search running in the old scope stops and starts over in the new one. */
     fun setArchiveOn(on: Boolean) {
         if (mutable.value.archiveOn == on) return
+        restartFrom = null
+        restartAsks.set(0)
         mutable.update { it.copy(archiveOn = on, restart = null) }
         requery()
     }
@@ -491,10 +496,26 @@ class NetworkController(private val context: ContextController, private val scop
     private fun NetworkViewState.withScope(next: io.yamsergey.dta.protocol.network.HistoryScope): NetworkViewState {
         val from = restartFrom
         if (from == null || next.run == null) return copy(scope = next)
-        // D-054: the app connected again to the same run (its link came back): no restart; a later entry of a newer run still tells one.
-        if (next.run!!.runId == from.runId) { restartFrom = null; return copy(scope = next) }
+        // D-054: still the run before: the daemon may name the new run a moment after the app connected (asked again a few
+        // times), or the link came back to the same run (no restart; a later entry of a newer run still tells one).
+        if (next.run!!.runId == from.runId) { askAgainForRestart(); return copy(scope = next) }
+        restartAsks.set(0)
         restartFrom = null
         return copy(scope = next, restart = io.yamsergey.dta.present.network.ScopeCaption.restarted(next.run!!, next.previous ?: from))
+    }
+
+    /** D-054: how many more times the scope is asked for after the app connected again while it still names the run before. */
+    private val restartAsks = java.util.concurrent.atomic.AtomicInteger()
+    private val restartAsking = java.util.concurrent.atomic.AtomicBoolean()
+
+    private fun askAgainForRestart() {
+        if (restartAsks.get() <= 0 || !restartAsking.compareAndSet(false, true)) return
+        restartAsks.decrementAndGet()
+        scope.launch {
+            kotlinx.coroutines.delay(RESTART_ASK_MS)
+            restartAsking.set(false)
+            if (restartFrom != null && !mutable.value.archiveOn) reload()
+        }
     }
 
     /** Feature 071: a live entry of another run while the tab shows the current one: the app started again. */
@@ -505,12 +526,12 @@ class NetworkController(private val context: ContextController, private val scop
         if (s.archiveOn || s.archive != null) return
         val shown = s.scope?.run?.runId ?: return
         val run = (entry["runId"] as? JsonPrimitive)?.content ?: return
-        if (run == shown || restartFrom != null) return
+        if (run == shown || restartAsks.get() > 0) return
         // Only a newer run moves the view: an earlier run's late update stays out (the daemon drops it too).
         val started = run.removePrefix("r").substringBefore('-').toLongOrNull() ?: return
         val shownStarted = shown.removePrefix("r").substringBefore('-').toLongOrNull() ?: return
         if (started <= shownStarted) return
-        restartFrom = s.scope?.run
+        if (restartFrom == null) restartFrom = s.scope?.run
         requery()
     }
 
@@ -858,6 +879,9 @@ class NetworkController(private val context: ContextController, private val scop
         const val CATCH_UP_PAGE = 200
         const val REVEAL_PAGES = 10
         const val SAVED_POLL_MS = 5000L
+        /** D-054: after the app connected again, the scope is asked again up to this many times, this far apart, for the new run. */
+        const val RESTART_ASKS = 5
+        const val RESTART_ASK_MS = 1000L
     }
 }
 
