@@ -16,7 +16,11 @@ class AdbCommandException(message: String) : Exception(message)
  */
 class PortForwards(
     private val runAdb: (List<String>) -> AdbExec.Result,
+    private val clock: () -> Long,
+    private val sleep: (Long) -> Unit,
 ) {
+    constructor(runAdb: (List<String>) -> AdbExec.Result) : this(runAdb, System::currentTimeMillis, Thread::sleep)
+
     /** Pre-flights the socket, then forwards tcp:0 and returns the allocated port. */
     fun forward(key: ConnectionKey): Int {
         val socketName = "dta_sidekick_${key.packageName}"
@@ -39,6 +43,11 @@ class PortForwards(
                 "adb forward returned no port for $socketName: " +
                     (result.stdout + result.stderr).trim().ifEmpty { "empty output" },
             )
+    }
+
+    companion object {
+        /** D-050: a process younger than this may not listen yet. */
+        const val YOUNG_MS = 8_000L
     }
 
     fun remove(serial: String, port: Int) {
