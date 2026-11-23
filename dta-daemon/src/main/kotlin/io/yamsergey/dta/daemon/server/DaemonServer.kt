@@ -420,6 +420,9 @@ class DaemonServer(
                                 return
                             }
                         }
+                        // Feature 071 (D-079): the same scope a view's decision has (HostIndex.decide): without the switch
+                        // the current run only; an earlier run's entries arriving later (a catch-up) are not delivered.
+                        if (!io.yamsergey.dta.daemon.network.LiveScope.includes(liveQuery, event.entry, ops.networkCurrentRun(serial, pkg))) return
                         unchecked = false
                         val matched = eval().matches(event.entry) != null
                         if (matched || unchecked) buffer.send(event to unchecked)
@@ -476,6 +479,7 @@ class DaemonServer(
                         buffer.close()
                     }
                 }
+                val watchScope = runCatching { ops.networkScope(serial, pkg, liveQuery) }.getOrNull()
                 subscriptions[id] = job
                 networkTargets[id] = serial to pkg
                 job.invokeOnCompletion { networkTargets.remove(id) }
@@ -484,6 +488,9 @@ class DaemonServer(
                     DtaJson.encodeToJsonElement(Selected.serializer(), Selected(resolution.statement, buildJsonObject {
                         put("subscription", id)
                         if (view != null) put("liveQuery", true)
+                        // Feature 071 (FR-004, D-079): the watch states its scope, as a list does.
+                        put("archive", archive)
+                        watchScope?.let { put("scope", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it)) }
                     })),
                 )
                 // Started after the answer: a client knows its subscription before the first event.

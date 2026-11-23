@@ -140,6 +140,22 @@ class HostIndexScopeTest {
         assertFalse(decision.first.match, "an update of an earlier run is not part of the current run")
     }
 
+    /** D-079: what a plain watch asks of the history: its current run and its scope, by the same rule a view decides with. */
+    @Test
+    fun `a watch's current run and scope are the list's, and an earlier run's late entry is out of it`() = runBlocking<Unit> {
+        val (app, _, host) = history()
+        assertEquals("r5", host.currentRun)
+        val scope = host.scope(NetworkQuery())!!
+        assertFalse(scope.archive)
+        assertEquals(8, scope.outside)
+        assertTrue(host.scope(NetworkQuery(archive = true))!!.archive)
+        val late = app.records.first { it.id == "r4:3" }
+        assertFalse(LiveScope.includes(NetworkQuery(), late, host.currentRun))
+        assertTrue(LiveScope.includes(NetworkQuery(archive = true), late, host.currentRun))
+        assertTrue(LiveScope.includes(NetworkQuery(), app.records.first { it.id == "r5:1" }, host.currentRun))
+        assertTrue(host.decide("w", NetworkQuery(archive = true), late, { null }).first.match, "with the switch an earlier run's entry is decided")
+    }
+
     @Test
     fun `the walk of the current run does not read earlier runs`() = runBlocking<Unit> {
         val (_, store, host) = history()

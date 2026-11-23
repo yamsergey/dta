@@ -186,6 +186,8 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
         daemon.networkDecide(serial, pkg, view, query, entry, stop, socketUrl)
     override fun networkCopied(serial: String, pkg: String) = daemon.networkCopied(serial, pkg)
     override suspend fun networkLiveEntry(serial: String, pkg: String, id: String) = daemon.networkLiveEntry(serial, pkg, id)
+    override fun networkCurrentRun(serial: String, pkg: String) = daemon.networkCurrentRun(serial, pkg)
+    override suspend fun networkScope(serial: String, pkg: String, query: NetworkQuery) = daemon.networkScope(serial, pkg, query)
     override fun networkViewsClosed(prefix: String) = daemon.networkViewsClosed(prefix)
     override suspend fun networkFind(
         serial: String, pkg: String, query: NetworkQuery, limit: Int?,
