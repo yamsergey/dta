@@ -195,6 +195,98 @@ class SearchStreamControllerTest {
         assertTrue(moved.restart != null, "the banner names the run before")
     }
 
+    private val r1 = io.yamsergey.dta.protocol.network.ScopeRun("r1-1", 3, startedMs = 1_700_000_000_000)
+    private val r1Ended = r1.copy(endedMs = 1_700_000_090_000, ended = io.yamsergey.dta.protocol.network.RunEnd.PROCESS_ENDED)
+    private val r2 = io.yamsergey.dta.protocol.network.ScopeRun("r2-1", 1, startedMs = 1_700_000_100_000)
+
+    /** The daemon's answers from now on are over the new run r2-1, with r1-1 before it. */
+    private fun appRunsAgain() {
+        daemon.ops.findScope = io.yamsergey.dta.protocol.network.HistoryScope(false, 1, r2, previous = r1Ended)
+        daemon.ops.listScope = io.yamsergey.dta.protocol.network.HistoryScope(false, 1, r2, previous = r1Ended)
+    }
+
+    /** The app's connection as the daemon's `apps.watch` says it (after the context watches the device). */
+    private suspend fun connection(vararg states: String) {
+        runCatching { withTimeout(5_000) { context.watching.first { it } } }.getOrElse { error("not watching; session=${session.state.value} context=${context.state.value}") }
+        states.forEach { state ->
+            daemon.ops.appEventFlow.emit(io.yamsergey.dta.protocol.ops.AppConnectionEvent("emulator-5554", "com.example.shop", state))
+        }
+    }
+
+    /**
+     * D-054 (071 restart rule, board 4): the app started again while a search ran, and nothing of the new run
+     * matches (no live entry of it ever comes): the search still starts over in the new run, at once, and the
+     * banner names the previous run.
+     */
+    @Test
+    fun `the app started again during a search with no matching entry of the new run - it starts over there with the banner (D-054)`() = runBlocking<Unit> {
+        val ended = CountDownLatch(1)
+        daemon.ops.findWalk = slowWalk(2, ended)
+        daemon.ops.decide = { _, _ -> EntryDecision(false) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 && it.scope?.run?.runId == "r1-1" }
+        appRunsAgain()
+        daemon.ops.findWalk = { _, _ -> { _, _ -> FindEnd(null, null) } }
+        connection("ended", "connected")
+        assertTrue(ended.await(2, TimeUnit.SECONDS), "the search over the run that ended was stopped")
+        val moved = await { it.find == FindState.DONE && it.scope?.run?.runId == "r2-1" && it.restart != null }
+        assertEquals(emptyList(), moved.list.rows.map { it.id }, "the old run's rows are not kept")
+        assertEquals(1, moved.scope!!.entries, "the new run's count")
+        assertTrue(moved.restart!!.startsWith("The app restarted at "), moved.restart)
+        assertTrue("Previous run: 3 entries" in moved.restart!!, moved.restart)
+        assertEquals(2, daemon.ops.finds.size)
+    }
+
+    /** D-054: with an empty query the list is the new run's, and the banner shows too. */
+    @Test
+    fun `the app started again with an empty query - the new run's list and the banner (D-054)`() = runBlocking<Unit> {
+        session.start()
+        await { it.watching && it.list.rows.size == 3 && it.scope?.run?.runId == "r1-1" }
+        appRunsAgain()
+        connection("ended", "connected")
+        val moved = await { it.scope?.run?.runId == "r2-1" && it.restart != null }
+        assertEquals(1, moved.scope!!.entries)
+        assertTrue("Previous run: 3 entries" in moved.restart!!, moved.restart)
+    }
+
+    /** D-054: a search that failed while the app was not running starts again when it runs: no stale "Search failed". */
+    @Test
+    fun `a search that failed while the app was down starts again when the app runs (D-054)`() = runBlocking<Unit> {
+        session.start()
+        await { it.watching }
+        connection("ended")
+        daemon.ops.findWalk = { _, _ -> { _, _ -> throw IllegalStateException("com.example.shop is not running on emulator-5554") } }
+        network.setQuery("token")
+        withTimeout(5_000) { network.state.first { it.find == FindState.FAILED } }
+        appRunsAgain()
+        daemon.ops.findWalk = { _, _ -> { _, onItem -> onItem(FoundItem(http(1, run = "r2-1"), listOf(hit("r2-1:1")))); FindEnd(null, null) } }
+        connection("connected")
+        val again = await { it.find == FindState.DONE && it.scope?.run?.runId == "r2-1" }
+        assertNull(again.findError)
+        assertEquals(listOf("r2-1:1"), again.list.rows.map { it.id })
+        assertTrue(again.restart != null, "the banner names the run before")
+    }
+
+    /** D-054, the other side: the link came back to the same run (lost, then connected): no banner. */
+    @Test
+    fun `the link back to the same run says no restart (D-054)`() = runBlocking<Unit> {
+        session.start()
+        await { it.watching && it.list.rows.size == 3 }
+        val lists = daemon.ops.queries.size
+        connection("lost", "connected")
+        withTimeout(5_000) { while (daemon.ops.queries.size == lists) delay(20) }
+        val s = await { it.watching && it.list.rows.size == 3 }
+        delay(300)
+        assertNull(network.state.value.restart)
+        assertEquals("r1-1", s.scope?.run?.runId)
+        // A real restart after it still shows the banner.
+        appRunsAgain()
+        connection("ended", "connected")
+        await { it.restart != null }
+    }
+
     @Test
     fun `an earlier run's late update during a search does not stop it`() = runBlocking<Unit> {
         val ended = CountDownLatch(1)
