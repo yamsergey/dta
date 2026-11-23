@@ -43,7 +43,9 @@ abstract class VersionResource : DefaultTask() {
     @get:Input abstract val version: Property<String>
     @get:Input abstract val sha: Property<String>
     @get:Input @get:Optional abstract val buildTime: Property<String>
-    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val sources: ConfigurableFileCollection
+    // Directories are not sources: a tool's directory beside the modules (.kotlin/ of the Kotlin daemon) appears
+    // between two builds and would restamp unchanged sources (D-075, gate 4).
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) @get:IgnoreEmptyDirectories abstract val sources: ConfigurableFileCollection
     @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
     @TaskAction
