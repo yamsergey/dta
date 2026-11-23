@@ -251,6 +251,23 @@ class SearchStreamControllerTest {
         assertTrue("Previous run: 3 entries" in moved.restart!!, moved.restart)
     }
 
+    /**
+     * D-054 (robot, 2026-11-23): the app's connection comes back a moment before the daemon names the new run:
+     * the first answer is still the old run; the tab asks again and the banner shows once the new run is named.
+     */
+    @Test
+    fun `the new run named only after the connection is back still shows the banner (D-054)`() = runBlocking<Unit> {
+        session.start()
+        await { it.watching && it.list.rows.size == 3 && it.scope?.run?.runId == "r1-1" }
+        val lists = daemon.ops.queries.size
+        connection("ended", "connected")
+        withTimeout(5_000) { while (daemon.ops.queries.size == lists) delay(20) }
+        delay(200)
+        appRunsAgain()
+        val moved = await { it.scope?.run?.runId == "r2-1" && it.restart != null }
+        assertTrue("Previous run: 3 entries" in moved.restart!!, moved.restart)
+    }
+
     /** D-054: a search that failed while the app was not running starts again when it runs: no stale "Search failed". */
     @Test
     fun `a search that failed while the app was down starts again when the app runs (D-054)`() = runBlocking<Unit> {
