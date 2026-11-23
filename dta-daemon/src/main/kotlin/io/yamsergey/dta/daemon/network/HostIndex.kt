@@ -285,8 +285,17 @@ class HostIndex(
         val v = NetworkHistoryView({ emptyList() }, ::socket, { ctx }, { e, p -> hostBodyBytes(epochId, e, p) },
             { e, p -> decodedJson(e, p, epochId, ::socket) }, readEnvelope, { stop })
         // Feature 071: without the switch only the current run is in the view; a late update of an earlier run is not.
-        val d = if (!query.archive && query.archiveScope == null && entry.runId != ctx.runId) io.yamsergey.dta.protocol.network.EntryDecision.NO else v.decide(query, entry)
+        val d = if (!LiveScope.includes(query, entry, currentRun)) io.yamsergey.dta.protocol.network.EntryDecision.NO else v.decide(query, entry)
         return d to views.decided(view, query, entry.id, d.match)
+    }
+
+    /** Feature 071 (D-079): the app's current run as last told by its journal; null before it was read (or when it keeps none). */
+    val currentRun: String? get() = context?.runId?.takeIf { it.isNotEmpty() }
+
+    /** Feature 071 (FR-004, D-079): what [query]'s answers cover now, as a list states it; null before the journal was read. */
+    fun scope(query: NetworkQuery): io.yamsergey.dta.protocol.network.HistoryScope? {
+        val ctx = context ?: return null
+        return scopeOf(query, epoch?.id, ctx)
     }
 
     /** Feature 067: a live entry as this computer holds it now (after its body was copied). */

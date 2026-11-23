@@ -134,6 +134,19 @@ class Formatters(private val style: Style) {
             (r.str("listenerError")?.let { "\nThe app's listener threw: $it" } ?: "")
     }
 
+    /**
+     * Feature 071 (FR-004, D-079): what `network watch` covers, from its answer: the app's current run, saying when
+     * earlier history is kept outside it, or (--archive) every run.
+     */
+    fun watchScopeLine(result: JsonElement?): String {
+        val o = result as? JsonObject
+        val archive = (o?.get("archive") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+        if (archive) return "Watching network traffic of every run; Ctrl-C to stop."
+        val outside = o?.get("scope")?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }?.outside ?: 0
+        val more = if (outside > 0) " (${io.yamsergey.dta.present.network.ScopeCaption.grouped(outside)} earlier entries kept; add --archive to include earlier runs)" else ""
+        return "Watching network traffic of the app's current run$more; Ctrl-C to stop."
+    }
+
     /** One live entry line for `network watch` (same columns as the list). */
     fun watchLine(event: JsonObject): String {
         Statements.forCleared(event)?.let { return style.mark(it) }

@@ -364,6 +364,12 @@ class DtaDaemon(
 
     fun networkCopied(serial: String, pkg: String): Flow<String> = hostIndex(serial, pkg).copied
 
+    /** Feature 071 (D-079): the app's current run as this computer knows it (null: not known). */
+    fun networkCurrentRun(serial: String, pkg: String): String? = hostIndex(serial, pkg).currentRun
+
+    /** Feature 071 (FR-004, D-079): what a live watch of [query] covers now. */
+    fun networkScope(serial: String, pkg: String, query: NetworkQuery) = hostIndex(serial, pkg).scope(query)
+
     suspend fun networkLiveEntry(serial: String, pkg: String, id: String) = hostIndex(serial, pkg).liveEntry(id)
 
     fun networkViewsClosed(prefix: String) = hostIndexes.values.forEach { it.views.dropAll(prefix) }

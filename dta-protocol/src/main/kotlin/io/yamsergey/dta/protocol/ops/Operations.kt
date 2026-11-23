@@ -415,6 +415,7 @@ object Catalog {
             NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; none (default): only new ones.", enumValues = listOf("current", "none")) +
                 ParamSpec("q", ParamType.STRING, "Query line, as in network.list: its filters apply, and search words list only the entries holding them (each with its hits).", cliShort = "-q", cliName = "query") +
                 ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and previews, as network.list does; filters and search words match the masked text.") +
+                ParamSpec("archive", ParamType.BOOLEAN, "Every run: also entries of earlier runs that reach this computer later (e.g. a fresh daemon catching up the device's journal). Without it, only the app's current run (since its process last started); the answer's scope says how much more is kept.") +
                 TYPOS +
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
             streaming = true, cliOnly = true,

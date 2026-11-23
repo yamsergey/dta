@@ -53,6 +53,10 @@ interface DaemonOperations {
     fun networkCopied(serial: String, pkg: String): Flow<String> = kotlinx.coroutines.flow.emptyFlow()
     /** Feature 067: the live entry [id] as this computer holds it now, for a decision again. */
     suspend fun networkLiveEntry(serial: String, pkg: String, id: String): io.yamsergey.dta.protocol.network.NetworkEntry? = null
+    /** Feature 071 (D-079): the app's current run as this computer knows it; null when not known (nothing is scoped then). */
+    fun networkCurrentRun(serial: String, pkg: String): String? = null
+    /** Feature 071 (FR-004, D-079): what a live watch of [query] covers, as a list answer states it; null when not known. */
+    suspend fun networkScope(serial: String, pkg: String, query: NetworkQuery): io.yamsergey.dta.protocol.network.HistoryScope? = null
     /** Feature 071: [query]'s rows streamed as found (see [io.yamsergey.dta.daemon.DtaDaemon.networkFind]). */
     suspend fun networkFind(
         serial: String, pkg: String, query: NetworkQuery, limit: Int?,
@@ -182,6 +186,8 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
         daemon.networkDecide(serial, pkg, view, query, entry, stop, socketUrl)
     override fun networkCopied(serial: String, pkg: String) = daemon.networkCopied(serial, pkg)
     override suspend fun networkLiveEntry(serial: String, pkg: String, id: String) = daemon.networkLiveEntry(serial, pkg, id)
+    override fun networkCurrentRun(serial: String, pkg: String) = daemon.networkCurrentRun(serial, pkg)
+    override suspend fun networkScope(serial: String, pkg: String, query: NetworkQuery) = daemon.networkScope(serial, pkg, query)
     override fun networkViewsClosed(prefix: String) = daemon.networkViewsClosed(prefix)
     override suspend fun networkFind(
         serial: String, pkg: String, query: NetworkQuery, limit: Int?,

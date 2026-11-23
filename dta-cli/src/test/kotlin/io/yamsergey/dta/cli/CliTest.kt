@@ -344,6 +344,23 @@ class CliTest {
         assertTrue("History cleared by mcp: 3 entries removed." in stdout, stdout)
     }
 
+    /** D-079 (071 FR-004): network watch states its scope, the current run by default; --archive widens it to every run. */
+    @Test
+    fun `network watch states its scope and --archive widens it`() {
+        assertTrue("--archive" in Cli(runner = { _, _, _ -> 0 }, mcp = { 0 }).parameterNames(listOf("network", "watch")))
+        val plain = kotlin.concurrent.thread { dta("-d", "emulator-5554", "-a", "com.example.shop", "network", "watch") }
+        waitFor { "Watching network traffic" in stderr }
+        assertTrue("Watching network traffic of the app's current run (1 234 earlier entries kept; add --archive to include earlier runs); Ctrl-C to stop." in stderr, stderr)
+        assertEquals(false, daemon.ops.watchScopes.last().archive)
+        errBytes.reset()
+        val archive = kotlin.concurrent.thread { dta("-d", "emulator-5554", "-a", "com.example.shop", "network", "watch", "--archive") }
+        waitFor { "Watching network traffic" in stderr }
+        assertTrue("Watching network traffic of every run; Ctrl-C to stop." in stderr, stderr)
+        assertEquals(true, daemon.ops.watchScopes.last().archive)
+        daemon.close()
+        plain.join(5_000); archive.join(5_000)
+    }
+
     /** D-003: network watch takes --redact (008 FR-012: every option of the operation), and its rows are masked. */
     @Test
     fun `network watch --redact prints masked entries`() {
