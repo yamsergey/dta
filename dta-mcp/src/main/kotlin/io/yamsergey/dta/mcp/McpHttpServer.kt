@@ -42,7 +42,7 @@ class McpHttpServer(
     private val log: (String) -> Unit = {},
     /** The projects `app_run` may run without a `project` argument: the IDE's open Android projects. */
     private val projects: () -> List<java.io.File> = { emptyList() },
-    private val runApp: AppRunner = AppRunTool.real(io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP),
+    private val runApp: AppRunner = AppRunTool.real(io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP, connect),
 ) {
     val url: String = "http://$HOST:$port$ENDPOINT"
 
