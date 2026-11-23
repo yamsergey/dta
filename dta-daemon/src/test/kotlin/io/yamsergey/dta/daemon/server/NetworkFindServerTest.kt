@@ -154,4 +154,33 @@ class NetworkFindServerTest {
         assertEquals("selection", client.call("network.list", JsonObject(emptyMap())).let { if (it.result is JsonObject) "selection" else "?" })
         client.close()
     }
+
+    /**
+     * D-049 (contracts/find.md): over the limit a search says `waiting` with its position first, and
+     * `searching` with its scope when a place frees, so a viewer knows it runs. Before, `searching` came
+     * before `waiting`, and nothing followed the admission.
+     */
+    @Test
+    fun `a search over the limit says waiting, then searching with its scope once a place is free`() = runBlocking<Unit> {
+        val ended = CountDownLatch(2)
+        fake.findWalk = runaway(ended)
+        val client = connect()
+        fun streamOf(e: JsonObject) = ((e["selection"] as? JsonObject)?.get("result") as? JsonObject)?.get("stream")?.let { (it as JsonPrimitive).content }
+        val streams = List(3) { java.util.concurrent.CopyOnWriteArrayList<JsonObject>() }
+        val jobs = streams.map { events -> async { runCatching { client.find(params).collect { events += it } } }.also { delay(200) } }
+        fun found(n: Int) = streams[n].filter { !it.containsKey("selection") }.map(::event)
+        withTimeout(5_000) { while (found(2).isEmpty()) delay(10) }
+        delay(300)
+        assertEquals(listOf(FindState.WAITING), found(2).map { it.state }, "only waiting while over the limit")
+        assertEquals(1, found(2).single().position)
+        assertEquals(FindState.SEARCHING, found(0).first().state)
+        client.request(io.yamsergey.dta.protocol.ops.DaemonMethods.NETWORK_FIND_STOP, JsonObject(mapOf("stream" to JsonPrimitive(streamOf(streams[0].first())!!))))
+        withTimeout(2_000) { while (found(2).size < 2) delay(10) }
+        val admitted = found(2)[1]
+        assertEquals(FindState.SEARCHING, admitted.state, "admitted: searching")
+        assertEquals("r1", admitted.scope?.run?.runId, "with its scope")
+        listOf(1, 2).forEach { n -> client.request(io.yamsergey.dta.protocol.ops.DaemonMethods.NETWORK_FIND_STOP, JsonObject(mapOf("stream" to JsonPrimitive(streamOf(streams[n].first())!!)))) }
+        withTimeout(5_000) { jobs.forEach { it.await() } }
+        client.close()
+    }
 }
