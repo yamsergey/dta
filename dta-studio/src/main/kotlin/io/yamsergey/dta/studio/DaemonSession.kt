@@ -24,6 +24,8 @@ import kotlinx.coroutines.runBlocking
 class DaemonSession(
     private val connect: suspend () -> DaemonLauncher.Connected,
     private val scope: CoroutineScope,
+    /** D-065: a connection to the running daemon whatever its version (null when none runs), to follow one this IDE conflicts with. */
+    private val conflicting: (suspend () -> DaemonClient?)? = null,
 ) {
     sealed interface State {
         data object Starting : State

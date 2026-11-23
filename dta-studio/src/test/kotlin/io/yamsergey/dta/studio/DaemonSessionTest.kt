@@ -94,6 +94,70 @@ class DaemonSessionTest {
         assertEquals("Retry", lost.action)
     }
 
+    /**
+     * D-065: a CLI of another build replaced the plugin's daemon (the plugin is now older: a conflict),
+     * then `dta daemon stop` stopped that newer one. The conflict is no longer true: the plugin says the
+     * daemon stopped and offers Start (never error-free silence, never a restart behind the person's back),
+     * and Start connects again.
+     */
+    @Test
+    fun `a conflict follows the newer daemon - its stop is stated with Start, and Start connects again`() = runBlocking<Unit> {
+        val newer = TestDaemon()
+        try {
+            val connects = AtomicInteger()
+            val following = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
+            val session = DaemonSession(
+                connect = { if (connects.incrementAndGet() == 2) throw conflict else daemon.connect(ClientKind.IDE) },
+                scope = scope,
+                conflicting = { newer.connect(ClientKind.IDE).client.also { following.complete(Unit) } },
+            ).also { it.start() }
+            session.awaitState<DaemonSession.State.Connected> { it as? DaemonSession.State.Connected }
+            daemon.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1)))
+            session.awaitState { it as? DaemonSession.State.Conflict }
+            withTimeout(5_000) { following.await() }
+            newer.server.stop("stopped by a client (cli)")
+            val stopped = session.awaitState { it as? DaemonSession.State.Failed }
+            assertTrue("stopped by a client" in stopped.message, stopped.message)
+            assertEquals("Start", stopped.action)
+            assertEquals(2, connects.get(), "not restarted behind the person's back")
+            session.retry()
+            session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { connects.get() == 3 } }
+        } finally {
+            newer.close()
+        }
+    }
+
+    @Test
+    fun `a conflict whose newer daemon is replaced by this version connects again by itself`() = runBlocking<Unit> {
+        val newer = TestDaemon()
+        try {
+            val connects = AtomicInteger()
+            val following = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
+            val session = DaemonSession(
+                connect = { if (connects.incrementAndGet() == 1) throw conflict else daemon.connect(ClientKind.IDE) },
+                scope = scope,
+                conflicting = { newer.connect(ClientKind.IDE).client.also { following.complete(Unit) } },
+            ).also { it.start() }
+            session.awaitState { it as? DaemonSession.State.Conflict }
+            withTimeout(5_000) { following.await() }
+            newer.connect(ClientKind.CLI).client.request(DaemonMethods.REPLACE, DaemonClient.replaceParams(VersionIdentity("0.1.0", "2027-01-01T00:00:00Z", 1)))
+            session.awaitState { (it as? DaemonSession.State.Connected)?.takeIf { connects.get() == 2 } }
+        } finally {
+            newer.close()
+        }
+    }
+
+    @Test
+    fun `a conflict whose newer daemon is already gone is stated as lost, with a retry`() = runBlocking<Unit> {
+        val conflict = VersionConflictException(VersionIdentity("0.1.0", "2026-12-31T00:00:00Z", 1), VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1), ClientKind.IDE)
+        val session = DaemonSession(connect = { throw conflict }, scope = scope, conflicting = { null }).also { it.start() }
+        val lost = session.awaitState { it as? DaemonSession.State.Failed }
+        assertTrue("connection" in lost.message, lost.message)
+        assertEquals("Retry", lost.action)
+    }
+
     @Test
     fun `a conflict names the plugin, not the CLI`() {
         val message = VersionConflictException(VersionIdentity("0.11.0", "b", 1), VersionIdentity("0.10.0", "a", 1), ClientKind.IDE).message!!
