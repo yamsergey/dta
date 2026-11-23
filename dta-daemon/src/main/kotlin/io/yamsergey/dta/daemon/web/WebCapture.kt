@@ -134,7 +134,7 @@ class WebCapture(
                     notRunning -> "the app is not running"
                     else -> "no WebView in the app yet"
                 }))
-                delay(if (source == Web.WEBVIEW) pollMs() else POLL_MS)
+                delay(pollMs(source))
                 continue
             }
             var port: Int? = null
@@ -166,7 +166,7 @@ class WebCapture(
                     port?.let { removeForward(it) }
                 }
             }
-            delay(if (source == Web.WEBVIEW) pollMs() else POLL_MS)
+            delay(pollMs(source))
         }
     }
 
@@ -219,6 +219,11 @@ class WebCapture(
         val sockets = unix.lineSequence()
             .mapNotNull { line -> line.trim().split(Regex("\\s+")).lastOrNull()?.takeIf { it.startsWith("@") }?.removePrefix("@") }
             .toList()
+        // Both sources look at the app's processes: a new one is looked at often, one gone a while seldom (D-059).
+        if (pids.isNotEmpty() && pids != knownPids) fastUntil = System.currentTimeMillis() + FAST_WINDOW_MS
+        knownPids = pids
+        notRunningSince = if (pids.isEmpty()) notRunningSince ?: System.currentTimeMillis() else null
+        notRunning = pids.isEmpty()
         return pids to sockets
     }
 
@@ -226,22 +231,16 @@ class WebCapture(
     @Volatile private var knownPids: Set<String> = emptySet()
     @Volatile private var fastUntil = 0L
     @Volatile private var notRunning = false
+    @Volatile private var notRunningSince: Long? = null
 
-    private fun pollMs(): Long = when {
-        System.currentTimeMillis() < fastUntil -> FAST_POLL_MS
-        notRunning -> START_POLL_MS
-        else -> POLL_MS
-    }
+    private fun pollMs(source: String): Long = WebPoll.intervalMs(
+        if (source == Web.WEBVIEW) WebPoll.Source.WEBVIEW else WebPoll.Source.CUSTOM_TAB,
+        System.currentTimeMillis(), fastUntil, notRunningSince,
+    )
 
     private fun webviewSocket(): String? {
         val (pids, sockets) = scan()
-        if (pids.isNotEmpty() && pids != knownPids) fastUntil = System.currentTimeMillis() + FAST_WINDOW_MS
-        knownPids = pids
-        if (pids.isEmpty()) {
-            notRunning = true
-            return null
-        }
-        notRunning = false
+        if (pids.isEmpty()) return null
         return sockets.firstOrNull { s -> s.startsWith(WEBVIEW_SOCKET) && s.removePrefix(WEBVIEW_SOCKET) in pids }
     }
 
@@ -272,12 +271,8 @@ class WebCapture(
         const val CHROME_SOCKET = "chrome_devtools_remote"
         private const val SPLIT = "--dta-unix--"
         /** How often a missing socket is looked for again. */
-        private const val POLL_MS = 2_000L
-        /** Right after the app's process starts (or while it is not running), for [FAST_WINDOW_MS]. */
-        private const val FAST_POLL_MS = 300L
+        /** Right after the app's process starts: its first WebView page is caught (see [WebPoll]). */
         private const val FAST_WINDOW_MS = 15_000L
-        /** While the app is not running: its start is caught within half a second. */
-        private const val START_POLL_MS = 500L
     }
 }
 
@@ -295,5 +290,29 @@ object TabMatch {
         val path = (uri.rawPath ?: "").ifEmpty { "/" }.trimEnd('/').ifEmpty { "/" }
         val port = if (uri.port == -1) "" else ":${uri.port}"
         return "${uri.scheme?.lowercase()}://${uri.host?.lowercase()}$port$path${uri.rawQuery?.let { "?$it" } ?: ""}"
+    }
+}
+
+/**
+ * Feature 060/061, D-059: how often a switched-on source looks for its socket over adb (one `adb shell`
+ * each time). Often while it matters — a new process (its first page may open within a second), an app
+ * that has just gone (its next start) — and seldom once the app has been gone a while: a switch left
+ * on for an app nobody runs polled twice a second for an hour and wedged the emulator's adbd.
+ */
+object WebPoll {
+    enum class Source { WEBVIEW, CUSTOM_TAB }
+
+    const val FAST_MS = 300L
+    const val RUNNING_MS = 2_000L
+    const val JUST_GONE_MS = 500L
+    const val GONE_MS = 10_000L
+    /** How long after the app's process went its next start is looked for at [JUST_GONE_MS]. */
+    const val JUST_GONE_WINDOW_MS = 30_000L
+
+    fun intervalMs(source: Source, nowMs: Long, fastUntil: Long, notRunningSince: Long?): Long = when {
+        notRunningSince != null && nowMs - notRunningSince >= JUST_GONE_WINDOW_MS -> GONE_MS
+        notRunningSince != null -> if (source == Source.WEBVIEW) JUST_GONE_MS else RUNNING_MS
+        source == Source.WEBVIEW && nowMs < fastUntil -> FAST_MS
+        else -> RUNNING_MS
     }
 }
