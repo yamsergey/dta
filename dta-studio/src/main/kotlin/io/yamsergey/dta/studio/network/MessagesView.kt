@@ -204,7 +204,8 @@ class MessagesView(
         val r = item.row
         val summary = listOf(r.time, if (r.kind == EntryKind.WS_OUT) "↑" else "↓", r.envelope?.label().orEmpty(), item.note).filter { it.isNotEmpty() }.joinToString("  ")
         val content = content(item)
-        val binary = if (item.text == null) listOf(listOf(Span("binary", SpanKind.PLAIN))) else emptyList()
+        // D-092 (042 edge cases): a binary message's line is "binary · N B".
+        val binary = if (item.text == null) listOf(listOf(Span("binary" + (r.size?.let { " · $it" } ?: ""), SpanKind.PLAIN))) else emptyList()
         return Triple(summary, content?.lines ?: binary, moreText(item))
     }
 
