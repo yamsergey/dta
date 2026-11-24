@@ -183,14 +183,23 @@ class HostIndex(
         if (query.archive) wholeView(epochId, ctx, stop) else liveView(epochId, ctx, runBound(epochId, ctx), stop)
 
     /** Feature 071 (FR-004, FR-014): what an answer of [query] covers, from kept counters. */
-    private fun scopeOf(query: NetworkQuery, epochId: String?, ctx: HistoryContext): io.yamsergey.dta.protocol.network.HistoryScope {
+    private fun scopeOf(query: NetworkQuery, epochId: String?, ctx: HistoryContext, stopped: Boolean = false): io.yamsergey.dta.protocol.network.HistoryScope {
         val runs = epochId?.let { store.runs(it) }.orEmpty()
         val told = ctx.coverage.runs.associateBy { it.runId }
         fun shown(runId: String, entries: Long, firstMs: Long?) = told[runId].let { r ->
             io.yamsergey.dta.protocol.network.ScopeRun(runId, entries, r?.startedAtMs ?: firstMs, r?.endedAtMs, r?.ended)
         }
         val runsShown = runs.map { shown(it.runId, (it.entries - it.links).toLong(), it.firstMs) }
-        val current = runsShown.firstOrNull { it.runId == ctx.runId } ?: ctx.runId.takeIf { it.isNotEmpty() }?.let { shown(it, 0, null) }
+        // D-060: the run whose process ended (seen here, or the app not running now) says so; when, if this daemon saw it.
+        val ended = endedRun
+        val current = (runsShown.firstOrNull { it.runId == ctx.runId } ?: ctx.runId.takeIf { it.isNotEmpty() }?.let { shown(it, 0, null) })?.let { c ->
+            when {
+                c.ended != null -> c
+                ended?.first == c.runId -> c.copy(ended = io.yamsergey.dta.protocol.network.RunEnd.PROCESS_ENDED, endedMs = ended.second)
+                stopped -> c.copy(ended = io.yamsergey.dta.protocol.network.RunEnd.PROCESS_ENDED)
+                else -> c
+            }
+        }
         val startedNow = current?.startedMs
         val previous = runsShown.firstOrNull { it.runId != ctx.runId && (startedNow == null || (it.startedMs ?: 0) <= startedNow) }
         val archived = store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true))
@@ -353,10 +362,17 @@ class HostIndex(
         query.archiveScope?.let { return archived(query, it) }
         // One hold of the mutex when there are no bodies to copy: beside a catch-up, each hold waits for a page.
         var snapshot: Pair<Triple<String?, HistoryContext, Long>, Extra>? = null
+        var stopped: Pair<String, HistoryContext>? = null
         val toCopy = mutex.withLock {
-            val app = connection()
+            val app = try { connection() } catch (e: Exception) { stopped = stoppedAt(e) ?: throw e; null }
+            if (app == null) return@withLock emptyList()
             if (!sync(app)) return appAnswers(app, query)
             (if (needsBodies(query)) pending() else emptyList()).also { if (it.isEmpty()) snapshot = liveSnapshot() }
+        }
+        // D-060: the app is not running: the copy answers, its last run said ended.
+        stopped?.let { (epochId, ctx) ->
+            val page = livePass(query, epochId, ctx, pass)
+            return page.copy(scope = scopeOf(query, epochId, ctx, stopped = true), archived = if (query.archive) marks(page.entries.map { it.id }) else page.archived)
         }
         // Copied outside the mutex: opening an entry does not wait for the bodies a search needs.
         copyAll(toCopy)
@@ -555,14 +571,18 @@ class HostIndex(
             return archiveView(epochs).search(query).copy(scope = explicitScope(scope, epochs))
         }
         var at: Pair<String?, HistoryContext>? = null
+        var stopped: Pair<String, HistoryContext>? = null
         val toCopy = mutex.withLock {
-            val app = connection()
+            val app = try { connection() } catch (e: Exception) { stopped = stoppedAt(e) ?: throw e; null }
+            if (app == null) return@withLock emptyList()
             if (!sync(app)) {
                 return SearchPage(emptyList(), degraded = listOf(DegradationMarker(NetworkHistoryView.CAPABILITY, DegradationCodes.NETWORK_SEARCH_UNAVAILABLE)))
             }
             // One hold when nothing is to copy (see [list]).
             pending().also { if (it.isEmpty()) at = epoch?.id to context!! }
         }
+        // D-060: the app is not running: the copy answers, its last run said ended.
+        stopped?.let { (epochId, ctx) -> return livePass(query, epochId, ctx, pass).copy(scope = scopeOf(query, epochId, ctx, stopped = true)) }
         copyAll(toCopy)
         val (epochId, ctx) = at ?: mutex.withLock { epoch?.id to context!! }
         return livePass(query, epochId, ctx, pass).copy(scope = scopeOf(query, epochId, ctx))
@@ -584,14 +604,17 @@ class HostIndex(
             }
         }
         var at: Pair<String?, HistoryContext>? = null
+        var stopped: Pair<String, HistoryContext>? = null
         val toCopy = mutex.withLock {
-            val app = connection()
+            val app = try { connection() } catch (e: Exception) { stopped = stoppedAt(e) ?: throw e; null }
+            if (app == null) return@withLock emptyList()
             check(sync(app)) { "this app keeps no history to search on this computer" }
             (if (needsBodies(query)) pending() else emptyList()).also { if (it.isEmpty()) at = epoch?.id to context!! }
         }
-        copyAll(toCopy)
-        val (epochId, ctx) = at ?: mutex.withLock { epoch?.id to context!! }
-        val scope = scopeOf(query, epochId, ctx)
+        // D-060: the app is not running: the copy answers (nothing to copy from it), its last run said ended.
+        if (stopped == null) copyAll(toCopy)
+        val (epochId, ctx) = stopped ?: at ?: mutex.withLock { epoch?.id to context!! }
+        val scope = scopeOf(query, epochId, ctx, stopped = stopped != null)
         return Pass(scope) { stop, onItem ->
             val view = if (query.archive) wholeView(epochId, ctx, stop) else liveView(epochId, ctx, runBound(epochId, ctx), stop)
             val archivedMarks = if (query.archive) store.epochs(device.key, packageName, io.yamsergey.dta.protocol.network.ArchiveScope(all = true)).associate { it.id to mark(it) } else emptyMap()
@@ -630,8 +653,26 @@ class HostIndex(
      * only the host can do (search words, host:, exclusions) is left out and said so.
      */
     
-    /** D-060: the app's process ended at [atMs] (the connection manager saw it go). */
-    fun appEnded(atMs: Long) {}
+    /** D-060: the run whose process this daemon saw end, and when (the connection manager's "ended"). */
+    @Volatile private var endedRun: Pair<String, Long>? = null
+
+    /** D-060: the app's process ended at [atMs] (the connection manager saw it go): its current run ended then. */
+    fun appEnded(atMs: Long) {
+        val run = context?.runId?.takeIf { it.isNotEmpty() } ?: return
+        endedRun = run to atMs
+    }
+
+    /**
+     * D-060 (071 edge "The app is not running"): when [e] says the app is not running and this computer holds a copy of
+     * its history, the live epoch and the context to answer from: the last run received is the current one.
+     * Null: answer [e] as it is (nothing copied, or another reason, e.g. an app running without DTA).
+     */
+    private fun stoppedAt(e: Throwable): Pair<String, HistoryContext>? {
+        if (e !is io.yamsergey.dta.daemon.adb.AppNotRunningException || e is io.yamsergey.dta.daemon.adb.AppWithoutDtaException) return null
+        val live = epoch ?: store.liveEpoch(device.key, packageName) ?: return null
+        val ctx = context ?: store.runs(live.id).firstOrNull()?.let { emptyContext().copy(runId = it.runId) } ?: return null
+        return live.id to ctx
+    }
 
     /** Catches up with the journal without answering anything (the copy worker's loop). */
     suspend fun refresh() = mutex.withLock { sync(connection()) }
