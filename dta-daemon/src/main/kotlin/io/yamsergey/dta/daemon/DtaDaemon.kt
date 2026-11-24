@@ -300,7 +300,13 @@ class DtaDaemon(
     }
 
     private val selectionsOnEnd = background.launch {
-        connections.changes.collect { e -> if (e.state == "ended") selections.ended(e.device, e.app) }
+        connections.changes.collect { e ->
+            if (e.state == "ended") {
+                selections.ended(e.device, e.app)
+                // D-060: the copy answers for the stopped app, its last run said ended at this time.
+                hostIndexes[ConnectionKey(e.device, e.app)]?.appEnded(System.currentTimeMillis())
+            }
+        }
     }
 
     private val screenCapture = io.yamsergey.dta.daemon.layout.ScreenCapture(
