@@ -478,7 +478,7 @@ class NetworkController(private val context: ContextController, private val scop
                 next = next.copy(list = next.list.reduce(LiveEvent.Older(page)), hits = next.hits.withOlder(joined, next.hitsNewestFirst, more = true), findHeld = stream.waitingForViewer,
                     epochOf = if (epochs.isEmpty()) next.epochOf else next.epochOf + epochs)
             }
-            e.scope?.let { next = next.withScope(it) }
+            e.scope?.let { next = next.withScope(it.notBelow(next.scope)) }
             e.saved?.let { next = next.copy(savedApplied = it) }
             if (e.state == io.yamsergey.dta.protocol.network.FindState.WAITING) next = next.copy(find = e.state)
             if (e.state == io.yamsergey.dta.protocol.network.FindState.SEARCHING && next.find == io.yamsergey.dta.protocol.network.FindState.WAITING) next = next.copy(find = e.state)
@@ -519,6 +519,17 @@ class NetworkController(private val context: ContextController, private val scop
             restartAsking.set(false)
             if (restartFrom != null && !mutable.value.archiveOn) reload()
         }
+    }
+
+    /**
+     * D-085: a search states the scope it started with, also in its final event; entries of the same run counted live since
+     * are not taken back (a run only grows; a clear answers with a list page, which replaces the scope).
+     */
+    private fun io.yamsergey.dta.protocol.network.HistoryScope.notBelow(shown: io.yamsergey.dta.protocol.network.HistoryScope?): io.yamsergey.dta.protocol.network.HistoryScope {
+        val mine = run ?: return this
+        val had = shown?.run?.takeIf { it.runId == mine.runId && shown.archive == archive } ?: return this
+        val more = had.entries - mine.entries
+        return if (more <= 0) this else copy(entries = entries + more, run = mine.copy(entries = had.entries))
     }
 
     /** The caption's M follows the shown run as [n] new entries of [run] arrive, listed or not (D-085). */
