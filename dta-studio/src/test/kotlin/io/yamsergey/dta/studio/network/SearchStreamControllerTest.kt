@@ -309,6 +309,43 @@ class SearchStreamControllerTest {
         assertEquals(4L, network.state.value.scope!!.run!!.entries, "no more than the run holds")
     }
 
+    /**
+     * D-089: the app started again during a search and the tab missed the connection's ended/connected (no apps event):
+     * the new run's first entry matches nothing, so only its count arrives. That count, of a newer run, is the restart:
+     * the search starts over in the new run and the banner names the run before.
+     */
+    @Test
+    fun `a newer run seen only in a count is a restart - the search starts over with the banner (D-089)`() = runBlocking<Unit> {
+        val ended = CountDownLatch(1)
+        daemon.ops.findWalk = slowWalk(2, ended)
+        daemon.ops.decide = { _, _ -> EntryDecision(false) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 && it.scope?.run?.runId == "r1-1" }
+        appRunsAgain()
+        daemon.ops.findWalk = { _, _ -> { _, _ -> FindEnd(null, null) } }
+        daemon.ops.events.emit(NetworkEntryEvent(http(1, run = "r2-1"), EntryChange.CREATED))
+        assertTrue(ended.await(3, TimeUnit.SECONDS), "the search over the run that ended was stopped")
+        val moved = await { it.find == FindState.DONE && it.scope?.run?.runId == "r2-1" && it.restart != null }
+        assertTrue("Previous run: 3 entries" in moved.restart!!, moved.restart)
+    }
+
+    /**
+     * D-089: whatever moved the tab to the new run (a reload of its own), an answer whose run is new and whose previous run
+     * is the one the tab showed is a restart: the banner names it.
+     */
+    @Test
+    fun `an answer that moves from the shown run to a newer one shows the banner (D-089)`() = runBlocking<Unit> {
+        session.start()
+        await { it.watching && it.scope?.run?.runId == "r1-1" }
+        appRunsAgain()
+        network.setQuery("x")
+        network.setQuery("")
+        val moved = await { it.scope?.run?.runId == "r2-1" && it.restart != null }
+        assertTrue(moved.restart!!.startsWith("The app restarted at "), moved.restart)
+    }
+
     /** D-054: with an empty query the list is the new run's, and the banner shows too. */
     @Test
     fun `the app started again with an empty query - the new run's list and the banner (D-054)`() = runBlocking<Unit> {
