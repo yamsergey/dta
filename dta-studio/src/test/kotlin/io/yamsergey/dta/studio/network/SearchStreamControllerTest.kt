@@ -322,7 +322,7 @@ class SearchStreamControllerTest {
         session.start()
         await { it.watching }
         network.setQuery("token")
-        await { it.find == FindState.SEARCHING && it.scope?.run?.runId == "r1-1" }
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 && it.scope?.run?.runId == "r1-1" }
         appRunsAgain()
         daemon.ops.findWalk = { _, _ -> { _, _ -> FindEnd(null, null) } }
         daemon.ops.events.emit(NetworkEntryEvent(http(1, run = "r2-1"), EntryChange.CREATED))

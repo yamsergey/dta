@@ -496,7 +496,11 @@ class NetworkController(private val context: ContextController, private val scop
 
     /** Feature 071: a new scope; the app started again since the last one: the banner names the run before. */
     private fun NetworkViewState.withScope(next: io.yamsergey.dta.protocol.network.HistoryScope): NetworkViewState {
-        val from = restartFrom
+        // D-089: whatever moved the tab (a reload of its own, a missed connection event), an answer over a new run whose
+        // previous run is the one shown is the restart.
+        val shownRun = scope?.run
+        val moved = shownRun?.takeIf { !archiveOn && archive == null && next.run != null && next.run!!.runId != it.runId && next.previous?.runId == it.runId }
+        val from = restartFrom ?: moved
         if (from == null) restartAsks.set(0)
         if (from == null || next.run == null) return copy(scope = next)
         // D-054: still the run before: the daemon may name the new run a moment after the app connected (asked again a few
@@ -555,10 +559,17 @@ class NetworkController(private val context: ContextController, private val scop
         // D-085 (gate 7): a new entry's event carries its run's size, read by the daemon after storing it; none is a protocol error.
         val runOf = (entry["runId"] as? JsonPrimitive)?.content
         if (created && runOf != null) sizes?.get(runOf)?.let { sizeRun(runOf, it) } ?: noRunSize()
+        runOf?.let(::noteNewerRun)
+    }
+
+    /**
+     * Feature 071 / D-089: an entry (listed, or only counted) of a run newer than the one shown: the app started again.
+     * The view moves to it and the banner names the run before.
+     */
+    private fun noteNewerRun(run: String) {
         val s = mutable.value
         if (s.archiveOn || s.archive != null) return
         val shown = s.scope?.run?.runId ?: return
-        val run = (entry["runId"] as? JsonPrimitive)?.content ?: return
         // Each newer run is asked for once (its entries keep coming while the list is asked again).
         if (run == shown || run == notedRun) return
         // Only a newer run moves the view: an earlier run's late update stays out (the daemon drops it too).
@@ -815,6 +826,8 @@ class NetworkController(private val context: ContextController, private val scop
                         // D-085 (gate 7): the run's size as the daemon has it; the plugin and its daemon are one build, so it is always there.
                         val sizes = runSizes(data)
                         if (sizes != null) sizes.forEach { (run, n) -> sizeRun(run, n) } else noRunSize()
+                        // D-089: a newer run's entries that match nothing come only as a count: still the restart.
+                        sizes?.keys?.forEach(::noteNewerRun)
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
                         val cleared = Statements.forCleared(data)!!
