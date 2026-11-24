@@ -31,6 +31,11 @@ git -C $outer init -q && git -C $outer -c user.name=probe -c user.email=probe@lo
 ./gradlew -q --console=plain -p $outer :dta-sources:dta-cli:installDist >/dev/null 2>&1 || exit 2
 fromOuter=$(grep -E '^(build|sha)=' $props | tr '\n' ' ')
 [[ $fromOuter == "$plugin sha=$sha " ]] || { echo "FAIL a build from another directory changed the stamp: $plugin sha=$sha then $fromOuter"; exit 1; }
+# The sidekick's BUILD (without DTA_BUILD_TIME, the commit's time) is the same kind of stamp: these sources' commit.
+./gradlew -q --console=plain -p $outer :dta-sources:dta-sidekick:generateReleaseBuildConfig >/dev/null 2>&1 || exit 2
+want="\"$(git log -1 --format=%cI)\""
+got=$(grep -o 'BUILD = .*;' dta-sidekick/build/generated/source/buildConfig/release/io/yamsergey/dta/sidekick/BuildConfig.java)
+[[ $got == "BUILD = $want;" ]] || { echo "FAIL the sidekick built from another directory took that directory's commit time: want $want, $got"; exit 1; }
 echo "// D-075 probe: a source change $(date +%s%N)" > $probe; sleep 1
 c=$(stamp)
 [[ $c > $b ]] || { echo "FAIL a source change kept the stamp: $b then $c"; exit 1; }
