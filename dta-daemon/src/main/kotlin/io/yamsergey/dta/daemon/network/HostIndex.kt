@@ -660,7 +660,8 @@ class HostIndex(
     /** D-060: the app's process ended at [atMs] (the connection manager saw it go): its current run ended then. */
     fun appEnded(atMs: Long) {
         val run = context?.runId?.takeIf { it.isNotEmpty() } ?: return
-        endedRun = run to atMs
+        // The earliest time the end was seen stays (an answer may have found the app gone first).
+        if (endedRun?.first != run) endedRun = run to atMs
     }
 
     /**
@@ -671,7 +672,10 @@ class HostIndex(
     private fun stoppedAt(e: Throwable): Pair<String, HistoryContext>? {
         if (e !is io.yamsergey.dta.daemon.adb.AppNotRunningException || e is io.yamsergey.dta.daemon.adb.AppWithoutDtaException) return null
         val live = epoch ?: store.liveEpoch(device.key, packageName) ?: return null
-        val ctx = context ?: store.runs(live.id).firstOrNull()?.let { emptyContext().copy(runId = it.runId) } ?: return null
+        val known = context
+        // This daemon had the app's run: it ended by now at the latest (the connection manager may say so later).
+        if (known != null) appEnded(clock())
+        val ctx = known ?: store.runs(live.id).firstOrNull()?.let { emptyContext().copy(runId = it.runId) } ?: return null
         return live.id to ctx
     }
 
