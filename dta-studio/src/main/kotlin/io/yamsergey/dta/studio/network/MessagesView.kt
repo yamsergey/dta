@@ -68,12 +68,15 @@ class MessagesView(
         var whole: String? = null
     }
 
-    private val payloads: Map<String, JsonObject?> = (raw["messages"] as? JsonArray).orEmpty()
-        .mapNotNull { it as? JsonObject }.associate { m -> (m["id"] as? JsonPrimitive)?.content.orEmpty() to (m["payload"] as? JsonObject) }
+    private var items: List<Item> = itemsOf(detail, raw)
+    private var top: JComponent = top
+    private val moreLabel = JBLabel("").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 12) }
 
-    private val items: List<Item> = run {
+    private fun itemsOf(detail: EntryDetail, raw: JsonObject): List<Item> {
+        val payloads: Map<String, JsonObject?> = (raw["messages"] as? JsonArray).orEmpty()
+            .mapNotNull { it as? JsonObject }.associate { m -> (m["id"] as? JsonPrimitive)?.content.orEmpty() to (m["payload"] as? JsonObject) }
         val answers = replies(detail.messages)
-        detail.messages.map { m ->
+        return detail.messages.map { m ->
             val payload = payloads[m.id]
             val rulePayload = m.envelope?.takeIf { it.rule != null }?.payload
             val preview = m.preview?.takeIf { it != "binary" }
@@ -108,7 +111,30 @@ class MessagesView(
         list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { expand(it, false) } }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), WHEN_FOCUSED)
         add(top, BorderLayout.NORTH)
         add(JBScrollPane(list), BorderLayout.CENTER)
-        detail.messagesMore?.let { add(JBLabel(it).apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 12) }, BorderLayout.SOUTH) }
+        add(moreLabel, BorderLayout.SOUTH)
+        moreLabel.text = detail.messagesMore.orEmpty()
+        moreLabel.isVisible = detail.messagesMore != null
+    }
+
+
+    /**
+     * D-091 (042 FR-002: expansion kept while the tab lives): the socket's detail read again (a new message). The same
+     * view takes the new rows: each message keeps its expansion and whole text, the selection stays on its message, and
+     * the list (its focus, its scroll) is not built anew.
+     */
+    fun update(detail: EntryDetail, raw: JsonObject, top: JComponent) {
+        val before = items.associateBy { it.row.id }
+        val selected = selectedId
+        items = itemsOf(detail, raw).map { n -> before[n.row.id]?.let { o -> n.expanded = o.expanded; n.whole = o.whole }; n }
+        items.forEachIndexed { i, item -> if (i < model.size()) model.set(i, item) else model.addElement(item) }
+        while (model.size() > items.size) model.remove(model.size() - 1)
+        selected?.let { id -> items.indexOfFirst { it.row.id == id }.takeIf { it >= 0 }?.let { list.selectedIndex = it } }
+        if (top !== this.top) { remove(this.top); this.top = top; add(top, BorderLayout.NORTH) }
+        moreLabel.text = detail.messagesMore.orEmpty()
+        moreLabel.isVisible = detail.messagesMore != null
+        relayout()
+        revalidate()
+        repaint()
     }
 
     /** Tests: the rows as the person reads them (summary, then content lines, then the more line). */

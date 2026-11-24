@@ -146,7 +146,7 @@ class EntryDetailPane(
             withContext(Dispatchers.Main) {
                 if (shown != id || loading?.isActive == true) return@withContext
                 raw = result
-                render(shownGone)
+                render(shownGone, inPlace = true)
                 // Changed again while it was read: once more.
                 if (shownRevision != asked) follow(shownRevision)
             }
@@ -156,7 +156,7 @@ class EntryDetailPane(
     /** Tests: the shown entry read again live (D-023's follow), with [result]. */
     internal fun followLoaded(result: JsonObject) {
         raw = result
-        render(shownGone)
+        render(shownGone, inPlace = true)
     }
 
     /** Tests: shows an already loaded `network.entry` [result] for [id]. */
@@ -167,11 +167,16 @@ class EntryDetailPane(
         render(false)
     }
 
-    private fun render(gone: Boolean) {
+    private fun render(gone: Boolean, inPlace: Boolean = false) {
         shownGone = gone
         val detail = EntryDetail.of(raw ?: return, side)
         val id = shown ?: return
         renderHeader(detail, gone)
+        if (inPlace && renderInPlace(detail, id)) {
+            revalidate()
+            repaint()
+            return
+        }
 
         val selected = tabs.selectedIndex.takeIf { it >= 0 }?.let { tabs.getTitleAt(it).substringBefore(" · ") }
         val message = (tabs.components.firstOrNull { it is MessagesView } as? MessagesView)?.selectedId
@@ -193,6 +198,34 @@ class EntryDetailPane(
         add(tabs, BorderLayout.CENTER)
         revalidate()
         repaint()
+    }
+
+    /**
+     * D-091 (042 FR-002): the shown entry read again live (D-023): when it has the same tabs, each is refreshed where it
+     * is and the Messages view takes the new messages itself (its expanded rows, selection, focus and scroll stay).
+     * False when the tabs differ: the caller builds them anew.
+     */
+    private fun renderInPlace(detail: EntryDetail, id: String): Boolean {
+        val view = (0 until tabs.tabCount).map { tabs.getComponentAt(it) }.filterIsInstance<MessagesView>().singleOrNull() ?: return false
+        val c = client
+        val wanted = buildList {
+            add("Headers" to { scroll(headersPage(detail)) as java.awt.Component })
+            if (c != null) {
+                detail.request?.body?.let { b -> add("Payload" to { BodyPane(project, c, bodyTarget(), id, b, scope, marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.REQUEST)) as java.awt.Component }) }
+                detail.response?.body?.let { b -> add("Response" to { BodyPane(project, c, bodyTarget(), id, b, scope, marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.RESPONSE)) as java.awt.Component }) }
+            }
+            if (detail.messages.isNotEmpty() || detail.messagesMore != null) add(detail.messagesTitle to { view as java.awt.Component })
+            detail.initiator?.let { add("Initiator" to { scroll(initiatorPage(detail)) as java.awt.Component }) }
+        }
+        val titles = (0 until tabs.tabCount).map { tabs.getTitleAt(it).substringBefore(" · ") }
+        if (titles != wanted.map { it.first.substringBefore(" · ") }) return false
+        wanted.forEachIndexed { i, (title, make) ->
+            if (tabs.getComponentAt(i) === view) {
+                view.update(detail, raw ?: return false, FormatControl.top(detail, client, target, scope, edit = ::editFormat, remove = ::removeFormat))
+            } else tabs.setComponentAt(i, make())
+            if (tabs.getTitleAt(i) != title) tabs.setTitleAt(i, title)
+        }
+        return true
     }
 
     private fun tabTitle(t: io.yamsergey.dta.present.network.HitTab) = when (t) {
