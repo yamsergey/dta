@@ -120,8 +120,11 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     /** D-079: the scopes live watches asked for; each answered as the current run with [outsideEntries] kept beside it. */
     val watchScopes = java.util.concurrent.CopyOnWriteArrayList<NetworkQuery>()
     @Volatile var outsideEntries: Long = 1_234
+    /** D-079: the journal not read yet (a fresh daemon): the scope says the current run is not known. */
+    @Volatile var runNotKnownYet = false
     override suspend fun networkScope(serial: String, pkg: String, query: NetworkQuery) =
-        io.yamsergey.dta.protocol.network.HistoryScope(query.archive, 2, outside = outsideEntries.takeIf { !query.archive && it > 0 }).also { watchScopes += query }
+        (if (runNotKnownYet) io.yamsergey.dta.protocol.network.HistoryScope(query.archive, 0, runNotKnownYet = true)
+        else io.yamsergey.dta.protocol.network.HistoryScope(query.archive, 2, outside = outsideEntries.takeIf { !query.archive && it > 0 })).also { watchScopes += query }
     /** D-085: a run's size now, as the list's scope states it (another run: 0); null: the daemon cannot say (a protocol error). */
     @Volatile var runEntries: (String) -> Long? = { runId -> listScope?.run?.takeIf { it.runId == runId }?.entries ?: 0 }
     override fun networkRunEntries(serial: String, pkg: String, runId: String) = runEntries(runId)

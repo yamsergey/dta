@@ -305,8 +305,9 @@ class HostIndex(
     fun runEntries(runId: String): Long? = epoch?.id?.let { e -> store.runs(e).firstOrNull { it.runId == runId }?.let { (it.entries - it.links).toLong() } }
 
     /** Feature 071 (FR-004, D-079): what [query]'s answers cover now, as a list states it; null before the journal was read. */
-    fun scope(query: NetworkQuery): io.yamsergey.dta.protocol.network.HistoryScope? {
-        val ctx = context ?: return null
+    fun scope(query: NetworkQuery): io.yamsergey.dta.protocol.network.HistoryScope {
+        // D-079 (FR-004): before the journal is read (a fresh daemon) the scope is stated as not known yet, never left out.
+        val ctx = context ?: return io.yamsergey.dta.protocol.network.HistoryScope(query.archive, 0, runNotKnownYet = true)
         return scopeOf(query, epoch?.id, ctx)
     }
 

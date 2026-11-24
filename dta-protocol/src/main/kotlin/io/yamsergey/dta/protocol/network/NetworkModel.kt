@@ -586,6 +586,8 @@ data class HistoryScope(
     val explicit: String? = null,
     /** `run:all` was in the query while the switch was off: it widened nothing. */
     val runAllIgnored: Boolean = false,
+    /** D-079 (FR-004): the app's journal was not read yet, so its current run is not known (a fresh daemon's first answer). */
+    val runNotKnownYet: Boolean = false,
 )
 
 /** Result of `network_list`. */
