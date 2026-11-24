@@ -22,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.CountDownLatch
@@ -344,6 +345,35 @@ class SearchStreamControllerTest {
         network.setQuery("")
         val moved = await { it.scope?.run?.runId == "r2-1" && it.restart != null }
         assertTrue(moved.restart!!.startsWith("The app restarted at "), moved.restart)
+    }
+
+    /**
+     * D-088 (071 edge process-restarts-during-search, board 4): the app started again during a search, but the daemon still
+     * names the run that ended (it answers from its copy until the new run is read). The search asked again over that old
+     * run must never read done; it starts over in the new run once the daemon names it.
+     */
+    @Test
+    fun `while the daemon still names the ended run, the search over it is never said done (D-088)`() = runBlocking<Unit> {
+        val ended = CountDownLatch(1)
+        daemon.ops.findWalk = slowWalk(2, ended)
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 && it.scope?.run?.runId == "r1-1" }
+        val seen = java.util.concurrent.CopyOnWriteArrayList<Pair<FindState?, String?>>()
+        val sampler = scope.launch { network.state.collect { seen += it.find to it.scope?.run?.runId } }
+        // The daemon answers from its copy: the old run, ended; a search over it ends at once.
+        daemon.ops.findScope = io.yamsergey.dta.protocol.network.HistoryScope(false, 3, r1Ended)
+        daemon.ops.listScope = io.yamsergey.dta.protocol.network.HistoryScope(false, 3, r1Ended)
+        daemon.ops.findWalk = { _, _ -> { _, _ -> FindEnd(null, null) } }
+        connection("ended", "connected")
+        delay(1_500)
+        appRunsAgain()
+        val moved = await { it.find == FindState.DONE && it.scope?.run?.runId == "r2-1" && it.watching }
+        sampler.cancel()
+        assertTrue(moved.restart != null, "the banner names the run before")
+        val oldDone = seen.filter { (f, run) -> f == FindState.DONE && run != "r2-1" }
+        assertEquals(emptyList(), oldDone, "done only over the new run")
     }
 
     /** D-054: with an empty query the list is the new run's, and the banner shows too. */
