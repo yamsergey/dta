@@ -105,8 +105,13 @@ class MessagesView(
                 if (onMore) toggle(index) else if (e.clickCount == 2) open(items[index].row.id)
             }
         })
-        // D-055 (025 FR-002): Enter opens the selected message, as a double-click does.
-        list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { open(items[it].row.id) } }, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), WHEN_FOCUSED)
+        // D-055 (025 FR-002): Enter opens the selected message, as a double-click does. NET-WS-064: an IDE action on the
+        // list, not a Swing key binding: the IDE's key dispatcher gives keys to the focused component's actions first.
+        object : com.intellij.openapi.project.DumbAwareAction() {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                list.selectedIndex.takeIf { it >= 0 }?.let { open(items[it].row.id) }
+            }
+        }.registerCustomShortcutSet(com.intellij.openapi.actionSystem.CommonShortcuts.ENTER, list)
         list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { expand(it, true) } }, KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), WHEN_FOCUSED)
         list.registerKeyboardAction({ list.selectedIndex.takeIf { it >= 0 }?.let { expand(it, false) } }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), WHEN_FOCUSED)
         add(top, BorderLayout.NORTH)
