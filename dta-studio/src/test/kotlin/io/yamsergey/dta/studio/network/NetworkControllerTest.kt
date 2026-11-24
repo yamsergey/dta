@@ -437,7 +437,7 @@ class NetworkControllerTest {
         assertEquals(3L, network.state.value.scope!!.run!!.entries, "the listed entry's late event")
         daemon.ops.listScope = daemon.ops.listScope!!.copy(entries = 4, run = daemon.ops.listScope!!.run!!.copy(entries = 4))
         daemon.ops.events.emit(NetworkEntryEvent(http(10), EntryChange.CREATED))
-        val grown = await { it.list.rows.size == 4 }
+        val grown = await { it.list.rows.size == 4 && it.scope?.run?.entries == 4L }
         assertEquals(4L, grown.scope!!.run!!.entries, "a new entry counts")
         assertEquals(4L, grown.scope!!.entries)
     }

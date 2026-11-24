@@ -252,6 +252,8 @@ class SearchStreamControllerTest {
         await { it.watching }
         network.setQuery("token")
         await { it.find == FindState.DONE && it.scope?.run?.runId == "r1-1" && it.scope!!.run!!.entries == 3L }
+        // The daemon's run now holds 5 (it says so with each event, gate 7).
+        daemon.ops.listScope = daemon.ops.listScope!!.copy(entries = 5, run = daemon.ops.listScope!!.run!!.copy(entries = 5))
         daemon.ops.events.emit(NetworkEntryEvent(http(4), EntryChange.CREATED))
         daemon.ops.events.emit(NetworkEntryEvent(http(5), EntryChange.CREATED))
         daemon.ops.events.emit(NetworkEntryEvent(http(5), EntryChange.UPDATED))
@@ -275,6 +277,7 @@ class SearchStreamControllerTest {
         await { it.watching }
         network.setQuery("token")
         await { it.find == FindState.SEARCHING && it.scope?.run?.entries == 3L }
+        daemon.ops.listScope = daemon.ops.listScope!!.copy(entries = 4, run = daemon.ops.listScope!!.run!!.copy(entries = 4))
         daemon.ops.events.emit(NetworkEntryEvent(http(4), EntryChange.CREATED))
         await { it.scope?.run?.entries == 4L }
         release.countDown()

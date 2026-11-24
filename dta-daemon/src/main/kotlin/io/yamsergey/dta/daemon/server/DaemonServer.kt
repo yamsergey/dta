@@ -367,6 +367,10 @@ class DaemonServer(
                 val events = ops.networkEvents(serial, pkg) { subscribed.complete(Unit) }
                 val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     launch {
+                        // D-085 (gate 7): what a run holds now, read after the entry was stored: the counting view takes it
+                        // as is, so an entry its list already counted (stored, listed, then told) is not counted twice.
+                        fun runEntries(runs: Collection<String>) = runs.mapNotNull { r -> runCatching { ops.networkRunEntries(serial, pkg, r) }.getOrNull()?.let { r to it } }
+                            .takeIf { it.isNotEmpty() }?.let { found -> buildJsonObject { found.forEach { (r, n) -> put(r, n) } } }
                         // D-085: new entries the view does not list, per run, said at once or with the next event.
                         val counted = LinkedHashMap<String, Long>()
                         suspend fun flushCounted() {
@@ -377,6 +381,7 @@ class DaemonServer(
                                 put("device", serial)
                                 put("app", pkg)
                                 put("counted", buildJsonObject { runs.forEach { (run, n) -> put(run, n) } })
+                                runEntries(runs.keys)?.let { put("runEntries", it) }
                             }))
                         }
                         for ((event, mark) in buffer) {
@@ -416,6 +421,7 @@ class DaemonServer(
                                             })
                                         }
                                         if (left) put("decision", buildJsonObject { put("match", false); put("left", true) })
+                                        if (counts && event.change == EntryChange.CREATED) runEntries(listOf(event.entry.runId))?.let { put("runEntries", it) }
                                         marker?.let { put("degraded", DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(DegradationMarker.serializer()), it)) }
                                     },
                                 ),
