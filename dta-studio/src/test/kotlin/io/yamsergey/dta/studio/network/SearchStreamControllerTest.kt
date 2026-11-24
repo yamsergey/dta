@@ -239,6 +239,29 @@ class SearchStreamControllerTest {
         assertEquals(2, daemon.ops.finds.size)
     }
 
+    /**
+     * D-085: under a search the caption's M ("N shown · M in this run") is the run's size, not the matches': an entry of the run
+     * that does not match is not listed, yet the run grew. Before, M stayed at the search's start (0 after a restart while
+     * the daemon said 1).
+     */
+    @Test
+    fun `under a search the run's count follows entries that do not match (D-085)`() = runBlocking<Unit> {
+        daemon.ops.findWalk = { _, _ -> { _, _ -> FindEnd(null, null) } }
+        daemon.ops.decide = { _, _ -> EntryDecision(false) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.DONE && it.scope?.run?.runId == "r1-1" && it.scope!!.run!!.entries == 3L }
+        daemon.ops.events.emit(NetworkEntryEvent(http(4), EntryChange.CREATED))
+        daemon.ops.events.emit(NetworkEntryEvent(http(5), EntryChange.CREATED))
+        daemon.ops.events.emit(NetworkEntryEvent(http(5), EntryChange.UPDATED))
+        val grown = await { it.scope!!.run!!.entries == 5L }
+        assertEquals(5L, grown.scope!!.entries, "the scope's entries follow the run")
+        assertEquals(emptyList(), grown.list.rows.map { it.id }, "nothing that does not match is listed")
+        delay(300)
+        assertEquals(5L, network.state.value.scope!!.run!!.entries, "an update is not a new entry")
+    }
+
     /** D-054: with an empty query the list is the new run's, and the banner shows too. */
     @Test
     fun `the app started again with an empty query - the new run's list and the banner (D-054)`() = runBlocking<Unit> {

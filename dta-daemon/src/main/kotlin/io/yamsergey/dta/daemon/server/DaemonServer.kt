@@ -341,6 +341,8 @@ class DaemonServer(
                 val archive = (params["archive"] as? JsonPrimitive)?.content == "true"
                 // Decision 2026-11-22: typo tolerance only when asked (typos, or typos:on in the line).
                 val typos = (params["typos"] as? JsonPrimitive)?.content == "true"
+                // D-085: a view that counts the run (the plugin's caption M) is told of new entries it does not list.
+                val counts = (params["counts"] as? JsonPrimitive)?.content == "true"
                 val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redact, ignoreSavedFilters = true, archive = archive, typos = typos)
                 /** Entries decided by a body's preview: decided again once the body is copied here. */
                 val byPreview = ConcurrentHashMap.newKeySet<String>()
@@ -365,7 +367,26 @@ class DaemonServer(
                 val events = ops.networkEvents(serial, pkg) { subscribed.complete(Unit) }
                 val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     launch {
+                        // D-085: new entries the view does not list, per run, said at once or with the next event.
+                        val counted = LinkedHashMap<String, Long>()
+                        suspend fun flushCounted() {
+                            if (counted.isEmpty()) return
+                            val runs = counted.toMap().also { counted.clear() }
+                            send(Event(name = DaemonEvents.NETWORK_ENTRY, seq = seq.incrementAndGet(), data = buildJsonObject {
+                                put("subscription", id)
+                                put("device", serial)
+                                put("app", pkg)
+                                put("counted", buildJsonObject { runs.forEach { (run, n) -> put(run, n) } })
+                            }))
+                        }
                         for ((event, mark) in buffer) {
+                            if (mark == COUNTED) {
+                                counted.merge(event.entry.runId, 1L, Long::plus)
+                                @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+                                if (buffer.isEmpty) flushCounted()
+                                continue
+                            }
+                            flushCounted()
                             val bodyUnchecked = mark == true
                             val decision = mark as? io.yamsergey.dta.protocol.network.EntryDecision
                             val left = mark == LEFT
@@ -417,6 +438,7 @@ class DaemonServer(
                                     else -> null
                                 }
                                 if (mark != null) buffer.send(event to mark)
+                                else if (counts && event.change == EntryChange.CREATED) buffer.send(event to COUNTED)
                                 return
                             }
                         }
@@ -727,3 +749,6 @@ private const val FIND_WINDOW = 500
 
 /** Feature 067: an entry that left a live view's matches (it matched before, it does not now). */
 private object LEFT
+
+/** D-085: a new entry a counting view does not list: only its run is counted. */
+private object COUNTED
