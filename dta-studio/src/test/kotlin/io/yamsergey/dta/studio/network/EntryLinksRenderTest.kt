@@ -103,6 +103,27 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
         assertEquals(binary.toString(), listOf("binary · 300 B"), binary.drop(1))
     }
 
+    /**
+     * NET-WS-064 (025 FR-002, D-076): in the IDE, keys go through its key dispatcher, which gives a key to the actions
+     * registered on the focused component before Swing's key bindings (the robot IDE: Enter on a selected row did
+     * nothing). Enter on the Messages list is such an action, and it opens the selected message.
+     */
+    fun `test Enter on a Messages row is an IDE action on the list that opens it (NET-WS-064)`() {
+        val opened = mutableListOf<String>()
+        val pane = EntryDetailPane(project, scope, open = { opened += it })
+        pane.showLoaded("r2-1:6", Json.parseToJsonElement(javaClass.getResource("/entry-ws.json")!!.readText()).jsonObject)
+        val view = all(pane).filterIsInstance<MessagesView>().single()
+        val list = all(view).filterIsInstance<javax.swing.JList<*>>().single()
+        val enter = javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0)
+        val action = com.intellij.openapi.actionSystem.ex.ActionUtil.getActions(list).singleOrNull { a ->
+            a.shortcutSet.shortcuts.any { (it as? com.intellij.openapi.actionSystem.KeyboardShortcut)?.firstKeyStroke == enter }
+        }
+        assertNotNull("an IDE action with the Enter shortcut on the Messages list", action)
+        view.select(1)
+        action!!.actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent.createFromDataContext("test", null, com.intellij.openapi.actionSystem.DataContext.EMPTY_CONTEXT))
+        assertEquals(listOf("r2-1:8"), opened)
+    }
+
     fun `test the details offer a Copy menu (026)`() {
         val menu = EntryCopyMenu(project, scope, { null }) { kotlinx.serialization.json.JsonObject(emptyMap()) }
         val pane = EntryDetailPane(project, scope, menu)
