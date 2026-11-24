@@ -262,6 +262,27 @@ class SearchStreamControllerTest {
         assertEquals(5L, network.state.value.scope!!.run!!.entries, "an update is not a new entry")
     }
 
+    /**
+     * D-085: the search's final event states the scope it started with; an entry of the run that arrived while it searched
+     * was counted live and stays counted (the done caption said 0 in this run while the daemon said 1).
+     */
+    @Test
+    fun `an entry counted while the search ran stays counted when it ends (D-085)`() = runBlocking<Unit> {
+        val release = CountDownLatch(1)
+        daemon.ops.findWalk = { _, _ -> { stop, _ -> while (!release.await(20, TimeUnit.MILLISECONDS)) { if (stop.stopped()) throw SearchStoppedException() }; FindEnd(null, null) } }
+        daemon.ops.decide = { _, _ -> EntryDecision(false) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.scope?.run?.entries == 3L }
+        daemon.ops.events.emit(NetworkEntryEvent(http(4), EntryChange.CREATED))
+        await { it.scope?.run?.entries == 4L }
+        release.countDown()
+        val done = await { it.find == FindState.DONE }
+        assertEquals(4L, done.scope!!.run!!.entries, "the run's count after the search ended")
+        assertEquals(4L, done.scope!!.entries)
+    }
+
     /** D-054: with an empty query the list is the new run's, and the banner shows too. */
     @Test
     fun `the app started again with an empty query - the new run's list and the banner (D-054)`() = runBlocking<Unit> {
