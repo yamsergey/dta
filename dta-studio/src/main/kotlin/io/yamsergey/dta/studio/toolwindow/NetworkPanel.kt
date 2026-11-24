@@ -481,9 +481,11 @@ class NetworkPanel(
         val filtered = s.applied.text.isNotBlank() || s.kind != io.yamsergey.dta.present.network.KindChoice.ALL
         val words = if (s.scope == null) null else io.yamsergey.dta.present.network.ScopeCaption.of(s.scope, s.list.shown, filtered, s.find, s.savedApplied, s.findError)
         caption.text = words?.text ?: io.yamsergey.dta.present.network.SavedChip.caption(s.list.shown, s.list.history, s.savedApplied, filtered, more = s.list.older != null)
+        // D-083: no daemon, no run: no count of one ("0 entries in this run").
+        if (!s.online) caption.text = ""
         if (s.findHeld && words != null) caption.text = words.text + " · more as you scroll"
         spinner.isVisible = words?.searching == true
-        captionAction = words?.action?.takeUnless { it == io.yamsergey.dta.present.network.ScopeCaption.Action.INCLUDE_ARCHIVE && (s.archiveOn || s.archive != null) }
+        captionAction = words?.action?.takeIf { s.online }?.takeUnless { it == io.yamsergey.dta.present.network.ScopeCaption.Action.INCLUDE_ARCHIVE && (s.archiveOn || s.archive != null) }
         captionLink.text = captionAction?.let { io.yamsergey.dta.present.network.ScopeCaption.label(it) }.orEmpty()
         captionLink.isVisible = captionAction != null
         if (archiveBox.isSelected != s.archiveOn) archiveBox.isSelected = s.archiveOn
@@ -500,7 +502,7 @@ class NetworkPanel(
         newBar.text = if (s.list.newCount > 0) "${s.list.newCount} new ${if (model.order == ListOrder.NEWEST_FIRST) "above" else "below"} — G to follow" else ""
         newBar.isVisible = s.list.newCount > 0
         empty.text = when {
-            s.app == null -> ""
+            s.app == null || !s.online -> ""
             s.loading -> "Loading…"
             s.list.rows.isEmpty() && s.saved.saved.isEmpty() && s.applied.text.isBlank() && s.kind == io.yamsergey.dta.present.network.KindChoice.ALL -> "No traffic yet. Requests appear here as the app makes them."
             s.list.rows.isEmpty() -> "Nothing matches these filters."

@@ -76,6 +76,8 @@ data class NetworkViewState(
     /** D-024: the app's network script while one is active (the view row's script control); null when none. */
     val script: io.yamsergey.dta.protocol.network.ScriptStatus? = null,
     val watching: Boolean = false,
+    /** D-083: a daemon answers (not stopped, failed, in a version conflict or being replaced); off, the tab shows nothing of a run. */
+    val online: Boolean = false,
     val error: String? = null,
     /** Feature 068: a wait of the archiving that lasts, for the IDE's background task; null when none. */
     val wait: BackgroundWait? = null,
@@ -732,7 +734,16 @@ class NetworkController(private val context: ContextController, private val scop
                 script = if (sameApp) it.script else null,
             )
         }
-        val client = target.client ?: return
+        val client = target.client ?: run {
+            // D-083: no daemon, nothing is watched: what the list showed of the run (its rows, "N in this run", the
+            // restart banner) is not the run any more. The banner above says why; a daemon back lists it again.
+            mutable.update {
+                it.copy(online = false, list = LiveList(), statements = emptyList(), scope = null, restart = null, epochOf = emptyMap(),
+                    savedApplied = null, find = null, findError = null, findHeld = false, searching = false, loading = false)
+            }
+            return
+        }
+        mutable.update { it.copy(online = true) }
         // A new daemon connection (restarted, replaced) is a new client: the old one answers nothing any more.
         if (!sameApp || savedJob == null || savedClient !== client) followSaved(client)
         if (!sameApp || waitJob == null || waitClient !== client) followWait(client)

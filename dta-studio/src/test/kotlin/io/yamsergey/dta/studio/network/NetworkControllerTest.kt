@@ -403,6 +403,26 @@ class NetworkControllerTest {
         withTimeout(8_000) { network.state.first { it.saved.saved == listOf("-url:/after") } }
     }
 
+    /**
+     * D-083: with no daemon (stopped, a version conflict) the tab is not watching anything: it shows nothing of the run
+     * it showed before (rows, "N in this run", the restart banner, "No traffic yet"), not as if it were still live.
+     */
+    @Test
+    fun `with the daemon stopped the tab keeps nothing of the live run (D-083)`() = runBlocking<Unit> {
+        session.start()
+        val live = await { it.list.rows.size == 3 && it.watching }
+        assertTrue(live.online, "connected: online")
+        daemon.server.stop("stopped by a client (cli)")
+        until { session.state.value is DaemonSession.State.Failed }
+        val stopped = await { !it.watching && it.list.rows.isEmpty() }
+        assertTrue(!stopped.online, "stopped: not online")
+        assertEquals(emptyList(), stopped.list.rows.map { it.id }, "no rows of the run shown before")
+        assertEquals(null, stopped.scope, "no caption scope (N in this run)")
+        assertEquals(null, stopped.restart, "no restart banner")
+        assertEquals(emptyList(), stopped.statements, "no statements about the old list")
+        assertTrue(!stopped.watching && !stopped.loading, "$stopped")
+    }
+
     @Test
     fun `a clear by another client empties the list and says who cleared it`() = runBlocking<Unit> {
         session.start()
