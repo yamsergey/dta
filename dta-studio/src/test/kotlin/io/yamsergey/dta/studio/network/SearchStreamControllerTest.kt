@@ -283,6 +283,29 @@ class SearchStreamControllerTest {
         assertEquals(4L, done.scope!!.entries)
     }
 
+    /**
+     * D-085 (gate 7): under a search, an entry the scope already counts whose event comes later (stored, then told) is not
+     * counted again; the daemon says the run's size, so the caption equals it.
+     */
+    @Test
+    fun `under a search an entry the scope already counts is not counted again (D-085)`() = runBlocking<Unit> {
+        daemon.ops.findWalk = { _, _ -> { _, _ -> FindEnd(null, null) } }
+        daemon.ops.decide = { _, _ -> EntryDecision(false) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.DONE && it.scope?.run?.entries == 3L }
+        daemon.ops.events.emit(NetworkEntryEvent(http(3), EntryChange.CREATED))
+        delay(500)
+        assertEquals(3L, network.state.value.scope!!.run!!.entries, "an entry the scope counted, told late")
+        daemon.ops.listScope = daemon.ops.listScope!!.copy(entries = 4, run = daemon.ops.listScope!!.run!!.copy(entries = 4))
+        daemon.ops.events.emit(NetworkEntryEvent(http(4), EntryChange.CREATED))
+        val grown = await { it.scope?.run?.entries == 4L }
+        assertEquals(4L, grown.scope!!.entries)
+        delay(300)
+        assertEquals(4L, network.state.value.scope!!.run!!.entries, "no more than the run holds")
+    }
+
     /** D-054: with an empty query the list is the new run's, and the banner shows too. */
     @Test
     fun `the app started again with an empty query - the new run's list and the banner (D-054)`() = runBlocking<Unit> {
