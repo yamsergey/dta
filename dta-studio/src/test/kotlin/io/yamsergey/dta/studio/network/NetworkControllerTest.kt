@@ -410,10 +410,12 @@ class NetworkControllerTest {
     @Test
     fun `with the daemon stopped the tab keeps nothing of the live run (D-083)`() = runBlocking<Unit> {
         session.start()
-        await { it.list.rows.size == 3 && it.watching }
+        val live = await { it.list.rows.size == 3 && it.watching }
+        assertTrue(live.online, "connected: online")
         daemon.server.stop("stopped by a client (cli)")
         until { session.state.value is DaemonSession.State.Failed }
         val stopped = await { !it.watching && it.list.rows.isEmpty() }
+        assertTrue(!stopped.online, "stopped: not online")
         assertEquals(emptyList(), stopped.list.rows.map { it.id }, "no rows of the run shown before")
         assertEquals(null, stopped.scope, "no caption scope (N in this run)")
         assertEquals(null, stopped.restart, "no restart banner")
