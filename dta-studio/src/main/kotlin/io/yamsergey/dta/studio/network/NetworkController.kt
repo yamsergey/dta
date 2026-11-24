@@ -478,10 +478,15 @@ class NetworkController(private val context: ContextController, private val scop
                 next = next.copy(list = next.list.reduce(LiveEvent.Older(page)), hits = next.hits.withOlder(joined, next.hitsNewestFirst, more = true), findHeld = stream.waitingForViewer,
                     epochOf = if (epochs.isEmpty()) next.epochOf else next.epochOf + epochs)
             }
+            val restarting = restartFrom
             e.scope?.let { next = next.withScope(it.notBelow(next.scope)) }
             e.saved?.let { next = next.copy(savedApplied = it) }
             if (e.state == io.yamsergey.dta.protocol.network.FindState.WAITING) next = next.copy(find = e.state)
             if (e.state == io.yamsergey.dta.protocol.network.FindState.SEARCHING && next.find == io.yamsergey.dta.protocol.network.FindState.WAITING) next = next.copy(find = e.state)
+            // D-088 (071 board 4): the app started again but the daemon still names a run not newer than the one that ended
+            // (it answers from its copy until the new run is read): that search is asked again, never said done.
+            if (e.final && e.state == io.yamsergey.dta.protocol.network.FindState.DONE && restarting != null && restartAsks.get() > 0 &&
+                !newer(next.scope?.run?.runId, restarting.runId)) return@update next
             if (e.final) {
                 val notSearched = JsonObject(listOfNotNull(e.notSearched?.let { "notSearched" to kotlinx.serialization.json.JsonArray(it.map(::JsonPrimitive)) }).toMap())
                 next = next.copy(find = e.state, findError = e.error, findHeld = false, searching = false, hits = next.hits.copy(more = false),
@@ -509,6 +514,13 @@ class NetworkController(private val context: ContextController, private val scop
         restartAsks.set(0)
         restartFrom = null
         return copy(scope = next, restart = io.yamsergey.dta.present.network.ScopeCaption.restarted(next.run!!, next.previous ?: from))
+    }
+
+    /** Whether run [a] started after run [b] (run ids are `r<startMs>-<pid>`). */
+    private fun newer(a: String?, b: String): Boolean {
+        val x = a?.removePrefix("r")?.substringBefore('-')?.toLongOrNull() ?: return false
+        val y = b.removePrefix("r").substringBefore('-').toLongOrNull() ?: return false
+        return x > y
     }
 
     /** D-054: how many more times the scope is asked for after the app connected again while it still names the run before. */
