@@ -521,10 +521,16 @@ class NetworkController(private val context: ContextController, private val scop
         }
     }
 
+    /** The caption's M follows the shown run as [n] new entries of [run] arrive, listed or not (D-085). */
+    private fun countRun(run: String, n: Long) {
+        if (n <= 0) return
+        mutable.update { st -> st.scope?.takeIf { sc -> sc.run?.runId == run }?.let { sc -> st.copy(scope = sc.copy(entries = sc.entries + n, run = sc.run?.copy(entries = sc.run!!.entries + n))) } ?: st }
+    }
+
     /** Feature 071: a live entry of another run while the tab shows the current one: the app started again. */
     private fun noteRun(entry: JsonObject, created: Boolean = false) {
         // The caption's M follows the run as entries arrive (the counters are read again at the next answer).
-        if (created) mutable.update { st -> st.scope?.takeIf { sc -> sc.run?.runId == (entry["runId"] as? JsonPrimitive)?.content }?.let { sc -> st.copy(scope = sc.copy(entries = sc.entries + 1, run = sc.run?.copy(entries = sc.run!!.entries + 1))) } ?: st }
+        if (created) (entry["runId"] as? JsonPrimitive)?.content?.let { countRun(it, 1) }
         val s = mutable.value
         if (s.archiveOn || s.archive != null) return
         val shown = s.scope?.run?.runId ?: return
@@ -764,7 +770,8 @@ class NetworkController(private val context: ContextController, private val scop
             mutable.update { it.copy(loading = true) }
             try {
                 val s = mutable.value
-                val live = mapOf("view" to JsonPrimitive(VIEW)) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                // D-085: counts: the daemon also says how many new entries of a run the tab does not list (the caption's M).
+                val live = mapOf("view" to JsonPrimitive(VIEW), "counts" to JsonPrimitive(true)) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
                     (if (s.archiveOn) mapOf("archive" to JsonPrimitive(true)) else emptyMap())
                 client.networkEvents(JsonObject(target(s) + s.applied.params(s.kind) + live)).collect { data ->
                     if (data["selection"] != null) {
@@ -780,6 +787,8 @@ class NetworkController(private val context: ContextController, private val scop
                         val e = loaded(page)
                         mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false, watching = true, find = null).withPageScope(page) }
                         search()
+                    } else if (data["counted"] is JsonObject) {
+                        (data["counted"] as JsonObject).forEach { (run, n) -> countRun(run, (n as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L) }
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
                         val cleared = Statements.forCleared(data)!!
