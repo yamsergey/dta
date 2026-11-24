@@ -22,6 +22,15 @@ mkdir -p $tooldir/sessions; echo x > $tooldir/sessions/s.salive
 rm -rf -- $tooldir
 [[ $cli == $plugin ]] || { echo "FAIL the plugin's sandbox restamped the CLI's sources: $cli then $plugin"; exit 1; }
 b=$plugin
+# Gate 5 (D-075 reopened): the harness builds the CLI as an included build from its own directory, inside another git
+# repository. The stamp (its SHA included) must be the same whatever directory Gradle runs from.
+sha=$(git rev-parse --short HEAD)
+outer=$(mktemp -d "${TMPDIR:-/tmp}/d075-outer.XXXXXX"); trap 'rm -f -- $probe; rm -rf -- $tooldir $outer' EXIT
+print -r -- "includeBuild(\"$PWD\") { name = \"dta-sources\" }" > $outer/settings.gradle.kts
+git -C $outer init -q && git -C $outer -c user.name=probe -c user.email=probe@localhost commit -q --allow-empty -m outer
+./gradlew -q --console=plain -p $outer :dta-sources:dta-cli:installDist >/dev/null 2>&1 || exit 2
+fromOuter=$(grep -E '^(build|sha)=' $props | tr '\n' ' ')
+[[ $fromOuter == "$plugin sha=$sha " ]] || { echo "FAIL a build from another directory changed the stamp: $plugin sha=$sha then $fromOuter"; exit 1; }
 echo "// D-075 probe: a source change $(date +%s%N)" > $probe; sleep 1
 c=$(stamp)
 [[ $c > $b ]] || { echo "FAIL a source change kept the stamp: $b then $c"; exit 1; }
