@@ -5,7 +5,9 @@ plugins {
 }
 
 /** Without CI's DTA_BUILD_TIME: the commit's time, stable across builds of one commit (feature 036). */
+// D-075 (gate 5): these sources' commit, whatever directory Gradle runs from (the harness includes this build).
 val sidekickCommitTime: Provider<String> = providers.exec {
+    workingDir(rootDir)
     commandLine("git", "log", "-1", "--format=%cI")
     isIgnoreExitValue = true
 }.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }
