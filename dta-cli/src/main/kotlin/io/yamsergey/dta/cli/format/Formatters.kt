@@ -142,7 +142,9 @@ class Formatters(private val style: Style) {
         val o = result as? JsonObject
         val archive = (o?.get("archive") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
         if (archive) return "Watching network traffic of every run; Ctrl-C to stop."
-        val outside = o?.get("scope")?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }?.outside ?: 0
+        val scope = o?.get("scope")?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.network.HistoryScope.serializer(), it) }
+        if (scope?.runNotKnownYet == true) return "Watching network traffic of the app's current run (not known yet: the app's history is still being read); Ctrl-C to stop."
+        val outside = scope?.outside ?: 0
         val more = if (outside > 0) " (${io.yamsergey.dta.present.network.ScopeCaption.grouped(outside)} earlier entries kept; add --archive to include earlier runs)" else ""
         return "Watching network traffic of the app's current run$more; Ctrl-C to stop."
     }
