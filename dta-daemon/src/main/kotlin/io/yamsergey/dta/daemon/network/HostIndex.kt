@@ -630,6 +630,9 @@ class HostIndex(
      * only the host can do (search words, host:, exclusions) is left out and said so.
      */
     
+    /** D-060: the app's process ended at [atMs] (the connection manager saw it go). */
+    fun appEnded(atMs: Long) {}
+
     /** Catches up with the journal without answering anything (the copy worker's loop). */
     suspend fun refresh() = mutex.withLock { sync(connection()) }
 
