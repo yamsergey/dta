@@ -60,7 +60,10 @@ abstract class VersionResource : DefaultTask() {
     }
 }
 
+// D-075 (gate 5): the SHA of these sources, not of the directory Gradle runs from (the harness includes this build from
+// another git repository).
 val gitSha = providers.exec {
+    workingDir(rootDir)
     commandLine("git", "rev-parse", "--short", "HEAD")
     isIgnoreExitValue = true
 }.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }
