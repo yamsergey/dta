@@ -43,7 +43,8 @@ class HostIndexStoppedTest {
             responseBody = BodyInfo(BodyPart.RESPONSE, text.length.toLong(), completeness = Completeness.COMPLETE, contentType = "application/json", preview = text)))
     }
 
-    private fun host(store: HostStore) = HostIndex(store, DeviceIdentity("dev1"), "io.example") {
+    private var now = 7_000L
+    private fun host(store: HostStore) = HostIndex(store, DeviceIdentity("dev1"), "io.example", clock = { now }) {
         if (!running) throw AppNotRunningException("io.example is not running on dev1 — launch it first")
         app
     }
@@ -72,6 +73,21 @@ class HostIndexStoppedTest {
         assertEquals(RunEnd.PROCESS_ENDED, run.ended)
         assertEquals(5_000L, run.endedMs)
         assertEquals(2, page.scope!!.entries)
+    }
+
+    /**
+     * D-060 (harness NET-QRY-085): an answer can come before the connection manager says the process ended; the first answer
+     * that finds the app gone records the end then, and the later "ended" event does not move it.
+     */
+    @Test
+    fun `the first answer that finds the app gone says when, before the ended event`() = runBlocking<Unit> {
+        val (_, host) = stopped()
+        val first = host.list(NetworkQuery()).scope!!.run!!
+        assertEquals(RunEnd.PROCESS_ENDED, first.ended)
+        assertEquals(7_000L, first.endedMs, "the time this computer found the app gone")
+        now = 9_000L
+        host.appEnded(8_500)
+        assertEquals(7_000L, host.list(NetworkQuery()).scope!!.run!!.endedMs, "kept: the earliest time the end was seen")
     }
 
     @Test
