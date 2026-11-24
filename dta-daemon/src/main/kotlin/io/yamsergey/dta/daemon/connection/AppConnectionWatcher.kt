@@ -71,8 +71,12 @@ class AppConnectionWatcher(
         }
     }
 
-    private suspend fun scan() {
+    private suspend fun scan() = kotlinx.coroutines.coroutineScope {
         var known = emptySet<ConnectionKey>()
+        // D-069: each app is dialled on its own, at most one dial per app at a time. Dialled one after another,
+        // an app whose sidekick does not answer (a frozen background process: a 10 s hello wait) held the whole
+        // round, so a freshly launched app behind a few of them was not dialled within `dta run`'s 30 s.
+        val dialling = ConcurrentHashMap.newKeySet<ConnectionKey>()
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
             val targets = watching.values.toSet().let { t -> if (ALL in t) listOf<String?>(null) else t.toList() }
             val running = HashSet<ConnectionKey>()
@@ -83,7 +87,15 @@ class AppConnectionWatcher(
                 running += found
                 looked += target
             }
-            running.forEach { key -> runCatching { manager.connect(key, background = true, socket = socketOf(key)) } }
+            running.filter { dialling.add(it) }.forEach { key ->
+                launch {
+                    try {
+                        runCatching { manager.connect(key, background = true, socket = socketOf(key)) }
+                    } finally {
+                        dialling.remove(key)
+                    }
+                }
+            }
             // Only apps of a device looked at this round can have ended.
             (known - running).filter { k -> null in looked || k.serial in looked }.forEach { key -> manager.ended(key) }
             known = running

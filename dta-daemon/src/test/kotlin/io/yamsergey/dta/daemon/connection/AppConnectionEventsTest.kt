@@ -176,6 +176,31 @@ class AppConnectionEventsTest {
     }
 
     /**
+     * D-069: the watcher dialled the apps of a round one after another. An app whose sidekick does not answer
+     * (a frozen background fixture) held each round for its whole hello wait (10 s), so a freshly launched app
+     * behind two or three of them was not dialled within `dta run`'s 30 s.
+     */
+    @Test
+    fun `an app whose sidekick does not answer does not hold up the connect of another`() = runBlocking {
+        val frozen = ConnectionKey("emulator-5554", "com.example.frozen")
+        val fresh = ConnectionKey("emulator-5554", "com.example.fresh")
+        val manager = SidekickConnectionManager(
+            forwardOps = ForwardOps(forward = { 40000 }, remove = { _, _ -> }),
+            connector = { k, _ ->
+                if (k == frozen) { kotlinx.coroutines.delay(10_000); throw ConnectException("cannot reach sidekick (request timed out)") }
+                Link(k.packageName)
+            },
+            probe = { true },
+            log = {},
+        )
+        // The frozen app runs from the start; the fresh one is launched after the first look.
+        val looks = java.util.concurrent.atomic.AtomicInteger()
+        val watcher = AppConnectionWatcher(instances = { if (looks.getAndIncrement() == 0) listOf(frozen) else listOf(frozen, fresh) }, manager = manager, interval = 20.milliseconds)
+        val connected = withTimeout(2.seconds) { watcher.events("emulator-5554").first { it.app == fresh.packageName && it.state == "connected" } }
+        assertEquals("connected", connected.state)
+    }
+
+    /**
      * D-074: each watching client ran its own scan loop (adb devices + cat /proc/net/unix every second);
      * with the plugin, a CLI watch and a run that was 3 scans a second. Watchers share one scan per device.
      */
