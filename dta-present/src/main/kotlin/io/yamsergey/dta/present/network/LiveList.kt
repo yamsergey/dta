@@ -67,6 +67,9 @@ data class LiveList(
 
     val selected: Row? get() = selectedId?.let { id -> index[id]?.let { rows[it] } }
 
+    /** Whether a row of [id] is listed (D-085: an entry already listed is not counted again). */
+    fun has(id: String): Boolean = index.containsKey(id)
+
     fun reduce(event: LiveEvent): LiveList = when (event) {
         is LiveEvent.Loaded -> {
             val loaded = entries(event.page).sortedWith(ORDER)

@@ -423,6 +423,25 @@ class NetworkControllerTest {
         assertTrue(!stopped.watching && !stopped.loading, "$stopped")
     }
 
+    /**
+     * D-085 (gate 7): the daemon stores an entry, then tells its watchers; a list read in between already counts it in
+     * its scope and lists it. Its live event, handled after the list, must not count it again ("2 entries in this run"
+     * with one row, the daemon saying 1). A new entry still counts.
+     */
+    @Test
+    fun `an entry the list already counted is not counted again when its event comes after (D-085)`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching && it.scope?.run?.entries == 3L }
+        daemon.ops.events.emit(NetworkEntryEvent(daemon.ops.entries[2], EntryChange.CREATED))
+        kotlinx.coroutines.delay(500)
+        assertEquals(3L, network.state.value.scope!!.run!!.entries, "the listed entry's late event")
+        daemon.ops.listScope = daemon.ops.listScope!!.copy(entries = 4, run = daemon.ops.listScope!!.run!!.copy(entries = 4))
+        daemon.ops.events.emit(NetworkEntryEvent(http(10), EntryChange.CREATED))
+        val grown = await { it.list.rows.size == 4 && it.scope?.run?.entries == 4L }
+        assertEquals(4L, grown.scope!!.run!!.entries, "a new entry counts")
+        assertEquals(4L, grown.scope!!.entries)
+    }
+
     @Test
     fun `a clear by another client empties the list and says who cleared it`() = runBlocking<Unit> {
         session.start()

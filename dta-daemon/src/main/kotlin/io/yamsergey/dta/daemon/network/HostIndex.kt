@@ -292,6 +292,9 @@ class HostIndex(
     /** Feature 071 (D-079): the app's current run as last told by its journal; null before it was read (or when it keeps none). */
     val currentRun: String? get() = context?.runId?.takeIf { it.isNotEmpty() }
 
+    /** D-085: the network entries [runId] holds in the live epoch now (a scope's run.entries); null when not known. */
+    fun runEntries(runId: String): Long? = epoch?.id?.let { e -> store.runs(e).firstOrNull { it.runId == runId }?.let { (it.entries - it.links).toLong() } }
+
     /** Feature 071 (FR-004, D-079): what [query]'s answers cover now, as a list states it; null before the journal was read. */
     fun scope(query: NetworkQuery): io.yamsergey.dta.protocol.network.HistoryScope? {
         val ctx = context ?: return null

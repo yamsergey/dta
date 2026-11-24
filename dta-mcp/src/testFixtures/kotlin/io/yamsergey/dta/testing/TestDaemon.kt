@@ -122,6 +122,8 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     @Volatile var outsideEntries: Long = 1_234
     override suspend fun networkScope(serial: String, pkg: String, query: NetworkQuery) =
         io.yamsergey.dta.protocol.network.HistoryScope(query.archive, 2, outside = outsideEntries.takeIf { !query.archive && it > 0 }).also { watchScopes += query }
+    /** D-085: a run's size now, as the list's scope states it. */
+    override fun networkRunEntries(serial: String, pkg: String, runId: String) = listScope?.run?.takeIf { it.runId == runId }?.entries
     /** Feature 067: live decisions as a daemon with live views makes them (null: an older daemon, none). */
     @Volatile var decide: ((NetworkQuery, io.yamsergey.dta.protocol.network.NetworkEntry) -> Pair<io.yamsergey.dta.protocol.network.EntryDecision, Boolean>)? = null
     val views = java.util.concurrent.CopyOnWriteArrayList<String?>()
