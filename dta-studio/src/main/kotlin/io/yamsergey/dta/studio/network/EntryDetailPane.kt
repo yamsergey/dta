@@ -153,6 +153,12 @@ class EntryDetailPane(
         }
     }
 
+    /** Tests: the shown entry read again live (D-023's follow), with [result]. */
+    internal fun followLoaded(result: JsonObject) {
+        raw = result
+        render(shownGone)
+    }
+
     /** Tests: shows an already loaded `network.entry` [result] for [id]. */
     internal fun showLoaded(id: String, result: JsonObject, unlisted: Boolean = false) {
         shown = id

@@ -64,6 +64,36 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
         assertEquals(listOf("r2-1:8", "r2-1:7"), opened)
     }
 
+    /**
+     * D-091 (042 FR-002: expand/collapse per row, kept while the tab lives): a new message of the shown socket reads the
+     * entry again; the Messages view stays the same one, with its expanded row, its selection and the focus.
+     */
+    fun `test a new message keeps the Messages view, its expanded row and its selection (D-091)`() {
+        fun msg(n: Int, text: String) = """{"type":"ws-message","id":"r2-1:$n","runId":"r2-1","timeMs":${1700000006000 + n * 100},"library":"okhttp3-ws","connectionId":"r2-1:6","direction":"in","opcode":"text","payload":{"part":"message","storedBytes":${text.length},"completeness":"complete","preview":${Json.encodeToString(kotlinx.serialization.json.JsonPrimitive.serializer(), kotlinx.serialization.json.JsonPrimitive(text))}}}"""
+        val long = (1..12).joinToString(",", "[", "]") { "{\"tick\":$it}" }
+        fun entry(vararg messages: String) = Json.parseToJsonElement(
+            """{"entry":{"type":"ws-connection","id":"r2-1:6","runId":"r2-1","timeMs":1700000006000,"library":"okhttp3-ws","url":"wss://ws.example.com/feed","state":"open","openedAtMs":1700000006100,"messageCount":${messages.size}},"messages":[${messages.joinToString(",")}]}""",
+        ).jsonObject
+        val pane = EntryDetailPane(project, scope)
+        pane.showLoaded("r2-1:6", entry(msg(7, long), msg(8, "{\"a\":1}")))
+        val tabs = all(pane).filterIsInstance<JBTabbedPane>().single()
+        tabs.selectedIndex = (0 until tabs.tabCount).first { tabs.getTitleAt(it).startsWith("Messages") }
+        val view = all(pane).filterIsInstance<MessagesView>().single()
+        val expandedAt = (0 until view.rowCount).first { i -> view.rowTexts(i).last().startsWith("▸") }
+        view.toggle(expandedAt)
+        val expanded = view.rowTexts(expandedAt)
+        assertTrue(expanded.toString(), expanded.last() == "▾ less")
+        view.select("r2-1:8")
+        pane.followLoaded(entry(msg(7, long), msg(8, "{\"a\":1}"), msg(9, "{\"b\":2}")))
+        val after = all(pane).filterIsInstance<MessagesView>().single()
+        assertSame("the same Messages view", view, after)
+        assertEquals(3, after.rowCount)
+        val row = (0 until after.rowCount).first { i -> after.rowTexts(i) == expanded }
+        assertTrue("the expanded row stays expanded", after.rowTexts(row).last() == "▾ less")
+        assertEquals("r2-1:8", after.selectedId)
+        assertTrue("the Messages tab stays selected", tabs.getTitleAt(tabs.selectedIndex).startsWith("Messages"))
+    }
+
     fun `test the details offer a Copy menu (026)`() {
         val menu = EntryCopyMenu(project, scope, { null }) { kotlinx.serialization.json.JsonObject(emptyMap()) }
         val pane = EntryDetailPane(project, scope, menu)
