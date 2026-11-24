@@ -442,6 +442,21 @@ class NetworkControllerTest {
         assertEquals(4L, grown.scope!!.entries)
     }
 
+    /**
+     * D-085: the plugin and its daemon are one build: a new entry's event without the run's size (runEntries) is a protocol
+     * error, said as one; nothing is guessed (no +1).
+     */
+    @Test
+    fun `a new entry's event without the run's size is a protocol error, not a guess (D-085)`() = runBlocking<Unit> {
+        session.start()
+        await { it.list.rows.size == 3 && it.watching && it.scope?.run?.entries == 3L }
+        daemon.ops.runEntries = { null }
+        daemon.ops.events.emit(NetworkEntryEvent(http(10), EntryChange.CREATED))
+        val said = withTimeout(5_000) { network.state.first { it.error != null } }
+        assertTrue("runEntries" in said.error!!, said.error)
+        assertEquals(3L, said.scope!!.run!!.entries, "not counted by guess")
+    }
+
     @Test
     fun `a clear by another client empties the list and says who cleared it`() = runBlocking<Unit> {
         session.start()
