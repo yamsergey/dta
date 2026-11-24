@@ -20,6 +20,7 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -154,6 +155,18 @@ class HostIndexScopeTest {
         assertTrue(LiveScope.includes(NetworkQuery(archive = true), late, host.currentRun))
         assertTrue(LiveScope.includes(NetworkQuery(), app.records.first { it.id == "r5:1" }, host.currentRun))
         assertTrue(host.decide("w", NetworkQuery(archive = true), late, { null }).first.match, "with the switch an earlier run's entry is decided")
+    }
+
+    /** D-079 (071 FR-004): before the journal is read (a fresh daemon) a watch's scope says the current run is not known yet. */
+    @Test
+    fun `before the journal is read the scope says the current run is not known yet`() = runBlocking<Unit> {
+        val (_, store, _) = history()
+        val fresh = HostIndex(store, DeviceIdentity("dev1"), "io.example") { FakeJournalApp() }
+        val scope = assertNotNull(fresh.scope(NetworkQuery()), "a scope is stated, not left out")
+        assertTrue(scope.runNotKnownYet)
+        assertNull(scope.run)
+        assertEquals(false, scope.archive)
+        assertTrue(fresh.scope(NetworkQuery(archive = true))!!.let { it.archive && it.runNotKnownYet })
     }
 
     @Test

@@ -344,6 +344,17 @@ class CliTest {
         assertTrue("History cleared by mcp: 3 entries removed." in stdout, stdout)
     }
 
+    /** D-079 (071 FR-004): a fresh daemon that has not read the journal yet says the current run is not known yet. */
+    @Test
+    fun `network watch before the journal is read says the current run is not known yet`() {
+        daemon.ops.runNotKnownYet = true
+        val plain = kotlin.concurrent.thread { dta("-d", "emulator-5554", "-a", "com.example.shop", "network", "watch") }
+        waitFor { "Watching network traffic" in stderr }
+        assertTrue("Watching network traffic of the app's current run (not known yet: the app's history is still being read); Ctrl-C to stop." in stderr, stderr)
+        daemon.close()
+        plain.join(5_000)
+    }
+
     /** D-079 (071 FR-004): network watch states its scope, the current run by default; --archive widens it to every run. */
     @Test
     fun `network watch states its scope and --archive widens it`() {
