@@ -546,19 +546,15 @@ class NetworkController(private val context: ContextController, private val scop
         if (size <= r.entries) st else st.copy(scope = sc.copy(entries = sc.entries + (size - r.entries), run = r.copy(entries = size)))
     }
 
-    /** The caption's M follows the shown run as [n] new entries of [run] arrive, listed or not (D-085). */
-    private fun countRun(run: String, n: Long) {
-        if (n <= 0) return
-        mutable.update { st -> st.scope?.takeIf { sc -> sc.run?.runId == run }?.let { sc -> st.copy(scope = sc.copy(entries = sc.entries + n, run = sc.run?.copy(entries = sc.run!!.entries + n))) } ?: st }
-    }
+    /** D-085: a new entry's event (or a count) without the run's size: the daemon broke the protocol; said, nothing guessed. */
+    private fun noRunSize() = mutable.update { it.copy(error = "Protocol error: the DTA daemon sent a new entry without its run's size (runEntries).") }
 
     /** Feature 071: a live entry of another run while the tab shows the current one: the app started again. */
     private fun noteRun(entry: JsonObject, created: Boolean = false, sizes: Map<String, Long>? = null) {
         // The caption's M follows the run as entries arrive (the counters are read again at the next answer).
-        // D-085 (gate 7): the run's size the daemon read after storing the entry; without it, a new entry not listed before.
+        // D-085 (gate 7): a new entry's event carries its run's size, read by the daemon after storing it; none is a protocol error.
         val runOf = (entry["runId"] as? JsonPrimitive)?.content
-        val size = runOf?.let { sizes?.get(it) }
-        if (size != null) sizeRun(runOf, size) else if (created) runOf?.let { countRun(it, 1) }
+        if (created && runOf != null) sizes?.get(runOf)?.let { sizeRun(runOf, it) } ?: noRunSize()
         val s = mutable.value
         if (s.archiveOn || s.archive != null) return
         val shown = s.scope?.run?.runId ?: return
@@ -816,10 +812,9 @@ class NetworkController(private val context: ContextController, private val scop
                         mutable.update { it.copy(list = it.list.reduce(e), statements = Statements.forNetworkList(page).also { noteHistory(page) }, savedApplied = applied(page), loading = false, watching = true, find = null).withPageScope(page) }
                         search()
                     } else if (data["counted"] is JsonObject) {
-                        // D-085 (gate 7): the run's size as the daemon has it, when it says; else the count of new entries.
+                        // D-085 (gate 7): the run's size as the daemon has it; the plugin and its daemon are one build, so it is always there.
                         val sizes = runSizes(data)
-                        if (sizes != null) sizes.forEach { (run, n) -> sizeRun(run, n) }
-                        else (data["counted"] as JsonObject).forEach { (run, n) -> countRun(run, (n as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L) }
+                        if (sizes != null) sizes.forEach { (run, n) -> sizeRun(run, n) } else noRunSize()
                     } else if (Statements.forCleared(data) != null) {
                         // Whoever cleared the history, the rows it held are gone: never show entries that no longer exist.
                         val cleared = Statements.forCleared(data)!!
@@ -843,9 +838,8 @@ class NetworkController(private val context: ContextController, private val scop
                             relist()
                             return@collect
                         }
-                        val listed = (entry["id"] as? JsonPrimitive)?.content?.let { mutable.value.list.has(it) } == true
                         list(if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry))
-                        noteRun(entry, created = change != "updated" && !listed, sizes = runSizes(data))
+                        noteRun(entry, created = change != "updated", sizes = runSizes(data))
                         // New traffic may hold the words: the hits are refreshed once it settles.
                         if (mutable.value.applied.hasSearch) search(debounceMs = SEARCH_SETTLE_MS)
                     }
@@ -914,7 +908,7 @@ class NetworkController(private val context: ContextController, private val scop
             runCatching { DtaJson.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(io.yamsergey.dta.protocol.network.SearchHit.serializer()), it) }.getOrNull()
         }
         val event = if (change == "updated") LiveEvent.Updated(entry) else LiveEvent.Arrived(entry)
-        noteRun(entry, created = change != "updated" && !mutable.value.list.has(id), sizes = runSizes(data))
+        noteRun(entry, created = change != "updated", sizes = runSizes(data))
         mutable.update { s ->
             val withRow = s.copy(list = s.list.reduce(event)).followSelected(event)
             if (s.applied.finds && hits != null) withRow.copy(hits = s.hits.live(id, time, hits, s.hitsNewestFirst)) else withRow
