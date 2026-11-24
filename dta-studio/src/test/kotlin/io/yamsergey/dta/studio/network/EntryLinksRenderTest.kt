@@ -94,6 +94,15 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
         assertTrue("the Messages tab stays selected", tabs.getTitleAt(tabs.selectedIndex).startsWith("Messages"))
     }
 
+    /** D-092 (042 edge cases): a binary message's content line is "binary · N B", no text lines. */
+    fun `test a binary message row reads binary with its size (D-092)`() {
+        val pane = EntryDetailPane(project, scope)
+        pane.showLoaded("r2-1:6", Json.parseToJsonElement(javaClass.getResource("/entry-ws.json")!!.readText()).jsonObject)
+        val view = all(pane).filterIsInstance<MessagesView>().single()
+        val binary = (0 until view.rowCount).map { view.rowTexts(it) }.single { rows -> rows.any { it.startsWith("binary") } }
+        assertEquals(binary.toString(), listOf("binary · 300 B"), binary.drop(1))
+    }
+
     fun `test the details offer a Copy menu (026)`() {
         val menu = EntryCopyMenu(project, scope, { null }) { kotlinx.serialization.json.JsonObject(emptyMap()) }
         val pane = EntryDetailPane(project, scope, menu)
