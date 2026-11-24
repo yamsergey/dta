@@ -56,11 +56,13 @@ class EntryLinksRenderTest : BasePlatformTestCase() {
         val at = list.getCellBounds(1, 1)
         list.dispatchEvent(java.awt.event.MouseEvent(list, java.awt.event.MouseEvent.MOUSE_CLICKED, 0, 0, at.x + 2, at.y + 2, 2, false))
         assertEquals(listOf("r2-1:8"), opened)
-        // D-055 (025 FR-002): Enter opens the selected row as a double-click does.
+        // D-055 (025 FR-002): Enter opens the selected row as a double-click does (an IDE action on the list, NET-WS-064).
         view.select(0)
-        val enter = list.getActionForKeyStroke(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0))
-        assertNotNull("Enter is bound on the message rows", enter)
-        enter!!.actionPerformed(java.awt.event.ActionEvent(list, java.awt.event.ActionEvent.ACTION_PERFORMED, "enter"))
+        val enterStroke = javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0)
+        val enter = com.intellij.openapi.actionSystem.ex.ActionUtil.getActions(list).single { a ->
+            a.shortcutSet.shortcuts.any { (it as? com.intellij.openapi.actionSystem.KeyboardShortcut)?.firstKeyStroke == enterStroke }
+        }
+        enter.actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent.createFromDataContext("test", null, com.intellij.openapi.actionSystem.DataContext.EMPTY_CONTEXT))
         assertEquals(listOf("r2-1:8", "r2-1:7"), opened)
     }
 
