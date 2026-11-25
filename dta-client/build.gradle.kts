@@ -38,11 +38,19 @@ dependencies {
  * D-075: without DTA_BUILD_TIME the time is taken when the product's [sources] (or the version, the
  * SHA) change, and kept while they do not: a CLI and a plugin built one after the other from one
  * source state carry one identity and run together; an edit gives a newer one.
+ *
+ * D-094: the time is a function of the source state, not of when the task ran: the newest of the
+ * sources' modification times (their directories' too, so a removed file counts) and the commit's
+ * time. A forced re-run (--rerun-tasks), a clean, or a build killed while this task ran (its
+ * output or history lost) writes the same stamp again.
  */
 abstract class VersionResource : DefaultTask() {
     @get:Input abstract val version: Property<String>
     @get:Input abstract val sha: Property<String>
     @get:Input @get:Optional abstract val buildTime: Property<String>
+    @get:Input abstract val commitTime: Property<Long>
+    // The sources' root, to tell a module's src/main directories from the rest.
+    @get:Internal abstract val sourceRoot: DirectoryProperty
     // Directories are not sources: a tool's directory beside the modules (.kotlin/ of the Kotlin daemon) appears
     // between two builds and would restamp unchanged sources (D-075, gate 4).
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) @get:IgnoreEmptyDirectories abstract val sources: ConfigurableFileCollection
@@ -53,11 +61,31 @@ abstract class VersionResource : DefaultTask() {
         val fixed = buildTime.orNull?.let {
             runCatching { Instant.parse(it) }.getOrElse { _ -> throw GradleException("DTA_BUILD_TIME '$it' is not an ISO-8601 instant (e.g. 2026-10-29T12:00:00Z)") }
         }
-        val build = (fixed ?: Instant.now()).truncatedTo(ChronoUnit.SECONDS).toString()
+        val build = (fixed ?: sourceStateTime()).truncatedTo(ChronoUnit.SECONDS).toString()
         val file = outputDir.get().file("dta-version.properties").asFile
         file.parentFile.mkdirs()
         file.writeText("version=${version.get()}\nbuild=$build\nsha=${sha.get()}\n")
     }
+
+    /** The newest change of the source state: its files, the src/main directories holding them, the commit. */
+    private fun sourceStateTime(): Instant {
+        val root = sourceRoot.get().asFile.toPath()
+        var newest = commitTime.get() * 1000
+        for (f in sources.files) {
+            newest = maxOf(newest, f.lastModified())
+            // Only directories inside a module's src/main: a module's own directory changes when build/ or a tool's
+            // directory appears in it.
+            var dir = f.parentFile?.toPath()
+            while (dir != null && dir.startsWith(root) && inSources(root.relativize(dir))) {
+                newest = maxOf(newest, dir.toFile().lastModified())
+                dir = dir.parent
+            }
+        }
+        return Instant.ofEpochMilli(newest)
+    }
+
+    private fun inSources(rel: java.nio.file.Path) = rel.nameCount >= 3 && rel.getName(1).toString() == "src" && rel.getName(2).toString() == "main"
+
 }
 
 // D-075 (gate 5): the SHA of these sources, not of the directory Gradle runs from (the harness includes this build from
@@ -68,9 +96,18 @@ val gitSha = providers.exec {
     isIgnoreExitValue = true
 }.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }
 
+// D-094: the commit's time, part of the source state the stamp is taken from (0 outside git).
+val gitCommitTime = providers.exec {
+    workingDir(rootDir)
+    commandLine("git", "log", "-1", "--format=%ct")
+    isIgnoreExitValue = true
+}.standardOutput.asText.map { it.trim().toLongOrNull() ?: 0L }
+
 val versionResource = tasks.register<VersionResource>("versionResource") {
     version = project.version.toString()
     sha = gitSha.orElse("unknown")
+    commitTime = gitCommitTime
+    sourceRoot = rootProject.layout.projectDirectory
     buildTime = providers.environmentVariable("DTA_BUILD_TIME")
     // The product: every module's main sources and the build files that decide what goes into it (tests do not).
     sources.from(rootProject.fileTree(rootDir) {
