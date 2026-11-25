@@ -99,7 +99,9 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     var searchPage: ((NetworkQuery) -> io.yamsergey.dta.protocol.network.SearchPage)? = null
     override suspend fun networkSearch(serial: String, pkg: String, query: NetworkQuery) =
         (searchPage?.invoke(query) ?: io.yamsergey.dta.protocol.network.SearchPage(searchHits)).also { searches += query }
-    override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = NetworkEntryDetail(entries.first { it.id == id })
+    /** network.entry calls: id and whether redaction was asked (D-099). */
+    val entryCalls = java.util.concurrent.CopyOnWriteArrayList<Pair<String, Boolean>>()
+    override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = NetworkEntryDetail(entries.first { it.id == id }).also { entryCalls += id to redact }
     /** network.body calls: id, part and whether redaction was asked. */
     val bodyCalls = java.util.concurrent.CopyOnWriteArrayList<Triple<String, BodyPart, Boolean>>()
     override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult {

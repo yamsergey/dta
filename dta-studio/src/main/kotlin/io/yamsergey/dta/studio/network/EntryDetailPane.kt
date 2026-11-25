@@ -100,7 +100,8 @@ class EntryDetailPane(
         this.marks = marks
         this.hitTab = hitTab
         this.hits = hits
-        if (shown == id && this.client === client) {
+        // D-099: a switched Redact reads the entry again, as the switch now says; the list and the detail agree.
+        if (shown == id && this.client === client && redact == lastRedact) {
             if (gone != shownGone || unlisted != shownUnlisted || marksChanged) { shownUnlisted = unlisted; render(gone) }
             if (revision != shownRevision) follow(revision)
             return
