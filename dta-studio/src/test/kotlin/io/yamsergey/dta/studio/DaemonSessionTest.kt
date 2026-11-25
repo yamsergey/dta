@@ -41,6 +41,26 @@ class DaemonSessionTest {
         assertEquals("0.1.0 (build 2026-10-28T10:00:00Z)", connected.version)
     }
 
+    // D-096: the plugin built after a touch-and-revert (later build time) and the CLI's daemon built before it (one
+    // content): the plugin's handshake takes the daemon as its own, neither a conflict nor a replacement; and the other way.
+    @Test
+    fun `the plugin connects to a daemon of its own content whatever the build times`() = runBlocking<Unit> {
+        for (pluginBuild in listOf("2026-10-29T10:00:00Z", "2026-10-27T10:00:00Z")) {
+            val cli = TestDaemon(identity = VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1, content = "c1"))
+            try {
+                val launcher = io.yamsergey.dta.client.DaemonLauncher(
+                    io.yamsergey.dta.client.DtaHome(cli.home), io.yamsergey.dta.client.VersionInfo("0.1.0", pluginBuild, "abc", content = "c1"),
+                    spawner = { _, _, _ -> error("the plugin must not start a daemon") },
+                )
+                val session = DaemonSession(connect = { launcher.ensure(ClientKind.IDE) }, scope = scope).also { it.start() }
+                val connected = session.awaitState { it as? DaemonSession.State.Connected }
+                assertEquals("0.1.0 (build 2026-10-28T10:00:00Z)", connected.version, "plugin build $pluginBuild")
+                assertEquals(emptyList(), connected.statements.filter { "replaced" in it }, "plugin build $pluginBuild")
+                session.dispose()
+            } finally { cli.close() }
+        }
+    }
+
     @Test
     fun `a newer daemon is a conflict with its message, a failed start a failure that can be retried`() = runBlocking<Unit> {
         val attempts = AtomicInteger()

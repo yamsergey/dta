@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -43,6 +44,11 @@ dependencies {
  * sources' modification times (their directories' too, so a removed file counts) and the commit's
  * time. A forced re-run (--rerun-tasks), a clean, or a build killed while this task ran (its
  * output or history lost) writes the same stamp again.
+ *
+ * D-096: the time still follows file times, so a touch-and-revert (an editor save, a branch switch and back) gives
+ * another time for one content. The identity of a source state is `content`: the sha256 of the [sources]' relative
+ * paths and bytes. Two builds of one content are one build (VersionIdentity.compare: SAME); the time only orders two
+ * contents.
  */
 abstract class VersionResource : DefaultTask() {
     @get:Input abstract val version: Property<String>
@@ -64,7 +70,19 @@ abstract class VersionResource : DefaultTask() {
         val build = (fixed ?: sourceStateTime()).truncatedTo(ChronoUnit.SECONDS).toString()
         val file = outputDir.get().file("dta-version.properties").asFile
         file.parentFile.mkdirs()
-        file.writeText("version=${version.get()}\nbuild=$build\nsha=${sha.get()}\n")
+        file.writeText("version=${version.get()}\nbuild=$build\nsha=${sha.get()}\ncontent=${sourceContent()}\n")
+    }
+
+    /** sha256 over the sources sorted by their path relative to the root: each path, its length, its bytes. */
+    private fun sourceContent(): String {
+        val root = sourceRoot.get().asFile.toPath()
+        val digest = MessageDigest.getInstance("SHA-256")
+        sources.files.filter { it.isFile }.map { root.relativize(it.toPath()).joinToString("/") to it }.sortedBy { it.first }.forEach { (rel, f) ->
+            val bytes = f.readBytes()
+            digest.update("$rel\u0000${bytes.size}\u0000".toByteArray())
+            digest.update(bytes)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /** The newest change of the source state: its files, the src/main directories holding them, the commit. */

@@ -12,6 +12,8 @@ data class VersionInfo(
     val build: String,
     val sha: String,
     val missingReason: String? = null,
+    /** D-096: sha256 of the build's sources, the identity of one source state; empty when unknown. */
+    val content: String = "",
 ) {
     val display: String get() = "$version (build $build, $sha)"
 
@@ -27,7 +29,7 @@ data class VersionInfo(
             if (version == null || build == null) {
                 return VersionInfo("dev", "unknown", "unknown", "$RESOURCE not on the classpath (not an installed build)")
             }
-            return VersionInfo(version, build, props.getProperty("sha") ?: "unknown")
+            return VersionInfo(version, build, props.getProperty("sha") ?: "unknown", content = props.getProperty("content") ?: "")
         }
     }
 }

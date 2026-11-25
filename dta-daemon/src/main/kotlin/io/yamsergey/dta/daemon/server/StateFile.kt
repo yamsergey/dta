@@ -17,6 +17,8 @@ data class DaemonState(
     val build: String,
     val protocolVersion: Int,
     val startedAtMs: Long,
+    /** D-096: the daemon's VersionIdentity.content. */
+    val content: String = "",
 )
 
 /**

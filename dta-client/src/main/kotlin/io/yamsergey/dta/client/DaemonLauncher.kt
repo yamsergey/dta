@@ -102,6 +102,7 @@ class ClasspathSpawner(private val launch: DaemonLaunch = DaemonLaunch.currentPr
             // The marker first: Linux shows only the first 4 KB of a command line, and the classpath is longer.
             launch.java.path, marker(home), "-cp", launch.classpath, MAIN,
             "--home", home.absolutePath, "--version", identity.version, "--build", identity.build,
+            "--content", identity.content.ifEmpty { "-" },
         )
             .apply { environment().putAll(launch.env) }
             .redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
@@ -149,7 +150,7 @@ class DaemonLauncher(
     private val stateFile = File(dir, "daemon.json")
     private val json = Json { ignoreUnknownKeys = true }
 
-    val identity = VersionIdentity(version.version, version.build, PROTOCOL_VERSION)
+    val identity = VersionIdentity(version.version, version.build, PROTOCOL_VERSION, version.content)
     val logFile = File(dir, "daemon.log")
 
     suspend fun ensure(kind: ClientKind): Connected {

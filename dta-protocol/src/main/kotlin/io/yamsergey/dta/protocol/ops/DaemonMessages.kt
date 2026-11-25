@@ -10,14 +10,21 @@ data class VersionIdentity(
     /** UTC build time, ISO-8601; orders two builds of one version. */
     val build: String,
     val protocolVersion: Int,
+    /** D-096: sha256 of the build's sources (dta-version.properties `content`); empty when unknown (a dev run). */
+    val content: String = "",
 ) {
     enum class Comparison { SAME, CLIENT_NEWER, CLIENT_OLDER }
 
     val display: String get() = "$version (build $build)"
 
     companion object {
-        /** Protocol, then semantic version (a release outranks its snapshots; snapshots by number), then build. */
+        /**
+         * One known content is one build (D-096: its build time follows file times, so a touch-and-revert gives
+         * another); otherwise protocol, then semantic version (a release outranks its snapshots; snapshots by number),
+         * then build.
+         */
         fun compare(client: VersionIdentity, daemon: VersionIdentity): Comparison {
+            if (client.content.isNotEmpty() && client.content == daemon.content) return Comparison.SAME
             val order = compareValuesBy(client, daemon, { it.protocolVersion }).takeIf { it != 0 }
                 ?: compareSemver(client.version, daemon.version).takeIf { it != 0 }
                 ?: client.build.compareTo(daemon.build)
