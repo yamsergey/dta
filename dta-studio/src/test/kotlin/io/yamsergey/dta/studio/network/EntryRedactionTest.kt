@@ -67,4 +67,27 @@ class EntryRedactionTest : BasePlatformTestCase() {
         val plain = bodiesAsked(redact = false)
         assertTrue("twin: without redaction they are asked as is: $plain", plain.isNotEmpty() && plain.none { it.third })
     }
+
+    /** D-099: switching Redact while an entry is open reads that entry again, as the switch now says (both ways). */
+    fun `test switching redaction reads the open entry again`() {
+        val client = runBlocking { daemon.connect(ClientKind.IDE).client }
+        val pane = EntryDetailPane(project, scope)
+        pane.show(client, target, "r1-1:1", redact = true, gone = false)
+        waitFor("the entry redacted") { daemon.ops.entryCalls.lastOrNull() == ("r1-1:1" to true) }
+        waitFor("the response body redacted") { daemon.ops.bodyCalls.any { it.second == BodyPart.RESPONSE && it.third } }
+        daemon.ops.bodyCalls.clear()
+        pane.show(client, target, "r1-1:1", redact = false, gone = false)
+        waitFor("the entry read again plain") { daemon.ops.entryCalls.lastOrNull() == ("r1-1:1" to false) }
+        waitFor("the response body plain") { daemon.ops.bodyCalls.any { it.second == BodyPart.RESPONSE && !it.third } }
+        assertTrue("no body asked redacted after the switch: ${daemon.ops.bodyCalls}", daemon.ops.bodyCalls.none { it.third })
+        // Twin: off to on redacts again.
+        pane.show(client, target, "r1-1:1", redact = true, gone = false)
+        waitFor("the entry read again redacted") { daemon.ops.entryCalls.lastOrNull() == ("r1-1:1" to true) }
+        // Unchanged redaction: no new read.
+        val reads = daemon.ops.entryCalls.size
+        pane.show(client, target, "r1-1:1", redact = true, gone = false)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue(); Thread.sleep(200); PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        assertEquals("the same redaction does not read again", reads, daemon.ops.entryCalls.size)
+        runBlocking { client.close() }
+    }
 }
