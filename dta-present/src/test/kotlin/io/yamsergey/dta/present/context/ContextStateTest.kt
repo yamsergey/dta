@@ -114,6 +114,22 @@ class ContextStateTest {
     }
 
     @Test
+    fun `under a daemon conflict or replacement no app connection is shown (D-102)`() {
+        val connected = ready(ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", "com.example.shop", "connected")))
+        assertEquals("● connected", connected.connectionLine?.text)
+        val conflict = connected.reduce(ContextEvent.DaemonConflict("Another DTA daemon took the port."))
+        assertNull(conflict.connectionLine, "the app's connection went with the daemon: nothing says connected under the conflict banner")
+        val replaced = connected.reduce(ContextEvent.DaemonReplaced("0.11.0"))
+        assertNull(replaced.connectionLine, "the replaced daemon's connection is not the new one's")
+        val again = conflict.reduce(ContextEvent.DaemonConnected("0.10.0 (build 2026-10-29T10:00:00Z)"))
+            .reduce(ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", "com.example.shop", "connected")))
+        assertEquals("● connected", again.connectionLine?.text, "connected again once the daemon reports it")
+        val noDta = ready(ContextEvent.Apps(AppList("emulator-5554", "com.example.plain", emptyList())))
+            .reduce(ContextEvent.DaemonConflict("Another DTA daemon took the port."))
+        assertEquals("● no DTA", noDta.connectionLine?.text, "what the app itself is (no DTA inside) does not depend on the daemon")
+    }
+
+    @Test
     fun `changing device or app resets what depended on the old one`() {
         val before = ready(
             ContextEvent.AppConnection(AppConnectionEvent("emulator-5554", "com.example.shop", "connected")),
