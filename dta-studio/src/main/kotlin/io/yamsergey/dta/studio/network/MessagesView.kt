@@ -184,7 +184,13 @@ class MessagesView(
             }.getOrNull() ?: return@launch
             val text = (r["text"] as? JsonPrimitive)?.content ?: return@launch
             val payload = envelopeOf(r["envelope"] as? JsonObject)?.takeIf { it.rule != null }?.payload
-            withContext(Dispatchers.Main) { item.whole = payload ?: text; relayout() }
+            withContext(Dispatchers.Main) {
+                // D-101: a new message may have given the view new rows meanwhile (update): the text goes to the row as it is now.
+                val whole = payload ?: text
+                item.whole = whole
+                items.firstOrNull { it.row.id == item.row.id }?.whole = whole
+                relayout()
+            }
         }
     }
 
