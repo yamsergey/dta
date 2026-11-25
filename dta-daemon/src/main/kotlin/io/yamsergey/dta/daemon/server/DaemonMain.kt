@@ -17,7 +17,7 @@ import kotlin.system.exitProcess
 
 /**
  * The daemon process (feature 008, research R2/R3). Started by the launcher from the same
- * distribution: `DaemonMain --home <dir> --version <v> --build <b>`. Ignores SIGINT and
+ * distribution: `DaemonMain --home <dir> --version <v> --build <b> --content <sha256 or ->`. Ignores SIGINT and
  * SIGHUP (a Ctrl-C on a client or a closed terminal must not kill it); stops on SIGTERM,
  * `daemon.stop`, or replacement by a newer version.
  */
@@ -29,7 +29,7 @@ object DaemonMain {
     fun main(args: Array<String>) {
         val opts = args.toList().chunked(2).filter { it.size == 2 }.associate { (k, v) -> k.removePrefix("--") to v }
         val home = File(opts["home"] ?: "${System.getProperty("user.home")}/.dta")
-        val identity = VersionIdentity(opts["version"] ?: "dev", opts["build"] ?: "unknown", PROTOCOL_VERSION)
+        val identity = VersionIdentity(opts["version"] ?: "dev", opts["build"] ?: "unknown", PROTOCOL_VERSION, opts["content"]?.takeIf { it != "-" } ?: "")
         val started = System.currentTimeMillis()
         log("starting ${identity.display}, home $home, pid ${ProcessHandle.current().pid()}")
 

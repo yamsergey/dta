@@ -90,7 +90,7 @@ class DaemonServer(
         token = stateFile.newToken()
         serverSocket = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
         thread(name = "dta-daemon-accept", isDaemon = true) { acceptLoop() }
-        stateFile.write(DaemonState(pid, port, identity.version, identity.build, identity.protocolVersion, clock()))
+        stateFile.write(DaemonState(pid, port, identity.version, identity.build, identity.protocolVersion, clock(), identity.content))
     }
 
     /** Tells every client why, closes them and the socket, and removes `daemon.json`. */
