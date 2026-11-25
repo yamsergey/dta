@@ -13,6 +13,16 @@ trap 'rm -f -- $probe' EXIT
 rm -f -- $probe
 a=$(stamp); sleep 2; b=$(stamp)
 [[ $a == $b ]] || { echo "FAIL unchanged sources restamped: $a then $b"; exit 1; }
+# Gate 9 (D-094): the stamp is a function of the source state, not of when the task last ran. A forced re-run
+# (`--rerun-tasks`) and a lost output or task history (a Gradle run killed while versionResource ran: Gradle had already
+# removed the old output, or never recorded the new one) re-execute the task; the stamp must stay.
+sleep 2
+./gradlew -q --console=plain :dta-client:versionResource --rerun-tasks >/dev/null || exit 2; r=$(grep '^build=' $props)
+[[ $r == $a ]] || { echo "FAIL a forced re-run (--rerun-tasks) restamped unchanged sources: $a then $r"; exit 1; }
+sleep 2
+rm -rf -- dta-client/build/generated/version
+k=$(stamp)
+[[ $k == $a ]] || { echo "FAIL a lost output (interrupted build) restamped unchanged sources: $a then $k"; exit 1; }
 # Gate 4 (D-075 reopened): what the robot IDE runs. The CLI, then the plugin's sandbox, from unchanged sources: one stamp,
 # though the builds leave tool directories beside the modules (.kotlin/ appeared between the two and restamped the plugin).
 tooldir=.d075-tool-dir-probe; trap 'rm -f -- $probe; rm -rf -- $tooldir' EXIT
