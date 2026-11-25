@@ -77,13 +77,11 @@ data class ContextState(
 
     fun reduce(event: ContextEvent): ContextState = when (event) {
         is ContextEvent.DaemonConnected -> copy(daemon = DaemonInfo(DaemonPhase.CONNECTED, event.version))
-        is ContextEvent.DaemonReplaced -> copy(daemon = daemon.copy(phase = DaemonPhase.REPLACED, message = event.by))
-        is ContextEvent.DaemonConflict -> copy(daemon = daemon.copy(phase = DaemonPhase.CONFLICT, message = event.message))
-        // The app's connection was the daemon's: none is known until a daemon reports one again.
-        is ContextEvent.DaemonFailed -> copy(
-            daemon = daemon.copy(phase = DaemonPhase.FAILED, message = event.message, action = event.action),
-            connection = if (connection == Connection.NO_DTA) connection else Connection.UNKNOWN, connectionReason = null, knownConnections = emptyMap(),
-        )
+        // The app's connection was the daemon's: none is known until a daemon reports one again (D-102: also under a
+        // conflict or a replacement, not only when the daemon failed).
+        is ContextEvent.DaemonReplaced -> daemonGone().copy(daemon = daemon.copy(phase = DaemonPhase.REPLACED, message = event.by))
+        is ContextEvent.DaemonConflict -> daemonGone().copy(daemon = daemon.copy(phase = DaemonPhase.CONFLICT, message = event.message))
+        is ContextEvent.DaemonFailed -> daemonGone().copy(daemon = daemon.copy(phase = DaemonPhase.FAILED, message = event.message, action = event.action))
         is ContextEvent.Devices -> devicesChanged(event.devices)
         is ContextEvent.Apps -> appsChanged(event.apps)
         is ContextEvent.DeviceChosen -> if (event.serial == device) copy(deviceRule = DeviceRule.NAMED) else
@@ -104,6 +102,11 @@ data class ContextState(
         }
         is ContextEvent.Injection -> copy(injection = event.outcome, injectionReason = event.reason)
     }
+
+    /** No daemon answers for the app any more: its connection is unknown (no DTA inside stays: it is the app's, not the daemon's). */
+    private fun daemonGone() = copy(
+        connection = if (connection == Connection.NO_DTA) connection else Connection.UNKNOWN, connectionReason = null, knownConnections = emptyMap(),
+    )
 
     private fun devicesChanged(list: List<DeviceInfo>): ContextState {
         val online = list.filter { it.state == "online" }
