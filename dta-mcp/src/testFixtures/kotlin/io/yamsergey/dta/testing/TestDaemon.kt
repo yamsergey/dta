@@ -310,7 +310,8 @@ class TestDaemon(
     val ops: CannedOperations = CannedOperations(),
     val identity: VersionIdentity = VersionIdentity("0.1.0", "2026-10-28T10:00:00Z", 1),
 ) : AutoCloseable {
-    private val home: File = Files.createTempDirectory("dta-cli").toFile()
+    /** Its DTA home: a DaemonLauncher on it finds this daemon through `daemon/daemon.json`. */
+    val home: File = Files.createTempDirectory("dta-cli").toFile()
     private val state = StateFile(File(home, "daemon"))
     private val selector = Selector(ops::devices, ops::apps)
     val server = DaemonServer(

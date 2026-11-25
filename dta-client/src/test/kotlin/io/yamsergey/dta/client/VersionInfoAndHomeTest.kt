@@ -18,8 +18,10 @@ class VersionInfoAndHomeTest {
             setProperty("version", "0.2.0")
             setProperty("build", "2026-10-28T10:00:00Z")
             setProperty("sha", "abc1234")
+            setProperty("content", "c0ffee")
         }
         val info = VersionInfo.from(props)
+        assertEquals("c0ffee", info.content)
         assertEquals("0.2.0", info.version)
         assertEquals("2026-10-28T10:00:00Z", info.build)
         assertEquals("abc1234", info.sha)
@@ -32,7 +34,12 @@ class VersionInfoAndHomeTest {
         assertNull(info.missingReason, info.missingReason)
         assertEquals(System.getProperty("dta.expectedVersion"), info.version)
         java.time.Instant.parse(info.build)
+        assertTrue(Regex("[0-9a-f]{64}").matches(info.content), "content is the sha256 of the stamp inputs: ${info.content}")
     }
+
+    @Test
+    fun `the launcher's identity carries the build's content`() =
+        assertEquals("c0ffee", DaemonLauncher(DtaHome(File("/tmp/x")), VersionInfo("0.2.0", "2026-10-28T10:00:00Z", "abc", content = "c0ffee")).identity.content)
 
     @Test
     fun `missing properties give a dev version with the reason stated`() {

@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
 class DaemonLauncherTest {
     private val home = DtaHome(Files.createTempDirectory("dta-launch").toFile())
     private val state = StateFile(home.daemonDir)
-    private fun launcher(build: String = "2026-10-28T10:00:00Z") = DaemonLauncher(home, VersionInfo("0.1.0", build, "test"))
+    private fun launcher(build: String = "2026-10-28T10:00:00Z", content: String = "") = DaemonLauncher(home, VersionInfo("0.1.0", build, "test", content = content))
 
     @AfterTest
     fun stopAll() = runBlocking {
@@ -93,6 +93,25 @@ class DaemonLauncherTest {
         val refused = assertFailsWith<VersionConflictException> { launcher("2026-10-28T10:00:00Z").ensure(ClientKind.CLI) }
         assertTrue("dta daemon stop" in refused.message!!)
         assertEquals(newer.client.daemon.pid, state.read()!!.pid, "the refusing client leaves the newer daemon alone")
+    }
+
+    // D-096: a CLI built before a touch-and-revert and one built after (another build time, one content) share the daemon.
+    @Test
+    fun `one content with another build time reuses the daemon either way`() = runBlocking<Unit> {
+        val first = launcher("2026-10-28T10:00:00Z", content = "c1").ensure(ClientKind.CLI)
+        val pid = first.client.daemon.pid
+        assertEquals("c1", first.client.daemon.identity.content, "the spawned daemon carries the client's content")
+        assertEquals("c1", state.read()!!.content)
+        first.client.close()
+        for (build in listOf("2026-10-29T10:00:00Z", "2026-10-27T10:00:00Z")) {
+            val next = launcher(build, content = "c1").ensure(ClientKind.IDE)
+            assertEquals(pid, next.client.daemon.pid, "build $build")
+            assertEquals(emptyList(), next.statements, "build $build")
+            next.client.close()
+        }
+        val changed = launcher("2026-10-29T10:00:00Z", content = "c2").ensure(ClientKind.CLI)
+        assertNotEquals(pid, changed.client.daemon.pid, "another content with a newer build replaces it")
+        changed.client.close()
     }
 
     @Test
