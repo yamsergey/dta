@@ -7,7 +7,13 @@ import kotlinx.serialization.Serializable
  * typo away (`typos:on`, off by default — decision 2026-11-22).
  */
 @Serializable
-data class Term(val text: String, val phrase: Boolean = false, val typos: Boolean = false)
+data class Term(
+    val text: String,
+    val phrase: Boolean = false,
+    val typos: Boolean = false,
+    /** Feature 072: `redacted:#fp` — [text] is `#` and the 12 hex characters of a fingerprint, found in masked places only. */
+    val redacted: Boolean = false,
+)
 
 /** Something wrong in the query line, at [start]..[end] (character offsets). */
 @Serializable
@@ -68,12 +74,14 @@ object QueryLine {
         KeyInfo("since", "newer than: 5m, 2h, 1d (this session only)", ALL),
         KeyInfo("until", "older than: 5m, 2h, 1d (this session only)", ALL),
         KeyInfo("typos", "on: search words also match one typo away (words of 5+ letters); off by default", ALL),
+        KeyInfo("redacted", "#fingerprint of a masked value: the entries where it is masked (searches masked places only)", ALL),
     )
     val KEYS = KEY_INFO.map { it.name }
     /** Feature 061: values of `source:`. */
     val SOURCES = listOf("app", "webview", "custom-tab")
     val METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
-    private val NOT_NEGATABLE = setOf("run", "since", "until", "has", "typos")
+    private val NOT_NEGATABLE = setOf("run", "since", "until", "has", "typos", "redacted")
+    private val FINGERPRINT = Regex("""#?([0-9a-fA-F]{12})""")
     private val STATUS = Regex("""[1-5]\d\d|[1-5]xx|failed|pending|open|closed|connecting|[1-4]\d\d\d""")
     private val BOUND = Regex("""(>=|<=|>|<)(\d+)([a-z]*)""")
     private val RELATIVE = Regex("""(\d+)([smhd])""")
@@ -121,6 +129,12 @@ object QueryLine {
             }
             if (value.isEmpty()) { problem("$key: needs a value"); continue }
             if (raw.negated && key in NOT_NEGATABLE && key != "has") { problem("$key: cannot be negated"); continue }
+            if (key == "redacted") {
+                val m = FINGERPRINT.matchEntire(value) ?: run { problem("redacted: takes #fingerprint, 12 hex characters as a mask shows it (#3f9a2c81d04e); was '$value'"); continue }
+                terms += Term("#" + m.groupValues[1].lowercase(), redacted = true)
+                tokens += QueryToken(raw.start, raw.end, raw.text, key)
+                continue
+            }
             if (key == "typos") {
                 val on = when (value) { "on" -> true; "off" -> false; else -> { problem("typos: takes on or off; was '$value'"); continue } }
                 if (!seen.add(key)) { problem("typos: given twice; one value per filter"); continue }
@@ -178,7 +192,7 @@ object QueryLine {
     val SESSION_KEYS = setOf("run", "since", "until")
 
     /** Words that say how the line searches, not what it keeps: they stay in the line, never saved. */
-    val LINE_KEYS = setOf("typos")
+    val LINE_KEYS = setOf("typos", "redacted")
 
     /** Feature 043: [words] the line's savable filter words in order, [rest] the line without them. */
     @Serializable
@@ -205,7 +219,7 @@ object QueryLine {
 
     fun render(filter: NetworkFilter, exclude: List<NetworkFilter>, terms: List<Term>): String =
         (words(filter, false) + exclude.flatMap { words(it, true) } + listOfNotNull("typos:on".takeIf { terms.any { it.typos } }) +
-            terms.map { if (it.phrase) "\"${it.text}\"" else it.text }).joinToString(" ")
+            terms.map { if (it.redacted) "redacted:${it.text}" else if (it.phrase) "\"${it.text}\"" else it.text }).joinToString(" ")
 
     private fun words(f: NetworkFilter, negated: Boolean): List<String> {
         val n = if (negated) "-" else ""
