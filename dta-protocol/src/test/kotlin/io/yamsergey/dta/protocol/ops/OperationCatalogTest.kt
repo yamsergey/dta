@@ -229,4 +229,23 @@ class OperationCatalogTest {
         val list = agent("network_list").param("intervened")!!.description
         assertTrue("network script" in list, list)
     }
+
+    /** 072 B3 (FR-004): every command and tool whose answer is redacted for agents says how to read a mask and that fingerprints are searched. */
+    @Test
+    fun `operations whose answers are redacted say how masks read and that fingerprints search`() {
+        val redacting = listOf(
+            "network.list", "network.search", "network.entry", "network.body", "network.export", "links.list", "links.entry",
+            "timeline.events", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path", "network.watch", "timeline.watch",
+        )
+        for (name in redacting) {
+            val cli = Catalog.cliCommands.single { it.name == name }.description
+            assertTrue("[redacted len=N #fingerprint]" in cli && "redacted:#fingerprint" in cli, "$name (cli): $cli")
+            Catalog.agentTools.singleOrNull { it.name == name }?.let { agent ->
+                assertTrue("[redacted len=N #fingerprint]" in agent.description && "redacted:#fingerprint" in agent.description, "$name (agent): ${agent.description}")
+            }
+        }
+        val q = Catalog["network.list"].param("q")!!.description
+        assertTrue("redacted:#" in q && "fingerprint" in q, q)
+        assertTrue("no per-call way to turn it off" in Catalog["agents.redaction"].description, Catalog["agents.redaction"].description)
+    }
 }

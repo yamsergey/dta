@@ -180,9 +180,19 @@ object Catalog {
         "Query line: key:value words filter — any entry: body: (text in any body, case ignored; body:/regex/ a pattern, also req:/…/ resp:/…/ — slashes group spaces, case ignored unless (?-i), body:\"/x/\" stays literal), url:, host:, kind:, source:app|webview|custom-tab, has:intervention, run:, since:5m, until:; " +
         "HTTP: method:, status: (200, 4xx, failed, pending), header:name or header:name=text, req: / resp: (text in the request or response body), mime:json, duration:>1s, size:>100k; " +
         "WebSocket: dir:sent|received, frame:text|binary, type: and topic: (as the message format reads them), conn:<connection id>, status:open|closed|connecting|failed|1006, header: (handshake), size:; " +
+        "redacted:#fingerprint (12 hex, as a mask shows it: [redacted len=N #fingerprint]) the entries where that value is masked — masked places only, in any app run; " +
         "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched exactly " +
         "(case and separators ignored: orderId = order_id = order id) in URLs, headers, bodies and message payloads; typos:on (or typos) also allows one typo in words of 5+ letters (numbers stay exact; body: is always exact). " +
         "Answers cover the app's current run unless archive is on (run:all alone widens nothing; run:current narrows a whole-history answer). No time limit cuts a pattern or a search."
+
+    /** Feature 072 (FR-004): what an agent reads in every description whose answer is redacted. */
+    private const val REDACTION_NOTE = "Secrets are masked while redaction for agents is on (the default; the answer's redaction says): [redacted len=N #fingerprint] — equal fingerprints are equal values wherever they occur; find the entries holding one with the query term redacted:#fingerprint."
+
+    /** Feature 072: the operations whose answers (and, for the watches, events) are redacted for agents. */
+    private val REDACTED_FOR_AGENTS = setOf(
+        "network.list", "network.search", "network.entry", "network.body", "network.export", "network.watch", "links.list", "links.entry",
+        "timeline.events", "timeline.watch", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path",
+    )
 
     /** Decision 2026-11-22: typo tolerance is asked for, never the default. */
     private val TYPOS = ParamSpec("typos", ParamType.BOOLEAN, "Search words and phrases also match one typo away, in words of 5+ letters (as typos:on in q); off by default: exact, case and separators ignored. body: text is always exact.")
@@ -941,7 +951,7 @@ object Catalog {
         OperationSpec("daemon.stop", "Stop the DTA service (it starts again with the next command).", Scope.NONE, cliOnly = true),
         OperationSpec(
             "agents.redaction",
-            "Whether answers to agents (this command line, MCP tools) are redacted: secrets, tokens and personal data are masked as [redacted len=N #fingerprint] (equal values share a fingerprint). The setting is changed from the plugin's settings only.",
+            "Whether answers to agents (this command line, MCP tools) are redacted: secrets, tokens and personal data are masked as [redacted len=N #fingerprint] (equal values share a fingerprint; find a value with the query term redacted:#fingerprint). The setting is changed from the plugin's settings only; there is no per-call way to turn it off.",
             Scope.NONE,
         ),
         OperationSpec(
@@ -951,7 +961,7 @@ object Catalog {
             listOf(ParamSpec("redaction", ParamType.BOOLEAN, "true to mask secrets in answers to agents (the default), false to show them.", required = true)),
             cliOnly = true,
         ),
-    )
+    ).map { op -> if (op.name in REDACTED_FOR_AGENTS) op.copy(description = "${op.description} $REDACTION_NOTE") else op }
 
     private val byName = all.associateBy { it.name }
 

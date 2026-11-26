@@ -9,4 +9,4 @@
     {"className":"okhttp3.RealCall","method":"enqueue","file":"RealCall.kt","line":140,"app":false},
     {"className":"com.example.shop.cart.CartRepository","method":"checkout","file":"CartRepository.kt","line":57,"app":true},
     {"className":"com.example.shop.cart.CartViewModel","method":"pay","file":"CartViewModel.kt","line":31,"app":true}],"firstAppFrame":1}},
- "redaction":{"applied":true,"masked":["authorization"],"withheld":[]}}
+ "redaction":{"applied":true,"forAgents":true,"masked":[{"place":"entry r1-1:2 request.header Authorization","fingerprint":"3f9a2c81d04e","length":212}],"withheld":[]}}
