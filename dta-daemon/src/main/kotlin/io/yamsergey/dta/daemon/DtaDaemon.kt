@@ -416,7 +416,7 @@ class DtaDaemon(
         val service = networkService(serial, pkg)
         var saved: io.yamsergey.dta.protocol.network.SavedFiltersApplied? = null
         val pass = savedFilters.applied(pkg, query, { q -> service.find(q, limit) to q }, { p, applied -> saved = applied; p })
-        val masked = mutableListOf<String>()
+        val masked = mutableListOf<io.yamsergey.dta.protocol.network.MaskedLocation>()
         val withheld = mutableListOf<String>()
         var moreMasked = 0
         var moreWithheld = 0
@@ -435,7 +435,7 @@ class DtaDaemon(
             send(if (hasRules) shown.map { it.copy(entry = formats.annotate(pkg, it.entry, texts)) } else shown)
         }
         val redaction = if (query.redact) io.yamsergey.dta.protocol.network.RedactionInfo(
-            masked = masked + listOfNotNull(moreMasked.takeIf { it > 0 }?.let { "… and $it more" }),
+            masked = masked + listOfNotNull(moreMasked.takeIf { it > 0 }?.let { io.yamsergey.dta.protocol.network.MaskedLocation("… and $it more", "", 0) }),
             withheld = withheld + listOfNotNull(moreWithheld.takeIf { it > 0 }?.let { "… and $it more" }),
         ) else null
         return FindResult(end, pass.first.scope, saved, redaction)

@@ -34,7 +34,7 @@ object IndexText {
         fun headers(list: List<Header>?) {
             list ?: return
             list.forEach { text(it.name); text(it.value) }
-            if (Redactor.headers(list, "").first != list) text(Redactor.MASK)
+            if (Redactor.headers(list, "").first != list) text(Redactor.MASK_PREFIX)
         }
         fun body(info: BodyInfo?, part: BodyPart) {
             info ?: return

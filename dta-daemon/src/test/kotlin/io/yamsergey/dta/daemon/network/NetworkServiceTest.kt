@@ -243,7 +243,7 @@ class NetworkServiceTest {
         val result = service.body("struct", BodyPart.REQUEST, redact = true)
         val text = result.text!!
         assertTrue("SECRET-P" !in text && "visible" in text, text)
-        assertEquals(listOf("entry struct request body $.password"), result.redaction!!.masked)
+        assertEquals(listOf("entry struct request body $.password"), result.redaction!!.masked.map { it.place })
         assertEquals(DecodingOutcome.DECODED, result.decoding!!.outcome)
         assertEquals(service.body("struct", BodyPart.REQUEST).decoding, result.decoding, "the same decoding as plain text output")
         val file = java.io.File(tmp, "struct.json")
@@ -322,10 +322,10 @@ class NetworkServiceTest {
         val page = service.list(NetworkQuery(redact = true))
         assertTrue("SECRET" !in page.entries.toString(), page.entries.toString())
         assertEquals(true, page.redaction?.applied)
-        assertTrue(page.redaction!!.masked.any { "url.query token" in it })
+        assertTrue(page.redaction!!.masked.any { "url.query token" in it.place })
         val detail = service.entry("r1-2:1", redact = true)
         assertTrue("SECRET" !in detail.toString(), detail.toString())
-        assertTrue(detail.redaction!!.masked.any { "header Authorization" in it })
+        assertTrue(detail.redaction!!.masked.any { "header Authorization" in it.place })
     }
 
     @Test
@@ -339,7 +339,7 @@ class NetworkServiceTest {
     fun `redacted json body masks values and keeps the rest`() = withService { service, _ ->
         val result = service.body("secret", BodyPart.REQUEST, redact = true)
         assertTrue("SECRET-P" !in result.text!! && "\"name\":\"ok\"" in result.text!!, result.text)
-        assertEquals(listOf("entry secret request body $.password"), result.redaction!!.masked)
+        assertEquals(listOf("entry secret request body $.password"), result.redaction!!.masked.map { it.place })
     }
 
     @Test
@@ -377,8 +377,8 @@ class NetworkServiceTest {
     @Test
     fun `a plain text body is masked under redaction, not withheld`() = withService { service, _ ->
         val result = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
-        assertEquals("token=${io.yamsergey.dta.protocol.network.Redactor.MASK}, page 2", result.text)
-        assertEquals(listOf("entry plainPreview response body text token"), result.redaction!!.masked)
+        assertEquals("token=${io.yamsergey.dta.protocol.network.Redactor.mask("SECRET-T")}, page 2", result.text)
+        assertEquals(listOf("entry plainPreview response body text token"), result.redaction!!.masked.map { it.place })
         assertTrue(result.redaction!!.withheld.isEmpty())
         assertTrue(result.degraded.orEmpty().none { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_REDACTION_WITHHELD })
     }

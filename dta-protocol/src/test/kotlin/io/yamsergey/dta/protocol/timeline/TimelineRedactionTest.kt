@@ -1,6 +1,9 @@
 package io.yamsergey.dta.protocol.timeline
 
+import io.yamsergey.dta.protocol.network.MASKED
 import io.yamsergey.dta.protocol.network.Redactor
+import io.yamsergey.dta.protocol.network.places
+import io.yamsergey.dta.protocol.network.plain
 import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.ui.ContentSummary
 import io.yamsergey.dta.protocol.ui.SummaryElement
@@ -43,7 +46,7 @@ class TimelineRedactionTest {
         assertEquals("/login", e.network!!.path)
         assertTrue("step=2" in e.nav!!.destination, e.nav!!.destination)
         for (place in listOf("title", "network error", "nav destination", "nav arg password", "app attr card", "app attr note", "facet nav.args", "facet app.apiKey", "cause detail", "ui text", "ui content[0] text")) {
-            assertTrue(info.masked.any { "event 7:1 $place" in it }, "masked names $place: ${info.masked}")
+            assertTrue(info.masked.places().any { "event 7:1 $place" in it }, "masked names $place: ${info.masked}")
         }
     }
 
@@ -61,7 +64,7 @@ class TimelineRedactionTest {
         val graph = TimelineRedaction.graph(StateGraph(listOf("nav.destination", "app.token"), nodes = listOf(StateNode(ref, 1, 1)), transitions = listOf(Transition("s0", "s1", 1, listOf("7:1"), causes = event.causes)), window = GraphWindow(0, 1)))
         val g = DtaJson.encodeToString(StateGraph.serializer(), graph)
         assertEquals(emptyList(), leaks(g), g)
-        assertEquals("home · ${Redactor.MASK}", graph.nodes.single().state.label)
+        assertEquals("home · ${MASKED}", graph.nodes.single().state.label.plain())
         assertEquals("s1", graph.nodes.single().state.id, "state ids are kept, so a path asked redacted names the same states")
         val path = TimelineRedaction.path(StatePath("s0", "s1", graph.transitions.map { it.copy(causes = event.causes) }, found = true))
         assertEquals(emptyList(), leaks(DtaJson.encodeToString(StatePath.serializer(), path)))
@@ -72,6 +75,6 @@ class TimelineRedactionTest {
         val socket = io.yamsergey.dta.protocol.network.WsConnectionEntry("r1:s", "r1", 1, "okhttp3-ws", url = "wss://h/live?token=SEED-T2", state = io.yamsergey.dta.protocol.network.WsState.OPEN)
         val (events, sockets, info) = TimelineRedaction.sequenceInput(listOf(event), listOf(socket))
         assertEquals(emptyList(), leaks(events.toString() + sockets.toString()))
-        assertTrue(info.masked.any { "url.query token" in it }, info.masked.toString())
+        assertTrue(info.masked.places().any { "url.query token" in it }, info.masked.toString())
     }
 }

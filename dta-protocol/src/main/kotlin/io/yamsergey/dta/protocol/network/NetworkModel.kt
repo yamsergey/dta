@@ -525,10 +525,18 @@ data class Coverage(
 data class RedactionInfo(
     /** Always on the wire (D-041): a JSON reader sees `applied: true`, not only a missing field. */
     @kotlinx.serialization.EncodeDefault val applied: Boolean = true,
-    /** Locations masked, e.g. `entry r..:4 request.header Authorization`. */
-    val masked: List<String> = emptyList(),
+    /** Locations masked, each with the fingerprint and length its mask shows (072 FR-009). */
+    val masked: List<MaskedLocation> = emptyList(),
     /** Bodies/payloads not returned because they could not be redacted. */
     val withheld: List<String> = emptyList(),
+)
+
+/** 072: one masked place: where (e.g. `entry r..:4 request.header Authorization`), the credential's fingerprint (12 hex) and its length in characters. */
+@Serializable
+data class MaskedLocation(
+    val place: String,
+    val fingerprint: String,
+    val length: Int,
 )
 
 @Serializable

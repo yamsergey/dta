@@ -19,7 +19,31 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 object Redactor {
 
-    const val MASK = "[redacted]"
+    /** What every mask starts with; a value that starts so is already masked. */
+    const val MASK_PREFIX = "[redacted"
+
+    @Volatile private var key: FingerprintKey? = null
+    private val processKey: FingerprintKey by lazy { FingerprintKey(java.security.SecureRandom().let { r -> ByteArray(32).also { r.nextBytes(it) } }) }
+
+    /**
+     * Installs the key the fingerprints are made under (the daemon passes the one in the DTA home; tests a
+     * fixed one); null goes back to a random key of this process, so a process that never installed one
+     * still masks consistently within itself.
+     */
+    fun use(key: FingerprintKey?) { this.key = key }
+
+    private fun key() = key ?: processKey
+
+    /** `[redacted len=N #fp12]` of a [credential] (feature 072, contracts/mask-format.md). */
+    fun mask(credential: String): String = "$MASK_PREFIX len=${credential.length} #${key().of(credential)}]"
+
+    fun isMasked(value: String) = value.startsWith(MASK_PREFIX)
+
+    /** Masks [credential] and lists the place with its fingerprint and length. */
+    internal fun hide(credential: String, place: String, masked: MutableList<MaskedLocation>): String {
+        masked += MaskedLocation(place, key().of(credential), credential.length)
+        return mask(credential)
+    }
 
     private val SECRET_HEADERS = setOf("authorization", "proxy-authorization", "cookie", "set-cookie")
     private val SENSITIVE_PARTS = listOf(
@@ -31,7 +55,7 @@ object Redactor {
     data class BodyRedaction(
         /** Redacted text; null when withheld. */
         val text: String?,
-        val masked: List<String>,
+        val masked: List<MaskedLocation>,
         /** Why the body was withheld; null when it was inspected. */
         val withheld: String?,
     )
@@ -55,12 +79,12 @@ object Redactor {
     /** Auth schemes free text can quote a credential after (see [text]). */
     private val CREDENTIAL_WORDS = listOf("bearer", "basic", "digest")
 
-    fun headers(headers: List<Header>, location: String): Pair<List<Header>, List<String>> {
-        val masked = mutableListOf<String>()
+    fun headers(headers: List<Header>, location: String): Pair<List<Header>, List<MaskedLocation>> {
+        val masked = mutableListOf<MaskedLocation>()
         val result = headers.map { h ->
             if (isSensitive(h.name)) {
-                masked += "$location.header ${h.name}"
-                h.copy(value = MASK)
+                val value = credentialHeader(h.name, h.value, "$location.header ${h.name}", masked)
+                if (value == h.value) h else h.copy(value = value)
             } else {
                 // Other values are free text: a Location with a token in its query, a debug header quoting a credential.
                 val (value, m) = text(h.value, "$location.header ${h.name}")
@@ -71,7 +95,37 @@ object Redactor {
         return result to masked
     }
 
-    fun url(url: String, location: String): Pair<String, List<String>> {
+    private val AUTH_SCHEME = Regex("""^(Bearer|Basic|Digest|Token)(\s+)(.+)$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
+    /**
+     * A credential header's value, masked: the credential without its scheme (`Bearer x` shows `Bearer`, masks `x`,
+     * R5); each cookie's value with its name kept (a Set-Cookie's attributes are kept too).
+     */
+    private fun credentialHeader(name: String, value: String, place: String, masked: MutableList<MaskedLocation>): String {
+        when (name.lowercase()) {
+            "cookie" -> return value.split(';').joinToString(";") { cookiePair(it, place, masked) }
+            "set-cookie" -> {
+                val parts = value.split(';')
+                return (listOf(cookiePair(parts.first(), place, masked)) + parts.drop(1)).joinToString(";")
+            }
+        }
+        if (isMasked(value)) return value
+        val scheme = AUTH_SCHEME.matchEntire(value)
+        if (scheme != null) {
+            val credential = scheme.groupValues[3]
+            return if (isMasked(credential)) value else "${scheme.groupValues[1]}${scheme.groupValues[2]}${hide(credential, place, masked)}"
+        }
+        return hide(value, place, masked)
+    }
+
+    private fun cookiePair(pair: String, place: String, masked: MutableList<MaskedLocation>): String {
+        val eq = pair.indexOf('=')
+        if (eq < 0) return pair
+        val value = pair.substring(eq + 1)
+        return if (value.isEmpty() || isMasked(value)) pair else pair.substring(0, eq + 1) + hide(value, place, masked)
+    }
+
+    fun url(url: String, location: String): Pair<String, List<MaskedLocation>> {
         val q = url.indexOf('?')
         if (q < 0) return url to emptyList()
         val fragment = url.indexOf('#', q).takeIf { it >= 0 } ?: url.length
@@ -99,25 +153,23 @@ object Redactor {
      * name is sensitive (`token=…`, `password: …`, `"api_key":"…"`) and the content of elements
      * so named (`<password>…</password>`). The rest of the text is kept.
      */
-    fun text(text: String, location: String): Pair<String, List<String>> {
+    fun text(text: String, location: String): Pair<String, List<MaskedLocation>> {
         if (!mayChangeWords(text) && "://" !in text) return text to emptyList()
-        val masked = mutableListOf<String>()
+        val masked = mutableListOf<MaskedLocation>()
         var result = if ("://" in text) URL_IN_TEXT.replace(text) { m -> url(m.value, location).also { (_, l) -> masked += l }.first } else text
         result = textPairs(result, location, masked)
         result = CREDENTIAL_IN_TEXT.replace(result) { m ->
-            masked += "$location text credential ${m.groupValues[1]}"
-            "${m.groupValues[1]} $MASK"
+            "${m.groupValues[1]} ${hide(m.groupValues[2], "$location text credential ${m.groupValues[1]}", masked)}"
         }
         result = ELEMENT_IN_TEXT.replace(result) { m ->
-            if (!isSensitive(m.groupValues[2]) || m.groupValues[4].isEmpty() || m.groupValues[4] == MASK) return@replace m.value
-            masked += "$location text <${m.groupValues[2]}>"
-            m.value.replaceRange(m.groups[4]!!.range.first - m.range.first, m.groups[4]!!.range.last + 1 - m.range.first, MASK)
+            if (!isSensitive(m.groupValues[2]) || m.groupValues[4].isEmpty() || isMasked(m.groupValues[4])) return@replace m.value
+            m.value.replaceRange(m.groups[4]!!.range.first - m.range.first, m.groups[4]!!.range.last + 1 - m.range.first, hide(m.groupValues[4], "$location text <${m.groupValues[2]}>", masked))
         }
         return result to masked
     }
 
     /** [PAIR_IN_TEXT] over [text]: a pair whose name is not sensitive is passed over at its separator, so `failed: token=…` is still found. */
-    private fun textPairs(text: String, location: String, masked: MutableList<String>): String {
+    private fun textPairs(text: String, location: String, masked: MutableList<MaskedLocation>): String {
         val out = StringBuilder()
         var at = 0
         var from = 0
@@ -126,14 +178,13 @@ object Redactor {
             val name = m.groupValues[2]
             val value = m.groupValues[5]
             val bare = value.trim('"', '\'')
-            if (!isSensitive(name) || bare.startsWith(MASK.dropLast(1)) || bare.isEmpty()) {
+            if (!isSensitive(name) || isMasked(bare) || bare.isEmpty()) {
                 from = m.groups[4]!!.range.first.coerceAtLeast(m.range.first + 1)
                 continue
             }
-            masked += "$location text $name"
             val open = value.takeWhile { it == '"' || it == '\'' }.take(1)
             val close = if (open.isNotEmpty() && value.length > 1 && value.endsWith(open)) open else ""
-            out.append(text, at, m.groups[4]!!.range.first).append(open).append(MASK).append(close)
+            out.append(text, at, m.groups[4]!!.range.first).append(open).append(hide(bare, "$location text $name", masked)).append(close)
             at = m.range.last + 1
             from = at
         }
@@ -148,7 +199,7 @@ object Redactor {
         }
         val parsed = if (type == null || "json" in type) runCatching { json.parseToJsonElement(text) }.getOrNull() else null
         if (parsed != null) {
-            val masked = mutableListOf<String>()
+            val masked = mutableListOf<MaskedLocation>()
             return BodyRedaction(redactJson(parsed, "$", location, masked).toString(), masked, null)
         }
         // Decision 2026-11-22: text of any other format (plain, XML, a frame protocol, a cut preview) by the free-text rules.
@@ -158,7 +209,7 @@ object Redactor {
 
     /** List form of an entry: URL, headers and previews. Withheld previews are dropped. */
     fun entry(entry: NetworkEntry): Pair<NetworkEntry, RedactionInfo> {
-        val masked = mutableListOf<String>()
+        val masked = mutableListOf<MaskedLocation>()
         val withheld = mutableListOf<String>()
         val at = "entry ${entry.id}"
         fun preview(info: BodyInfo?, name: String): BodyInfo? {
@@ -220,9 +271,8 @@ object Redactor {
                 val (query, qm) = headers(entry.query, "$at query")
                 masked += qm
                 val extras = entry.extras.map { e ->
-                    if (e.value != null && isSensitive(e.key)) {
-                        masked += "$at extra ${e.key}"
-                        e.copy(value = MASK)
+                    if (e.value != null && isSensitive(e.key) && !isMasked(e.value!!)) {
+                        e.copy(value = hide(e.value!!, "$at extra ${e.key}", masked))
                     } else e
                 }
                 entry.copy(uri = u, query = query, extras = extras)
@@ -231,30 +281,36 @@ object Redactor {
         return redacted to RedactionInfo(masked = masked, withheld = withheld)
     }
 
-    private fun pairs(encoded: String, location: String): Pair<String, List<String>> {
-        val masked = mutableListOf<String>()
+    private fun pairs(encoded: String, location: String): Pair<String, List<MaskedLocation>> {
+        val masked = mutableListOf<MaskedLocation>()
         val result = encoded.split('&').joinToString("&") { pair ->
             val eq = pair.indexOf('=')
             val name = if (eq < 0) pair else pair.substring(0, eq)
-            if (eq >= 0 && isSensitive(name)) {
-                masked += "$location $name"
-                "$name=$MASK"
+            if (eq >= 0 && isSensitive(name) && !isMasked(pair.substring(eq + 1))) {
+                // The credential is the value as it reads decoded (R5): a token has one fingerprint in a query and in a header.
+                "$name=${hide(percentDecode(pair.substring(eq + 1)), "$location $name", masked)}"
             } else pair
         }
         return result to masked
     }
 
-    private fun redactJson(element: JsonElement, path: String, location: String, masked: MutableList<String>): JsonElement = when (element) {
+    /** The credential a sensitive JSON value is: a string unescaped, anything else as written; null when it is masked already. */
+    private fun jsonCredential(value: JsonElement): String? = when {
+        value is JsonPrimitive && value.isString -> value.content.takeUnless { isMasked(it) }
+        else -> value.toString()
+    }
+
+    private fun hideJson(value: JsonElement, place: String, masked: MutableList<MaskedLocation>): JsonElement =
+        jsonCredential(value)?.let { JsonPrimitive(hide(it, place, masked)) } ?: value
+
+    private fun redactJson(element: JsonElement, path: String, location: String, masked: MutableList<MaskedLocation>): JsonElement = when (element) {
         is JsonObject -> pairKey(element)?.takeIf { isSensitive(it) }?.let { key ->
-            masked += "$location $path.value (key $key)"
-            JsonObject(element + ("value" to JsonPrimitive(MASK)))
+            JsonObject(element + ("value" to hideJson(element.getValue("value"), "$location $path.value (key $key)", masked)))
         } ?: JsonObject(
             element.mapValues { (key, value) ->
                 val childPath = "$path.$key"
-                if (isSensitive(key)) {
-                    masked += "$location $childPath"
-                    JsonPrimitive(MASK)
-                } else redactJson(value, childPath, location, masked)
+                if (isSensitive(key)) hideJson(value, "$location $childPath", masked)
+                else redactJson(value, childPath, location, masked)
             },
         )
         is JsonArray -> JsonArray(element.mapIndexed { i, value -> redactJson(value, "$path[$i]", location, masked) })
@@ -262,7 +318,7 @@ object Redactor {
     }
 
     /** A string value of free text (decision 2026-11-22): the [text] rules; null when nothing in it is masked. */
-    private fun freeText(element: JsonPrimitive, path: String, location: String, masked: MutableList<String>): JsonPrimitive? {
+    private fun freeText(element: JsonPrimitive, path: String, location: String, masked: MutableList<MaskedLocation>): JsonPrimitive? {
         if (!element.isString) return null
         val (text, m) = text(element.content, "$location $path")
         if (m.isEmpty()) return null
@@ -271,16 +327,28 @@ object Redactor {
     }
 
     /** Decision 2026-11-22: JSON carried in a string value, masked inside; null when it is not JSON or holds nothing to mask. */
-    private fun nested(element: JsonPrimitive, path: String, location: String, masked: MutableList<String>): JsonPrimitive? {
+    private fun nested(element: JsonPrimitive, path: String, location: String, masked: MutableList<MaskedLocation>): JsonPrimitive? {
         if (!element.isString) return null
         val text = element.content.trimStart()
         if (!(text.startsWith("{") || text.startsWith("["))) return null
         val parsed = runCatching { json.parseToJsonElement(element.content) }.getOrNull() ?: return null
-        val inner = mutableListOf<String>()
+        val inner = mutableListOf<MaskedLocation>()
         val redacted = redactJson(parsed, "$path(json)", location, inner)
         if (inner.isEmpty()) return null
         masked += inner
         return JsonPrimitive(redacted.toString())
+    }
+
+    private fun percentDecode(s: String): String {
+        if ('%' !in s) return s
+        val out = java.io.ByteArrayOutputStream()
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            val hex = if (c == '%' && i + 2 < s.length) s.substring(i + 1, i + 3).toIntOrNull(16) else null
+            if (hex != null) { out.write(hex); i += 3 } else { out.write(c.toString().toByteArray()); i++ }
+        }
+        return out.toString(Charsets.UTF_8)
     }
 
     /** The named field of a key/value pair object: a string `key` next to a `value`. */

@@ -53,9 +53,9 @@ class LinkEntryTest {
         val (redacted, info) = Redactor.entry(secret)
         redacted as LinkEntry
         assertTrue("s3cret" !in redacted.uri && "ref=mail" in redacted.uri, redacted.uri)
-        assertEquals(listOf(Redactor.MASK, "mail"), redacted.query.map { it.value })
-        assertEquals(Redactor.MASK, redacted.extras.single { it.key == "token" }.value)
+        assertEquals(listOf(MASKED, "mail"), redacted.query.map { it.value.plain() })
+        assertEquals(MASKED, redacted.extras.single { it.key == "token" }.value!!.plain())
         assertEquals("class not found", redacted.extras.single { it.key == "blob" }.notRead)
-        assertTrue(info.masked.any { "extra token" in it }, "${info.masked}")
+        assertTrue(info.masked.places().any { "extra token" in it }, "${info.masked}")
     }
 }

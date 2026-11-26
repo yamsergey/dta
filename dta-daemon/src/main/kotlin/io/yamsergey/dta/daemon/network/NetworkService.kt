@@ -124,7 +124,7 @@ class NetworkService(
 
     /** Redaction happens here and only here (one redactor, applied once — VI). */
     private fun redactAll(entries: List<NetworkEntry>): Pair<List<NetworkEntry>, RedactionInfo> {
-        val masked = mutableListOf<String>()
+        val masked = mutableListOf<io.yamsergey.dta.protocol.network.MaskedLocation>()
         val withheld = mutableListOf<String>()
         val redacted = entries.map { entry ->
             val (r, info) = Redactor.entry(entry)
