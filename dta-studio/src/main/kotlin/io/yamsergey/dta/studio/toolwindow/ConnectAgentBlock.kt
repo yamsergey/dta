@@ -34,7 +34,7 @@ class ConnectAgentBlock(
     }
     val where = JBLabel().apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }
     /** An agent's own note (Claude Code's plugin), when it has one. */
-    val note = JBLabel().apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont(); setAllowAutoWrapping(true) }
+    val note = WrappedLabel().apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }
 
     /** Loaded off the UI thread; null until then. */
     @Volatile private var credential: String? = null
@@ -54,7 +54,7 @@ class ConnectAgentBlock(
         command.caretPosition = 0
         val config = AgentConfigs.render(selected, endpoint(), AgentsTabModel.MASK)
         where.text = config.where?.let { "Paste into $it" } ?: "Run in a terminal"
-        note.text = config.note?.let { "<html>${it.replace("&", "&amp;").replace("<", "&lt;")}</html>" }.orEmpty()
+        note.html = config.note?.let { it.replace("&", "&amp;").replace("<", "&lt;") }.orEmpty()
     }
 
     /** True when it was copied (false while the credential is still being read). */
