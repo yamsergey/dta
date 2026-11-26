@@ -25,6 +25,7 @@ import io.yamsergey.dta.protocol.ops.ClientKind
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -181,5 +182,110 @@ class RedactionPropertyTest {
             phase(restarted, mapOf("archiveScope" to "all"))
         }
         assertTrue(checked > 3_000, "masks checked: $checked")
+    }
+
+    // ---- 074 E2 (SC-004): the same rule for runtime.heap.fields ----
+
+    /** A sidekick that answers `runtime_heap_fields` with [read]. */
+    private class HeapApp(var read: io.yamsergey.dta.protocol.data.HeapFieldsRead) : io.yamsergey.dta.daemon.connection.AppConnection {
+        override val hello = io.yamsergey.dta.protocol.rpc.HelloResult(io.yamsergey.dta.protocol.rpc.PROTOCOL_VERSION, "dta-sidekick", "0.1.0", "app")
+        override val events: kotlinx.coroutines.flow.SharedFlow<io.yamsergey.dta.protocol.rpc.Event> = kotlinx.coroutines.flow.MutableSharedFlow()
+        override val isOpen = true
+        override suspend fun request(method: String, params: JsonObject?, timeout: kotlin.time.Duration?): JsonElement {
+            check(method == "runtime_heap_fields") { method }
+            return io.yamsergey.dta.protocol.rpc.DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.data.HeapFieldsRead.serializer(), read)
+        }
+        override suspend fun close() = Unit
+    }
+
+    private class HeapOps(val app: HeapApp, dir: File) : FakeOperations() {
+        private val service = io.yamsergey.dta.daemon.data.DataService("io.example", io.yamsergey.dta.daemon.network.proto.SchemaRegistry(File(dir, "schemas").also { it.mkdirs() })) { app }
+        override fun data(serial: String, pkg: String) = service
+    }
+
+    /** Every leaf (string, number, boolean) of [e] with its path. */
+    private fun leaves(e: JsonElement, path: String = ""): Map<String, String> = when (e) {
+        is JsonPrimitive -> mapOf(path to e.content)
+        is JsonArray -> e.withIndex().flatMap { (i, x) -> leaves(x, "$path[$i]").entries }.associate { it.key to it.value }
+        is JsonObject -> e.entries.flatMap { (k, x) -> leaves(x, "$path.$k").entries }.associate { it.key to it.value }
+    }
+
+    @Test
+    fun `1,000 instances - for agents no seeded value appears in the fields, fingerprints are equal iff the values are, the plugin sees everything`() {
+        val mask = Regex("""\[redacted len=(\d+) #([0-9a-f]{12})]""")
+        var masked = 0
+        repeat(1_000) { run ->
+            val r = Random(run)
+            val secrets = List(4) { i -> "S$run-${i}k".padEnd(11 + 3 * i, 'q') }
+            val number = 700_000_000_000L + run * 7
+            fun leaf(): JsonElement = when (r.nextInt(4)) {
+                0 -> JsonPrimitive(secrets[r.nextInt(secrets.size)])
+                1 -> JsonPrimitive(number)
+                2 -> JsonPrimitive(r.nextBoolean())
+                else -> JsonPrimitive("plain-${r.nextInt(3)}")
+            }
+            val names = listOf("title", "authToken", "MODE_PRIVATE", "count", "session", "label", "email", "x")
+            val fields = (0 until r.nextInt(3, 9)).map { n ->
+                val v: JsonElement? = when (r.nextInt(6)) {
+                    0 -> null
+                    1 -> JsonObject(mapOf("a" to leaf(), "password" to leaf(), "list" to JsonArray(listOf(leaf(), leaf(), JsonNull))))
+                    2 -> JsonArray(listOf(leaf(), leaf()))
+                    else -> leaf()
+                }
+                io.yamsergey.dta.protocol.data.HeapField(names[r.nextInt(names.size)] + n, "com.x.Session", "java.lang.String", r.nextInt(5) == 0, v, v?.let { (it as? JsonPrimitive)?.content?.length })
+            }
+            val read = io.yamsergey.dta.protocol.data.HeapFieldsRead(fields = io.yamsergey.dta.protocol.data.HeapFields(4_294_967_297, "com.x.Session", fields))
+            val home = File(dir, "hp$run").also { it.mkdirs() }
+            val agents = AgentSettings(home)
+            Redactor.use(agents.key)
+            val ops = HeapOps(HeapApp(read), File(dir, "ops$run"))
+            val dispatcher = OperationDispatcher(ops, Selector(ops::devices, ops::apps), agents = agents)
+            fun fields(kind: ClientKind, values: Boolean) = runBlocking {
+                dispatcher.dispatch("runtime.heap.fields", buildJsonObject { put("instance", 4_294_967_297); put("values", values) }, kind).result.jsonObject
+            }
+            val original = fields.associate { it.name to (it.value?.let { v -> leaves(v) } ?: emptyMap()) }
+            val originalLeaves = original.flatMap { (n, m) -> m.map { (p, v) -> "$n$p" to v } }.toMap()
+            for (kind in kinds) {
+                val answer = fields(kind, values = true)
+                val all = strings(answer)
+                // No seeded secret, no seeded number, no value of a sensitive-looking field.
+                for (v in secrets + number.toString()) assertFalse(all.any { v in it }, "run $run $kind: $v is in the answer")
+                assertTrue(answer["redaction"]!!.jsonObject["applied"]!!.jsonPrimitive.content == "true", "run $run $kind: the answer says it is redacted")
+                val shown = answer["fields"]!!.jsonObject["fields"]!!.jsonArray
+                val byName = shown.associate { it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject }
+                val maskOf = HashMap<String, String>()   // path -> mask
+                for ((name, o) in byName) {
+                    // Names, types and lengths stay readable; nulls stay null.
+                    val src = fields.first { it.name == name }
+                    assertEquals(src.length, o["length"]?.jsonPrimitive?.content?.toInt(), "run $run $kind: length of $name")
+                    val v = o["value"]
+                    if (src.value == null) assertTrue(v == null || v is JsonNull, "run $run $kind: $name has no value")
+                    else for ((p, text) in leaves(v!!)) {
+                        val sourceText = original.getValue(name)[p]
+                        if (sourceText == null) continue
+                        val m = mask.matchEntire(text)
+                        if (src.value is JsonObject && p.endsWith("[2]")) continue
+                        assertTrue(m != null, "run $run $kind: $name$p is a mask, was '$text'")
+                        assertEquals(sourceText.length, m!!.groupValues[1].toInt(), "run $run $kind: length in the mask of $name$p")
+                        assertEquals(agents.key.of(sourceText), m.groupValues[2], "run $run $kind: fingerprint of $name$p")
+                        maskOf["$name$p"] = text
+                        masked++
+                    }
+                }
+                // Equal values share their mask; different values do not.
+                val keys = maskOf.keys.toList()
+                for (a in keys) for (b in keys) if (a < b) assertEquals(originalLeaves.getValue(a) == originalLeaves.getValue(b), maskOf.getValue(a) == maskOf.getValue(b), "run $run $kind: $a vs $b")
+                // Without values asked for, no value at all.
+                val bare = fields(kind, values = false)
+                for (v in secrets + number.toString()) assertFalse(strings(bare).any { v in it }, "run $run $kind: $v is in the answer without values")
+                assertTrue(bare["fields"]!!.jsonObject["fields"]!!.jsonArray.all { it.jsonObject["value"].let { x -> x == null || x is JsonNull } }, "run $run $kind: values shown although not asked for")
+            }
+            // The plugin: everything as it is in the app, nothing stated as redacted for it.
+            val ide = fields(ClientKind.IDE, values = true)
+            val shown = ide["fields"]!!.jsonObject["fields"]!!.jsonArray.associate { it.jsonObject["name"]!!.jsonPrimitive.content to it.jsonObject["value"] }
+            for (f in fields) assertEquals(f.value ?: JsonNull, shown[f.name] ?: JsonNull, "run $run ide: ${f.name}")
+            assertTrue(ide["redaction"] == null, "run $run ide: not redacted")
+        }
+        assertTrue(masked > 3_000, "masks checked: $masked")
     }
 }

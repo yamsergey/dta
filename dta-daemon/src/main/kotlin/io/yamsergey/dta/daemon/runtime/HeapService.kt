@@ -118,6 +118,8 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
         val read = sidekick.fields(instance, values)
         read.refusal?.let { throw HeapRefusal(it) }
         var f = read.fields ?: throw HeapRefusal("the app returned no fields for instance $instance")
+        // No value goes out unless asked for, whatever the app sent (an older sidekick, a bug): a guard of the daemon's own.
+        if (!values) f = f.copy(fields = f.fields.map { it.copy(value = null) })
         var info: RedactionInfo? = null
         if (redact) {
             if (values) HeapRedaction.apply(f).let { (masked, i) -> f = masked; info = i } else info = RedactionInfo()
