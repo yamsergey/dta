@@ -151,7 +151,7 @@ class DaemonServer(
          * Feature 072: whether what this connection receives is redacted now: every kind but the plugin's own
          * views, while the agents' setting is on. Read per answer and per event, so a change applies to the next.
          */
-        private fun redacts(): Boolean = hello?.client != io.yamsergey.dta.protocol.ops.ClientKind.IDE && dispatcher.agents.redaction
+        private fun redacts(): Boolean = dispatcher.agents.redactsFor(hello?.client)
 
         /** What an event to an agent says when redaction is off, so a reader is never left to guess (FR-004). */
         private fun statedOff(): io.yamsergey.dta.protocol.network.RedactionInfo? =

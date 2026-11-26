@@ -26,6 +26,9 @@ class AgentSettings(private val home: File?, redaction: Boolean? = null) {
     @Volatile var redaction: Boolean = redaction ?: readSetting()
         private set
 
+    /** The one rule (feature 072): what a connection of [kind] reads is redacted unless it is the plugin's own (`ide`) or the setting is off; an unknown kind is an agent. */
+    fun redactsFor(kind: io.yamsergey.dta.protocol.ops.ClientKind?): Boolean = kind != io.yamsergey.dta.protocol.ops.ClientKind.IDE && redaction
+
     /** Sets the setting; the next answer and the next event of a running subscription follow it. */
     @Synchronized fun setRedaction(on: Boolean) {
         if (home != null) {

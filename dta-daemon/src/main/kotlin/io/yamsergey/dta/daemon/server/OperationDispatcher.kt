@@ -324,7 +324,7 @@ class OperationDispatcher(
         val resolution = selector.resolve(spec.scope, device, app)
         // Feature 072: the connection decides, never the call. The plugin's own views are never redacted; every other kind (and an unknown one) follows the agents' setting.
         val agent = client != ClientKind.IDE
-        val redact = agent && agents.redaction
+        val redact = agents.redactsFor(client)
         val result = try {
             handler(Call(resolution.serial, resolution.pkg, own, client, redact))
         } catch (e: Exception) {
