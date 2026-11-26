@@ -54,6 +54,17 @@ class McpTools(
         return if (line == null) outcome.toolOutcome else outcome.toolOutcome.copy(text = outcome.toolOutcome.text + "\n\n" + line)
     }
 
+    /**
+     * 072 FR-004 (D-113): the answer's `redaction` also carries the contract's text statement, inside the JSON (an agent
+     * reads the one text; a block of its own would break clients that parse the answer).
+     */
+    private fun withStatement(result: kotlinx.serialization.json.JsonElement): kotlinx.serialization.json.JsonElement {
+        val answer = result as? JsonObject ?: return result
+        val said = answer["redaction"] as? JsonObject ?: return result
+        val statement = io.yamsergey.dta.present.Statements.forRedaction(said).firstOrNull()?.detail ?: return result
+        return JsonObject(answer + ("redaction" to JsonObject(said + ("statement" to JsonPrimitive(statement)))))
+    }
+
     private class Ran(val toolOutcome: ToolOutcome, val selection: Pair<String?, String?>? = null)
 
     private val summary = TimelineSummary(call)
@@ -73,7 +84,7 @@ class McpTools(
                 if (spec.name == "layout.tree") ScreenImageBound.split(s.result).let { (r, i) -> s.copy(result = r) to i } else s to null
             }
             if (spec.name == TimelineSummary.OPERATION) summary.read(arguments, result.result)
-            val text = bound.apply(spec.name, result)
+            val text = bound.apply(spec.name, result.copy(result = withStatement(result.result)))
             if (spec.name == "network.body" && "truncated" in text && arguments["output"] == null) {
                 // A body too large for the response goes to a file instead (contract mcp.md).
                 val file = File.createTempFile("dta-body-", ".bin", tempDir)
