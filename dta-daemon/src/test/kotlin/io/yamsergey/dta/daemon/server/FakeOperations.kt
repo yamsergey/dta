@@ -118,6 +118,7 @@ open class FakeOperations : DaemonOperations {
 
     override suspend fun network(serial: String, pkg: String, query: NetworkQuery): NetworkPage {
         lastQuery = query
+        if (query.q == "superseded") throw io.yamsergey.dta.daemon.network.HostIndex.SupersededException("v")
         if (query.q == "wait-forever") try { kotlinx.coroutines.awaitCancellation() } finally { cancelledCalls.incrementAndGet() }
         archiveHistory?.takeIf { query.archive && query.filter?.runs != io.yamsergey.dta.protocol.network.RunScope.CURRENT }?.let {
             return NetworkPage(it, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = it.size, stored = it.size, persisted = true))
