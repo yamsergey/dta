@@ -512,6 +512,25 @@ class NetworkControllerTest {
         assertEquals(true, exported().archive, "on: everything this computer keeps, as the list")
     }
 
+    /** 072 FR-013: the plugin's export is masked by default; "Export HAR with Secrets…" asks `unredacted`. */
+    @Test
+    fun `export is masked unless it is asked with secrets, and there is no Redact switch state`() = runBlocking<Unit> {
+        network.uiContext = kotlinx.coroutines.Dispatchers.Unconfined
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        val out = java.io.File.createTempFile("r072", ".har").apply { deleteOnExit() }
+        suspend fun exported(unredacted: Boolean): io.yamsergey.dta.protocol.network.NetworkQuery {
+            val before = daemon.ops.queries.size
+            val done = kotlinx.coroutines.CompletableDeferred<Result<kotlinx.serialization.json.JsonObject>>()
+            network.export(out.path, unredacted) { done.complete(it) }
+            withTimeout(5_000) { done.await() }.getOrThrow()
+            return daemon.ops.queries.drop(before).first().second
+        }
+        assertEquals(true, exported(false).redact, "masked by default")
+        assertEquals(false, exported(true).redact, "with secrets only when asked")
+        assertTrue(NetworkViewState::class.java.declaredFields.none { it.name == "redact" }, "no Redact state in the view")
+    }
+
     @Test
     fun `clear empties the app's history and the list`() = runBlocking<Unit> {
         session.start()

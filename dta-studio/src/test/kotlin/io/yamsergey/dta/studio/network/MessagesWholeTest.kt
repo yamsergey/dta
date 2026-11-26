@@ -47,7 +47,7 @@ class MessagesWholeTest : BasePlatformTestCase() {
     fun `test the whole text fetched while the next message arrives reaches the expanded row`() {
         val client = runBlocking { daemon.connect(ClientKind.IDE).client }
         val pane = EntryDetailPane(project, scope)
-        pane.show(client, target, "r1-1:1", redact = false, gone = false)
+        pane.show(client, target, "r1-1:1", gone = false)
         waitFor("the entry shown") { daemon.ops.bodyCalls.any { it.second == BodyPart.RESPONSE } }
         val entry = Json.parseToJsonElement(javaClass.getResource("/entry-ws.json")!!.readText()).jsonObject
         pane.showLoaded("r2-1:6", entry)

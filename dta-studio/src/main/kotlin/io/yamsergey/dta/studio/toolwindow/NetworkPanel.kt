@@ -265,7 +265,7 @@ class NetworkPanel(
     }
     private val newBar = ActionLink("") { network.list(LiveEvent.JumpToEnd); scrollToEdge() }
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
-    /** Feature 026: copy actions, with the view's redaction. */
+    /** Feature 026: copy actions. */
     private val copyMenu = io.yamsergey.dta.studio.network.EntryCopyMenu(project, scope, { context.client }) {
         JsonObject(listOfNotNull(last.device?.let { "device" to JsonPrimitive(it) }, last.app?.let { "app" to JsonPrimitive(it) }).toMap())
     }
@@ -287,6 +287,21 @@ class NetworkPanel(
         override fun update(e: AnActionEvent) { e.presentation.isEnabled = enabled() }
     }
 
+    /** 072 (FR-013): Export HAR opens a menu: masked (the default), or with secrets, for the developer only. */
+    private inner class ExportMenu : com.intellij.openapi.project.DumbAwareAction("Export HAR", "Export the list as a HAR file", AllIcons.ToolbarDecorator.Export) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun update(e: AnActionEvent) { e.presentation.isEnabled = last.app != null }
+        override fun actionPerformed(e: AnActionEvent) {
+            val group = DefaultActionGroup(
+                Act("Export HAR…", AllIcons.ToolbarDecorator.Export) { exportHar(unredacted = false) },
+                Act("Export HAR with Secrets…", AllIcons.ToolbarDecorator.Export) { exportHar(unredacted = true) },
+            )
+            com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                .createActionGroupPopup(null, group, e.dataContext, com.intellij.openapi.ui.popup.JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
+                .showInBestPositionFor(e.dataContext)
+        }
+    }
+
     /** Feature 043: the list's actions in a vertical strip at its left, as the IDE's Logcat and Run views have them. */
     private val strip = ActionManager.getInstance().createActionToolbar("DtaNetworkList", DefaultActionGroup(
         Act("Clear History…", AllIcons.Actions.GC) { clear() },
@@ -299,7 +314,7 @@ class NetworkPanel(
         Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { last.applied.finds && last.hits.total > 0 }) { stepHit(forward = false) },
         Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { last.applied.finds && last.hits.total > 0 }) { stepHit(forward = true) },
         com.intellij.openapi.actionSystem.Separator.getInstance(),
-        Act("Export HAR…", AllIcons.ToolbarDecorator.Export) { exportHar() },
+        ExportMenu(),
     ), false).apply {
         targetComponent = this@NetworkPanel
         component.isOpaque = false
@@ -438,7 +453,7 @@ class NetworkPanel(
         val olderWords = io.yamsergey.dta.present.network.SavedChip.older(s.list.shown, s.list.history, filteredNow)
         olderTop.show(more && model.order == ListOrder.OLDEST_FIRST, s.loadingOlder, "↑", olderWords)
         olderBottom.show(more && model.order == ListOrder.NEWEST_FIRST, s.loadingOlder, "↓", olderWords)
-        if (s.list.following != previous.list.following || s.list.paused != previous.list.paused || s.redact != previous.redact ||
+        if (s.list.following != previous.list.following || s.list.paused != previous.list.paused ||
             s.hits.total != previous.hits.total || s.applied.finds != previous.applied.finds || s.archive != previous.archive) strip.updateActionsAsync()
 
         // Set from the archive browser too: the switch follows the state.
@@ -515,7 +530,7 @@ class NetworkPanel(
         // Feature 041: any selected row that matched opens on its hit, saying where the words (or the body filter) are.
         val rowHits = s.list.selectedId?.takeIf { s.applied.finds }?.let { s.hits.hitsOf(it) }.orEmpty()
         val hitTab = rowHits.takeIf { it.isNotEmpty() }?.let { s.hits.tabOf(it) }
-        detail.show(context.client, target, s.list.selectedId, s.redact, s.list.selectedGone, unlisted, marks, hitTab, rowHits, s.selectedRevision)
+        detail.show(context.client, target, s.list.selectedId, s.list.selectedGone, unlisted, marks, hitTab, rowHits, s.selectedRevision)
         revalidate()
         repaint()
     }
@@ -600,18 +615,18 @@ class NetworkPanel(
         if (Messages.showYesNoDialog(project, "Delete the captured network history of $app?", "Clear Network History", null) == Messages.YES) network.clear()
     }
 
-    /** Feature 026: what the list shows (filters, live or archive, redaction) as a HAR file. */
-    private fun exportHar() {
+    /** Feature 026: what the list shows (filters, live or archive) as a HAR file, masked or, for the developer, with secrets (072). */
+    private fun exportHar(unredacted: Boolean) {
         if (last.app == null) return
         val descriptor = com.intellij.openapi.fileChooser.FileSaverDescriptor("Export HAR", "The entries the list shows, with bodies and WebSocket messages", "har")
         val name = "${last.app}-${java.time.LocalDateTime.now().withNano(0).toString().replace(':', '-')}.har"
         val file = com.intellij.openapi.fileChooser.FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project).save(name)?.file ?: return
-        com.intellij.openapi.wm.StatusBar.Info.set("Exporting HAR to ${file.path}…", project)
-        network.export(file.absolutePath) { result ->
+        com.intellij.openapi.wm.StatusBar.Info.set("Exporting HAR${if (unredacted) " with secrets" else ""} to ${file.path}…", project)
+        network.export(file.absolutePath, unredacted) { result ->
             result.onSuccess { o ->
                 fun n(k: String) = (o[k] as? JsonPrimitive)?.content ?: "0"
                 val omitted = n("bodiesOmitted").takeIf { it != "0" }?.let { " $it bodies left out (the file says why)." } ?: ""
-                com.intellij.openapi.wm.StatusBar.Info.set("Exported ${n("entries")} entries, ${n("webSocketMessages")} WebSocket messages, ${n("bodies")} bodies to ${file.path}.$omitted", project)
+                com.intellij.openapi.wm.StatusBar.Info.set("Exported${if (unredacted) " with secrets" else " (secrets masked)"} ${n("entries")} entries, ${n("webSocketMessages")} WebSocket messages, ${n("bodies")} bodies to ${file.path}.$omitted", project)
             }.onFailure { e -> Messages.showErrorDialog(project, e.message ?: e.javaClass.simpleName, "Export HAR") }
         }
     }

@@ -77,8 +77,6 @@ data class TimelineTabState(
 class TimelineController(
     private val context: ContextController,
     private val scope: CoroutineScope,
-    /** Decision 2026-11-22: the Network tab's Redact Secrets setting, which redacts this tab's answers too. */
-    private val redact: kotlinx.coroutines.flow.Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false),
 ) {
     private val mutable = MutableStateFlow(TimelineTabState())
     val state: StateFlow<TimelineTabState> = mutable.asStateFlow()
@@ -86,7 +84,6 @@ class TimelineController(
     private var chainJob: Job? = null
     @Volatile private var active = false
 
-    @Volatile private var redacting = false
     @Volatile private var lastTarget: Target? = null
 
     init {
@@ -95,16 +92,6 @@ class TimelineController(
                 .map { Target(it.device, it.app, it.connection != Connection.NO_DTA, it.generation, context.client) }
                 .distinctUntilChanged()
                 .collect { lastTarget = it; reload(it) }
-        }
-        // What was read unredacted is read again redacted (and back): the list starts over.
-        scope.launch {
-            redact.distinctUntilChanged().collect { on ->
-                if (on == redacting) return@collect
-                redacting = on
-                // Read again; the filter, the selection and what is shown are kept.
-                mutable.update { it.copy(view = it.view.copy(events = emptyList(), current = emptyList(), dropped = 0), chain = ChainView.EMPTY, sequence = it.sequence) }
-                lastTarget?.let { reload(it) }
-            }
         }
     }
 

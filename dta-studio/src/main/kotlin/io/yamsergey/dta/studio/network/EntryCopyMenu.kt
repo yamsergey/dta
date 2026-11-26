@@ -26,7 +26,7 @@ class EntryCopyMenu(
     private val project: Project,
     private val scope: CoroutineScope,
     private val client: () -> DaemonClient?,
-    /** Device and app, and `redact` when the view redacts. */
+    /** Device and app. */
     private val target: () -> JsonObject,
 ) {
     private enum class What(val label: String) {

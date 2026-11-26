@@ -52,7 +52,6 @@ data class NetworkViewState(
     val saved: SavedFilters = SavedFilters(),
     /** Feature 043: what the saved filters did to the last list. */
     val savedApplied: SavedFiltersApplied? = null,
-    val redact: Boolean = false,
     /** An archive scope (`all`, an epoch id…): the archived history instead of live traffic (feature 011). */
     val archive: String? = null,
     /** Feature 071: the Archive switch, off at each IDE start: off, the app's current run; on, everything this computer keeps. */
@@ -680,11 +679,6 @@ class NetworkController(private val context: ContextController, private val scop
 
     private fun filtering(s: NetworkViewState) = s.applied.hasSearch
 
-    fun setRedact(on: Boolean) {
-        mutable.update { it.copy(redact = on) }
-        reload()
-    }
-
     /** Live traffic (null), or the archive the scope names: what the device no longer has (feature 011). */
     fun setArchive(scope: String?) {
         mutable.update { it.copy(archive = scope, list = LiveList(), statements = emptyList()) }
@@ -750,7 +744,7 @@ class NetworkController(private val context: ContextController, private val scop
     }
 
     /** Feature 026: `network.export` of what the list shows, to [path]; [done] on the UI thread. */
-    fun export(path: String, done: (Result<JsonObject>) -> Unit) {
+    fun export(path: String, unredacted: Boolean = false, done: (Result<JsonObject>) -> Unit) {
         val s = mutable.value
         val c = context.client ?: return done(Result.failure(IllegalStateException("No DTA daemon connected.")))
         scope.launch {
@@ -758,7 +752,7 @@ class NetworkController(private val context: ContextController, private val scop
                 target(s) + s.applied.params(s.kind) +
                     (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: emptyMap()) +
                     // D-053 (071 FR-004): the switch's scope, as the list has it.
-                    (if (s.archiveOn && s.archive == null) mapOf("archive" to JsonPrimitive(true)) else emptyMap()) + ("output" to JsonPrimitive(path)),
+                    (if (s.archiveOn && s.archive == null) mapOf("archive" to JsonPrimitive(true)) else emptyMap()) + ("output" to JsonPrimitive(path)) + (if (unredacted) mapOf("unredacted" to JsonPrimitive(true)) else emptyMap()),
             )
             val result = runCatching { c.call("network.export", params).result.jsonObject }
             kotlinx.coroutines.withContext(uiContext) { done(result) }
