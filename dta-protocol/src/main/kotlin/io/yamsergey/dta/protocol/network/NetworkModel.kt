@@ -537,6 +537,8 @@ data class MaskedLocation(
     val place: String,
     val fingerprint: String,
     val length: Int,
+    /** A JWT's readable parts, and the fingerprints of the rest (072 FR-008). */
+    val jwt: JwtParts? = null,
 )
 
 @Serializable

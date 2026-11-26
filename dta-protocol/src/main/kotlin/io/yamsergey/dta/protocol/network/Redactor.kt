@@ -35,14 +35,23 @@ object Redactor {
     private fun key() = key ?: processKey
 
     /** `[redacted len=N #fp12]` of a [credential] (feature 072, contracts/mask-format.md). */
-    fun mask(credential: String): String = "$MASK_PREFIX len=${credential.length} #${key().of(credential)}]"
+    fun mask(credential: String): String = describe(credential).first
+
+    /** The mask of [credential], and its JWT parts when it is a readable JWT. */
+    private fun describe(credential: String): Pair<String, JwtParts?> {
+        val fingerprint = key().of(credential)
+        JwtParts.parse(credential) { key().of(it) }?.let { return it.mask(fingerprint) to it }
+        val note = if (JwtParts.looksLike(credential)) " not a readable JWT" else ""
+        return "$MASK_PREFIX len=${credential.length} #$fingerprint$note]" to null
+    }
 
     fun isMasked(value: String) = value.startsWith(MASK_PREFIX)
 
     /** Masks [credential] and lists the place with its fingerprint and length. */
     internal fun hide(credential: String, place: String, masked: MutableList<MaskedLocation>): String {
-        masked += MaskedLocation(place, key().of(credential), credential.length)
-        return mask(credential)
+        val (mask, jwt) = describe(credential)
+        masked += MaskedLocation(place, key().of(credential), credential.length, jwt)
+        return mask
     }
 
     private val SECRET_HEADERS = setOf("authorization", "proxy-authorization", "cookie", "set-cookie")
