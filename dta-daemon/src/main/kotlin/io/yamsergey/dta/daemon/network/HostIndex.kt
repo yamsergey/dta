@@ -572,7 +572,7 @@ class HostIndex(
     internal suspend fun search(query: NetworkQuery, pass: (NetworkHistoryView) -> SearchPage): SearchPage {
         query.archiveScope?.let { scope ->
             val epochs = store.epochs(device.key, packageName, scope)
-            return archiveView(epochs).search(query).copy(scope = explicitScope(scope, epochs))
+            return archivePass(query, epochs) { v -> v.search(query) }.copy(scope = explicitScope(scope, epochs))
         }
         var at: Pair<String?, HistoryContext>? = null
         var stopped: Pair<String, HistoryContext>? = null
@@ -750,15 +750,26 @@ class HostIndex(
     }
 
     /** Archived epochs answer the same queries from the host alone (US4), read from disk (feature 069). */
-    private fun archived(query: NetworkQuery, scope: io.yamsergey.dta.protocol.network.ArchiveScope): NetworkPage {
+    private suspend fun archived(query: NetworkQuery, scope: io.yamsergey.dta.protocol.network.ArchiveScope): NetworkPage {
         val epochs = store.epochs(device.key, packageName, scope)
-        val page = archiveView(epochs).list(query)
+        val page = archivePass(query, epochs) { v -> v.list(query) }
         val ids = epochs.map { it.id }
         val marks = epochs.associate { it.id to mark(it) }
         return page.copy(
             archived = page.entries.mapNotNull { e -> store.epochOf(ids, e.id)?.let { e.id to marks.getValue(it) } }.toMap().ifEmpty { null },
             scope = explicitScope(scope, epochs),
         )
+    }
+
+    /**
+     * D-114 (071 FR-008): a pass over archived [epochs] stops when its caller is cancelled, also inside a match:
+     * on the search pool when it reads bodies (as [livePass]), else on the caller.
+     */
+    private suspend fun <T> archivePass(query: NetworkQuery, epochs: List<Epoch>, pass: (NetworkHistoryView) -> T): T {
+        val runner = searches
+        if (runner != null && needsBodies(query)) return runner.run { stop -> pass(archiveView(epochs, stop)) }
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        return pass(archiveView(epochs, io.yamsergey.dta.protocol.network.PatternStop { job?.isActive == false }))
     }
 
     /** Feature 071: an explicit archived part answered instead of the switch's scope. */

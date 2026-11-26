@@ -327,6 +327,9 @@ class OperationDispatcher(
         val redact = agents.redactsFor(client)
         val result = try {
             handler(Call(resolution.serial, resolution.pkg, own, client, redact))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // D-114 (071 FR-008): a cancelled call is the server's to answer (CANCELLED); only a superseded view has its own code.
+            throw if (e is io.yamsergey.dta.daemon.network.HostIndex.SupersededException) translate(e, resolution.pkg) else e
         } catch (e: Exception) {
             throw translate(e, resolution.pkg)
         }
