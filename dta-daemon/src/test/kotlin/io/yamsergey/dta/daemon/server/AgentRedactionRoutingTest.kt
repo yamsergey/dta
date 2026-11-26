@@ -134,4 +134,25 @@ class AgentRedactionRoutingTest {
         assertNotNull(fake.lastTimeline)
         assertTrue("redact" !in fake.lastTimeline!!.map { it.toString() })
     }
+
+    @Test
+    fun `an export follows the setting for agents, is redacted for the plugin unless it chooses otherwise, and unredacted is the plugin's alone`() {
+        val out = File.createTempFile("dta-export", ".har").also { it.delete() }.path
+        fun exportAs(kind: ClientKind?, unredacted: Boolean?): Pair<Boolean?, Boolean?> {
+            fake.lastEntryRedact = null; fake.lastBodyRedact = null; fake.lastQuery = null
+            call("network.export", kind, buildJsonObject { put("output", out); unredacted?.let { put("unredacted", it) } })
+            return fake.lastQuery?.redact to fake.lastEntryRedact
+        }
+        for (setting in listOf(true, false)) {
+            agents.setRedaction(setting)
+            for (kind in agentKinds) assertEquals(setting, exportAs(kind, null).first, "$kind exports with the setting $setting")
+            assertEquals(true, exportAs(ClientKind.IDE, null).first, "the plugin's export is redacted by default (setting $setting)")
+            assertEquals(false, exportAs(ClientKind.IDE, true).first, "unless it chose Unredacted")
+            assertEquals(true, exportAs(ClientKind.IDE, false).first)
+            for (kind in agentKinds) {
+                val e = kotlin.test.assertFailsWith<ClientException> { exportAs(kind, true) }
+                assertTrue("plugin" in e.message!!, "$kind: ${e.message}")
+            }
+        }
+    }
 }

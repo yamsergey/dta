@@ -412,16 +412,21 @@ class OperationDispatcher(
     /** Feature 026: the list's selection as one HAR file; bodies through `network.body`'s path, redaction alike. */
     private suspend fun export(c: Call): io.yamsergey.dta.protocol.network.NetworkExportResult {
         val output = java.io.File(c.required("output"))
-        val redact = c.redact
-        val params = JsonObject(c.params.filterKeys { it != "output" && it != "format" })
+        // Feature 072 (FR-013): an agent's export follows the setting; the plugin's is redacted unless it chose Unredacted.
+        val unredacted = c.bool("unredacted")
+        if (unredacted && c.kind != ClientKind.IDE) invalid("an unredacted export is made from the plugin only (its export dialog); here the file follows the agents' setting")
+        val redact = if (c.kind == ClientKind.IDE) !unredacted else c.redact
+        val params = JsonObject(c.params.filterKeys { it != "output" && it != "format" && it != "unredacted" })
         return io.yamsergey.dta.daemon.network.NetworkExport(
             page = { q -> ops.network(c.device, c.app, q) },
             entry = { id -> ops.networkEntry(c.device, c.app, id, redact) },
             body = { id, part, file ->
-                ops.networkBody(c.device, c.app, id, part, BodyOutput.File(file.path), redact)
+                val result = ops.networkBody(c.device, c.app, id, part, BodyOutput.File(file.path), redact)
                 check(file.exists()) { "no bytes stored" }
+                result.redaction
             },
             version = version,
+            redacted = redact,
         ).export(query(params, redact), output)
     }
 

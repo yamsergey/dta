@@ -394,6 +394,7 @@ object Catalog {
                 RUNS,
                 ARCHIVE,
                 ARCHIVE_SCOPE,
+                ParamSpec("unredacted", ParamType.BOOLEAN, "Write the file with secrets as they are. Only the Android Studio plugin may ask for this; every other client gets the file as the agents' setting says (redacted, with fingerprints, unless it is off in the plugin's settings)."),
                 ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network.list.", cliShort = "-q", cliName = "query"),
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
             ),

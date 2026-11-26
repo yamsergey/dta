@@ -62,7 +62,7 @@ class NetworkExportTest {
                 else -> NetworkEntryDetail(listed.first { it.id == id })
             }
         },
-        body = { id, part, file -> file.writeBytes(bytes[id to part] ?: error("no body")) },
+        body = { id, part, file -> file.writeBytes(bytes[id to part] ?: error("no body")); null },
         version = "0.10.0",
         pageSize = 2,
     )
@@ -92,10 +92,40 @@ class NetworkExportTest {
         val scoped = NetworkExport(
             page = { q -> NetworkPage(listOf(get), coverage = Coverage(searched = 1, stored = 1, persisted = true), scope = scope.takeIf { q.before == null }) },
             entry = { NetworkEntryDetail(get) },
-            body = { _, _, file -> file.writeBytes("{}".toByteArray()) },
+            body = { _, _, file -> file.writeBytes("{}".toByteArray()); null },
             version = "0.10.0",
         )
         val result = scoped.export(NetworkQuery(), File(Files.createTempDirectory("har").toFile(), "s.har"))
         assertEquals(scope, result.scope)
+    }
+
+    /** 072 B2 (FR-013): the file says whether it is redacted, and lists what was masked with the fingerprints agents read. */
+    @Test
+    fun `the file states redacted or unredacted, with the masked locations and their fingerprints`() = runBlocking {
+        val masked = io.yamsergey.dta.protocol.network.MaskedLocation("entry r1:1 request.header Authorization", "3f9a2c81d04e", 212)
+        val bodyMasked = io.yamsergey.dta.protocol.network.MaskedLocation("entry r1:1 response body \$.token", "3f9a2c81d04e", 212)
+        fun exported(redacted: Boolean): kotlinx.serialization.json.JsonObject {
+            val out = File(Files.createTempDirectory("har").toFile(), "s.har")
+            val e = NetworkExport(
+                page = { NetworkPage(listOf(get), coverage = Coverage(searched = 1, stored = 1, persisted = true)) },
+                entry = { NetworkEntryDetail(get, redaction = if (redacted) io.yamsergey.dta.protocol.network.RedactionInfo(masked = listOf(masked)) else null) },
+                body = { _, _, file -> file.writeBytes("{}".toByteArray()); if (redacted) io.yamsergey.dta.protocol.network.RedactionInfo(masked = listOf(bodyMasked, masked)) else null },
+                version = "0.10.0",
+                redacted = redacted,
+            )
+            runBlocking { e.export(NetworkQuery(), out) }
+            return Json.parseToJsonElement(out.readText()).jsonObject["log"]!!.jsonObject
+        }
+        val redacted = exported(true)
+        assertTrue("redacted" in redacted["creator"]!!.jsonObject["comment"]!!.jsonPrimitive.content, redacted["creator"].toString())
+        val says = redacted["_dta"]!!.jsonObject["redaction"]!!.jsonObject
+        assertEquals("true", says["applied"]!!.jsonPrimitive.content)
+        val list = says["masked"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("entry r1:1 request.header Authorization", "entry r1:1 response body \$.token"), list.map { it["place"]!!.jsonPrimitive.content }, "each place once")
+        assertEquals(setOf("3f9a2c81d04e"), list.map { it["fingerprint"]!!.jsonPrimitive.content }.toSet())
+        assertEquals("212", list[0]["length"]!!.jsonPrimitive.content)
+        val plain = exported(false)
+        assertTrue("unredacted" in plain["creator"]!!.jsonObject["comment"]!!.jsonPrimitive.content, plain["creator"].toString())
+        assertEquals("false", plain["_dta"]!!.jsonObject["redaction"]!!.jsonObject["applied"]!!.jsonPrimitive.content)
     }
 }
