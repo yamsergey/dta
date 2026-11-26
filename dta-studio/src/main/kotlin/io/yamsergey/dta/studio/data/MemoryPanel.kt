@@ -77,15 +77,14 @@ class MemoryPanel(
     private val comboA = JComboBox<Pick>().apply { name = "memory.a" }
     private val comboB = JComboBox<Pick>().apply { name = "memory.b" }
     private var originAll = false
-    private lateinit var originSegments: com.intellij.ui.dsl.builder.SegmentedButton<String>
-    /** App classes | All, as the board's segmented control. */
-    private val originControl: JPanel = com.intellij.ui.dsl.builder.panel {
-        row {
-            originSegments = segmentedButton(listOf(APP_CLASSES, ALL)) { text = it }
-                .whenItemSelected { if ((it == ALL) != originAll) { originAll = it == ALL; compare() } }
-            originSegments.selectedItem = APP_CLASSES
-        }
-    }.apply { name = "memory.origin"; isOpaque = false }
+    private val appOnly = javax.swing.JToggleButton(APP_CLASSES, true).apply { name = "memory.origin.app" }
+    private val allOrigins = javax.swing.JToggleButton(ALL).apply { name = "memory.origin.all" }
+    /**
+     * App classes | All as one joined pair of toggles. (The platform's segmented button is an action button that did not
+     * take a mouse click here — in the robot IDE a real click left the origin unchanged — so the pair is plain toggles,
+     * the chosen one bold and tinted; a test clicks "All" with the mouse.)
+     */
+    private val originControl: JPanel = JPanel(java.awt.GridLayout(1, 2, 0, 0)).apply { name = "memory.origin"; isOpaque = false; add(appOnly); add(allOrigins) }
     private val nameField = JBTextField(16).apply { name = "memory.name"; emptyText.text = "snapshot name (optional)" }
     private val packageField = JBTextField(14).apply { name = "memory.package"; emptyText.text = "package prefix" }
 
@@ -223,6 +222,9 @@ class MemoryPanel(
             override fun changedUpdate(e: javax.swing.event.DocumentEvent) = debounce.restart()
         })
         packageField.addActionListener { debounce.stop(); compare() }
+        javax.swing.ButtonGroup().apply { add(appOnly); add(allOrigins) }
+        listOf(appOnly, allOrigins).forEach { b -> b.addActionListener { originAll = allOrigins.isSelected; markOrigin(); compare() } }
+        markOrigin()
         table.selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) tableModel.rows.getOrNull(table.selectedRow)?.let { r -> showInstances(r.className) } }
         instanceList.addListSelectionListener {
             val r = instanceList.selectedValue
@@ -352,10 +354,21 @@ class MemoryPanel(
         sizeColumns()
     }
 
+    /** The chosen origin is the bold, tinted one (a toggle in the IDE's theme does not show it on its own). */
+    private fun markOrigin() {
+        listOf(appOnly, allOrigins).forEach { b ->
+            b.font = if (b.isSelected) b.font.deriveFont(Font.BOLD) else b.font.deriveFont(Font.PLAIN)
+            b.isOpaque = b.isSelected
+            b.background = if (b.isSelected) JBColor(java.awt.Color(0xD5E4FF), java.awt.Color(0x2E436E)) else null
+            b.repaint()
+        }
+    }
+
     /** The origin of the classes shown (the segmented control follows). */
     internal fun setOrigin(all: Boolean) {
         originAll = all
-        originSegments.selectedItem = if (all) ALL else APP_CLASSES
+        (if (all) allOrigins else appOnly).isSelected = true
+        markOrigin()
         compare()
     }
 
