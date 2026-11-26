@@ -143,6 +143,8 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             // Script is refreshed when shown and after its actions; Links while shown.
             if (tabs.selectedComponent === linksPanel) linksPanel.show(controller.state.value) else linksPanel.stopRefreshing()
             if (tabs.selectedComponent === scriptPanel) scriptPanel.show(controller.state.value)
+            // The Daemon tab's counts move with the app: read while shown.
+            if (tabs.selectedComponent === daemonPanel) daemonPanel.show(controller.state.value) else daemonPanel.stopRefreshing()
         }
         val top = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
