@@ -141,6 +141,20 @@ data class DiBinding(
     val dependsOn: List<String> = emptyList(),
 )
 
+/**
+ * D-104: what a DI report's links (used by / depends on) cannot show. They are read from created instances'
+ * fields only, so a user that gets a binding at call time, holds a provider of it or is not created is not seen.
+ * One text for the agents' answer (the graph's note) and the plugin's empty lists.
+ */
+object DiLinks {
+    private const val LEAD = "Used by / depends on: only links seen in created instances' fields; "
+
+    fun note(framework: String): String = LEAD + when (framework) {
+        "koin" -> "factory definitions (ViewModels) have no instance to read, Koin's get() resolves at call time, and definitions not created yet are not seen."
+        else -> "a factory or a Provider field resolves at call time, and bindings not created yet are not seen."
+    }
+}
+
 /** A DI graph: [framework] hilt, dagger, metro or koin; [name] the component, graph or scope. */
 @Serializable
 data class DiGraph(val framework: String, val name: String, val bindings: List<DiBinding>, val note: String? = null)

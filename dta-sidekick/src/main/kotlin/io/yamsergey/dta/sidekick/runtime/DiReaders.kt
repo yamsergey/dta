@@ -116,7 +116,7 @@ object DiReaders {
         val provider = IdentityHashMap<Any, String>()
         graphs.forEach { g -> g.bindings.filter { it.kind != "injected" && it.kind != "assisted" }.forEach { b -> instances[b]?.let { provider.putIfAbsent(it, ids[b]!!) } } }
         return graphs.map { g ->
-            g.copy(bindings = g.bindings.map { b ->
+            g.copy(note = listOfNotNull(g.note, io.yamsergey.dta.protocol.data.DiLinks.note(g.framework)).joinToString(" "), bindings = g.bindings.map { b ->
                 val id = ids[b]!!
                 val instance = instances[b]
                 val deps = when {

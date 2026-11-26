@@ -71,17 +71,26 @@ class DiBrowserNotesTest {
     }
 
     @Test
-    fun `an empty used-by says what is seen, never a bare None`() {
-        val used = di.usedByNote("0.1")!!
-        assertTrue(used.startsWith("None known"), used)
-        assertTrue("call time" in used, used)
-        assertTrue("not created" in di.usedByNote("0.2")!!.lowercase())
+    fun `the none-known text is the graph's own note, one text for the pane and the agents`() {
+        val note = "Used by / depends on: only links seen in created instances' fields; SPECIFIC-WHY."
+        val noted = DiBrowser(DiReport(listOf(DiGraph("koin", "Koin", listOf(DiBinding("app.A", "a", null, false, "singleton", id = "0.0")), note))))
+        assertEquals("None known. $note", noted.usedByNote("0.0"))
+        assertEquals("None known. $note", noted.dependsOnNote("0.0"))
     }
 
     @Test
-    fun `an empty depends-on of a binding that holds no instance says it cannot be read`() {
-        assertTrue(di.dependsOnNote("0.3")!!.startsWith("None known"))
-        assertTrue("no instance" in di.dependsOnNote("0.2")!!.lowercase())
+    fun `without a note the empty lists still say none known, a read instance with no links says None`() {
+        assertEquals("None known.", di.usedByNote("0.1"))
+        assertEquals("None known.", di.dependsOnNote("0.3"))
         assertEquals("None", di.dependsOnNote("0.0"))
+    }
+}
+
+class DiLinksTextTest {
+    @Test
+    fun `the agents' text of a graph carries the links caveat`() {
+        val r = DiReport(listOf(DiGraph("koin", "Koin", listOf(DiBinding("app.A", "a", null, false, "factory", id = "0.0")), io.yamsergey.dta.protocol.data.DiLinks.note("koin"))))
+        val text = RuntimeText.di(r)
+        assertTrue("Used by / depends on: only links seen in created instances' fields" in text, text)
     }
 }
