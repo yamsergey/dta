@@ -188,6 +188,58 @@ class McpStdioTest {
             server.join(5_000)
         }
     }
+
+    // --- Feature 073 A2: the agent's name reaches the daemon
+
+    private fun namesSeenBy(daemon: TestDaemon, kind: String, wait: Long = 3_000): List<Pair<String?, String?>> = runBlocking {
+        val cli = daemon.connect(ClientKind.CLI).client
+        try {
+            val until = System.currentTimeMillis() + wait
+            var rows: List<Pair<String?, String?>>
+            do {
+                rows = cli.call("daemon.status").result.jsonObject["clients"]!!.jsonArray.map { it.jsonObject }
+                    .filter { it["kind"]!!.jsonPrimitive.content == kind }
+                    .map { (it["name"] as? JsonPrimitive)?.content to (it["agentVersion"] as? JsonPrimitive)?.content }
+                if (rows.any { it.first != null }) break
+                Thread.sleep(50)
+            } while (System.currentTimeMillis() < until)
+            rows
+        } finally { cli.close() }
+    }
+
+    private fun initializeAndWatch(initialize: String): List<Pair<String?, String?>> = TestDaemon().use { daemon ->
+        val toServer = PipedOutputStream()
+        val serverIn = PipedInputStream(toServer)
+        val fromServer = PipedInputStream()
+        val serverOut = PipedOutputStream(fromServer)
+        val logDir = Files.createTempDirectory("dta-mcp").toFile()
+        val server = thread { McpStdioServer.run(serverIn, serverOut, connect = { daemon.connect(ClientKind.MCP) }, logDir = logDir, redirectStd = false) }
+        toServer.write((initialize + "\n").toByteArray()); toServer.flush()
+        val seen = namesSeenBy(daemon, "mcp")
+        toServer.close()
+        server.join(5_000)
+        seen
+    }
+
+    @Test
+    fun `stdio tells the daemon the agent's name and version after initialize`() {
+        val seen = initializeAndWatch("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"claude-code","version":"2.1.0"}}}""")
+        assertEquals(listOf("claude-code" to "2.1.0"), seen)
+    }
+
+    @Test
+    fun `a missing clientInfo is an unnamed client`() {
+        val seen = initializeAndWatch("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}""")
+        assertEquals(listOf("unnamed client" to null), seen)
+    }
+
+    @Test
+    fun `naming reads only initialize`() {
+        assertEquals(null, ClientNaming.fromInitialize("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))
+        assertEquals(null, ClientNaming.fromInitialize("not json"))
+        assertEquals("a", ClientNaming.fromInitialize("""{"method":"initialize","params":{"clientInfo":{"name":"a"}}}""")!!.name)
+        assertEquals("unnamed client", ClientNaming.fromInitialize("""{"method":"initialize","params":{"clientInfo":{"name":"  "}}}""")!!.name)
+    }
 }
 
 /** The skill's scripting guide, read from the repository: what the server serves must be this file. */

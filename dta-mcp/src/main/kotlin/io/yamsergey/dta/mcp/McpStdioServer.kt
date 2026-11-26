@@ -7,7 +7,16 @@ import io.yamsergey.dta.client.DaemonLauncher
 import io.yamsergey.dta.client.DtaHome
 import io.yamsergey.dta.client.VersionInfo
 import io.yamsergey.dta.protocol.ops.ClientKind
+import io.yamsergey.dta.protocol.ops.ClientName
+import io.yamsergey.dta.protocol.ops.DaemonMethods
+import io.yamsergey.dta.protocol.rpc.DtaJson
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonObject
 import tools.jackson.databind.json.JsonMapper
 import java.io.File
 import java.io.FileOutputStream
@@ -43,6 +52,7 @@ object McpStdioServer {
         val unusable = javaUnusable()
         val connection = DaemonConnection(connect, log::println)
         val cancels = McpCancels()
+        val naming = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val tools = McpTools(
             call = connection::call,
             find = connection::find,
@@ -53,7 +63,12 @@ object McpStdioServer {
         val mapper = JacksonMcpJsonMapper(JsonMapper.builder().build())
 
         val ended = CountDownLatch(1)
-        val watchedInput = object : FilterInputStream(ObservedInput(input, cancels)) {
+        val watchedInput = object : FilterInputStream(ObservedInput(input, cancels) { line ->
+            // Feature 073: the agent's name reaches the daemon after initialize (a missing clientInfo says "unnamed client").
+            ClientNaming.fromInitialize(line)?.let { named ->
+                naming.launch { connection.announce(DaemonMethods.CLIENT_NAME, DtaJson.encodeToJsonElement(ClientName.serializer(), named).jsonObject) }
+            }
+        }) {
             override fun read(): Int = super.read().also { if (it < 0) ended.countDown() }
             override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it < 0) ended.countDown() }
         }
@@ -70,6 +85,7 @@ object McpStdioServer {
         log.println("dta mcp ${version.display} serving ${specs.size} tools")
         ended.await()
         runCatching { server.closeGracefully() }
+        naming.cancel()
         runBlocking { connection.close() }
         return 0
     }

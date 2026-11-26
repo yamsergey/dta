@@ -10,6 +10,7 @@ import io.yamsergey.dta.protocol.ops.ClientKind
 import io.yamsergey.dta.testing.TestDaemon
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import tools.jackson.databind.json.JsonMapper
 import java.net.ConnectException
 import java.net.HttpURLConnection
@@ -49,13 +50,13 @@ class McpHttpServerTest {
     private fun server(port: Int = freePort()) =
         McpHttpServer(port = port, credential = credential, connect = { daemon.connect(ClientKind.MCP_HTTP) }).also { started += it }
 
-    private fun client(server: McpHttpServer, token: String? = credential): McpSyncClient {
+    private fun client(server: McpHttpServer, token: String? = credential, name: String = "test-agent", version: String = "1.0"): McpSyncClient {
         val transport = HttpClientStreamableHttpTransport.builder("http://127.0.0.1:${server.port}")
             .endpoint("/mcp")
             .jsonMapper(JacksonMcpJsonMapper(JsonMapper.builder().build()))
             .requestBuilder(HttpRequest.newBuilder().apply { if (token != null) header("Authorization", "Bearer $token") })
             .build()
-        return McpClient.sync(transport).requestTimeout(Duration.ofSeconds(10)).build().also { it.initialize() }
+        return McpClient.sync(transport).requestTimeout(Duration.ofSeconds(10)).clientInfo(McpSchema.Implementation(name, version)).build().also { it.initialize() }
     }
 
     private fun post(server: McpHttpServer, authorization: String?): Pair<Int, String> {
@@ -174,4 +175,64 @@ class McpHttpServerTest {
     }
 
     private inline fun <T> McpSyncClient.use(block: (McpSyncClient) -> T): T = try { block(this) } finally { closeGracefully() }
+
+    // --- Feature 073 A2: the server reports its agent sessions to the daemon
+
+    private fun sessionRows(): List<Triple<String?, String?, String?>> = runBlocking {
+        val cli = daemon.connect(ClientKind.CLI).client
+        try {
+            cli.call("daemon.status").result.jsonObject["clients"]!!.let { it as kotlinx.serialization.json.JsonArray }.map { it as JsonObject }
+                .filter { (it["kind"] as kotlinx.serialization.json.JsonPrimitive).content == "mcp-http" }
+                .map { r -> Triple((r["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content, (r["agentVersion"] as? kotlinx.serialization.json.JsonPrimitive)?.content, (r["server"] as? kotlinx.serialization.json.JsonPrimitive)?.content) }
+        } finally { cli.close() }
+    }
+
+    private fun awaitRows(expected: Int): List<Triple<String?, String?, String?>> {
+        val until = System.currentTimeMillis() + 3_000
+        var rows = sessionRows()
+        while (rows.size != expected && System.currentTimeMillis() < until) { Thread.sleep(50); rows = sessionRows() }
+        return rows
+    }
+
+    @Test
+    fun `sessions are reported when they start and when they end`() {
+        val server = server().apply { start() }
+        assertEquals(emptyList(), sessionRows())
+        val first = client(server, name = "cursor", version = "0.45")
+        assertEquals(listOf(Triple("cursor", "0.45", server.url)), awaitRows(1))
+        val second = client(server, name = "codex", version = "9")
+        assertEquals(setOf("cursor", "codex"), awaitRows(2).map { it.first }.toSet())
+        first.close()
+        assertEquals(listOf("codex"), awaitRows(1).map { it.first })
+        second.close()
+        assertEquals(emptyList(), awaitRows(0))
+    }
+
+    @Test
+    fun `stopping the server ends its sessions`() {
+        val server = server().apply { start() }
+        client(server, name = "cursor")
+        assertEquals(1, awaitRows(1).size)
+        server.stop()
+        assertEquals(emptyList(), awaitRows(0))
+    }
+
+    @Test
+    fun `a session quiet for the idle time is not listed and a request brings it back`() {
+        var now = 1_000L
+        val sessions = SessionRegistry(idleMs = 100, clock = { now })
+        sessions.start("a", io.yamsergey.dta.protocol.ops.ClientName("cursor", "1"))
+        now = 1_050
+        sessions.start("b", io.yamsergey.dta.protocol.ops.ClientName("codex"))
+        assertEquals(listOf("cursor", "codex"), sessions.snapshot().map { it.name })
+        assertEquals(1_000L, sessions.snapshot()[0].since)
+        now = 1_120
+        assertEquals(listOf("codex"), sessions.snapshot().map { it.name })
+        assertTrue(sessions.touch("a"))
+        assertEquals(listOf("cursor", "codex"), sessions.snapshot().map { it.name })
+        assertTrue(sessions.end("a"))
+        assertFalse(sessions.touch("a"))
+        assertFalse(sessions.end("a"))
+        assertEquals(listOf("codex"), sessions.snapshot().map { it.name })
+    }
 }
