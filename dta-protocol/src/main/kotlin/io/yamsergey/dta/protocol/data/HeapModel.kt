@@ -164,6 +164,42 @@ data class HeapFields(
     val fields: List<HeapField>,
     /** Agents: what the redactor did (feature 072), stated in the answer. */
     val redaction: String? = null,
+    /** What the read left out (long collections, deep objects). */
+    val notes: List<String> = emptyList(),
+)
+
+/** What the sidekick answers to `runtime_heap_instances`. */
+@Serializable
+data class HeapInstancesPage(
+    val className: String,
+    val total: Int,
+    val offset: Int,
+    val instances: List<HeapInstance>,
+    val refusal: String? = null,
+)
+
+/** What the sidekick answers to `runtime_heap_fields`: the fields, or why not. */
+@Serializable
+data class HeapFieldsRead(val fields: HeapFields? = null, val refusal: String? = null)
+
+@Serializable
+data class HeapInstancesAnswer(
+    val className: String,
+    val total: Int,
+    val offset: Int,
+    val instances: List<HeapInstance>,
+    /** Said every time: live objects at call time, not at any snapshot. */
+    val note: String,
+    val notKnown: List<String> = HeapLimits.NOT_KNOWN,
+)
+
+@Serializable
+data class HeapFieldsAnswer(
+    val fields: HeapFields,
+    /** False: names, types and lengths only. */
+    val valuesShown: Boolean,
+    val note: String,
+    val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
 
 /** What the sidekick answers to `runtime_heap_run`: the app run, and the namespaces the origin rule uses. */

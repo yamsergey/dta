@@ -303,6 +303,14 @@ class OperationDispatcher(
                 heapArgs { heap.compare(c.app, c.required("a"), c.required("b"), c.string("origin"), c.string("package"), c.long("top")?.toInt()) },
             )
         },
+        "runtime.heap.instances" to { c ->
+            encode(io.yamsergey.dta.protocol.data.HeapInstancesAnswer.serializer(), heapArgs { heap.instances(c.app, heapSidekick(c), c.required("class"), c.long("offset")?.toInt(), c.long("limit")?.toInt()) })
+        },
+        "runtime.heap.fields" to { c ->
+            // Agents (cli, mcp) always get redacted values; 072's AgentSettings.redactsFor replaces this rule when it is merged.
+            val redact = c.bool("redact") || c.client == "cli" || c.client == "mcp"
+            encode(io.yamsergey.dta.protocol.data.HeapFieldsAnswer.serializer(), heapArgs { heap.fields(c.app, heapSidekick(c), c.long("instance") ?: invalid("give instance"), c.bool("values"), redact) })
+        },
         "runtime.invoke" to { c -> rt(c, "runtime_invoke", io.yamsergey.dta.protocol.data.InvokeResult.serializer()) },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },
         "network.mapping.remove" to { c ->
@@ -585,6 +593,14 @@ class OperationDispatcher(
     private fun heapSidekick(c: Call) = object : io.yamsergey.dta.daemon.runtime.HeapSidekick {
         private val data = ops.data(c.device, c.app)
         override suspend fun run() = data.runtime("runtime_heap_run", io.yamsergey.dta.protocol.data.HeapRunInfo.serializer(), JsonObject(emptyMap()))
+        override suspend fun instances(className: String, offset: Int, limit: Int) = data.runtime(
+            "runtime_heap_instances", io.yamsergey.dta.protocol.data.HeapInstancesPage.serializer(),
+            buildJsonObject { put("class", className); put("offset", offset); put("limit", limit) },
+        )
+        override suspend fun fields(instance: Long, values: Boolean) = data.runtime(
+            "runtime_heap_fields", io.yamsergey.dta.protocol.data.HeapFieldsRead.serializer(),
+            buildJsonObject { put("instance", instance); put("values", values) },
+        )
         override suspend fun walk(maxPauseMs: Long, gc: Boolean, timeout: kotlin.time.Duration) = data.runtime(
             "runtime_heap_walk", io.yamsergey.dta.protocol.data.HeapWalk.serializer(),
             buildJsonObject { put("maxPauseMs", maxPauseMs); put("gc", gc) },

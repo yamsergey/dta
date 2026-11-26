@@ -246,10 +246,10 @@ class Cli(
                     ({ v().takeIf { it.isNotEmpty() }?.let { list -> JsonArray(list.map { JsonPrimitive(absolute(it)) }) } })
                 } else if (p.required) {
                     val v = holder(argument(p.name.uppercase(), help = p.description).provideDelegate(this, ::dummy))
-                    ({ JsonPrimitive(absolute(v())) })
+                    ({ positionalJson(p, absolute(v())) })
                 } else {
                     val v = holder(argument(p.name.uppercase(), help = p.description).optional().provideDelegate(this, ::dummy))
-                    ({ v()?.let { JsonPrimitive(absolute(it)) } })
+                    ({ v()?.let { positionalJson(p, absolute(it)) } })
                 }
             }
             return when (p.type) {
@@ -282,3 +282,10 @@ class Cli(
         fun formatters(globals: Globals) = Formatters(Style.detect(globals.noColor))
     }
 }
+
+/** A positional argument as the daemon wants it: numbers for INT and LONG params, text otherwise (a non-number is left for the daemon to name). */
+internal fun positionalJson(p: io.yamsergey.dta.protocol.ops.ParamSpec, text: String): kotlinx.serialization.json.JsonPrimitive = when (p.type) {
+    io.yamsergey.dta.protocol.ops.ParamType.LONG -> text.toLongOrNull()?.let(::JsonPrimitive)
+    io.yamsergey.dta.protocol.ops.ParamType.INT -> text.toIntOrNull()?.let(::JsonPrimitive)
+    else -> null
+} ?: JsonPrimitive(text)

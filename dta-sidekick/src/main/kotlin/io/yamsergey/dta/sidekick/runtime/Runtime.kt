@@ -385,6 +385,7 @@ internal class Runtime(private val context: Context) {
                 vm.javaClass.declaredConstructors.any { c -> c.annotations.any { it.annotationClass.java.name.startsWith("dev.zacsweers.metro.") } }
         }
                 runCatching { DiReaders.koin(loader, instances) }.onFailure { notes += "Koin is in the app but its definitions cannot be read: ${it.message}" }.getOrNull()?.let { graphs += it }
+        lastDiGraphs = graphs.toList()
         val linked = DiReaders.link(graphs, instances)
         val shown = linked.map { g ->
             if (filter == null || g.name.contains(filter, true) || g.framework.equals(filter, true)) g
@@ -395,6 +396,31 @@ internal class Runtime(private val context: Context) {
     }
 
     private var instances = java.util.IdentityHashMap<DiBinding, Any>()
+    private var lastDiGraphs: List<DiGraph> = emptyList()
+
+    /** Feature 074: the link of each heap instance to a DTA view (activity, viewmodel, navcontroller, di-binding) and its state where known. */
+    fun heapLinks(objects: List<Any?>): List<Pair<io.yamsergey.dta.protocol.data.HeapLink?, String?>> {
+        fun names(o: Any) = generateSequence<Class<*>>(o.javaClass) { it.superclass }.map { it.name }.toSet()
+        var providers: java.util.IdentityHashMap<Any, String>? = null
+        val states: Map<String, String> by lazy { runCatching { activities().activities.associate { it.id to it.state } }.getOrDefault(emptyMap()) }
+        return objects.map { o ->
+            when {
+                o == null -> null to null
+                o is Activity -> io.yamsergey.dta.protocol.data.HeapLink("activity", id(o)) to when {
+                    o.isDestroyed -> "destroyed"
+                    o.isFinishing -> "finishing"
+                    else -> states[id(o)]
+                }
+                "androidx.lifecycle.ViewModel" in names(o) -> io.yamsergey.dta.protocol.data.HeapLink("viewmodel", id(o)) to null
+                "androidx.navigation.NavController" in names(o) -> io.yamsergey.dta.protocol.data.HeapLink("navcontroller", id(o)) to null
+                o.javaClass.name.startsWith("java.") || o.javaClass.name.startsWith("android.") || o.javaClass.name.startsWith("kotlin.") || o is Class<*> -> null to null
+                else -> {
+                    if (providers == null) providers = runCatching { di(null); DiReaders.providers(lastDiGraphs, instances) }.getOrDefault(java.util.IdentityHashMap())
+                    providers!![o]?.let { io.yamsergey.dta.protocol.data.HeapLink("di-binding", it) } to null
+                }
+            }
+        }
+    }
 
     /** Hilt components (singleton, live activities' ones) and what Hilt injected into live objects. */
     private fun hiltGraphs(): List<DiGraph> {

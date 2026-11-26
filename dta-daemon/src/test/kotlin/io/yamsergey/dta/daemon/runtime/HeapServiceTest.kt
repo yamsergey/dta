@@ -4,7 +4,14 @@ import io.yamsergey.dta.protocol.data.HeapClassRow
 import io.yamsergey.dta.protocol.data.HeapOrigin
 import io.yamsergey.dta.protocol.data.HeapRunInfo
 import io.yamsergey.dta.protocol.data.HeapWalk
+import io.yamsergey.dta.protocol.data.HeapField
+import io.yamsergey.dta.protocol.data.HeapFields
+import io.yamsergey.dta.protocol.data.HeapFieldsRead
+import io.yamsergey.dta.protocol.data.HeapInstance
+import io.yamsergey.dta.protocol.data.HeapInstancesPage
+import io.yamsergey.dta.protocol.data.HeapLink
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -24,6 +31,18 @@ class HeapServiceTest {
         var lastMax: Long? = null
         var lastGc: Boolean? = null
         var lastTimeout: kotlin.time.Duration? = null
+        var page = HeapInstancesPage("com.x.Leak", 2, 0, listOf(
+            HeapInstance(4294967297, "com.x.Leak", 24, HeapLink("activity", "ab12"), "destroyed"),
+            HeapInstance(4294967298, "com.x.Leak", 24),
+        ))
+        var read = HeapFieldsRead(fields = HeapFields(4294967297, "com.x.Leak", listOf(
+            HeapField("authToken", "com.x.Leak", "java.lang.String", false, JsonPrimitive("abc123"), 6),
+            HeapField("title", "com.x.Leak", "java.lang.String", false, JsonPrimitive("Home"), 4),
+        )))
+        var lastValues: Boolean? = null
+        var instanceCalls = 0
+        override suspend fun instances(className: String, offset: Int, limit: Int) = page.also { instanceCalls++ }
+        override suspend fun fields(instance: Long, values: Boolean) = read.also { lastValues = values }
         override suspend fun run() = HeapRunInfo(run, listOf("com.example")).also { runCalls++ }
         override suspend fun walk(maxPauseMs: Long, gc: Boolean, timeout: kotlin.time.Duration): HeapWalk { walks++; lastMax = maxPauseMs; lastGc = gc; lastTimeout = timeout; return walk.copy(run = run) }
     }
@@ -129,5 +148,49 @@ class HeapServiceTest {
         assertEquals(20, l.snapshots.size)
         assertEquals(listOf("s1"), l.dropped.map { it.id })
         assertNotNull(l.run)
+    }
+
+    @Test fun instancesAreLiveNowAndNeverTakeASnapshot() = runBlocking {
+        val f = Fake(ok())
+        val a = service.instances(app, f, "com.x.Leak", null, null)
+        assertEquals(2, a.total)
+        assertEquals("destroyed", a.instances[0].state)
+        assertEquals("activity", a.instances[0].link!!.kind)
+        assertTrue(a.note.contains("now") && a.note.contains("not as they were"))
+        assertTrue(a.notKnown.any { it.contains("retained") })
+        assertEquals(0, f.walks)
+        assertTrue(service.list(app).snapshots.isEmpty())
+    }
+
+    @Test fun instancesRefusalCarriesTheReason() = runBlocking {
+        val f = Fake(ok()); f.page = HeapInstancesPage("x", 0, 0, emptyList(), refusal = "no class 'x' is loaded")
+        assertEquals("no class 'x' is loaded", assertFailsWith<HeapRefusal> { service.instances(app, f, "x", null, null) }.message)
+    }
+
+    @Test fun fieldsShowNoValuesUnlessAsked() = runBlocking {
+        val f = Fake(ok())
+        val a = service.fields(app, f, 4294967297, values = false, redact = false)
+        assertEquals(false, f.lastValues)
+        assertTrue(!a.valuesShown)
+        assertTrue(a.note.contains("values"))
+        service.fields(app, f, 4294967297, values = true, redact = false)
+        assertEquals(true, f.lastValues)
+    }
+
+    @Test fun fieldsForAgentsAreRedactedAndTheAnswerSaysSo() = runBlocking {
+        val f = Fake(ok())
+        val a = service.fields(app, f, 4294967297, values = true, redact = true)
+        assertTrue(!a.fields.fields[0].value.toString().contains("abc123"))
+        assertEquals(JsonPrimitive("Home"), a.fields.fields[1].value)
+        assertTrue(a.fields.redaction!!.contains("masked"))
+        assertTrue(a.note.contains("redacted"))
+        val plain = service.fields(app, f, 4294967297, values = true, redact = false)
+        assertEquals(JsonPrimitive("abc123"), plain.fields.fields[0].value)
+        assertNull(plain.fields.redaction)
+    }
+
+    @Test fun fieldsOfAGoneInstanceAreRefused() = runBlocking {
+        val f = Fake(ok()); f.read = HeapFieldsRead(refusal = "instance 5 is gone: the object was collected")
+        assertTrue(assertFailsWith<HeapRefusal> { service.fields(app, f, 5, values = false, redact = false) }.message!!.contains("gone"))
     }
 }

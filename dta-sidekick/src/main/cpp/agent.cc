@@ -576,3 +576,76 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHeapHistogram(JNIEnv* env
   if (!failure.empty()) return fail(failure);
   return result;
 }
+
+// Feature 074 (B2): the live instances of exactly [target], each tagged with a persistent id (a JVMTI
+// tag from 2^32 up, kept until the object dies; an object that already has one keeps it). Returns
+// long[] {id, shallowBytes, id, shallowBytes, ...} in heap order, or null when the runtime refuses.
+// Tag range: class tags of the histogram (1..N) and the temporary tags of nativeInstances stay below it.
+namespace {
+jlong g_next_heap_id = 1LL << 32;
+
+struct InstanceIds {
+  std::vector<jlong> out;
+};
+
+jint JNICALL TagForId(jlong, jlong size, jlong* tag_ptr, jint, void* user_data) {
+  auto* ids = static_cast<InstanceIds*>(user_data);
+  if (*tag_ptr == 0) *tag_ptr = g_next_heap_id++;
+  ids->out.push_back(*tag_ptr);
+  ids->out.push_back(size);
+  return 0;
+}
+}  // namespace
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHeapInstanceIds(JNIEnv* env, jclass,
+                                                                       jclass target) {
+  if (g_jvmti == nullptr) return nullptr;
+  std::lock_guard<std::mutex> lock(g_instances_mutex);
+  InstanceIds ids;
+  jvmtiHeapCallbacks callbacks;
+  memset(&callbacks, 0, sizeof(callbacks));
+  callbacks.heap_iteration_callback = TagForId;
+  jvmtiError error = g_jvmti->IterateThroughHeap(0, target, &callbacks, &ids);
+  if (error != JVMTI_ERROR_NONE) {
+    LOGW("instances not tagged: %s", JvmtiErrorName(error).c_str());
+    return nullptr;
+  }
+  jlongArray result = env->NewLongArray(static_cast<jsize>(ids.out.size()));
+  if (result != nullptr && !ids.out.empty()) {
+    env->SetLongArrayRegion(result, 0, static_cast<jsize>(ids.out.size()), ids.out.data());
+  }
+  return result;
+}
+
+// The objects behind [ids], aligned with them; null where the object is gone (or the id was never given).
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHeapObjects(JNIEnv* env, jclass,
+                                                                   jlongArray ids) {
+  if (g_jvmti == nullptr || ids == nullptr) return nullptr;
+  jsize n = env->GetArrayLength(ids);
+  std::vector<jlong> wanted(n);
+  if (n > 0) env->GetLongArrayRegion(ids, 0, n, wanted.data());
+  jclass object_class = env->FindClass("java/lang/Object");
+  jobjectArray result = env->NewObjectArray(n, object_class, nullptr);
+  env->DeleteLocalRef(object_class);
+  if (result == nullptr || n == 0) return result;
+  std::lock_guard<std::mutex> lock(g_instances_mutex);
+  jint found = 0;
+  jobject* objects = nullptr;
+  jlong* found_tags = nullptr;
+  jvmtiError error = g_jvmti->GetObjectsWithTags(n, wanted.data(), &found, &objects, &found_tags);
+  if (error != JVMTI_ERROR_NONE) {
+    LOGW("objects by id not read: %s", JvmtiErrorName(error).c_str());
+    return nullptr;
+  }
+  for (jint i = 0; i < found; i++) {
+    for (jsize k = 0; k < n; k++) {
+      if (wanted[k] == found_tags[i]) env->SetObjectArrayElement(result, k, objects[i]);
+    }
+    env->DeleteLocalRef(objects[i]);
+  }
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(objects));
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(found_tags));
+  return result;
+}

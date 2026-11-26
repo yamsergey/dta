@@ -28,7 +28,7 @@ import kotlinx.serialization.json.put
 /** Feature 028: the sidekick's `runtime_*` methods; reads on request, writes only when asked. */
 internal class RuntimeMethods(context: Context) {
     private val runtime = Runtime(context)
-    private val heap = Heap(context)
+    private val heap = Heap(context, runtime)
 
     fun install(registry: MethodRegistry) = with(registry) {
         register("runtime_activities") { _ -> encode(RuntimeActivities.serializer(), runtime.activities()) }
@@ -48,6 +48,15 @@ internal class RuntimeMethods(context: Context) {
         register("runtime_heap_walk") { c ->
             val max = (c.params?.get("maxPauseMs") as? JsonPrimitive)?.content?.toLongOrNull() ?: Heap.DEFAULT_MAX_PAUSE_MS
             encode(io.yamsergey.dta.protocol.data.HeapWalk.serializer(), heap.walk(max, c.bool("gc") ?: false))
+        }
+        register("runtime_heap_instances") { c ->
+            val limit = (c.params?.get("limit") as? JsonPrimitive)?.content?.toIntOrNull() ?: 50
+            val offset = (c.params?.get("offset") as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+            encode(io.yamsergey.dta.protocol.data.HeapInstancesPage.serializer(), heap.instances(c.required("class"), offset, limit))
+        }
+        register("runtime_heap_fields") { c ->
+            val id = c.str("instance")?.toLongOrNull() ?: throw InvalidParamsException("missing instance")
+            encode(io.yamsergey.dta.protocol.data.HeapFieldsRead.serializer(), heap.fields(id, c.bool("values") ?: false))
         }
         register("runtime_threads") { c -> encode(ThreadList.serializer(), runtime.threads(c.bool("stacks") ?: true, c.str("filter"))) }
         register("runtime_di") { c -> encode(DiReport.serializer(), runtime.di(c.str("filter"))) }

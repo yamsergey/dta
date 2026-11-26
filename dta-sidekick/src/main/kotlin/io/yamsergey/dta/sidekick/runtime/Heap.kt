@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * stops the app's threads for its duration; it runs on a worker thread of its own, never the main thread,
  * and only one at a time. Nothing here runs unless a call asks.
  */
-internal class Heap(private val context: Context) {
+internal class Heap(private val context: Context, private val runtime: Runtime) {
     private val running = AtomicBoolean(false)
 
     private val run: String by lazy {
@@ -78,6 +78,36 @@ internal class Heap(private val context: Context) {
         } finally {
             running.set(false)
         }
+    }
+
+    /** The live instances of [className] now, with persistent ids, paged in id order. */
+    fun instances(className: String, offset: Int, limit: Int): io.yamsergey.dta.protocol.data.HeapInstancesPage {
+        fun refused(why: String) = io.yamsergey.dta.protocol.data.HeapInstancesPage(className, 0, offset, emptyList(), why)
+        if (!HookAttach.attached) return refused("the heap cannot be read: ${HookAttach.reason ?: "the DTA agent is not attached"}")
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) return refused("the heap is never read on the main thread")
+        val cls = HeapClassNames.resolve(className, context.classLoader)
+            ?: return refused("no class '$className' is loaded in the app; use the name as a snapshot shows it (arrays as byte[])")
+        val flat = NativeAgent.nativeHeapInstanceIds(cls) ?: return refused("the runtime refused to list the instances of $className")
+        val sizes = HashMap<Long, Long>(flat.size / 2)
+        for (i in 0 until flat.size / 2) sizes[flat[2 * i]] = flat[2 * i + 1]
+        val ids = HeapInstancePaging.page(sizes.keys.toLongArray(), offset, limit)
+        val objects = NativeAgent.nativeHeapObjects(ids.toLongArray()) ?: return refused("the runtime refused to read the instances of $className")
+        val links = runtime.heapLinks(objects.toList())
+        val instances = ids.indices.mapNotNull { i ->
+            val o = objects[i] ?: return@mapNotNull null
+            io.yamsergey.dta.protocol.data.HeapInstance(ids[i], HeapRows.className(o.javaClass), sizes.getValue(ids[i]), links[i].first, links[i].second)
+        }
+        return io.yamsergey.dta.protocol.data.HeapInstancesPage(HeapRows.className(cls), sizes.size, offset, instances)
+    }
+
+    /** One instance's fields; values only when [values]. */
+    fun fields(instance: Long, values: Boolean): io.yamsergey.dta.protocol.data.HeapFieldsRead {
+        fun refused(why: String) = io.yamsergey.dta.protocol.data.HeapFieldsRead(refusal = why)
+        if (!HookAttach.attached) return refused("the heap cannot be read: ${HookAttach.reason ?: "the DTA agent is not attached"}")
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) return refused("the heap is never read on the main thread")
+        val obj = NativeAgent.nativeHeapObjects(longArrayOf(instance))?.firstOrNull()
+            ?: return refused("instance $instance is gone, or was never given: ids last while the object lives; list the class again")
+        return io.yamsergey.dta.protocol.data.HeapFieldsRead(fields = HeapFieldReader.read(obj, instance, values))
     }
 
     companion object {

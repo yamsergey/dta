@@ -51,7 +51,7 @@ class OperationCatalogTest {
                 "data.files.list", "data.files.read", "data.files.write", "data.files.mkdir", "data.files.delete",
                 "runtime.activities", "runtime.navigation", "runtime.navigate", "runtime.back", "runtime.viewmodels",
                 "runtime.vm.set", "runtime.saved.set", "runtime.memory", "runtime.threads", "runtime.di",
-                "runtime.functions", "runtime.invoke", "runtime.heap.snapshot", "runtime.heap.snapshots", "runtime.heap.compare",
+                "runtime.functions", "runtime.invoke", "runtime.heap.snapshot", "runtime.heap.snapshots", "runtime.heap.compare", "runtime.heap.instances", "runtime.heap.fields",
             ),
             Catalog.all.map { it.name }.toSet(),
         )
@@ -90,6 +90,16 @@ class OperationCatalogTest {
         assertEquals("runtime_heap_compare", Catalog["runtime.heap.compare"].toolName)
         assertEquals(listOf("a", "b", "origin", "package", "top"), Catalog["runtime.heap.compare"].params.map { it.name })
         assertTrue(Catalog["runtime.heap.compare"].param("a")!!.positional)
+    }
+
+    @Test
+    fun `heap instances and fields`() {
+        assertEquals(listOf("runtime", "heap", "instances"), Catalog["runtime.heap.instances"].cliPath)
+        assertEquals(listOf("class", "offset", "limit"), Catalog["runtime.heap.instances"].params.map { it.name })
+        assertTrue(Catalog["runtime.heap.instances"].param("class")!!.positional && Catalog["runtime.heap.instances"].param("class")!!.required)
+        assertEquals(listOf("runtime", "heap", "fields"), Catalog["runtime.heap.fields"].cliPath)
+        assertEquals(listOf("instance", "values", "redact"), Catalog["runtime.heap.fields"].params.map { it.name })
+        assertTrue(Catalog["runtime.heap.fields"].description.contains("values"))
     }
 
     @Test

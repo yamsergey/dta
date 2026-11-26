@@ -43,4 +43,31 @@ object HeapText {
         append("\n").append(a.leftOut).append(".")
         a.notKnown.forEach { append("\nNot known: ").append(it) }
     }
+
+    fun instances(a: io.yamsergey.dta.protocol.data.HeapInstancesAnswer): String = buildString {
+        append("${a.className}: ${a.total} instances")
+        if (a.offset > 0 || a.instances.size < a.total) append(" (showing ${a.instances.size} from ${a.offset})")
+        append(". ").append(a.note)
+        a.instances.forEach { i ->
+            append("\n  ${i.id}  ${Units.bytes(i.bytes)}")
+            if (i.className != a.className) append("  ${i.className}")
+            i.link?.let { append("  ${it.kind} ${it.ref}") }
+            i.state?.let { append("  $it") }
+        }
+        a.notKnown.forEach { append("\nNot known: ").append(it) }
+    }
+
+    fun fields(a: io.yamsergey.dta.protocol.data.HeapFieldsAnswer): String = buildString {
+        val f = a.fields
+        append("Instance ${f.instance} of ${f.className}: ${f.fields.size} fields. ").append(a.note)
+        f.fields.forEach { x ->
+            append("\n  ${if (x.static) "static " else ""}${x.name}: ${x.type}")
+            if (x.declaredIn != f.className) append("  (${x.declaredIn})")
+            x.length?.let { append("  length $it") }
+            x.value?.let { append("  = ").append(it.toString()) }
+        }
+        f.notes.forEach { append("\n").append(it) }
+        f.redaction?.let { append("\n").append(it) }
+        a.notKnown.forEach { append("\nNot known: ").append(it) }
+    }
 }

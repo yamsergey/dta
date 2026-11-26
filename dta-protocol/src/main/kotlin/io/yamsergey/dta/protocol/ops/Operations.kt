@@ -959,6 +959,28 @@ object Catalog {
             cliPathOverride = listOf("runtime", "heap", "compare"),
         ),
         OperationSpec(
+            "runtime.heap.instances",
+            "The live instances of one class, now: id, shallow bytes, a link to DTA's own view when DTA has one (activity, ViewModel, NavController, DI binding) and its state where known (an activity that is destroyed but still held). It lists objects as they are at this call, not as they were at a snapshot. Ids last while the object lives and until the class is listed again by another heap read. Takes no snapshot. Not known: who keeps an instance alive, retained size.",
+            Scope.APP,
+            listOf(
+                ParamSpec("class", ParamType.STRING, "The class name as the snapshot shows it (com.example.Foo, byte[]).", required = true, positional = true),
+                ParamSpec("offset", ParamType.INT, "Skip this many instances (default 0)."),
+                ParamSpec("limit", ParamType.INT, "At most this many (default 50)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "instances"),
+        ),
+        OperationSpec(
+            "runtime.heap.fields",
+            "The fields of one live instance: name, declaring class, type, static or not; strings and arrays by length. Field values only with values:true. Agents get values redacted (names that look like secrets or personal data masked, credentials in text masked) and the answer says so. Takes no snapshot.",
+            Scope.APP,
+            listOf(
+                ParamSpec("instance", ParamType.LONG, "The instance id from runtime.heap.instances.", required = true, positional = true),
+                ParamSpec("values", ParamType.BOOLEAN, "Show field values (default: names, types and lengths only)."),
+                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in values (always on for agents)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "fields"),
+        ),
+        OperationSpec(
             "archive.list",
             "The network history this computer keeps after devices forgot it (cleared, data wiped, reinstalled, rolled back to an earlier state): devices › apps › installs › epochs, with dates, why each epoch closed, entry counts and size on disk.",
             Scope.NONE,

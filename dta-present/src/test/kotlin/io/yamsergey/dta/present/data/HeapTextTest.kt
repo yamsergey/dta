@@ -60,4 +60,34 @@ class HeapTextTest {
         assertTrue(t.contains("not known"))
         assertTrue(t.contains("boot image") && t.contains("did not allocate"))
     }
+
+    @Test fun instancesStateLiveNowLinksAndWhatStepOneDoesNotKnow() {
+        val a = io.yamsergey.dta.protocol.data.HeapInstancesAnswer(
+            "com.x.Leak", 2, 0,
+            listOf(
+                io.yamsergey.dta.protocol.data.HeapInstance(4294967297, "com.x.Leak", 24, io.yamsergey.dta.protocol.data.HeapLink("activity", "ab12"), "destroyed"),
+                io.yamsergey.dta.protocol.data.HeapInstance(4294967298, "com.x.Leak", 24),
+            ),
+            "Live objects now, not as they were at any snapshot.",
+        )
+        val t = HeapText.instances(a)
+        assertTrue(t.contains("4294967297") && t.contains("destroyed") && t.contains("activity ab12"))
+        assertTrue(t.contains("2 instances") && t.contains("not as they were"))
+        assertTrue(t.contains("Not known") && t.contains("boot image"))
+    }
+
+    @Test fun fieldsShowNamesTypesAndValuesOnlyWhenPresent() {
+        val f = io.yamsergey.dta.protocol.data.HeapFields(
+            4294967297, "com.x.Leak",
+            listOf(
+                io.yamsergey.dta.protocol.data.HeapField("title", "com.x.Leak", "java.lang.String", false, null, 4),
+                io.yamsergey.dta.protocol.data.HeapField("count", "com.x.Base", "int", true, kotlinx.serialization.json.JsonPrimitive(3)),
+            ),
+            redaction = "Values masked for agents: 1.",
+        )
+        val t = HeapText.fields(io.yamsergey.dta.protocol.data.HeapFieldsAnswer(f, true, "note here"))
+        assertTrue(t.contains("title") && t.contains("java.lang.String") && t.contains("length 4"))
+        assertTrue(t.contains("static") && t.contains("= 3") && t.contains("com.x.Base"))
+        assertTrue(t.contains("Values masked for agents") && t.contains("note here") && t.contains("Not known"))
+    }
 }

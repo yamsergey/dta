@@ -11,12 +11,19 @@ import io.yamsergey.dta.protocol.data.HeapRunInfo
 import io.yamsergey.dta.protocol.data.HeapSnapshotAnswer
 import io.yamsergey.dta.protocol.data.HeapSnapshotInfo
 import io.yamsergey.dta.protocol.data.HeapSnapshotSummary
+import io.yamsergey.dta.protocol.data.HeapFieldsAnswer
+import io.yamsergey.dta.protocol.data.HeapFieldsRead
+import io.yamsergey.dta.protocol.data.HeapInstancesAnswer
+import io.yamsergey.dta.protocol.data.HeapInstancesPage
+import io.yamsergey.dta.protocol.data.HeapRedaction
 import io.yamsergey.dta.protocol.data.HeapWalk
 import kotlin.time.Duration.Companion.milliseconds
 
 /** The sidekick's two heap methods, as the service needs them. */
 interface HeapSidekick {
     suspend fun run(): HeapRunInfo
+    suspend fun instances(className: String, offset: Int, limit: Int): HeapInstancesPage
+    suspend fun fields(instance: Long, values: Boolean): HeapFieldsRead
     suspend fun walk(maxPauseMs: Long, gc: Boolean, timeout: kotlin.time.Duration): HeapWalk
 }
 
@@ -90,5 +97,32 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
             is HeapCompareResult.Ok -> HeapCompareAnswer(r.comparison, r.comparison.leftOut.describe())
             is HeapCompareResult.Refused -> throw HeapRefusal(r.reason)
         }
+    }
+
+    /** Live instances of [className] at this call; never takes a snapshot, never needs one. */
+    suspend fun instances(app: String, sidekick: HeapSidekick, className: String, offset: Int?, limit: Int?): HeapInstancesAnswer {
+        require(className.isNotBlank()) { "give a class name" }
+        require(offset == null || offset >= 0) { "offset must not be negative" }
+        require(limit == null || limit in 1..1000) { "limit is 1 to 1000" }
+        val page = sidekick.instances(className, offset ?: 0, limit ?: 50)
+        page.refusal?.let { throw HeapRefusal(it) }
+        return HeapInstancesAnswer(
+            page.className, page.total, page.offset, page.instances,
+            "These are the objects alive now, not as they were at any snapshot; an id lasts while its object lives.",
+        )
+    }
+
+    /** One instance's fields; values only when asked, redacted when [redact] (agents). */
+    suspend fun fields(app: String, sidekick: HeapSidekick, instance: Long, values: Boolean, redact: Boolean): HeapFieldsAnswer {
+        val read = sidekick.fields(instance, values)
+        read.refusal?.let { throw HeapRefusal(it) }
+        var f = read.fields ?: throw HeapRefusal("the app returned no fields for instance $instance")
+        if (values && redact) f = HeapRedaction.apply(f)
+        val note = when {
+            !values -> "Field values are not shown unless asked for (values); names, types and the lengths of strings and arrays are."
+            redact -> "Values are redacted for agents; what was masked is stated below."
+            else -> "Values are shown as they are in the app."
+        }
+        return HeapFieldsAnswer(f, values, note)
     }
 }

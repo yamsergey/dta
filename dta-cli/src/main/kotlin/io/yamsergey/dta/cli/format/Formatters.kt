@@ -134,6 +134,8 @@ class Formatters(private val style: Style) {
         "runtime.heap.snapshot" -> io.yamsergey.dta.present.data.HeapText.snapshot(decode(io.yamsergey.dta.protocol.data.HeapSnapshotAnswer.serializer(), result))
         "runtime.heap.snapshots" -> io.yamsergey.dta.present.data.HeapText.list(decode(io.yamsergey.dta.protocol.data.HeapListAnswer.serializer(), result))
         "runtime.heap.compare" -> io.yamsergey.dta.present.data.HeapText.compare(decode(io.yamsergey.dta.protocol.data.HeapCompareAnswer.serializer(), result))
+        "runtime.heap.instances" -> io.yamsergey.dta.present.data.HeapText.instances(decode(io.yamsergey.dta.protocol.data.HeapInstancesAnswer.serializer(), result))
+        "runtime.heap.fields" -> io.yamsergey.dta.present.data.HeapText.fields(decode(io.yamsergey.dta.protocol.data.HeapFieldsAnswer.serializer(), result))
         "runtime.threads" -> io.yamsergey.dta.present.data.RuntimeText.threads(decode(io.yamsergey.dta.protocol.data.ThreadList.serializer(), result))
         "runtime.di" -> io.yamsergey.dta.present.data.RuntimeText.di(decode(io.yamsergey.dta.protocol.data.DiReport.serializer(), result))
         "runtime.functions" -> io.yamsergey.dta.present.data.RuntimeText.functions(decode(io.yamsergey.dta.protocol.data.FunctionList.serializer(), result))
