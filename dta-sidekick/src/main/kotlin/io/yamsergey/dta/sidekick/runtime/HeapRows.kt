@@ -9,6 +9,13 @@ internal object HeapRows {
     /** One class as the native walk summed it. */
     data class Raw(val name: String, val loader: LoaderKind, val loaderLabel: String?, val count: Long, val bytes: Long)
 
+    /** ART answers `java.lang.BootClassLoader` (not null) for platform classes; null also means boot. */
+    fun loaderKind(loaderClassName: String?, isAppLoader: Boolean): LoaderKind = when {
+        loaderClassName == null || loaderClassName == "java.lang.BootClassLoader" -> LoaderKind.BOOT
+        isAppLoader -> LoaderKind.APP
+        else -> LoaderKind.OTHER
+    }
+
     /** Binary name; arrays as `byte[]`. */
     fun className(cls: Class<*>): String {
         var c = cls

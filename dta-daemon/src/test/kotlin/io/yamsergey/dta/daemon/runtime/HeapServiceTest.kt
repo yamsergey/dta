@@ -23,8 +23,9 @@ class HeapServiceTest {
         var walks = 0
         var lastMax: Long? = null
         var lastGc: Boolean? = null
+        var lastTimeout: kotlin.time.Duration? = null
         override suspend fun run() = HeapRunInfo(run, listOf("com.example")).also { runCalls++ }
-        override suspend fun walk(maxPauseMs: Long, gc: Boolean): HeapWalk { walks++; lastMax = maxPauseMs; lastGc = gc; return walk.copy(run = run) }
+        override suspend fun walk(maxPauseMs: Long, gc: Boolean, timeout: kotlin.time.Duration): HeapWalk { walks++; lastMax = maxPauseMs; lastGc = gc; lastTimeout = timeout; return walk.copy(run = run) }
     }
 
     private fun rows(n: Long) = (1..30).map { HeapClassRow("c.C$it", null, HeapOrigin.APP, n, n * it) }
@@ -57,10 +58,19 @@ class HeapServiceTest {
         assertEquals(1000L, f.lastMax)
     }
 
+    @Test fun requestTimeoutIsAboveTheBoundWithMargin() = runBlocking {
+        val f = Fake(ok())
+        service.snapshot(app, f, null, false, null)
+        assertTrue(f.lastTimeout!!.inWholeMilliseconds >= 1000 + 10_000)
+        now += 5_000
+        service.snapshot(app, f, null, false, 60_000)
+        assertTrue(f.lastTimeout!!.inWholeMilliseconds >= 60_000 + 10_000, "timeout ${f.lastTimeout}")
+    }
+
     @Test fun stoppedWalkIsRefusedWithHowToRaiseAndStoresNothing() = runBlocking {
         val f = Fake(HeapWalk(run = "r1", pauseMs = 1004, stopped = true, maxPauseMs = 1000))
         val e = assertFailsWith<HeapRefusal> { service.snapshot(app, f, null, false, null) }
-        assertTrue(e.message!!.contains("1004") && e.message!!.contains("maxPauseMs"))
+        assertTrue(e.message!!.contains("1004") && e.message!!.contains("maxPause"))
         assertTrue(service.list(app).snapshots.isEmpty())
     }
 

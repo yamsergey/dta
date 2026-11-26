@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import io.yamsergey.dta.protocol.data.HeapLimits
 import io.yamsergey.dta.protocol.data.HeapRunInfo
 import io.yamsergey.dta.protocol.data.HeapWalk
-import io.yamsergey.dta.protocol.data.LoaderKind
 import io.yamsergey.dta.sidekick.hooks.HookAttach
 import io.yamsergey.dta.sidekick.hooks.NativeAgent
 import java.util.concurrent.atomic.AtomicBoolean
@@ -63,7 +62,7 @@ internal class Heap(private val context: Context) {
                     val l = c.classLoader
                     HeapRows.Raw(
                         HeapRows.className(c),
-                        when { l == null -> LoaderKind.BOOT; l === appLoader -> LoaderKind.APP; else -> LoaderKind.OTHER },
+                        HeapRows.loaderKind(l?.javaClass?.name, l != null && l === appLoader),
                         l?.let { "${it.javaClass.name}@${Integer.toHexString(System.identityHashCode(it))}" },
                         counts[i], bytes[i],
                     )

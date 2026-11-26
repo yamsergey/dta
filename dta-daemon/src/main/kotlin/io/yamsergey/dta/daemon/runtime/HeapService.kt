@@ -6,17 +6,18 @@ import io.yamsergey.dta.protocol.data.HeapDroppedInfo
 import io.yamsergey.dta.protocol.data.HeapFilter
 import io.yamsergey.dta.protocol.data.HeapLimits
 import io.yamsergey.dta.protocol.data.HeapListAnswer
-import io.yamsergey.dta.protocol.data.HeapOrigin
+import io.yamsergey.dta.protocol.data.HeapOriginFilter
 import io.yamsergey.dta.protocol.data.HeapRunInfo
 import io.yamsergey.dta.protocol.data.HeapSnapshotAnswer
 import io.yamsergey.dta.protocol.data.HeapSnapshotInfo
 import io.yamsergey.dta.protocol.data.HeapSnapshotSummary
 import io.yamsergey.dta.protocol.data.HeapWalk
+import kotlin.time.Duration.Companion.milliseconds
 
 /** The sidekick's two heap methods, as the service needs them. */
 interface HeapSidekick {
     suspend fun run(): HeapRunInfo
-    suspend fun walk(maxPauseMs: Long, gc: Boolean): HeapWalk
+    suspend fun walk(maxPauseMs: Long, gc: Boolean, timeout: kotlin.time.Duration): HeapWalk
 }
 
 /** A refusal with its reason (the client sees it as the operation's error). */
@@ -37,7 +38,8 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
             is HeapSnapshotStore.Begin.Refused -> throw HeapRefusal(b.reason)
         }
         val walk = try {
-            sidekick.walk(maxPauseMs ?: HeapLimits.DEFAULT_MAX_PAUSE_MS, gc)
+            val bound = maxPauseMs ?: HeapLimits.DEFAULT_MAX_PAUSE_MS
+            sidekick.walk(bound, gc, (bound + HeapLimits.REQUEST_MARGIN_MS).milliseconds)
         } catch (e: Throwable) {
             store.abort(ticket)
             throw e
@@ -47,7 +49,7 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
             store.abort(ticket)
             throw HeapRefusal(
                 "the heap walk stopped itself after ${walk.pauseMs} ms, at the bound of ${walk.maxPauseMs} ms; nothing was kept " +
-                    "(the app's threads were stopped about that long). Raise the bound with maxPauseMs to allow a longer pause.",
+                    "(the app's threads were stopped about that long). Raise the bound with maxPause (e.g. 3s) to allow a longer pause.",
             )
         }
         if (walk.run != run) { store.abort(ticket); throw HeapRefusal("the app restarted during the walk (run ${walk.run}, not $run); take the snapshot again") }
@@ -80,12 +82,8 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
     }
 
     fun compare(app: String, a: String, b: String, origin: String?, packagePrefix: String?, top: Int?): HeapCompareAnswer {
-        val o: HeapOrigin? = when (origin) {
-            null -> HeapOrigin.APP
-            "all" -> null
-            else -> HeapOrigin.entries.firstOrNull { it.name.equals(origin, ignoreCase = true) && it != HeapOrigin.UNKNOWN }
-                ?: throw IllegalArgumentException("origin is app, library, platform or all; got '$origin'")
-        }
+        val o = if (origin == null) HeapOriginFilter.APP else HeapOriginFilter.entries.firstOrNull { it.name.equals(origin, ignoreCase = true) }
+            ?: throw IllegalArgumentException("origin is app, library, platform or all; got '$origin'")
         require(top == null || top >= 0) { "top must not be negative" }
         val filter = HeapFilter(o, packagePrefix?.takeIf { it.isNotBlank() }, top ?: 30)
         return when (val r = store.compare(app, a, b, filter)) {

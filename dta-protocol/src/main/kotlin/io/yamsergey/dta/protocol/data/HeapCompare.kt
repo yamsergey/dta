@@ -60,7 +60,7 @@ fun compareHeap(a: HeapSnapshot, b: HeapSnapshot, filter: HeapFilter = HeapFilte
     val kept = ArrayList<HeapComparisonRow>()
     for (r in sorted) {
         when {
-            filter.origin != null && r.origin != filter.origin -> { byOrigin++; leftBytes += r.deltaBytes }
+            filter.origin != HeapOriginFilter.ALL && r.origin != filter.origin.origin -> { byOrigin++; leftBytes += r.deltaBytes }
             filter.packagePrefix != null && !inPackage(r.className, filter.packagePrefix) -> { byPackage++; leftBytes += r.deltaBytes }
             else -> kept += r
         }

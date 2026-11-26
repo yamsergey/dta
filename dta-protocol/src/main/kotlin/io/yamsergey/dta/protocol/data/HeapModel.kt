@@ -70,10 +70,19 @@ data class HeapComparisonRow(
     val deltaBytes: Long get() = bytesB - bytesA
 }
 
-/** Filters of a comparison. [origin] null means all origins; the default is the app's own classes. */
+/** Which classes a comparison shows; [ALL] is every origin. */
+@Serializable
+enum class HeapOriginFilter(val origin: HeapOrigin?) {
+    @SerialName("app") APP(HeapOrigin.APP),
+    @SerialName("library") LIBRARY(HeapOrigin.LIBRARY),
+    @SerialName("platform") PLATFORM(HeapOrigin.PLATFORM),
+    @SerialName("all") ALL(null),
+}
+
+/** Filters of a comparison; the default is the app's own classes. */
 @Serializable
 data class HeapFilter(
-    val origin: HeapOrigin? = HeapOrigin.APP,
+    val origin: HeapOriginFilter = HeapOriginFilter.APP,
     val packagePrefix: String? = null,
     val top: Int = 30,
 )
@@ -186,6 +195,19 @@ object HeapLimits {
     /** Above this the answer warns that the app was stopped that long. */
     const val WARN_PAUSE_MS = 100L
     const val SUMMARY_TOP = 20
+
+    /** `3s`, `500ms`, `1.5s`, `1m` or plain milliseconds; positive. */
+    fun parseDurationMs(text: String): Long {
+        val m = Regex("""\s*(\d+(?:\.\d+)?)\s*(ms|s|m)?\s*""").matchEntire(text)
+            ?: throw IllegalArgumentException("not a duration: '$text' (use 500ms, 3s, 1m or milliseconds)")
+        val n = m.groupValues[1].toDouble()
+        val ms = Math.round(n * when (m.groupValues[2]) { "s" -> 1000.0; "m" -> 60_000.0; else -> 1.0 })
+        require(ms > 0) { "a duration must be positive: '$text'" }
+        return ms
+    }
+
+    /** The daemon waits this much beyond the pause bound for the walk's answer (GC, row assembly, transport). */
+    const val REQUEST_MARGIN_MS = 10_000L
 
     /** Said in every answer: what step 1 does not know. */
     val NOT_KNOWN = listOf(

@@ -84,6 +84,7 @@ class OperationCatalogTest {
 
     @Test
     fun `heap operations take no snapshot as a side effect and have cli paths`() {
+        assertEquals(listOf("name", "gc", "maxPause"), Catalog["runtime.heap.snapshot"].params.map { it.name })
         assertEquals(listOf("runtime", "heap", "snapshot"), Catalog["runtime.heap.snapshot"].cliPath)
         assertEquals(listOf("runtime", "heap", "list"), Catalog["runtime.heap.snapshots"].cliPath)
         assertEquals("runtime_heap_compare", Catalog["runtime.heap.compare"].toolName)

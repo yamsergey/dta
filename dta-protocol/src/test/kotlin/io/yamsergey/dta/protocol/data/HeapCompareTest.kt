@@ -19,7 +19,7 @@ class HeapCompareTest {
     @Test fun classifiesAppearedGoneGrewShrank() {
         val a = snap("s1", listOf(row("A", 1, 10), row("Gone", 2, 20), row("Shrink", 5, 50), row("Same", 1, 1)))
         val b = snap("s2", listOf(row("A", 3, 30), row("New", 1, 100), row("Shrink", 2, 20), row("Same", 1, 1)))
-        val c = ok(compareHeap(a, b, HeapFilter(origin = null)))
+        val c = ok(compareHeap(a, b, HeapFilter(origin = HeapOriginFilter.ALL)))
         val by = c.rows.associateBy { it.className }
         assertEquals(HeapChange.GREW, by.getValue("A").change)
         assertEquals(HeapChange.APPEARED, by.getValue("New").change)
@@ -37,7 +37,7 @@ class HeapCompareTest {
         val a = snap("s1", listOf(row("X", 10, 100), row("Y", 1, 10), row("Z", 1, 10)))
         val b = snap("s2", listOf(row("X", 0 + 1, 10), row("Y", 5, 110), row("Z", 2, 110)))
         // deltas: X -90 bytes/-9, Y +100/+4, Z +100/+1
-        val c = ok(compareHeap(a, b, HeapFilter(origin = null)))
+        val c = ok(compareHeap(a, b, HeapFilter(origin = HeapOriginFilter.ALL)))
         assertEquals(listOf("Y", "Z", "X"), c.rows.map { it.className })
     }
 
@@ -46,7 +46,7 @@ class HeapCompareTest {
         val b = snap("s2", listOf(row("app.A", 1, 10), row("lib.L", 1, 10, HeapOrigin.LIBRARY), row("java.P", 4, 40, HeapOrigin.PLATFORM)))
         val c = ok(compareHeap(a, b))
         assertEquals(listOf("app.A"), c.rows.map { it.className })
-        assertEquals(HeapOrigin.APP, c.filters.origin)
+        assertEquals(HeapOriginFilter.APP, c.filters.origin)
         assertEquals(2, c.leftOut.byOrigin)
         assertEquals(50L, c.leftOut.bytesDelta)
         assertTrue(c.leftOut.describe().contains("origin"))
@@ -55,7 +55,7 @@ class HeapCompareTest {
     @Test fun packagePrefixAndTop() {
         val a = snap("s1", emptyList())
         val b = snap("s2", listOf(row("com.x.A", 1, 10), row("com.x.B", 1, 20), row("com.y.C", 1, 30)))
-        val c = ok(compareHeap(a, b, HeapFilter(origin = null, packagePrefix = "com.x", top = 1)))
+        val c = ok(compareHeap(a, b, HeapFilter(origin = HeapOriginFilter.ALL, packagePrefix = "com.x", top = 1)))
         assertEquals(listOf("com.x.B"), c.rows.map { it.className })
         assertEquals(1, c.leftOut.byPackage)
         assertEquals(1, c.leftOut.byTop)
@@ -65,7 +65,7 @@ class HeapCompareTest {
     @Test fun sameNameDifferentLoadersAreDifferentRows() {
         val a = snap("s1", listOf(row("A", 1, 10, loader = "l1"), row("A", 1, 10, loader = "l2")))
         val b = snap("s2", listOf(row("A", 2, 20, loader = "l1"), row("A", 1, 10, loader = "l2")))
-        val c = ok(compareHeap(a, b, HeapFilter(origin = null)))
+        val c = ok(compareHeap(a, b, HeapFilter(origin = HeapOriginFilter.ALL)))
         assertEquals(1, c.rows.size)
         assertEquals("l1", c.rows[0].loader)
     }
@@ -83,5 +83,10 @@ class HeapCompareTest {
         val c = ok(compareHeap(a, b))
         assertEquals(30L, c.totalsDeltaBytes)
         assertEquals(3L, c.totalsDeltaObjects)
+    }
+
+    @Test fun allOriginsSurvivesTheWire() {
+        val f = io.yamsergey.dta.protocol.rpc.DtaJson.encodeToString(HeapFilter.serializer(), HeapFilter(origin = HeapOriginFilter.ALL))
+        assertEquals(HeapOriginFilter.ALL, io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromString(HeapFilter.serializer(), f).origin)
     }
 }

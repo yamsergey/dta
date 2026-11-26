@@ -47,4 +47,11 @@ class HeapRowsTest {
             HeapRows.namespaces("com.example", listOf("com.example.ui.Main", "org.other.Foo", "com.example.App", null, "NoPackage")),
         )
     }
+
+    @Test fun artHandsOutABootClassLoaderObjectForPlatformClasses() {
+        assertEquals(LoaderKind.BOOT, HeapRows.loaderKind(null, isAppLoader = false))
+        assertEquals(LoaderKind.BOOT, HeapRows.loaderKind("java.lang.BootClassLoader", isAppLoader = false))
+        assertEquals(LoaderKind.APP, HeapRows.loaderKind("dalvik.system.PathClassLoader", isAppLoader = true))
+        assertEquals(LoaderKind.OTHER, HeapRows.loaderKind("dalvik.system.DexClassLoader", isAppLoader = false))
+    }
 }

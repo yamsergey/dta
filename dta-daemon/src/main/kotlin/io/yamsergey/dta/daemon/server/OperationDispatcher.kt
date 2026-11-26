@@ -294,7 +294,7 @@ class OperationDispatcher(
         "runtime.di" to { c -> rt(c, "runtime_di", io.yamsergey.dta.protocol.data.DiReport.serializer()) },
         "runtime.functions" to { c -> rt(c, "runtime_functions", io.yamsergey.dta.protocol.data.FunctionList.serializer()) },
         "runtime.heap.snapshot" to { c ->
-            encode(io.yamsergey.dta.protocol.data.HeapSnapshotAnswer.serializer(), heapArgs { heap.snapshot(c.app, heapSidekick(c), c.string("name"), c.bool("gc"), c.long("maxPauseMs")) })
+            encode(io.yamsergey.dta.protocol.data.HeapSnapshotAnswer.serializer(), heapArgs { heap.snapshot(c.app, heapSidekick(c), c.string("name"), c.bool("gc"), c.string("maxPause")?.let { io.yamsergey.dta.protocol.data.HeapLimits.parseDurationMs(it) }) })
         },
         "runtime.heap.snapshots" to { c -> encode(io.yamsergey.dta.protocol.data.HeapListAnswer.serializer(), heap.list(c.app)) },
         "runtime.heap.compare" to { c ->
@@ -585,9 +585,10 @@ class OperationDispatcher(
     private fun heapSidekick(c: Call) = object : io.yamsergey.dta.daemon.runtime.HeapSidekick {
         private val data = ops.data(c.device, c.app)
         override suspend fun run() = data.runtime("runtime_heap_run", io.yamsergey.dta.protocol.data.HeapRunInfo.serializer(), JsonObject(emptyMap()))
-        override suspend fun walk(maxPauseMs: Long, gc: Boolean) = data.runtime(
+        override suspend fun walk(maxPauseMs: Long, gc: Boolean, timeout: kotlin.time.Duration) = data.runtime(
             "runtime_heap_walk", io.yamsergey.dta.protocol.data.HeapWalk.serializer(),
             buildJsonObject { put("maxPauseMs", maxPauseMs); put("gc", gc) },
+            timeout,
         )
     }
 

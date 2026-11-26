@@ -21,6 +21,7 @@
 #include "transform.h"
 
 #define LOG_TAG "DtaAgent"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 namespace {
@@ -531,6 +532,9 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHeapHistogram(JNIEnv* env
 
   std::string failure;
   if (error != JVMTI_ERROR_NONE) failure = "IterateThroughHeap: " + JvmtiErrorName(error);
+  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "heap walk: %d loaded classes, %lld objects, %lld untagged, %.1f ms%s",
+                      class_count, static_cast<long long>(sums.objects), static_cast<long long>(sums.untagged), elapsed,
+                      sums.stopped ? ", stopped at the bound" : "");
 
   jlong stats[4] = {static_cast<jlong>(elapsed * 1000), sums.objects, sums.untagged, sums.stopped ? 1 : 0};
   jlongArray stats_array = env->NewLongArray(4);

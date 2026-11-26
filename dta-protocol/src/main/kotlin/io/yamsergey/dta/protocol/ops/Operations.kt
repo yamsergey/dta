@@ -930,12 +930,12 @@ object Catalog {
         ),
         OperationSpec(
             "runtime.heap.snapshot",
-            "Take one heap snapshot of the app now: objects and shallow bytes per class, kept in the daemon for this app run (20 at most; named ones are kept over unnamed). It briefly stops the app's threads (usually 15-50 ms); the answer always states the pause and warns above 100 ms. It aborts itself at maxPauseMs and then keeps nothing. One per 2 seconds per app. Nothing else takes a snapshot. Not known: who keeps an object alive, retained size.",
+            "Take one heap snapshot of the app now: objects and shallow bytes per class, kept in the daemon for this app run (20 at most; named ones are kept over unnamed). It briefly stops the app's threads (usually 15-50 ms); the answer always states the pause and warns above 100 ms. It aborts itself at maxPause and then keeps nothing. One per 2 seconds per app. Nothing else takes a snapshot. Not known: who keeps an object alive, retained size.",
             Scope.APP,
             listOf(
                 ParamSpec("name", ParamType.STRING, "A name for the snapshot (unique in the run); named snapshots are not dropped to make room."),
                 ParamSpec("gc", ParamType.BOOLEAN, "Run a garbage collection first, so unreachable objects are not counted."),
-                ParamSpec("maxPauseMs", ParamType.LONG, "Stop the walk if the app would be paused longer than this (default 1000)."),
+                ParamSpec("maxPause", ParamType.STRING, "Stop the walk if the app would be paused longer than this: 500ms, 3s, or milliseconds (default 1s)."),
             ),
             cliPathOverride = listOf("runtime", "heap", "snapshot"),
         ),
