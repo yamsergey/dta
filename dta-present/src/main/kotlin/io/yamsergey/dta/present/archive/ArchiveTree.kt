@@ -48,7 +48,7 @@ object ArchiveTree {
                         val closed = ep.long("closedMs")?.let(Instant::ofEpochMilli)
                         val state = if (closed == null) "live" else ep.str("reason")?.replace('-', ' ') ?: "archived"
                         val span = day.format(opened) + " → " + (closed?.let { if (day.format(it).take(10) == day.format(opened).take(10)) time.format(it) else day.format(it) } ?: "now")
-                        val text = "$span · $state · ${ep.long("entries") ?: 0} entries · ${Units.bytes(ep.long("bytes") ?: 0)}"
+                        val text = "$span · $state · ${(ep.long("entries") ?: 0).let { "$it ${if (it == 1L) "entry" else "entries"}" }} · ${Units.bytes(ep.long("bytes") ?: 0)}"
                         val note = ep.long("neverReceived")?.takeIf { it > 0 }?.let { "$it entries never reached this computer" }
                         add(ArchiveRow(3, text, note, epoch = ep.str("id"), packageName = pkg, live = closed == null))
                     }

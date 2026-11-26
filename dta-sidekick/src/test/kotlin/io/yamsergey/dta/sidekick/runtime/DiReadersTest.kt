@@ -82,5 +82,15 @@ class DiReadersTest {
         assertTrue(graph.bindings.all { it.id != null })
     }
 
+    @Test
+    fun `a linked graph says which links it cannot see (D-104)`() {
+        startKoin { modules(module { single { Api() } }) }
+        val instances = java.util.IdentityHashMap<io.yamsergey.dta.protocol.data.DiBinding, Any>()
+        val graph = DiReaders.link(listOf(DiReaders.koin(DiReadersTest::class.java.classLoader, instances)!!), instances).single()
+        val note = graph.note!!
+        assertTrue(note.startsWith("Used by / depends on: only links seen in created instances' fields;"), note)
+        assertTrue("Koin's get()" in note && "factory" in note, note)
+    }
+
     private data class DiBindingExpect(val type: String, val kind: String?, val created: Boolean, val runtimeType: String?)
 }

@@ -130,7 +130,7 @@ class DataPanel(
         override fun getColumnCount() = 3
         override fun getColumnName(column: Int) = listOf("Name", "Size", "Modified")[column]
         override fun getValueAt(row: Int, column: Int): Any = listing!!.entries[row].let { e ->
-            listOf(if (e.dir) e.name + "/" else e.name, if (e.dir) "${e.children ?: 0} entries" else Units.bytes(e.sizeBytes), if (e.modifiedMs > 0) java.time.Instant.ofEpochMilli(e.modifiedMs).toString().replace('T', ' ').take(19) else "")[column]
+            listOf(if (e.dir) e.name + "/" else e.name, if (e.dir) Units.count(e.children ?: 0, "entry", "entries") else Units.bytes(e.sizeBytes), if (e.modifiedMs > 0) java.time.Instant.ofEpochMilli(e.modifiedMs).toString().replace('T', ' ').take(19) else "")[column]
         }
     }
 
@@ -255,7 +255,7 @@ class DataPanel(
         }
         treeModel.reload()
         for (i in 0 until tree.rowCount) tree.expandRow(i).also { if (i > 3) return@also }
-        status.text = list.completeness.firstOrNull()?.reason ?: "${list.stores.size} stores."
+        status.text = list.completeness.firstOrNull()?.reason ?: "${Units.count(list.stores.size, "store")}."
     }
 
     private fun expand(n: DefaultMutableTreeNode) {
@@ -405,7 +405,7 @@ class DataPanel(
             protoContent.removeAll()
             val node = protoJson?.let { DataTrees.json(it) }
             protoContent.add(if (node != null) BodyTree(node) { } else JBLabel("Nothing decoded.").apply { border = JBUI.Borders.empty(12) }, BorderLayout.CENTER)
-            protoContent.add(JBLabel("${content.sizeBytes} bytes · ${content.decodeNote ?: ""}").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 8) }, BorderLayout.SOUTH)
+            protoContent.add(JBLabel("${Units.count(content.sizeBytes, "byte")} · ${content.decodeNote ?: ""}").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(4, 8) }, BorderLayout.SOUTH)
             protoContent.revalidate()
             cards.show(right, PROTO)
             status.text = "${content.access.name.lowercase()}: ${content.accessNote}"
@@ -448,7 +448,7 @@ class DataPanel(
         folderModel.listing = listing
         folderModel.fireTableDataChanged()
         cards.show(right, FOLDER)
-        status.text = "${listing.path}: ${listing.total} entries. Double-click to open."
+        status.text = "${listing.path}: ${Units.count(listing.total, "entry", "entries")}. Double-click to open."
     }
 
     fun openFile(path: String): Unit = request("data.files.read", FileContent.serializer(), obj("path" to path)) { content ->

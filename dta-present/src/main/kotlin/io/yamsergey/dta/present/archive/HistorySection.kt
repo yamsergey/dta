@@ -46,7 +46,7 @@ data class HistorySection(
             fun t(ms: Long) = day.format(Instant.ofEpochMilli(ms))
             val d = summary.device
             val device = d?.let { dev ->
-                listOfNotNull("${n(dev.entries)} entries", Units.bytes(dev.bytes), dev.earliestMs?.let { e -> "${t(e)} – ${dev.latestMs?.let(::t) ?: "now"}" }).joinToString(" · ")
+                listOfNotNull("${n(dev.entries)} ${if ((dev.entries).toLong() == 1L) "entry" else "entries"}", Units.bytes(dev.bytes), dev.earliestMs?.let { e -> "${t(e)} – ${dev.latestMs?.let(::t) ?: "now"}" }).joinToString(" · ")
             } ?: "Unknown: ${summary.deviceUnknown ?: "the device did not say"}."
             val deviceSub = d?.let { dev ->
                 val share = dev.archivedEntries?.takeIf { dev.entries > 0 }?.let { "${it * 100 / dev.entries}% already on this computer" }
@@ -54,7 +54,7 @@ data class HistorySection(
             }
             val a = summary.archive
             val host = listOfNotNull(
-                "${n(a.entries)} entries", Units.bytes(a.bytes), a.earliestMs?.let { "since ${t(it)}" },
+                "${n(a.entries)} ${if ((a.entries).toLong() == 1L) "entry" else "entries"}", Units.bytes(a.bytes), a.earliestMs?.let { "since ${t(it)}" },
                 summary.hostOnly?.takeIf { it > 0 }?.let { "${n(it)} of them no longer on the device" },
             ).joinToString(" · ")
             val rows = a.installations.flatMap { inst ->
@@ -69,7 +69,7 @@ data class HistorySection(
                 .filter { it.packageName != packageName }.map { app ->
                     val epochs = app.installations.flatMap { it.epochs }
                     val n = app.installations.size
-                    OtherApp(app.packageName, "$n installation${if (n == 1) "" else "s"} · ${n(epochs.sumOf { it.entries })} entries · ${Units.bytes(epochs.sumOf { it.bytes })}")
+                    OtherApp(app.packageName, "$n installation${if (n == 1) "" else "s"} · ${n(epochs.sumOf { it.entries })} ${if ((epochs.sumOf { it.entries }).toLong() == 1L) "entry" else "entries"} · ${Units.bytes(epochs.sumOf { it.bytes })}")
                 }
             return HistorySection(d?.takeIf { it.overWarning }?.let { banner(it, nowMs, ::t) }, device, deviceSub, d != null, host, rows, others)
         }

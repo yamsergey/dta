@@ -24,6 +24,8 @@ import io.yamsergey.dta.studio.ui.DtaColors
 import io.yamsergey.dta.studio.ui.StatementMark
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -72,10 +74,34 @@ class DaemonPanel(
         })
     }
 
+    private var poll: kotlinx.coroutines.Job? = null
+    private var shownView: DaemonView? = null
+    private var reads = 0
+
+    /** M3: shown, the tab reads again now and every 2 s (the counts move with the app's traffic) until [stopRefreshing]. */
+    fun show(state: ContextState) {
+        last = state
+        if (poll?.isActive == true) return
+        poll = scope.launch {
+            while (isActive) {
+                withContext(Dispatchers.Main) { last?.let { refresh(it) } }
+                delay(2_000)
+            }
+        }
+    }
+
+    fun stopRefreshing() {
+        poll?.cancel()
+        poll = null
+    }
+
     fun refresh(state: ContextState) {
         last = state
         injection = state.injectionLine
+        // Another device or app: the numbers shown are not this one's; say so until the answer comes (never a stale count as fact).
+        shown?.let { (_, _, was) -> if (was.device != state.device || was.app != state.app) { shown = null; showReading(state) } }
         val client = controller.client ?: return show(null)
+        val read = ++reads
         scope.launch {
             val status = runCatching { client.call("daemon.status").result.jsonObject }.getOrNull()
             val capability = if (state.device != null && state.app != null && state.connection != io.yamsergey.dta.present.context.Connection.NO_DTA) {
@@ -91,10 +117,22 @@ class DaemonPanel(
                 null
             }
             withContext(Dispatchers.Main) {
+                // An older answer never replaces a newer one; an answer equal to what is shown changes nothing (links stay clickable).
+                if (read != reads) return@withContext
+                val same = view == shownView && shown?.let { (h, l, st) -> h?.getOrNull() == history?.getOrNull() && h?.exceptionOrNull()?.message == history?.exceptionOrNull()?.message && l == listing && st == state } == true
+                if (same) return@withContext
+                shownView = view
                 show(view)
                 showHistory(history, listing, state)
             }
         }
+    }
+
+    private fun showReading(state: ContextState) {
+        historySlot.removeAll()
+        historySlot.add(gray("Reading the network history of ${state.app ?: "the app"}…").apply { border = JBUI.Borders.empty(12) }, BorderLayout.NORTH)
+        body.revalidate()
+        body.repaint()
     }
 
     /** Feature 066: the Network tab's "Network History…" and the notification land here. */
@@ -292,7 +330,7 @@ class DaemonPanel(
     /** Clear device history…: this computer copies what it does not have yet first, and says what it could not keep. */
     private fun clearDevice(summary: HistorySummary, state: ContextState) {
         val d = summary.device ?: return
-        val question = "Remove the network history of ${state.app} from the device: ${"%,d".format(d.entries)} entries, ${Units.bytes(d.bytes)}?\n\n" +
+        val question = "Remove the network history of ${state.app} from the device: ${Units.count(d.entries, "entry", "entries")}, ${Units.bytes(d.bytes)}?\n\n" +
             "This computer first copies what it does not have yet; the archive keeps everything it has. " +
             "If the copy does not finish in 20 s, what was not copied is gone, and you are told how much."
         if (Messages.showYesNoDialog(this, question, "Clear Device History", Messages.getWarningIcon()) != Messages.YES) return
@@ -303,7 +341,7 @@ class DaemonPanel(
                 result.exceptionOrNull()?.let { Messages.showErrorDialog(this@DaemonPanel, it.message ?: "The history could not be cleared.", "Clear Device History") }
                 (result.getOrNull()?.get("notKept") as? JsonObject)?.let { n ->
                     fun v(k: String) = (n[k] as? JsonPrimitive)?.content
-                    Messages.showWarningDialog(this@DaemonPanel, "${v("entries")} entries and ${v("bodies")} bodies were not on this computer yet and are gone: ${v("reason")}.", "Clear Device History")
+                    Messages.showWarningDialog(this@DaemonPanel, "${plural(v("entries"), "entry", "entries")} and ${plural(v("bodies"), "body", "bodies")} were not on this computer yet and are gone: ${v("reason")}.", "Clear Device History")
                 }
                 refresh(state)
             }
@@ -333,7 +371,7 @@ class DaemonPanel(
                     return@withContext
                 }
                 fun n(k: String) = (removed[k] as? JsonPrimitive)?.content ?: "0"
-                val question = "Delete ${n("epochs")} archived epochs, ${n("entries")} entries and ${n("bodiesFreed")} bodies " +
+                val question = "Delete ${plural(n("epochs"), "archived epoch")}, ${plural(n("entries"), "entry", "entries")} and ${plural(n("bodiesFreed"), "body", "bodies")} " +
                     "(${Units.bytes(n("bytesFreed").toLong())})? The live history and other apps are not touched. " +
                     "This cannot be undone; entries the device already removed are then gone from both."
                 if (Messages.showYesNoDialog(this@DaemonPanel, question, "Delete Archived History", Messages.getWarningIcon()) == Messages.YES) {
@@ -359,6 +397,9 @@ class DaemonPanel(
         /** Below this width the section stacks (the mockup's narrow board). */
         const val NARROW = 600
     }
+
+    /** "1 entry", "3 entries" for a count read from an answer as text. */
+    private fun plural(count: String?, one: String, many: String = one + "s") = Units.count(count?.toLongOrNull() ?: 0, one, many)
 
     private fun mb(bytes: Long) = if (bytes % (1024L * 1024 * 1024) == 0L) "${bytes / (1024L * 1024 * 1024)} GB" else "${bytes / (1024 * 1024)} MB"
 }

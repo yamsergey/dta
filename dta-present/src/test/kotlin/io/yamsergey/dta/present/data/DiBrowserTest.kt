@@ -52,3 +52,45 @@ class DiBrowserTest {
         assertEquals(4, w.edges.size)
     }
 }
+
+class DiBrowserNotesTest {
+    private val report = DiReport(listOf(
+        DiGraph("koin", "Koin", listOf(
+            DiBinding("app.BrokerApi", "brokerApi", "app.BrokerApi", true, "singleton", id = "0.0"),
+            DiBinding("app.Repo", "repo", "app.Repo", true, "singleton", id = "0.1", dependsOn = listOf("0.0")),
+            DiBinding("app.Lazy", "lazy", null, false, "singleton", id = "0.2"),
+            DiBinding("app.Screen", "screen", null, false, "factory", id = "0.3"),
+        )),
+    ))
+    private val di = DiBrowser(report)
+
+    @Test
+    fun `a binding with users or dependencies needs no note`() {
+        assertEquals(null, di.usedByNote("0.0"))
+        assertEquals(null, di.dependsOnNote("0.1"))
+    }
+
+    @Test
+    fun `the none-known text is the graph's own note, one text for the pane and the agents`() {
+        val note = "Used by / depends on: only links seen in created instances' fields; SPECIFIC-WHY."
+        val noted = DiBrowser(DiReport(listOf(DiGraph("koin", "Koin", listOf(DiBinding("app.A", "a", null, false, "singleton", id = "0.0")), note))))
+        assertEquals("None known. $note", noted.usedByNote("0.0"))
+        assertEquals("None known. $note", noted.dependsOnNote("0.0"))
+    }
+
+    @Test
+    fun `without a note the empty lists still say none known, a read instance with no links says None`() {
+        assertEquals("None known.", di.usedByNote("0.1"))
+        assertEquals("None known.", di.dependsOnNote("0.3"))
+        assertEquals("None", di.dependsOnNote("0.0"))
+    }
+}
+
+class DiLinksTextTest {
+    @Test
+    fun `the agents' text of a graph carries the links caveat`() {
+        val r = DiReport(listOf(DiGraph("koin", "Koin", listOf(DiBinding("app.A", "a", null, false, "factory", id = "0.0")), io.yamsergey.dta.protocol.data.DiLinks.note("koin"))))
+        val text = RuntimeText.di(r)
+        assertTrue("Used by / depends on: only links seen in created instances' fields" in text, text)
+    }
+}

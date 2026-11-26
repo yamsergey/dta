@@ -10,4 +10,7 @@ object Units {
     }
 
     fun millis(ms: Long): String = if (ms >= 1000) "%.1f s".format(ms / 1000.0) else "$ms ms"
+
+    /** "1 store", "8 stores": the count with its noun in the right number; [many] for an irregular plural. */
+    fun count(n: Number, one: String, many: String = one + "s"): String = "${"%,d".format(n.toLong())} ${if (n.toLong() == 1L) one else many}"
 }

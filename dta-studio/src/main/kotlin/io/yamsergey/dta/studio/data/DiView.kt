@@ -11,6 +11,7 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
+import io.yamsergey.dta.present.Units
 import io.yamsergey.dta.present.data.DiBrowser
 import io.yamsergey.dta.protocol.data.DiReport
 import io.yamsergey.dta.studio.ui.adaptiveSplitter
@@ -78,8 +79,8 @@ class DiView(private val refresh: () -> Unit) : JPanel(BorderLayout()) {
         tree.addTreeSelectionListener { ((tree.lastSelectedPathComponent as? DefaultMutableTreeNode)?.userObject as? DiBrowser.Node)?.let { show(it.id) } }
 
         val details = JPanel(GridLayout(1, 2, JBUI.scale(8), 0)).apply {
-            add(listPanel("Depends on", dependsOn))
-            add(listPanel("Used by", usedBy))
+            add(listPanel("Depends on", dependsOn).also { dependsOnList = it.second }.first)
+            add(listPanel("Used by", usedBy).also { usedByList = it.second }.first)
         }
         detail.add(details, Mode.DETAILS.name)
         detail.add(JBScrollPane(canvasHolder), "graph")
@@ -100,10 +101,14 @@ class DiView(private val refresh: () -> Unit) : JPanel(BorderLayout()) {
         render()
     }
 
+    private lateinit var dependsOnList: JBList<DiBrowser.Node>
+    private lateinit var usedByList: JBList<DiBrowser.Node>
+
     private data class GraphRow(val framework: String, val name: String, val count: Int)
 
-    private fun listPanel(title: String, items: DefaultListModel<DiBrowser.Node>) = JPanel(BorderLayout()).apply {
-        add(JBLabel(title).apply { border = JBUI.Borders.empty(2, 8); foreground = JBColor.GRAY }, BorderLayout.NORTH)
+    private fun listPanel(title: String, items: DefaultListModel<DiBrowser.Node>): Pair<JPanel, JBList<DiBrowser.Node>> {
+        val panel = JPanel(BorderLayout())
+        panel.add(JBLabel(title).apply { border = JBUI.Borders.empty(2, 8); foreground = JBColor.GRAY }, BorderLayout.NORTH)
         val list = JBList(items).apply {
             cellRenderer = object : ColoredListCellRenderer<DiBrowser.Node>() {
                 override fun customizeCellRenderer(l: JList<out DiBrowser.Node>, v: DiBrowser.Node?, i: Int, s: Boolean, f: Boolean) {
@@ -118,7 +123,21 @@ class DiView(private val refresh: () -> Unit) : JPanel(BorderLayout()) {
                 override fun mouseClicked(e: MouseEvent) { locationToIndex(e.point).takeIf { it >= 0 }?.let { select(items.getElementAt(it).id) } }
             })
         }
-        add(JBScrollPane(list), BorderLayout.CENTER)
+        panel.add(JBScrollPane(list), BorderLayout.CENTER)
+        return panel to list
+    }
+
+    /** An empty list's text, wrapped in lines the pane can show whole. */
+    private fun explain(list: JBList<DiBrowser.Node>, note: String) {
+        val lines = note.split(' ').fold(mutableListOf("")) { acc, w -> if (acc.last().length + w.length > 44 && acc.last().isNotEmpty()) acc.add(w) else acc[acc.lastIndex] = (acc.last() + " " + w).trim(); acc }
+        list.emptyText.text = lines.first()
+        lines.drop(1).forEach { list.emptyText.appendLine(it) }
+    }
+
+    /** Nothing of the previous app stays (D-103): no tree, no links, no graph, nothing chosen. */
+    fun clear() {
+        show(DiReport(emptyList()))
+        summary = ""
     }
 
     /** Shows [report]; the chosen binding stays chosen when it is still there. */
@@ -136,7 +155,7 @@ class DiView(private val refresh: () -> Unit) : JPanel(BorderLayout()) {
         model.reload()
         for (i in 0 until tree.rowCount) tree.expandRow(i)
         summary = if (report.graphs.isEmpty()) report.note ?: "No DI graph." else
-            "${report.graphs.size} graphs, ${di.nodes.size} bindings, ${di.nodes.count { it.binding.runtimeType != null }} created" + (report.note?.let { " · $it" } ?: "")
+            "${Units.count(report.graphs.size, "graph")}, ${Units.count(di.nodes.size, "binding")}, ${di.nodes.count { it.binding.runtimeType != null }} created" + (report.note?.let { " · $it" } ?: "")
         (keep?.takeIf { it in nodesById } ?: di.nodes.firstOrNull()?.id)?.let { select(it) } ?: run { selectedId = null; render() }
     }
 
@@ -164,6 +183,9 @@ class DiView(private val refresh: () -> Unit) : JPanel(BorderLayout()) {
         header.toolTipText = n?.let { listOfNotNull(it.binding.type, it.binding.runtimeType?.let { r -> "instance: $r" }, "graph: ${it.graph} (${it.framework})").joinToString("<br>", "<html>", "</html>") }
         dependsOn.clear(); usedBy.clear()
         if (id != null) { di.dependsOn(id).forEach(dependsOn::addElement); di.usedBy(id).forEach(usedBy::addElement) }
+        // An empty list says why (D-104): "None known" where the framework hides the link, not a bare "None".
+        explain(dependsOnList, id?.let(di::dependsOnNote) ?: "None")
+        explain(usedByList, id?.let(di::usedByNote) ?: "None")
         when (mode) {
             Mode.DETAILS -> cards.show(detail, Mode.DETAILS.name)
             Mode.NEIGHBOURS -> { canvas.show(id?.let { di.neighbourhood(it) } ?: DiBrowser.Layout(emptyList(), emptyList()), id); cards.show(detail, "graph") }

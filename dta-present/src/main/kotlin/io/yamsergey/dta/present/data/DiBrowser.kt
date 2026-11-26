@@ -9,7 +9,7 @@ import io.yamsergey.dta.protocol.data.DiReport
  * whole graph in layers by dependency depth. Pure.
  */
 class DiBrowser(val report: DiReport) {
-    data class Node(val id: String, val graph: String, val framework: String, val binding: DiBinding) {
+    data class Node(val id: String, val graph: String, val framework: String, val binding: DiBinding, val graphNote: String? = null) {
         val title: String get() = binding.type.substringBefore('<').substringAfterLast('.').ifEmpty { binding.name }
         val state: String get() = listOfNotNull(
             binding.kind,
@@ -25,7 +25,7 @@ class DiBrowser(val report: DiReport) {
     data class Layout(val columns: List<List<String>>, val edges: List<Pair<String, String>>)
 
     val nodes: List<Node> = report.graphs.flatMapIndexed { gi, g ->
-        g.bindings.mapIndexed { bi, b -> Node(b.id ?: "$gi.$bi", g.name, g.framework, b) }
+        g.bindings.mapIndexed { bi, b -> Node(b.id ?: "$gi.$bi", g.name, g.framework, b, g.note) }
     }
     private val byId = nodes.associateBy { it.id }
     private val users: Map<String, List<String>> = nodes.flatMap { n -> n.binding.dependsOn.map { it to n.id } }.groupBy({ it.first }, { it.second })
@@ -33,6 +33,24 @@ class DiBrowser(val report: DiReport) {
     fun node(id: String): Node? = byId[id]
     fun dependsOn(id: String): List<Node> = byId[id]?.binding?.dependsOn.orEmpty().mapNotNull(byId::get)
     fun usedBy(id: String): List<Node> = users[id].orEmpty().mapNotNull(byId::get)
+
+    /**
+     * Why "Used by" is empty (D-104), or null when it is not: "None known" and the graph's own note about
+     * the links it cannot see (the text the agents get), so an empty list is never a bare "None".
+     */
+    fun usedByNote(id: String): String? {
+        val n = byId[id] ?: return null
+        return if (usedBy(id).isNotEmpty()) null else noneKnown(n)
+    }
+
+    /** Why "Depends on" is empty, or null when it is not; "None" when the instance is read and holds no other binding. */
+    fun dependsOnNote(id: String): String? {
+        val n = byId[id] ?: return null
+        if (dependsOn(id).isNotEmpty()) return null
+        return if (n.binding.runtimeType != null) "None" else noneKnown(n)
+    }
+
+    private fun noneKnown(n: Node) = listOfNotNull("None known.", n.graphNote).joinToString(" ")
 
     /** [id], its dependencies [depth] levels to the left and its dependents [depth] levels to the right. */
     fun neighbourhood(id: String, depth: Int = 2): Layout {
