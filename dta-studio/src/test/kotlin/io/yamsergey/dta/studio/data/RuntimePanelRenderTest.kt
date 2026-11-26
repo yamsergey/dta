@@ -96,6 +96,18 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
         render(p, "runtime-memory")
     }
 
+    fun `test an instance links to its exact ViewModel and navigation host`() {
+        val p = panel()
+        p.load()
+        p.openLinked(io.yamsergey.dta.present.data.MemoryRows.Target.VIEWMODELS, "v1")
+        assertTrue((p.tree.lastSelectedPathComponent as DefaultMutableTreeNode).userObject.toString().contains("CartViewModel"))
+        assertEquals("app.CartViewModel", p.currentViewModelClass)
+        p.openLinked(io.yamsergey.dta.present.data.MemoryRows.Target.NAVIGATION, "c1")
+        assertTrue((p.tree.lastSelectedPathComponent as DefaultMutableTreeNode).userObject.toString().contains("product"))
+        p.openLinked(io.yamsergey.dta.present.data.MemoryRows.Target.ACTIVITIES, "a1")
+        assertEquals("Activities", (p.tree.lastSelectedPathComponent as DefaultMutableTreeNode).userObject.let { it.toString().lowercase().replaceFirstChar { c -> c.uppercase() } })
+    }
+
     fun `test the selected value is shown formatted below the table and edited there`() {
         val p = panel()
         p.load()

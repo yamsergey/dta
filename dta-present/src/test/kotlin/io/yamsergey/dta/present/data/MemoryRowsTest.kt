@@ -24,11 +24,14 @@ class MemoryRowsTest {
     private fun cmp(vararg r: HeapComparisonRow, left: HeapLeftOut = HeapLeftOut()) =
         HeapComparison("s1", "s2", "r", r.toList(), HeapFilter(), left, 3, 0, 0)
 
-    @Test fun classNamesAreShortenedToTheLastThreeSegments() {
-        assertEquals("…broker.ui.OrderActivity", MemoryRows.shortName("io.yamsergey.dta.apps.broker.ui.OrderActivity"))
-        assertEquals("a.b.C", MemoryRows.shortName("a.b.C"))
-        assertEquals("byte[]", MemoryRows.shortName("byte[]"))
-        assertEquals("…x.ui.Outer\$Inner", MemoryRows.shortName("com.x.ui.Outer\$Inner"))
+    @Test fun longNamesAreElidedInTheMiddleSoTheSimpleNameStays() {
+        val full = "io.yamsergey.dta.apps.broker.ui.OrderActivity"
+        assertEquals(full, MemoryRows.elide(full, full.length))
+        assertEquals("io.yamsergey…OrderActivity", MemoryRows.elide(full, 26))
+        assertEquals("…OrderActivity", MemoryRows.elide(full, 14))
+        assertEquals("byte[]", MemoryRows.elide("byte[]", 10))
+        assertEquals("OrderActivi…", MemoryRows.elide("a.b.OrderActivityXL", 12))
+        assertEquals("a.b.C\$Inner", MemoryRows.elide("a.b.C\$Inner", 20))
     }
 
     @Test fun comparisonColumnsFollowTheWidth() {
@@ -39,12 +42,12 @@ class MemoryRowsTest {
 
     @Test fun comparisonRowsShowSignedDeltasAndGrowingClassesStayFirst() {
         val rows = MemoryRows.rows(cmp(row("com.x.broker.ui.OrderActivity", 1, 4, 400, 1600), row("com.x.broker.ui.MarketsViewModel", 1, 1, 96, 96)), narrow = false, histogram = false)
-        assertEquals(listOf("…broker.ui.OrderActivity", "1", "4", "+3", "+1.2 KB"), rows[0].cells)
-        assertEquals(listOf("…broker.ui.MarketsViewModel", "1", "1", "0", "0 B"), rows[1].cells)
+        assertEquals(listOf("com.x.broker.ui.OrderActivity", "1", "4", "+3", "+1.2 KB"), rows[0].cells)
+        assertEquals(listOf("com.x.broker.ui.MarketsViewModel", "1", "1", "0", "0 B"), rows[1].cells)
         assertTrue(rows[0].grew)
         assertFalse(rows[1].grew)
         assertEquals("com.x.broker.ui.OrderActivity", rows[0].className)
-        assertEquals(listOf("…broker.ui.OrderActivity", "+3", "+1.2 KB"), MemoryRows.rows(cmp(row("com.x.broker.ui.OrderActivity", 1, 4, 400, 1600)), narrow = true, histogram = false)[0].cells)
+        assertEquals(listOf("com.x.broker.ui.OrderActivity", "+3", "+1.2 KB"), MemoryRows.rows(cmp(row("com.x.broker.ui.OrderActivity", 1, 4, 400, 1600)), narrow = true, histogram = false)[0].cells)
     }
 
     @Test fun shrinkingClassesShowMinus() {

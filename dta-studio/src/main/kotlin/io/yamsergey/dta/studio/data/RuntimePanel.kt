@@ -192,9 +192,19 @@ class RuntimePanel(
     }
 
     /** A link from a heap instance: the Runtime view of that kind. */
-    private fun openLinked(target: io.yamsergey.dta.present.data.MemoryRows.Target, @Suppress("UNUSED_PARAMETER") ref: String?) {
-        selectSection(Section.entries.first { it.label == target.section })
+    internal fun openLinked(target: io.yamsergey.dta.present.data.MemoryRows.Target, ref: String?) {
+        // Where the view can select by id (a ViewModel, a navigation host) the exact one is selected; otherwise the section.
+        val exact = ref?.let { id ->
+            root.depthFirstEnumeration().toList().map { it as DefaultMutableTreeNode }.firstOrNull { n ->
+                (n.userObject as? Item)?.let { (target == io.yamsergey.dta.present.data.MemoryRows.Target.VIEWMODELS && it.vm?.id == id) || (target == io.yamsergey.dta.present.data.MemoryRows.Target.NAVIGATION && it.host?.id == id) } == true
+            }
+        }
+        if (exact != null) tree.selectionPath = javax.swing.tree.TreePath(exact.path)
+        else selectSection(Section.entries.first { it.label == target.section })
     }
+
+    /** The class of the ViewModel shown (what tests read). */
+    internal val currentViewModelClass: String? get() = currentVm?.className
 
     /** Feature 048: the ViewModels alive now, asked for from the Timeline; read only for this. */
     fun openViewModels() {

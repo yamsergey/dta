@@ -21,6 +21,8 @@ class HeapSnapshotStore(
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxSnapshots: Int = 20,
     private val minIntervalMs: Long = 2_000,
+    /** The zone refusal times are shown in. */
+    private val zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
 ) {
     data class Ticket internal constructor(val app: String, val run: String, val name: String?, internal val id: Long)
 
@@ -67,7 +69,7 @@ class HeapSnapshotStore(
             val next = last + minIntervalMs
             if (now < next) {
                 return Begin.Refused(
-                    "too soon: one heap walk per ${minIntervalMs} ms per app; next allowed in ${next - now} ms (at $next)",
+                    "too soon: one heap walk per ${minIntervalMs} ms per app; next allowed at ${clock(next)}, in ${"%.1f".format(java.util.Locale.ROOT, (next - now) / 1000.0)} s",
                     nextAllowedAtMs = next,
                 )
             }
@@ -157,6 +159,8 @@ class HeapSnapshotStore(
         val sb = get(app, b) ?: return HeapCompareResult.Refused(unknown(s, b))
         return compareHeap(sa, sb, filter)
     }
+
+    private fun clock(ms: Long): String = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss").withZone(zone).format(java.time.Instant.ofEpochMilli(ms))
 
     /** `empty` as the earlier side: no classes, so the later snapshot's classes all appear (a histogram with the comparison's filters). */
     private fun emptyOf(s: AppState) = HeapSnapshot(id = EMPTY, run = s.run!!, takenAtMs = 0, pauseMs = 0, classes = emptyList(), totals = HeapTotals(0, 0))

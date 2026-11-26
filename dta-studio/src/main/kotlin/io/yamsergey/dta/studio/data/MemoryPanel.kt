@@ -34,19 +34,15 @@ import java.awt.Component
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.datatransfer.StringSelection
-import java.awt.event.ComponentAdapter
-import java.awt.event.ComponentEvent
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.swing.BoxLayout
-import javax.swing.ButtonGroup
 import javax.swing.DefaultComboBoxModel
 import javax.swing.DefaultListModel
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JPanel
-import javax.swing.JToggleButton
 import javax.swing.ListSelectionModel
 import javax.swing.SwingUtilities
 import javax.swing.table.AbstractTableModel
@@ -80,8 +76,16 @@ class MemoryPanel(
 
     private val comboA = JComboBox<Pick>().apply { name = "memory.a" }
     private val comboB = JComboBox<Pick>().apply { name = "memory.b" }
-    private val appOnly = JToggleButton("App classes", true).apply { name = "memory.origin.app" }
-    private val allOrigins = JToggleButton("All").apply { name = "memory.origin.all" }
+    private var originAll = false
+    private lateinit var originSegments: com.intellij.ui.dsl.builder.SegmentedButton<String>
+    /** App classes | All, as the board's segmented control. */
+    private val originControl: JPanel = com.intellij.ui.dsl.builder.panel {
+        row {
+            originSegments = segmentedButton(listOf(APP_CLASSES, ALL)) { text = it }
+                .whenItemSelected { if ((it == ALL) != originAll) { originAll = it == ALL; compare() } }
+            originSegments.selectedItem = APP_CLASSES
+        }
+    }.apply { name = "memory.origin"; isOpaque = false }
     private val nameField = JBTextField(16).apply { name = "memory.name"; emptyText.text = "snapshot name (optional)" }
     private val packageField = JBTextField(14).apply { name = "memory.package"; emptyText.text = "package prefix" }
 
@@ -114,8 +118,15 @@ class MemoryPanel(
         override fun getColumnName(column: Int) = MemoryRows.columns(narrow, histogram)[column]
         override fun getValueAt(row: Int, column: Int): Any = rows[row].cells[column]
     }
-    internal val table = JBTable(tableModel).apply {
+    internal val table = object : JBTable(tableModel) {
+        /** The class's whole name, whatever the column shows of it. */
+        override fun getToolTipText(e: java.awt.event.MouseEvent): String? {
+            val row = rowAtPoint(e.point); val col = columnAtPoint(e.point)
+            return if (row >= 0 && col == 0) tableModel.rows.getOrNull(row)?.className else super.getToolTipText(e)
+        }
+    }.apply {
         name = "memory.table"
+        autoResizeMode = javax.swing.JTable.AUTO_RESIZE_ALL_COLUMNS
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         font = mono
         setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
@@ -124,6 +135,11 @@ class MemoryPanel(
                 val r = tableModel.rows.getOrNull(row)
                 c.font = if (r?.grew == true && !histogram && col >= (if (narrow) 1 else 3)) mono.deriveFont(Font.BOLD) else mono
                 horizontalAlignment = if (col == 0) LEFT else RIGHT
+                if (col == 0 && r != null) {
+                    // The simple name stays: the middle of a long name is elided to the room the column has.
+                    val chars = ((t.columnModel.getColumn(0).width - JBUI.scale(10)) / t.getFontMetrics(mono).charWidth('m')).coerceAtLeast(6)
+                    text = MemoryRows.elide(r.className, chars)
+                }
                 return c
             }
         })
@@ -173,13 +189,12 @@ class MemoryPanel(
         add(main, BorderLayout.CENTER)
 
         content.add(JPanel(BorderLayout()).apply { add(JBLabel("<html><div style='width:320px;text-align:center'>${MemoryRows.EMPTY}</div></html>", JBLabel.CENTER).apply { foreground = JBColor.GRAY; name = "memory.empty" }, BorderLayout.CENTER) }, EMPTY)
-        ButtonGroup().apply { add(appOnly); add(allOrigins) }
         // Two rows so nothing is cut at a narrow width: which snapshots, then which classes.
         val pickers = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
             add(snapshotRow)
-            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply { add(appOnly); add(allOrigins); add(packageField) })
+            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply { add(originControl); add(packageField) })
         }
         val tablePane = JBScrollPane(table)
         val instances = JPanel().apply {
@@ -200,8 +215,6 @@ class MemoryPanel(
         layoutPickers()
 
         listOf(comboA, comboB).forEach { c -> c.addActionListener { if (!updating) compare() } }
-        listOf(appOnly, allOrigins).forEach { b -> b.addActionListener { markOrigin(); compare() } }
-        markOrigin()
         // The package filter applies as it is typed (a short pause after the last key), or at Enter.
         val debounce = javax.swing.Timer(350) { compare() }.apply { isRepeats = false }
         packageField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
@@ -218,30 +231,35 @@ class MemoryPanel(
             instanceLink.isVisible = r?.linkText != null
             instanceLink.text = r?.let { "Open in ${it.linkText?.removeSuffix(" ›")}" } ?: ""
         }
-        addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent) {
-                val n = width in 1 until NARROW
-                if (n != narrow) { narrow = n; splitter.orientation = n; showRows(); layoutPickers() }
-            }
-        })
     }
 
-    private fun vbar(): JPanel = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(4, 2)
-        fun button(icon: javax.swing.Icon, title: String, id: String, action: () -> Unit) = JButton(icon).apply {
-            toolTipText = title; name = id; accessibleContext.accessibleName = title
-            isBorderPainted = false; isContentAreaFilled = false; isFocusable = false
-            alignmentX = Component.CENTER_ALIGNMENT
-            addActionListener { action() }
+    /** The actions in a vertical strip at the left, as the Network and Timeline lists have theirs. */
+    /** Narrow follows the width at every layout (so it holds before the panel is shown, too). */
+    override fun doLayout() {
+        val n = width in 1 until NARROW
+        if (n != narrow) { narrow = n; splitter.orientation = n; showRows(); layoutPickers() }
+        super.doLayout()
+    }
+
+    private fun vbar(): javax.swing.JComponent {
+        fun act(text: String, icon: javax.swing.Icon, run: () -> Unit) = object : com.intellij.openapi.project.DumbAwareAction(text, null, icon) {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = run()
+            override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.BGT
         }
-        add(button(AllIcons.Actions.Dump, "Take snapshot", "memory.snapshot") { takeSnapshot(gc = false) })
-        add(button(AllIcons.Actions.GC, "Take snapshot after a garbage collection", "memory.snapshot.gc") { takeSnapshot(gc = true) })
-        add(javax.swing.JSeparator().apply { maximumSize = java.awt.Dimension(JBUI.scale(18), JBUI.scale(4)) })
-        add(button(AllIcons.Actions.Diff, "Compare the two snapshots shown", "memory.compare") { compare() })
-        add(button(AllIcons.Actions.Copy, "Copy the comparison as text", "memory.copy") {
-            comparison?.let { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(HeapText.compare(it)), null) }
-        })
+        val group = com.intellij.openapi.actionSystem.DefaultActionGroup(
+            act("Take Snapshot", AllIcons.Actions.Dump) { takeSnapshot(gc = false) },
+            act("Take Snapshot After a Garbage Collection", AllIcons.Actions.GC) { takeSnapshot(gc = true) },
+            com.intellij.openapi.actionSystem.Separator.getInstance(),
+            act("Compare the Two Snapshots Shown", AllIcons.Actions.Diff) { compare() },
+            act("Copy the Comparison as Text", AllIcons.Actions.Copy) {
+                comparison?.let { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(HeapText.compare(it)), null) }
+            },
+        )
+        return com.intellij.openapi.actionSystem.ActionManager.getInstance().createActionToolbar("DtaMemory", group, false).apply {
+            targetComponent = this@MemoryPanel
+            component.isOpaque = false
+            component.border = JBUI.Borders.emptyRight(2)
+        }.component
     }
 
     /** Reads the memory numbers and the list of snapshots (never takes one: FR-000). */
@@ -308,7 +326,7 @@ class MemoryPanel(
         val hist = a == HISTOGRAM || a == b
         val params = buildMap<String, kotlinx.serialization.json.JsonElement> {
             put("a", JsonPrimitive(if (hist) "empty" else a)); put("b", JsonPrimitive(b))
-            put("origin", JsonPrimitive(if (allOrigins.isSelected) "all" else "app"))
+            put("origin", JsonPrimitive(if (originAll) "all" else "app"))
             packageField.text.trim().takeIf { it.isNotEmpty() }?.let { put("package", JsonPrimitive(it)) }
         }
         scope.launch {
@@ -318,7 +336,7 @@ class MemoryPanel(
                     comparison = c; histogram = hist
                     showRows()
                     val info = l.snapshots.firstOrNull { it.id == b }
-                    statement.text = info?.let { MemoryRows.statement("B", it, allOrigins.isSelected) } ?: ""
+                    statement.text = info?.let { MemoryRows.statement("B", it, originAll) } ?: ""
                     leftOut.text = MemoryRows.leftOut(c.comparison)?.let { "$it." } ?: ""
                     if (keepStatus) keepStatus = false else say("")
                     instances = null; instancesPanel().isVisible = false
@@ -334,20 +352,21 @@ class MemoryPanel(
         sizeColumns()
     }
 
-    /** The chosen origin is the bold, tinted one (a toggle in the IDE's theme does not show it on its own). */
-    private fun markOrigin() {
-        listOf(appOnly, allOrigins).forEach { b ->
-            b.font = if (b.isSelected) b.font.deriveFont(Font.BOLD) else b.font.deriveFont(Font.PLAIN)
-            b.isOpaque = b.isSelected
-            b.background = if (b.isSelected) JBColor(java.awt.Color(0xD5E4FF), java.awt.Color(0x2E436E)) else null
-            b.repaint()
-        }
+    /** The origin of the classes shown (the segmented control follows). */
+    internal fun setOrigin(all: Boolean) {
+        originAll = all
+        originSegments.selectedItem = if (all) ALL else APP_CLASSES
+        compare()
     }
 
     /** The class name gets the room; the numbers stay narrow. */
     private fun sizeColumns() {
         val cm = table.columnModel
-        for (i in 0 until cm.columnCount) cm.getColumn(i).preferredWidth = if (i == 0) JBUI.scale(300) else JBUI.scale(64)
+        // Class takes what is left; the numbers keep room for "+283.4 KB" even at 420 px (the board drops A and B instead).
+        for (i in 0 until cm.columnCount) cm.getColumn(i).apply {
+            if (i == 0) { minWidth = JBUI.scale(60); preferredWidth = JBUI.scale(if (narrow) 160 else 300) }
+            else { minWidth = JBUI.scale(58); preferredWidth = JBUI.scale(if (narrow) 84 else 72) }
+        }
     }
 
     private fun instancesPanel(): Component = splitter.secondComponent
@@ -388,6 +407,8 @@ class MemoryPanel(
         private const val NARROW = 560
         private const val EMPTY = "empty"
         private const val CONTENT = "content"
+        private const val APP_CLASSES = "App classes"
+        private const val ALL = "All"
         private const val HISTOGRAM = "histogram"
         private val EMPTY_PARAMS = JsonObject(emptyMap())
     }

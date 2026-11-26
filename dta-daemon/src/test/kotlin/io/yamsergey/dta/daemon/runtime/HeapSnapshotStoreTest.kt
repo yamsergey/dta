@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 /** Feature 074 (A2): per-run store, bound 20, named kept, rate limit, one walk at a time. */
 class HeapSnapshotStoreTest {
     private var now = 1_000_000L
-    private val store = HeapSnapshotStore(clock = { now })
+    private val store = HeapSnapshotStore(clock = { now }, zone = java.time.ZoneOffset.UTC)
     private val app = "com.example"
 
     private fun rows(n: Long = 1) = listOf(HeapClassRow("A", null, HeapOrigin.APP, n, n * 10))
@@ -65,7 +65,9 @@ class HeapSnapshotStoreTest {
         take(gap = 500)
         val b = assertIs<HeapSnapshotStore.Begin.Refused>(store.begin(app, "r1", null))
         assertEquals(now + 1_500, b.nextAllowedAtMs)
-        assertTrue(b.reason.contains("1500") || b.reason.contains("1.5"))
+        // 1_000_000 + 500 + 1500 ms after the epoch, in UTC: a clock time and the wait in seconds, not epoch milliseconds
+        assertTrue(b.reason.contains("next allowed at 00:16:42, in 1.5 s"), b.reason)
+        assertTrue(!b.reason.contains("1001"))
         now += 1_500
         assertIs<HeapSnapshotStore.Begin.Allowed>(store.begin(app, "r1", null))
     }

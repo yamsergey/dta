@@ -23,10 +23,18 @@ object MemoryRows {
 
     data class InstanceRow(val label: String, val state: String, val linkText: String?, val target: Target?, val ref: String?, val id: Long)
 
-    /** `…broker.ui.OrderActivity`: the last three segments of a long name; short names and arrays as they are. */
-    fun shortName(name: String): String {
-        val parts = name.split('.')
-        return if (parts.size > 3) "…" + parts.takeLast(3).joinToString(".") else name
+    /**
+     * [name] in at most [max] characters, elided in the middle so the simple name stays: `io.yamsergey…OrderActivity`
+     * (`…OrderActivity` when even the start of the package does not fit; a simple name too long for [max] is cut at its end).
+     */
+    fun elide(name: String, max: Int): String {
+        if (name.length <= max) return name
+        val simple = name.substringAfterLast('.')
+        val pkg = name.substringBeforeLast('.', "")
+        if (pkg.isEmpty()) return name.take((max - 1).coerceAtLeast(1)) + "…"
+        if (simple.length >= max) return simple.take((max - 1).coerceAtLeast(1)) + "…"
+        val keep = max - simple.length - 1
+        return (if (keep > 0) pkg.take(keep) else "") + "…" + simple
     }
 
     fun columns(narrow: Boolean, histogram: Boolean): List<String> = when {
@@ -40,9 +48,9 @@ object MemoryRows {
 
     fun rows(c: HeapComparison, narrow: Boolean, histogram: Boolean): List<Row> = c.rows.map { r ->
         val cells = when {
-            histogram -> listOf(shortName(r.className), r.countB.toString(), Units.bytes(r.bytesB))
-            narrow -> listOf(shortName(r.className), signed(r.deltaCount), signedBytes(r.deltaBytes))
-            else -> listOf(shortName(r.className), r.countA.toString(), r.countB.toString(), signed(r.deltaCount), signedBytes(r.deltaBytes))
+            histogram -> listOf(r.className, r.countB.toString(), Units.bytes(r.bytesB))
+            narrow -> listOf(r.className, signed(r.deltaCount), signedBytes(r.deltaBytes))
+            else -> listOf(r.className, r.countA.toString(), r.countB.toString(), signed(r.deltaCount), signedBytes(r.deltaBytes))
         }
         Row(cells, r.className, r.deltaBytes > 0)
     }

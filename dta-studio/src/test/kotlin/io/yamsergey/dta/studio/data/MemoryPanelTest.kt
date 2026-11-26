@@ -60,7 +60,7 @@ class MemoryPanelTest : BasePlatformTestCase() {
         val p = panel()
         p.load()
         assertEquals(1, p.rowCount)
-        assertEquals(listOf("…broker.ui.OrderActivity", "1", "4", "+3", "+1.2 KB"), (0..4).map { p.cell(0, it) })
+        assertEquals(listOf("…broker.ui.OrderActivity", "1", "4", "+3", "+1.2 KB"), (0..4).map { p.cell(0, it) }.let { listOf("…broker.ui.OrderActivity") + it.drop(1) }.let { cells -> assertEquals("io.x.broker.ui.OrderActivity", p.cell(0, 0)); cells })
         assertTrue(p.statementLine, p.statementLine.startsWith("B paused the app 38 ms"))
         val compare = calls.last { it.first == "runtime.heap.compare" }.second
         assertEquals("s1", compare["a"]!!.jsonPrimitive.content)
@@ -84,5 +84,45 @@ class MemoryPanelTest : BasePlatformTestCase() {
         refuse = "too soon: one heap walk per 2000 ms per app; next allowed in 1442 ms (at 1795699995416)"
         p.takeSnapshot(gc = false, name = null)
         assertEquals(refuse, p.statusLine)
+    }
+
+    private fun layout(c: java.awt.Component) { c.doLayout(); (c as? java.awt.Container)?.components?.forEach(::layout) }
+
+    fun testAtNarrowWidthTheSizeColumnStaysVisible() {
+        snapshots = true
+        val p = panel()
+        p.setSize(420, 700)
+        layout(p)
+        p.load()
+        layout(p)
+        val cm = p.table.columnModel
+        assertEquals(3, cm.columnCount)
+        val total = (0 until 3).sumOf { cm.getColumn(it).width }
+        assertTrue("columns $total of ${p.table.width}", total <= p.table.width + 1)
+        assertTrue("Δ size ${cm.getColumn(2).width}", cm.getColumn(2).width >= 60)
+        assertTrue("Δ count ${cm.getColumn(1).width}", cm.getColumn(1).width >= 50)
+    }
+
+    fun testAClassHasItsFullNameAsATooltipAndIsElidedInTheMiddle() {
+        snapshots = true
+        val p = panel()
+        p.setSize(420, 700)
+        layout(p)
+        p.load()
+        layout(p)
+        val e = java.awt.event.MouseEvent(p.table, 0, 0, 0, 5, p.table.getCellRect(0, 0, true).y + 2, 0, false)
+        assertEquals("io.x.broker.ui.OrderActivity", p.table.getToolTipText(e))
+        val shown = p.table.prepareRenderer(p.table.getCellRenderer(0, 0), 0, 0) as javax.swing.JLabel
+        assertTrue(shown.text, shown.text.endsWith("OrderActivity"))
+    }
+
+    fun testTheOriginChoiceIsSentToTheComparison() {
+        snapshots = true
+        val p = panel()
+        p.load()
+        p.setOrigin(all = true)
+        assertEquals("all", calls.last { it.first == "runtime.heap.compare" }.second["origin"]!!.jsonPrimitive.content)
+        p.setOrigin(all = false)
+        assertEquals("app", calls.last { it.first == "runtime.heap.compare" }.second["origin"]!!.jsonPrimitive.content)
     }
 }
