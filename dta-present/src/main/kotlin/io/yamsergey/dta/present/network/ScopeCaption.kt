@@ -44,7 +44,7 @@ object ScopeCaption {
             FindState.STOPPED -> Caption("Search stopped · ${grouped(shown)} shown · ${grouped(total)} $where$savedText", if (more) Action.INCLUDE_ARCHIVE else null)
             FindState.FAILED -> Caption("Search failed${error?.let { ": $it" }.orEmpty()} · ${grouped(shown)} shown$savedText")
             else -> when {
-                !filtered && savedOn == null -> Caption("${grouped(total)} entries $where$earlier", if (more) Action.INCLUDE_ARCHIVE else null)
+                !filtered && savedOn == null -> Caption("${grouped(total)} ${if ((total).toLong() == 1L) "entry" else "entries"} $where$earlier", if (more) Action.INCLUDE_ARCHIVE else null)
                 else -> Caption("${grouped(shown)} shown · ${grouped(total)} $where$earlier$savedText", if (more) Action.INCLUDE_ARCHIVE else null)
             }
         }
@@ -75,11 +75,11 @@ object ScopeCaption {
 
     /** Board 3: the separator above an earlier run's rows. */
     fun earlierRun(run: ScopeRun, zone: ZoneId = ZoneId.systemDefault()): String =
-        "Earlier run" + (run.startedMs?.let { " · started ${day(it, zone)}" } ?: "") + " · ${grouped(run.entries)} entries"
+        "Earlier run" + (run.startedMs?.let { " · started ${day(it, zone)}" } ?: "") + " · ${grouped(run.entries)} ${if ((run.entries).toLong() == 1L) "entry" else "entries"}"
 
     /** Board 3: the separator above an archived epoch's rows. */
     fun archived(epoch: ScopeEpoch, zone: ZoneId = ZoneId.systemDefault()): String =
-        "Archived history" + (epoch.closedMs?.let { " · ${reason(epoch.reason)} ${day(it, zone)}" } ?: "") + " · ${grouped(epoch.entries)} entries"
+        "Archived history" + (epoch.closedMs?.let { " · ${reason(epoch.reason)} ${day(it, zone)}" } ?: "") + " · ${grouped(epoch.entries)} ${if ((epoch.entries).toLong() == 1L) "entry" else "entries"}"
 
     /** The CLI's caption: the tab's words, with the switch named where the tab offers a link. */
     fun cli(caption: Caption): String = when (caption.action) {
