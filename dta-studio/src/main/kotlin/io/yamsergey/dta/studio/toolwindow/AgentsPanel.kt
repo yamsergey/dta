@@ -145,4 +145,6 @@ class AgentsPanel(
         port.text = prefs.port.toString()
         connect.render()
     }
+
+    private fun wrapAll(available: Int) { if (available > 0) wrapped.forEach { it.wrapTo(available) } }
 }

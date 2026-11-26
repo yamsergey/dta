@@ -783,7 +783,7 @@ class Formatters(private val style: Style) {
         val adb = o.obj("adb")
         appendLine(if (adb?.bool("available") == true) "adb ${adb.str("path")}" else style.mark(StatementKind.DEGRADED, "adb unavailable: ${adb?.str("reason")}"))
         val clients = o.arr("clients")
-        appendLine("clients ${clients.size}" + clients.joinToString("") { c -> "\n  ${c.obj.str("kind")} ${c.obj.str("version")}" })
+        appendLine("clients ${clients.size}" + clients.joinToString("") { c -> "\n  ${io.yamsergey.dta.present.daemon.DaemonView.clientLine(c.obj)}" })
         val devices = o.arr("devices")
         appendLine("devices ${devices.size}" + devices.joinToString("") { d -> "\n  ${d.obj.str("serial")} ${d.obj.str("state")}${d.obj.str("model")?.let { " $it" } ?: ""}" })
         val connections = o.arr("connections")

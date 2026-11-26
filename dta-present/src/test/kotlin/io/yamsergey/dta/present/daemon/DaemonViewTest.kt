@@ -56,4 +56,22 @@ class DaemonViewTest {
         val layout = DaemonView.from(canned("daemon-status"), capability).capabilities.single()
         assertTrue("ui-tooling" in layout.advice!!, layout.advice)
     }
+
+    @Test
+    fun `a client line says the agent's name, its version and which server (073 FR-008)`() {
+        val status = JsonObject(canned("daemon-status") + ("clients" to Json.parseToJsonElement(
+            """[{"kind":"mcp-http","version":"0.10.0","connectedAtMs":1,"name":"claude-code","agentVersion":"2.1.330","server":"http://127.0.0.1:7341/mcp"},
+               {"kind":"mcp","version":"0.10.0","connectedAtMs":2,"name":"unnamed client"},
+               {"kind":"cli","version":"0.10.0","connectedAtMs":3,"name":"dta CLI"},
+               {"kind":"ide","version":"0.10.0","connectedAtMs":4}]""")))
+        assertEquals(
+            listOf(
+                "mcp-http 0.10.0 — claude-code 2.1.330 · http://127.0.0.1:7341/mcp",
+                "mcp 0.10.0 — unnamed client",
+                "cli 0.10.0 — dta CLI",
+                "ide 0.10.0",
+            ),
+            DaemonView.from(status, capability = null).clients,
+        )
+    }
 }
