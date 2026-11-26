@@ -302,10 +302,15 @@ object Statements {
 
     private fun redaction(element: JsonElement?): List<Statement> {
         val r = element as? JsonObject ?: return emptyList()
-        if (!r.bool("applied", default = true)) return listOf(Statement(StatementKind.DEGRADED, detail = "redaction requested but overridden"))
-        val masked = r.arr("masked").joinToString(", ") { it.content }.ifEmpty { "nothing to mask" }
+        val forAgents = r.bool("forAgents")
+        if (!r.bool("applied", default = true)) {
+            return listOf(Statement(StatementKind.DEGRADED, detail = if (forAgents) "not redacted: redaction for agents is off in the plugin's settings" else "not redacted"))
+        }
+        // Feature 072: each masked place carries its fingerprint (the answer's masks show it too); a count says how much was hidden.
+        val masked = (r["masked"] as? JsonArray)?.size ?: 0
         val withheld = r.arr("withheld").takeIf { it.isNotEmpty() }?.let { "; withheld: " + it.joinToString(", ") { w -> w.content } } ?: ""
-        return listOf(Statement(StatementKind.REDACTED, detail = "redacted: $masked$withheld"))
+        val lead = if (forAgents) "redacted for agents: $masked values masked (fingerprints: search redacted:#…)" else "redacted: $masked values masked"
+        return listOf(Statement(StatementKind.REDACTED, detail = lead + withheld))
     }
 
     /** A capture gap; a body the app did not read (023) states nothing. */

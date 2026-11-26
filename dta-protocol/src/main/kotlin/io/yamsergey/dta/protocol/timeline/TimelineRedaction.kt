@@ -1,5 +1,6 @@
 package io.yamsergey.dta.protocol.timeline
 
+import io.yamsergey.dta.protocol.network.MaskedLocation
 import io.yamsergey.dta.protocol.network.RedactionInfo
 import io.yamsergey.dta.protocol.network.Redactor
 import io.yamsergey.dta.protocol.ui.ContentSummary
@@ -16,11 +17,12 @@ import io.yamsergey.dta.protocol.ui.UiEvent
 object TimelineRedaction {
 
     private class Masks {
-        val masked = mutableListOf<String>()
+        val masked = mutableListOf<MaskedLocation>()
         fun text(value: String?, at: String): String? = value?.let { Redactor.text(it, at).also { (_, m) -> masked += m }.first }
         fun named(name: String, value: String?, at: String): String? = when {
             value == null -> null
-            Redactor.isSensitive(name) -> { masked += "$at $name"; Redactor.MASK }
+            Redactor.isSensitive(name) && Redactor.isMasked(value) -> value
+            Redactor.isSensitive(name) -> Redactor.hide(value, "$at $name", masked)
             else -> text(value, "$at $name")
         }
         fun map(values: Map<String, String>, at: String): Map<String, String> =

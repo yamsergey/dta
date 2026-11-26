@@ -27,9 +27,11 @@ import java.util.Base64
 class NetworkExport(
     private val page: suspend (NetworkQuery) -> NetworkPage,
     private val entry: suspend (String) -> NetworkEntryDetail,
-    /** Writes the body's decoded bytes to the file; throws when it cannot. */
-    private val body: suspend (String, BodyPart, File) -> Unit,
+    /** Writes the body's decoded bytes to the file; throws when it cannot. Returns what redaction masked in it, when it redacts. */
+    private val body: suspend (String, BodyPart, File) -> io.yamsergey.dta.protocol.network.RedactionInfo?,
     private val version: String,
+    /** Feature 072: the file is redacted (the entries and bodies come redacted); it says so, and what was masked. */
+    private val redacted: Boolean = false,
     private val pageSize: Int = NetworkQuery.MAX_LIMIT,
 ) {
     suspend fun export(query: NetworkQuery, output: File): NetworkExportResult {
@@ -49,6 +51,8 @@ class NetworkExport(
         var omitted = 0
         var messages = 0
         var notExported = 0
+        val masked = LinkedHashMap<Pair<String, String>, io.yamsergey.dta.protocol.network.MaskedLocation>()
+        fun masks(info: io.yamsergey.dta.protocol.network.RedactionInfo?) = info?.masked?.forEach { masked.putIfAbsent(it.place to it.fingerprint, it) }
         suspend fun content(id: String, part: BodyPart, info: BodyInfo?): Har.Content? {
             info ?: return null
             val note = if (info.completeness == Completeness.COMPLETE) null else "${wire(info.completeness)}: ${info.completenessReason}"
@@ -58,7 +62,7 @@ class NetworkExport(
             }
             return try {
                 val file = File(scratch, "${id.replace(Regex("[^A-Za-z0-9]"), "_")}-${part.name}")
-                body(id, part, file)
+                masks(body(id, part, file))
                 val bytes = file.readBytes().also { file.delete() }
                 bodies++
                 if (info.binary) Har.Content(info.contentType, bytes.size.toLong(), Base64.getEncoder().encodeToString(bytes), base64 = true, comment = note)
@@ -75,7 +79,8 @@ class NetworkExport(
             for (e in listed) {
                 when (e) {
                     is HttpEntry -> {
-                        val full = entry(e.id).entry as? HttpEntry ?: e
+                        val detail = entry(e.id).also { masks(it.redaction) }
+                        val full = detail.entry as? HttpEntry ?: e
                         out += full.timeMs to Har.http(full, content(full.id, BodyPart.REQUEST, full.requestBody), content(full.id, BodyPart.RESPONSE, full.responseBody))
                     }
                     is WsConnectionEntry -> sockets += e.id
@@ -84,7 +89,7 @@ class NetworkExport(
                 }
             }
             for (id in sockets) {
-                val detail = runCatching { entry(id) }.getOrNull() ?: continue
+                val detail = runCatching { entry(id) }.getOrNull()?.also { masks(it.redaction) } ?: continue
                 val socket = detail.entry as? WsConnectionEntry ?: continue
                 val carried = detail.messages.orEmpty().map { m -> m to content(m.id, BodyPart.MESSAGE, m.payload) }
                 messages += carried.size
@@ -96,8 +101,13 @@ class NetworkExport(
         }
 
         output.absoluteFile.parentFile?.mkdirs()
-        output.writeText(DtaJson.encodeToString(JsonObject.serializer(), Har.document(out.sortedBy { it.first }.map { it.second }, version)))
+        output.writeText(DtaJson.encodeToString(JsonObject.serializer(), Har.document(out.sortedBy { it.first }.map { it.second }, version, Har.Redaction(redacted, masked.values.take(MAX_MASKED).toList(), (masked.size - MAX_MASKED).coerceAtLeast(0)))))
         return NetworkExportResult(output.path, entries = out.size, webSocketMessages = messages, bodies = bodies, bodiesOmitted = omitted, messagesNotExported = notExported, saved = saved, scope = scope)
+    }
+
+    companion object {
+        /** Masked locations listed in the file; the rest are counted. */
+        const val MAX_MASKED = 10_000
     }
 
     private fun wire(c: Completeness) = c.name.lowercase().replace('_', '-')

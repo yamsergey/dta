@@ -1,4 +1,4 @@
 {"body":{"part":"request","storedBytes":12,"contentType":"application/x-protobuf","binary":true,"completeness":"complete"},
  "decoding":{"outcome":"decoded","format":"protobuf","schema":"fixture","type":"fixture.v1.Order"},
- "redaction":{"applied":true,"masked":["authorization"],"withheld":[]},
+ "redaction":{"applied":true,"forAgents":true,"masked":[{"place":"entry r1-1:2 request.header Authorization","fingerprint":"3f9a2c81d04e","length":212},{"place":"entry r1-1:2 response body $.token","fingerprint":"3f9a2c81d04e","length":212}],"withheld":[]},
  "text":"{\"id\":\"42\"}","bytes":11}

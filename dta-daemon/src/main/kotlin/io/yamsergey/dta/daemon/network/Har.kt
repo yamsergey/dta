@@ -105,10 +105,25 @@ object Har {
         put("_dta", dta(c.id, c.library, c.state.name.lowercase()))
     }
 
-    fun document(entries: List<JsonObject>, version: String): JsonObject = buildJsonObject {
+    /** Feature 072: whether the file is redacted, and what was masked (place, fingerprint, length); [more] were masked beyond the list. */
+    data class Redaction(val applied: Boolean, val masked: List<io.yamsergey.dta.protocol.network.MaskedLocation> = emptyList(), val more: Int = 0)
+
+    fun document(entries: List<JsonObject>, version: String, redaction: Redaction = Redaction(false)): JsonObject = buildJsonObject {
         put("log", buildJsonObject {
             put("version", "1.2")
-            put("creator", buildJsonObject { put("name", "DTA"); put("version", version) })
+            put("creator", buildJsonObject {
+                put("name", "DTA"); put("version", version)
+                put("comment", if (redaction.applied) "redacted: secrets are masked as [redacted len=N #fingerprint]; _dta.redaction lists where" else "unredacted: this file holds secrets as they were sent")
+            })
+            put("_dta", buildJsonObject {
+                put("redaction", buildJsonObject {
+                    put("applied", redaction.applied)
+                    if (redaction.applied) {
+                        put("masked", JsonArray(redaction.masked.map { m -> buildJsonObject { put("place", m.place); put("fingerprint", m.fingerprint); put("length", m.length) } }))
+                        if (redaction.more > 0) put("moreMasked", redaction.more)
+                    }
+                })
+            })
             put("pages", JsonArray(emptyList()))
             put("entries", JsonArray(entries))
         })

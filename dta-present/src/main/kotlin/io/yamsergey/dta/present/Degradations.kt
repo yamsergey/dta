@@ -68,7 +68,7 @@ object Degradations {
             "Some bodies were captured only in part: the app stopped reading them, or they passed the capture size limit. " +
             "The entries say which and how much was seen.",
         Codes.NETWORK_REDACTION_WITHHELD to
-            "Part of the content was withheld by redaction. Turn redaction off to see it.",
+            "Part of the content was withheld by redaction, which is on for agents. Turn redaction for agents off in the plugin's settings (Agents/MCP) to see it.",
         Codes.NETWORK_SCRIPT_UNAVAILABLE to
             "The network script is not applied in this process, so traffic passes unchanged. The capability report " +
             "says why: DTA's hooks are off, or the saved script no longer compiles.",

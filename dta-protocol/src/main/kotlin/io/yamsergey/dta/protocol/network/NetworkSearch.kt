@@ -13,6 +13,8 @@ enum class SearchPlace {
     @SerialName("response-body") RESPONSE_BODY,
     @SerialName("payload") PAYLOAD,
     @SerialName("envelope") ENVELOPE,
+    /** 072: free text an entry carries (a failure, a close reason, a script's error): found by `redacted:#fp` only. */
+    @SerialName("failure") FAILURE,
 }
 
 /**
@@ -49,8 +51,31 @@ class NetworkSearch(
     private val redact: Boolean = false,
 ) {
     /** Bodies not searched: encoding not undone, or not inspectable while redacting. */
-    var notSearched = 0
-        private set
+    val notSearched: Int get() = ownNotSearched + (maskedSearch?.ownNotSearched ?: 0)
+    private var ownNotSearched = 0
+
+    /** Feature 072: the query has a `redacted:#fp` term, which reads masked places only. */
+    val searchesMaskedOnly: Boolean = terms.any { it.redacted }
+
+    /** Without redaction (the plugin's own views), `redacted:#fp` still reads the redacted rendering: this search, redacting. */
+    private var maskedSearch: NetworkSearch? = null
+    private fun maskedPlaces(entry: NetworkEntry): List<Place> =
+        (if (redact) places(entry) else (maskedSearch ?: NetworkSearch(emptyList(), connectionUrl, decoded, bodyBytes, redact = true).also { maskedSearch = it }).places(entry)) + freeTextPlaces(entry)
+
+    /** The free text of an entry that redaction masks (a failure, a close reason, what a script said): places a fingerprint is found in, though no word search reads them. */
+    private fun freeTextPlaces(entry: NetworkEntry): List<Place> = buildList {
+        fun free(text: String?) {
+            text ?: return
+            val shown = Redactor.text(text, "").first
+            if (shown != text) add(Place(SearchPlace.FAILURE, Redactor.plain(shown), shown = shown))
+        }
+        when (entry) {
+            is HttpEntry -> free(entry.failure)
+            is WsConnectionEntry -> { free(entry.failure); free(entry.closeReason) }
+            else -> Unit
+        }
+        entry.intervention?.let { free(it.error); free(it.description) }
+    }
 
     /** Feature 041: bodies the host has no copy of yet, searched by their preview. */
     var byPreview = 0
@@ -63,11 +88,28 @@ class NetworkSearch(
     /** The hits in [entry] (at most [PER_ENTRY]), or null when some term is not in it. */
     fun hits(entry: NetworkEntry): List<SearchHit>? {
         if (terms.isEmpty()) return null
-        val places = places(entry)
+        val words = terms.any { !it.redacted }
+        val places = if (words) places(entry) else emptyList()
         val texts = places.map { it to Fuzzy.Text(it.text) }
         val out = ArrayList<SearchHit>()
         for (term in terms) {
             var found = false
+            if (term.redacted) {
+                // Feature 072: the fingerprint as the answer shows it in a mask (`#…`), in the redacted rendering only.
+                for (p in maskedPlaces(entry)) {
+                    var i = p.shown.indexOf(term.text, ignoreCase = true)
+                    while (i >= 0) {
+                        found = true
+                        if (out.size < PER_ENTRY) {
+                            val s = Fuzzy.Span(i, i + term.text.length)
+                            out += SearchHit(entry.id, p.place, term.text, s.start, s.end, Fuzzy.excerpt(p.shown, s), p.part, p.header, p.inName, false)
+                        }
+                        i = p.shown.indexOf(term.text, i + term.text.length, ignoreCase = true)
+                    }
+                }
+                if (!found) return null
+                continue
+            }
             for ((p, t) in texts) {
                 val spans = if (p.binary) binarySpans(p.text, term) else t.find(term.text, term.typos)
                 if (spans.isEmpty()) continue
@@ -84,13 +126,14 @@ class NetworkSearch(
         return out
     }
 
-    private class Place(val place: SearchPlace, val text: String, val part: BodyPart? = null, val header: String? = null, val inName: Boolean = false, val binary: Boolean = false)
+    /** [text] is what words are searched in (a mask reads as [Redactor.plain]); [shown] the text the answer shows (a mask with its fingerprint), searched by `redacted:#fp`. */
+    private class Place(val place: SearchPlace, val text: String, val part: BodyPart? = null, val header: String? = null, val inName: Boolean = false, val binary: Boolean = false, val shown: String = text)
 
     private fun places(entry: NetworkEntry): List<Place> = buildList {
-        fun url(u: String?) { u?.let { add(Place(SearchPlace.URL, if (redact) Redactor.url(it, "").first else it)) } }
+        fun url(u: String?) { u?.let { add(if (redact) Redactor.url(it, "").first.let { shown -> Place(SearchPlace.URL, Redactor.plain(shown), shown = shown) } else Place(SearchPlace.URL, it)) } }
         fun headers(list: List<Header>?, place: SearchPlace) {
             val h = list?.let { if (redact) Redactor.headers(it, "").first else it } ?: return
-            h.forEach { add(Place(place, it.name, header = it.name, inName = true)); add(Place(place, it.value, header = it.name)) }
+            h.forEach { add(Place(place, it.name, header = it.name, inName = true)); add(Place(place, if (redact) Redactor.plain(it.value) else it.value, header = it.name, shown = it.value)) }
         }
         fun body(info: BodyInfo?, part: BodyPart, place: SearchPlace) { info?.let { bodyPlace(entry, it, part, place)?.let(::add) } }
         when (entry) {
@@ -119,28 +162,28 @@ class NetworkSearch(
             decoded?.invoke(entry, part)?.let { json ->
                 if (!redact) return Place(place, json, part)
                 // Decoded protobuf is redacted as JSON (006 FR-016), and searched as it is shown.
-                return Redactor.body(json, "application/json", "").text?.let { Place(place, it, part) } ?: run { notSearched++; null }
+                return Redactor.body(json, "application/json", "").text?.let { Place(place, Redactor.plain(it), part, shown = it) } ?: run { ownNotSearched++; null }
             }
-            val body = bodyBytes(entry, part) ?: run { if (info.storedBytes > 0) notSearched++; return null }
-            if (!body.decoded) { notSearched++; return null }
-            if (redact) { notSearched++; return null }
+            val body = bodyBytes(entry, part) ?: run { if (info.storedBytes > 0) ownNotSearched++; return null }
+            if (!body.decoded) { ownNotSearched++; return null }
+            if (redact) { ownNotSearched++; return null }
             return Place(place, String(body.bytes, Charsets.ISO_8859_1), part, binary = true)
         }
         val body = bodyBytes(entry, part) ?: return previewPlace(info, part, place)
-        if (!body.decoded) { notSearched++; return null }
+        if (!body.decoded) { ownNotSearched++; return null }
         val text = String(body.bytes, Charsets.UTF_8)
         if (!redact) return Place(place, text, part)
         val r = Redactor.body(text, info.contentType, "")
-        return r.text?.let { Place(place, it, part) } ?: run { notSearched++; null }
+        return r.text?.let { Place(place, Redactor.plain(it), part, shown = it) } ?: run { ownNotSearched++; null }
     }
 
     /** Feature 041: no host copy — the preview is what is known; nothing is skipped without a count. */
     private fun previewPlace(info: BodyInfo, part: BodyPart, place: SearchPlace): Place? {
         if (info.storedBytes <= 0 && info.preview == null) return null
-        val preview = info.preview ?: run { notSearched++; return null }
+        val preview = info.preview ?: run { ownNotSearched++; return null }
         byPreview++
-        val text = if (redact) Redactor.body(preview, info.contentType, "").text ?: run { notSearched++; return null } else preview
-        return Place(place, text, part)
+        val shown = if (redact) Redactor.body(preview, info.contentType, "").text ?: run { ownNotSearched++; return null } else preview
+        return Place(place, if (redact) Redactor.plain(shown) else shown, part, shown = shown)
     }
 
     /** Strings inside binary bytes: the term's UTF-8 bytes, case-insensitive for ASCII letters. */

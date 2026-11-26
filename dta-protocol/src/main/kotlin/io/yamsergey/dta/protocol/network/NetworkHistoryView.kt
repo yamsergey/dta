@@ -258,6 +258,7 @@ class NetworkHistoryView private constructor(
         eval?.notRedactableAll?.takeIf { it > 0 }?.let { "bodies that cannot be redacted, not matched while redacting ($it)" },
         ((eval?.binaryNotSearched ?: 0) + (eval?.excludedNotSearched ?: 0)).takeIf { it > 0 }?.let { "binary bodies whose encoding cannot be undone ($it)" },
         eval?.binaryUndecoded?.takeIf { it > 0 }?.let { "binary bodies without a schema, searched as bytes only ($it)" },
+        "redacted:#… searched masked places only (a fingerprint is in no other text)".takeIf { search?.searchesMaskedOnly == true },
         search?.notSearched?.takeIf { it > 0 }?.let { "bodies the search could not read: encoding not undone, or not inspectable while redacting ($it)" },
         search?.byPreview?.takeIf { it > 0 }?.let { "bodies searched by their first ${BodyInfo.PREVIEW_CHARS} characters: not copied from the app yet ($it)" },
         search?.truncated?.takeIf { it > 0 }?.let { "bodies stored cut, searched as far as stored ($it)" },

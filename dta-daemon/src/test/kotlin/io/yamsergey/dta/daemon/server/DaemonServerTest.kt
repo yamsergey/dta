@@ -14,6 +14,7 @@ import io.yamsergey.dta.protocol.ops.VersionIdentity
 import io.yamsergey.dta.protocol.rpc.ErrorCodes
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -46,9 +47,10 @@ class DaemonServerTest {
     private val home = Files.createTempDirectory("dta-server").toFile()
     private val state = StateFile(java.io.File(home, "daemon"))
     private val fake = FakeOperations()
+    private val agents = io.yamsergey.dta.daemon.AgentSettings.inMemory(true)
     private val stopped = AtomicReference<String?>()
     private val server: DaemonServer = DaemonServer(
-        identity, state, OperationDispatcher(fake, Selector(fake::devices, fake::apps)), fake, Selector(fake::devices, fake::apps),
+        identity, state, OperationDispatcher(fake, Selector(fake::devices, fake::apps), agents = agents), fake, Selector(fake::devices, fake::apps),
         status = { clients -> DaemonStatus(identity, 1, 5, home.path, AdbInfo("/fake/adb", true), clients, fake.devices(), emptyList()) },
         onStop = { reason -> stopped.set(reason); serverStop(reason) },
         subscriberBuffer = 4,
@@ -154,13 +156,13 @@ class DaemonServerTest {
         drop.close(); keep.close()
     }
 
-    /** A redacted watch (the plugin's live list with redaction on) gets entries masked like network.list, and matches the redacted text. */
+    /** 072: a watch of an agent kind (here cli) gets entries masked like network.list, and matches the redacted text; the plugin's own watch never does. */
     @Test
     fun `a redacted watch masks every event and matches body patterns against the redacted text`() = runBlocking<Unit> {
         val watcher = connect()
         val patterned = connect()
-        val got = async { withTimeout(5_000) { watcher.networkEvents(buildJsonObject { put("redact", true) }).take(3).toList() } }
-        val matched = async { withTimeout(5_000) { patterned.networkEvents(buildJsonObject { put("redact", true); put("q", "body:/SEED-TOKEN|visible/") }).take(2).toList() } }
+        val got = async { withTimeout(5_000) { watcher.networkEvents(JsonObject(emptyMap())).take(3).toList() } }
+        val matched = async { withTimeout(5_000) { patterned.networkEvents(buildJsonObject { put("q", "body:/SEED-TOKEN|visible/") }).take(2).toList() } }
         delay(300)
         val secret = HttpEntry(
             "r1-1:1", "r1-1", 1, "okhttp3", method = "POST", url = "https://api.example.com/p?page=2&access_token=SEED-QUERY-123", state = HttpState.COMPLETE, status = 200,
@@ -179,17 +181,41 @@ class DaemonServerTest {
         watcher.close(); patterned.close()
     }
 
-    /** Decision 2026-11-22 (3): a redacted timeline watch sends events masked as timeline.events masks them. */
+    /** Decision 2026-11-22 (3), 072: an agent's timeline watch sends events masked as timeline.events masks them; the plugin's never. */
     @Test
-    fun `a redacted timeline watch masks its events`() = runBlocking<Unit> {
+    fun `an agent's timeline watch masks its events, the plugin's does not`() = runBlocking<Unit> {
         fake.timelineEvents = listOf(io.yamsergey.dta.protocol.timeline.TimelineEvent("7:6", 6, 6, 6, "network", "network/failed", title = "POST /login failed: token=SEED-TW1"))
         val watcher = connect()
-        val redacted = withTimeout(5_000) { watcher.timelineEvents(buildJsonObject { put("redact", true) }).take(2).toList() }.last()
+        val redacted = withTimeout(5_000) { watcher.timelineEvents(JsonObject(emptyMap())).take(2).toList() }.last()
         assertFalse("SEED-TW1" in redacted.toString(), redacted.toString())
         assertNotNull(redacted["redaction"], "the event says it is redacted")
-        val plain = withTimeout(5_000) { watcher.timelineEvents(JsonObject(emptyMap())).take(2).toList() }.last()
-        assertTrue("SEED-TW1" in plain.toString(), "twin: without redact it is whole")
-        watcher.close()
+        val ide = connect(ClientKind.IDE)
+        val plain = withTimeout(5_000) { ide.timelineEvents(JsonObject(emptyMap())).take(2).toList() }.last()
+        assertTrue("SEED-TW1" in plain.toString(), "twin: the plugin's own watch is whole")
+        assertNull(plain["redaction"])
+        watcher.close(); ide.close()
+    }
+
+    /** 072: a live watch follows the setting on its next event, both ways, and says when it is off. */
+    @Test
+    fun `a live watch follows a setting change on its next event`() = runBlocking<Unit> {
+        val watcher = connect(ClientKind.MCP)
+        val got = java.util.concurrent.CopyOnWriteArrayList<JsonObject>()
+        val job = launch { watcher.networkEvents(JsonObject(emptyMap())).collect { got += it } }
+        delay(300)
+        fun secret(n: Int) = NetworkEntryEvent(
+            HttpEntry("r1-1:$n", "r1-1", n.toLong(), "okhttp3", method = "GET", url = "https://h/p?access_token=SEED-LIVE-$n", state = HttpState.COMPLETE, status = 200),
+            EntryChange.CREATED,
+        )
+        suspend fun next(n: Int): String { fake.events.emit(secret(n)); withTimeout(5_000) { while (got.none { "r1-1:$n" in it.toString() }) delay(20) }; return got.last { "r1-1:$n" in it.toString() }.toString() }
+        assertFalse("SEED-LIVE-1" in next(1), "on: masked")
+        agents.setRedaction(false)
+        val off = next(2)
+        assertTrue("SEED-LIVE-2" in off, "off: the next event is whole")
+        assertTrue("\"applied\":false" in off && "\"forAgents\":true" in off, "and says the setting is off: $off")
+        agents.setRedaction(true)
+        assertFalse("SEED-LIVE-3" in next(3), "on again: masked again")
+        job.cancel(); watcher.close()
     }
 
     @Test

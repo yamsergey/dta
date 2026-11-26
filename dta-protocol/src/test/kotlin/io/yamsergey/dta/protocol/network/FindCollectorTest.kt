@@ -20,11 +20,11 @@ class FindCollectorTest {
     fun `the gathered answer carries the final event's redaction, applied stated`() {
         val page = collected(
             FoundEvent("f1", FindState.SEARCHING),
-            FoundEvent("f1", FindState.DONE, redaction = RedactionInfo(masked = listOf("entry r1:1 url.query access_token"))),
+            FoundEvent("f1", FindState.DONE, redaction = RedactionInfo(masked = listOf(MaskedLocation("entry r1:1 url.query access_token", "0123456789ab", 6)))),
         )
         val redaction = page["redaction"]!!.jsonObject
         assertEquals("true", redaction["applied"]!!.jsonPrimitive.content)
-        assertEquals(listOf("entry r1:1 url.query access_token"), redaction["masked"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(listOf("entry r1:1 url.query access_token"), redaction["masked"]!!.jsonArray.map { it.jsonObject["place"]!!.jsonPrimitive.content })
         assertEquals("done", page["state"]!!.jsonPrimitive.content)
     }
 

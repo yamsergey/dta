@@ -124,7 +124,7 @@ class NetworkService(
 
     /** Redaction happens here and only here (one redactor, applied once — VI). */
     private fun redactAll(entries: List<NetworkEntry>): Pair<List<NetworkEntry>, RedactionInfo> {
-        val masked = mutableListOf<String>()
+        val masked = mutableListOf<io.yamsergey.dta.protocol.network.MaskedLocation>()
         val withheld = mutableListOf<String>()
         val redacted = entries.map { entry ->
             val (r, info) = Redactor.entry(entry)
@@ -148,7 +148,6 @@ class NetworkService(
         part: BodyPart,
         output: BodyOutput = BodyOutput.Text,
         redact: Boolean = false,
-        allowUnredacted: Boolean = false,
     ): BodyResult {
         // The host's copy first (archived bodies exist nowhere else, feature 011), else the app's.
         val (info, wire) = host?.storedBody(id, part) ?: run {
@@ -168,17 +167,16 @@ class NetworkService(
 
         val structured = structured(id, part, info, wire)
         val decoding = structured.info
-        if (redact && !allowUnredacted) return redactedBody(id, part, info, wire, structured, output, degraded)
-        val overridden = if (redact) RedactionInfo(applied = false) else null
+        if (redact) return redactedBody(id, part, info, wire, structured, output, degraded)
 
         return when (output) {
             BodyOutput.Text -> when (decoding.outcome) {
                 DecodingOutcome.DECODED, DecodingOutcome.DECODED_WITH_WARNINGS -> {
                     val json = structured.json!!
-                    BodyResult(info, text = json, bytes = json.length.toLong(), degraded = degraded, redaction = overridden, decoding = decoding)
+                    BodyResult(info, text = json, bytes = json.length.toLong(), degraded = degraded, decoding = decoding)
                 }
                 DecodingOutcome.NOT_DECODED -> BodyResult(
-                    info, bytes = 0, degraded = degraded, redaction = overridden, decoding = decoding,
+                    info, bytes = 0, degraded = degraded, decoding = decoding,
                     note = "not decoded: ${decoding.reason}; fetch the bytes with the output parameter (dta network body --output <file>)",
                 )
                 DecodingOutcome.NOT_APPLICABLE -> {
@@ -190,7 +188,7 @@ class NetworkService(
                         )
                     }
                     val decoded = BodyCodec.decode(wire, info.encoding)
-                    BodyResult(info, text = String(decoded.bytes, Charsets.UTF_8), bytes = decoded.bytes.size.toLong(), note = decoded.note, degraded = degraded, redaction = overridden, decoding = decoding)
+                    BodyResult(info, text = String(decoded.bytes, Charsets.UTF_8), bytes = decoded.bytes.size.toLong(), note = decoded.note, degraded = degraded, decoding = decoding)
                 }
             }
             is BodyOutput.File -> {
@@ -202,7 +200,7 @@ class NetworkService(
                 val file = File(output.path)
                 file.absoluteFile.parentFile?.mkdirs()
                 file.writeBytes(bytes)
-                BodyResult(info, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), note = note, degraded = degraded, redaction = overridden, decoding = decoding)
+                BodyResult(info, file = file.absolutePath, bytes = bytes.size.toLong(), sha256 = sha256(bytes), note = note, degraded = degraded, decoding = decoding)
             }
         }
     }
@@ -254,7 +252,7 @@ class NetworkService(
             shown, bytes = 0,
             redaction = RedactionInfo(withheld = listOf(why)),
             degraded = degraded.orEmpty() + DegradationMarker("network", DegradationCodes.NETWORK_REDACTION_WITHHELD),
-            note = "withheld: it cannot be redacted; pass allowUnredacted = true to get it as is",
+            note = "withheld: it cannot be redacted; turn redaction for agents off in the plugin's settings (Agents/MCP) to read it as is",
             decoding = decoding,
         )
         val r = when {

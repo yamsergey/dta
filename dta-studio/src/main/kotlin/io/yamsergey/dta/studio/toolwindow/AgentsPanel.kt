@@ -37,7 +37,13 @@ class AgentsPanel(
     private val controller: AgentServerController,
     private val prefs: AgentServerPrefs,
     scope: CoroutineScope,
+    private val redaction: io.yamsergey.dta.studio.agents.AgentRedactionController? = null,
 ) : JPanel(BorderLayout()) {
+    /** 072 (FR-015): the Secrets group — one setting for every agent path and exports; the daemon holds it. */
+    private val mask = JBCheckBox("Mask secrets in what agents read and in exports", true).apply { isEnabled = false }
+    private val maskError = JBLabel().apply { foreground = JBColor.RED; isVisible = false }
+    private fun help(text: String) = JBLabel("<html><body style='width: ${JBUI.scale(520)}px'>$text</body></html>").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont(); border = JBUI.Borders.emptyLeft(24); setAllowAutoWrapping(true) }
+
     private val enabled = JBCheckBox("Serve DTA's tools to agents over HTTP", prefs.enabled)
     private val port = JBTextField(prefs.port.toString(), 6)
     private val stateLine = JBLabel()
@@ -47,7 +53,7 @@ class AgentsPanel(
     }
     private val config = JBTextArea(6, 60).apply { isEditable = false; lineWrap = true; font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, font.size) }
     private val where = JBLabel().apply { foreground = JBColor.GRAY }
-    private val note = JBLabel().apply { foreground = JBColor.GRAY }
+    private val note = JBLabel().apply { foreground = JBColor.GRAY; setAllowAutoWrapping(true) }
 
     /** Loaded off the UI thread (the keychain may prompt); null until then. */
     @Volatile private var credential: String? = null
@@ -92,10 +98,37 @@ class AgentsPanel(
             .addComponent(JBScrollPane(config))
             .addComponent(copyRow)
             .addComponent(note)
+            .addComponent(com.intellij.ui.TitledSeparator("Secrets"))
+            .addComponent(mask)
+            .addComponent(help("Applies to this server, dta mcp and the CLI. A masked value keeps its length and a fingerprint, <code>#3f9a2c81d04e</code>: the same value has the same fingerprint everywhere, so an agent can tell an old token from a new one and search where it came from. The DTA tabs always show values as sent."))
+            .addComponent(help("Keeps secrets out of an agent's context, logs and shared files; it does not stop a program that reads DTA's files on this computer."))
+            .addComponent(maskError)
             .panel.apply { border = JBUI.Borders.empty(12) }
-        add(JBScrollPane(form), BorderLayout.CENTER)
+        // The form takes the width of its viewport (long notes wrap instead of running off the page).
+        val tracking = object : JPanel(BorderLayout()), javax.swing.Scrollable {
+            override fun getPreferredScrollableViewportSize() = preferredSize
+            override fun getScrollableUnitIncrement(r: java.awt.Rectangle?, o: Int, d: Int) = JBUI.scale(16)
+            override fun getScrollableBlockIncrement(r: java.awt.Rectangle?, o: Int, d: Int) = JBUI.scale(64)
+            override fun getScrollableTracksViewportWidth() = true
+            override fun getScrollableTracksViewportHeight() = false
+        }.apply { add(form, BorderLayout.NORTH) }
+        add(JBScrollPane(tracking).apply { border = JBUI.Borders.empty(); horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER }, BorderLayout.CENTER)
         renderConfig()
         controller.credentialAsync { loaded -> credential = loaded; javax.swing.SwingUtilities.invokeLater { renderConfig() } }
+        redaction?.let { r ->
+            mask.addActionListener { mask.isEnabled = false; r.set(mask.isSelected) }
+            scope.launch {
+                r.state.collect { s ->
+                    withContext(Dispatchers.Main) {
+                        s.on?.let { mask.isSelected = it }
+                        mask.isEnabled = s.on != null
+                        maskError.text = s.error.orEmpty()
+                        maskError.isVisible = s.error != null
+                    }
+                }
+            }
+            r.refresh()
+        }
         scope.launch {
             controller.state.collect { state -> withContext(Dispatchers.Main) { show(state) } }
         }

@@ -21,14 +21,13 @@ internal class TimelineSummary(private val call: suspend (operation: String, par
     private val cursors = ConcurrentHashMap<String, String>()
 
     /**
-     * The line for [session] after a call that concerned [selection] (device, app), or null; with
-     * [redact] (the call asked for it) read redacted, as the call's own answer is (decision 2026-11-22).
+     * The line for [session] after a call that concerned [selection] (device, app), or null. The daemon
+     * redacts what it reads for this connection (feature 072), as it does the call's own answer.
      */
-    suspend fun after(session: String?, selection: Pair<String?, String?>?, redact: Boolean = false): String? = try {
+    suspend fun after(session: String?, selection: Pair<String?, String?>?): String? = try {
         val params = buildJsonObject {
             selection?.first?.let { put("device", it) }
             selection?.second?.let { put("app", it) }
-            if (redact) put("redact", true)
         }
         val key = key(session, selection)
         val cursor = cursors[key]

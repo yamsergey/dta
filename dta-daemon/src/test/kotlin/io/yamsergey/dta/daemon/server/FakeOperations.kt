@@ -61,9 +61,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-class FakeOperations : DaemonOperations {
+open class FakeOperations : DaemonOperations {
     val calls = mutableListOf<String>()
     var lastQuery: NetworkQuery? = null
+    /** What the last entry and body reads were asked about redaction. */
+    var lastEntryRedact: Boolean? = null
+    var lastBodyRedact: Boolean? = null
     var lastLayout: Triple<String?, LayoutFilter?, DetailLevel>? = null
     var lastBody: Pair<BodyPart, BodyOutput>? = null
     var lastSchemaInput: SchemaInput? = null
@@ -126,6 +129,7 @@ class FakeOperations : DaemonOperations {
         return NetworkPage(emptyList(), coverage = io.yamsergey.dta.protocol.network.Coverage(searched = 0, stored = 0, persisted = true))
     }
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail {
+        lastEntryRedact = redact
         entryFailure?.let { throw it }
         val entry = if (entryKind == EntryKind.WS_MESSAGE) {
             WsMessageEntry(id, "r1-1", 1, "okhttp3-ws", connectionId = "r1-1:1", direction = Direction.IN, opcode = MessageOpcode.TEXT, payload = BodyInfo(BodyPart.MESSAGE, 2, completeness = Completeness.COMPLETE))
@@ -134,7 +138,8 @@ class FakeOperations : DaemonOperations {
         }
         return NetworkEntryDetail(entry)
     }
-    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult {
+    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean): BodyResult {
+        lastBodyRedact = redact
         bodyFailure?.let { throw it }
         lastBody = part to output
         return BodyResult(BodyInfo(part, 2, binary = false, completeness = Completeness.COMPLETE), text = "{}", bytes = 2)

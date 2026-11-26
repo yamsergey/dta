@@ -51,6 +51,16 @@ class ArchiveScaleBench {
             val (_, hostMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, q = "host:api.example.test method:POST")) } }
             val (_, termMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, q = "item-12")) } }
             val (_, historyMs) = ms { runBlocking { host.history() } }
+            // Feature 072: what an agent's first page costs with redaction on: the list read redacted (filters, search words and
+            // patterns read the masked text), and the masks made for the 100 rows; then the masks alone, per entry.
+            runBlocking { host.list(NetworkQuery(limit = 100, redact = true)) }
+            val (redactedFirst, redactedMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, redact = true)) } }
+            val (_, maskMs) = ms { first.entries.forEach { io.yamsergey.dta.protocol.network.Redactor.entry(it) } }
+            val (_, redactedTermMs) = ms { runBlocking { host.list(NetworkQuery(limit = 100, q = "item-12", redact = true)) } }
+            val rows = first.entries
+            repeat(2_000) { rows.forEach { io.yamsergey.dta.protocol.network.Redactor.entry(it) } }
+            val (_, perEntryNs) = ms { repeat(2_000) { rows.forEach { io.yamsergey.dta.protocol.network.Redactor.entry(it) } } }
+            println("BENCH n=$n redacted first page=${redactedMs}ms (${redactedFirst.entries.size}) masks for the page=${maskMs}ms term(redacted, no index yet)=${redactedTermMs}ms; Redactor.entry ${perEntryNs * 1000 / (2_000L * rows.size.coerceAtLeast(1))}us/entry")
             val after = heapMb()
             println("BENCH n=$n fill=${fillMs}ms start+first=${startMs}ms (${first.entries.size} of ${first.coverage.searched}) again=${againMs}ms 4xx=${filterMs}ms (${filtered.entries.size}) host+POST=${hostMs}ms term(no index yet)=${termMs}ms history=${historyMs}ms heap=${after - before}MB")
             // Feature 070: the word index written in the background, then words, filters and patterns by it.

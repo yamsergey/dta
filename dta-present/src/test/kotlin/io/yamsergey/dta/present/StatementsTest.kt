@@ -143,17 +143,26 @@ class StatementsTest {
         assertEquals("archived: new build, version 1.4.0", mark.detail)
     }
 
+    /** 072 FR-004: an answer to an agent says redacted (and how to use the fingerprints) or that the setting is off; a list of masked places with none says nothing to mask. */
+    @Test
+    fun `an agent's answer states redaction on, with how many values, or off`() {
+        fun detail(json: String) = Statements.forBody(kotlinx.serialization.json.Json.parseToJsonElement("""{"body":{"part":"response","storedBytes":1,"completeness":"complete"},"redaction":$json}""").jsonObject).single { it.kind == REDACTED || it.kind == DEGRADED }.detail
+        assertEquals("redacted for agents: 0 values masked (fingerprints: search redacted:#…)", detail("""{"applied":true,"forAgents":true,"masked":[],"withheld":[]}"""))
+        assertEquals("redacted for agents: 1 values masked (fingerprints: search redacted:#…); withheld: entry e binary body", detail("""{"applied":true,"forAgents":true,"masked":[{"place":"p","fingerprint":"0123456789ab","length":3}],"withheld":["entry e binary body"]}"""))
+        assertEquals("not redacted: redaction for agents is off in the plugin's settings", detail("""{"applied":false,"forAgents":true}"""))
+    }
+
     @Test
     fun `bodies state decoding, binary, completeness and redaction`() {
         val decoded = Statements.forBody(canned("body-decoded"))
         assertEquals(listOf(REDACTED, DECODED), decoded.kinds())
         assertEquals("decoded as protobuf fixture.v1.Order (schema fixture)", decoded[1].detail)
-        assertEquals("redacted: authorization", decoded[0].detail)
+        assertEquals("redacted for agents: 2 values masked (fingerprints: search redacted:#…)", decoded[0].detail)
 
         val warned = Statements.forBody(canned("body-truncated-warnings"))
         assertEquals(listOf(DEGRADED, DEGRADED, DEGRADED, INCOMPLETE, BINARY), warned.kinds())
         assertTrue(warned.any { it.detail == "decoded as fixture.v1.Order with warnings: unknown field 9" }, "$warned")
-        assertTrue(warned.any { it.detail == "redaction requested but overridden" }, "$warned")
+        assertTrue(warned.any { it.detail == "not redacted: redaction for agents is off in the plugin's settings" }, "$warned")
         assertTrue(warned.any { it.code == "body-store-unavailable" }, "$warned")
     }
 

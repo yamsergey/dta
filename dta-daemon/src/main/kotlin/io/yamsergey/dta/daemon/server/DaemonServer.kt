@@ -147,6 +147,16 @@ class DaemonServer(
             return JsonObject(params + ("view" to JsonPrimitive(viewPrefix + view)))
         }
 
+        /**
+         * Feature 072: whether what this connection receives is redacted now: every kind but the plugin's own
+         * views, while the agents' setting is on. Read per answer and per event, so a change applies to the next.
+         */
+        private fun redacts(): Boolean = dispatcher.agents.redactsFor(hello?.client)
+
+        /** What an event to an agent says when redaction is off, so a reader is never left to guess (FR-004). */
+        private fun statedOff(): io.yamsergey.dta.protocol.network.RedactionInfo? =
+            if (hello?.client != io.yamsergey.dta.protocol.ops.ClientKind.IDE && !dispatcher.agents.redaction) io.yamsergey.dta.protocol.network.RedactionInfo(applied = false, forAgents = true) else null
+
         val info: ClientInfo? get() = hello?.let { ClientInfo(it.client, it.identity.version, connectedAt) }
 
         override fun onText(connection: WebSocketConnection, text: String) {
@@ -200,7 +210,7 @@ class DaemonServer(
                 else -> scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     try {
                         val params = if (request.method == "network.list" || request.method == "network.search") withView(request.params) else request.params
-                        val selected = dispatcher.dispatch(request.method, params, hello?.client?.let { who(it) })
+                        val selected = dispatcher.dispatch(request.method, params, hello?.client)
                         respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), selected))
                         if (request.method == "network.clear") {
                             val device = selected.selection?.device
@@ -248,7 +258,7 @@ class DaemonServer(
                 val limit = (params["limit"] as? JsonPrimitive)?.content?.let { it.toIntOrNull()?.takeIf { n -> n >= 1 } ?: throw ClientException(ErrorCodes.INVALID_PARAMS, "limit must be a number of rows, 1 or more; was $it") }
                 val window = (params["window"] as? JsonPrimitive)?.content?.toIntOrNull()?.coerceAtLeast(1) ?: FIND_WINDOW
                 val query = try {
-                    dispatcher.networkQuery(JsonObject(params - "device" - "app" - "limit" - "window" - "view"))
+                    dispatcher.networkQuery(JsonObject(params - "device" - "app" - "limit" - "window" - "view"), redacts())
                 } catch (e: io.yamsergey.dta.protocol.rpc.InvalidParamsException) {
                     throw ClientException(ErrorCodes.INVALID_PARAMS, e.message ?: "invalid query")
                 }
@@ -264,7 +274,7 @@ class DaemonServer(
                             send = { items -> found(io.yamsergey.dta.protocol.network.FoundEvent(id, st, items = items)) },
                         )
                         val state = if (r.end.next != null) io.yamsergey.dta.protocol.network.FindState.LIMIT else io.yamsergey.dta.protocol.network.FindState.DONE
-                        found(io.yamsergey.dta.protocol.network.FoundEvent(id, state, next = r.end.next, notSearched = r.end.notSearched, scope = r.scope, saved = r.saved, redaction = r.redaction))
+                        found(io.yamsergey.dta.protocol.network.FoundEvent(id, state, next = r.end.next, notSearched = r.end.notSearched, scope = r.scope, saved = r.saved, redaction = r.redaction?.copy(forAgents = true) ?: statedOff()))
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         val reason = stopReasons.remove(id) ?: io.yamsergey.dta.protocol.network.StopReason.CANCELLED
                         if (reason != io.yamsergey.dta.protocol.network.StopReason.CLOSED) {
@@ -336,14 +346,14 @@ class DaemonServer(
                 val filter = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given, q = line).resolved().first ?: NetworkFilter()
                 // Feature 067: a live view's subscription decides each entry with the whole line, search words included.
                 val view = (params["view"] as? JsonPrimitive)?.content?.let { viewPrefix + it }
-                val redact = (params["redact"] as? JsonPrimitive)?.content == "true"
+                // Feature 072: the connection decides (see redacts()); read again for each event.
                 // Feature 071: the switch scopes live decisions too (off: entries of the app's current run only).
                 val archive = (params["archive"] as? JsonPrimitive)?.content == "true"
                 // Decision 2026-11-22: typo tolerance only when asked (typos, or typos:on in the line).
                 val typos = (params["typos"] as? JsonPrimitive)?.content == "true"
                 // D-085: a view that counts the run (the plugin's caption M) is told of new entries it does not list.
                 val counts = (params["counts"] as? JsonPrimitive)?.content == "true"
-                val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redact, ignoreSavedFilters = true, archive = archive, typos = typos)
+                val liveQuery = io.yamsergey.dta.protocol.network.NetworkQuery(filter = given.takeIf { it != NetworkFilter() }, q = line, redact = redacts(), ignoreSavedFilters = true, archive = archive, typos = typos)
                 /** Entries decided by a body's preview: decided again once the body is copied here. */
                 val byPreview = ConcurrentHashMap.newKeySet<String>()
                 val id = "s${subscriptionIds.incrementAndGet()}"
@@ -355,7 +365,7 @@ class DaemonServer(
                 var unchecked = false
                 // Feature 071: decisions run in their own coroutine (below); a runaway one stops with its subscription.
                 var decisionStop: io.yamsergey.dta.protocol.network.PatternStop = io.yamsergey.dta.protocol.network.PatternStop.NONE
-                fun eval() = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, check = { if (decisionStop.stopped()) throw io.yamsergey.dta.protocol.network.SearchStoppedException() }, redact = redact, bodyBytes = { entry, part ->
+                fun eval(redact: Boolean) = NetworkFilterEval(filter, liveRunId = "", connectionUrl = { connectionUrls[it] }, check = { if (decisionStop.stopped()) throw io.yamsergey.dta.protocol.network.SearchStoppedException() }, redact = redact, bodyBytes = { entry, part ->
                     NetworkHistoryView.bodyOf(entry, part)?.wholeText()?.let { NetworkFilterEval.BodyBytes(it.toByteArray(Charsets.UTF_8), true) }
                         ?: run { unchecked = true; null }
                 })
@@ -401,7 +411,7 @@ class DaemonServer(
                                 null
                             }
                             // Decided on the entry as stored (search and patterns redact as they read); sent as network.list shows it.
-                            val (shown, redaction) = if (redact) io.yamsergey.dta.protocol.network.Redactor.entry(event.entry) else event.entry to null
+                            val (shown, redaction) = if (redacts()) io.yamsergey.dta.protocol.network.Redactor.entry(event.entry).let { (e, info) -> e to info.copy(forAgents = true) } else event.entry to statedOff()
                             send(
                                 Event(
                                     name = DaemonEvents.NETWORK_ENTRY,
@@ -434,8 +444,10 @@ class DaemonServer(
                         // Feature 068: the archive could not hold entries for this watcher: said with the next one.
                         if ((event.missed ?: 0) > 0) dropped.set(true)
                         (event.entry as? WsConnectionEntry)?.let { connectionUrls[it.id] = it.url }
+                        val redactNow = redacts()
+                        val query = if (liveQuery.redact == redactNow) liveQuery else liveQuery.copy(redact = redactNow)
                         if (view != null) {
-                            val (d, had) = ops.networkDecide(serial, pkg, view, liveQuery, event.entry, decisionStop) { connectionUrls[it] } ?: (null to false)
+                            val (d, had) = ops.networkDecide(serial, pkg, view, query, event.entry, decisionStop) { connectionUrls[it] } ?: (null to false)
                             if (d != null) {
                                 if (d.byPreview) byPreview += event.entry.id else byPreview -= event.entry.id
                                 val mark: Any? = when {
@@ -450,9 +462,9 @@ class DaemonServer(
                         }
                         // Feature 071 (D-079): the same scope a view's decision has (HostIndex.decide): without the switch
                         // the current run only; an earlier run's entries arriving later (a catch-up) are not delivered.
-                        if (!io.yamsergey.dta.daemon.network.LiveScope.includes(liveQuery, event.entry, ops.networkCurrentRun(serial, pkg))) return
+                        if (!io.yamsergey.dta.daemon.network.LiveScope.includes(query, event.entry, ops.networkCurrentRun(serial, pkg))) return
                         unchecked = false
-                        val matched = eval().matches(event.entry) != null
+                        val matched = eval(redactNow).matches(event.entry) != null
                         if (matched || unchecked) buffer.send(event to unchecked)
                     }
                     // Feature 071 (research R8): events are decided here, one by one, apart from the feed every
@@ -586,7 +598,6 @@ class DaemonServer(
                 val history = (params["history"] as? JsonPrimitive)?.content == "current"
                 val id = "s${subscriptionIds.incrementAndGet()}"
                 val ignore = (params["ignoreSavedFilters"] as? JsonPrimitive)?.content == "true"
-                val redact = (params["redact"] as? JsonPrimitive)?.content == "true"
                 val events = ops.timelineWatch(serial, pkg, history, sources, kinds, ignore)
                 val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     events.collect { item ->
@@ -601,7 +612,7 @@ class DaemonServer(
                                     when (item) {
                                         is io.yamsergey.dta.daemon.timeline.TimelineWatchItem.Event -> {
                                             // Decision 2026-11-22: a redacted watch sends events as timeline.events redacts them.
-                                            val (event, redaction) = if (redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.event(item.event) else item.event to null
+                                            val (event, redaction) = if (redacts()) io.yamsergey.dta.protocol.timeline.TimelineRedaction.event(item.event).let { (e, info) -> e to info.copy(forAgents = true) } else item.event to statedOff()
                                             put("event", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.timeline.TimelineEvent.serializer(), event))
                                             redaction?.let { put("redaction", DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.RedactionInfo.serializer(), it)) }
                                         }

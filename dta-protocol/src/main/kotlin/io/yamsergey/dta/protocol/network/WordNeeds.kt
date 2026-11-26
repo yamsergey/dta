@@ -41,6 +41,8 @@ object WordNeeds {
      * word that may take one ([Fuzzy.editable]).
      */
     fun term(t: Term): Need {
+        // Feature 072 (R7): a fingerprint is in no word of the stored text; every entry is read and decided by the redactor.
+        if (t.redacted) return Need.Any
         val k = key(t.text) ?: return Need.Any
         if (!t.typos || Fuzzy.editable(t.text).isEmpty()) return Need.All(setOf(k))
         // One edit leaves one half untouched (as Fuzzy.Text.near looks for it); a half under MIN cannot narrow.

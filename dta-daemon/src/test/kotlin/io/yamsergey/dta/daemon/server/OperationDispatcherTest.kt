@@ -58,6 +58,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OperationDispatcherTest {
@@ -65,7 +66,8 @@ class OperationDispatcherTest {
     private val fake = FakeOperations()
     private val dispatcher = OperationDispatcher(fake, Selector(fake::devices, fake::apps))
 
-    private fun call(method: String, params: JsonObject? = null) = runBlocking { dispatcher.dispatch(method, params) }
+    /** As the plugin's own views ask: never redacted (feature 072; AgentRedactionRoutingTest covers the agent kinds). */
+    private fun call(method: String, params: JsonObject? = null) = runBlocking { dispatcher.dispatch(method, params, io.yamsergey.dta.protocol.ops.ClientKind.IDE) }
 
     @Test
     fun `results carry the selection`() {
@@ -78,7 +80,7 @@ class OperationDispatcherTest {
     @Test
     fun `flat list params become the library query`() {
         call("network.list", buildJsonObject {
-            put("url", "auth"); put("status", "4xx"); put("limit", 5); put("order", "oldest-first"); put("redact", true)
+            put("url", "auth"); put("status", "4xx"); put("limit", 5); put("order", "oldest-first")
             putJsonArray("kinds") { add("http") }
         })
         val q = fake.lastQuery!!
@@ -87,7 +89,7 @@ class OperationDispatcherTest {
         assertEquals(listOf(EntryKind.HTTP), q.filter!!.kinds)
         assertEquals(5, q.limit)
         assertEquals(Order.OLDEST_FIRST, q.order)
-        assertTrue(q.redact)
+        assertFalse(q.redact, "the connection decides, not the call (072)")
     }
 
     @Test
@@ -106,7 +108,7 @@ class OperationDispatcherTest {
     @Test
     fun `the plugin's selection is read back with who made it, and cleared (055)`() {
         val element = """[{"node":{"kind":"compose","id":160,"name":"Button","bounds":{"left":0,"top":0,"right":10,"bottom":10}},"path":["Root","Button"],"capturedAt":1}]"""
-        runBlocking { dispatcher.dispatch("layout.select", buildJsonObject { put("elements", element) }, client = "plugin") }
+        runBlocking { dispatcher.dispatch("layout.select", buildJsonObject { put("elements", element) }, client = io.yamsergey.dta.protocol.ops.ClientKind.IDE) }
         val read = call("layout.selection").result.jsonObject
         assertEquals("plugin", read["changedBy"]!!.jsonPrimitive.content)
         assertEquals("not-checked", read["elements"]!!.jsonArray.single().jsonObject["now"]!!.jsonPrimitive.content)
@@ -139,35 +141,6 @@ class OperationDispatcherTest {
         assertEquals(listOf("s:3", 5L, setOf("ui"), setOf("ui/toast"), 20, false), fake.lastTimeline)
         call("timeline.events")
         assertEquals(listOf(null, null, emptySet<String>(), emptySet<String>(), 100, false), fake.lastTimeline)
-    }
-
-    /** Decision 2026-11-22 (3): timeline, tap chain and state answers take redact, as network answers do, and say what was masked. */
-    @Test
-    fun `timeline and state answers are redacted on request`() {
-        fake.timelineEvents = listOf(io.yamsergey.dta.protocol.timeline.TimelineEvent(
-            "7:6", 6, 6, 6, "network", "network/failed", title = "POST /login failed: token=SEED-TL1",
-            causes = listOf(io.yamsergey.dta.protocol.timeline.CauseLink("7:5", io.yamsergey.dta.protocol.timeline.Basis.INFERRED, "text-match", detail = "password=SEED-TL2")),
-        ))
-        fake.currentFacets = listOf(io.yamsergey.dta.protocol.timeline.FacetValue("nav.args", "token=SEED-TL3", "nav", 1, 1))
-        val asked = listOf(
-            "timeline.events" to buildJsonObject { },
-            "timeline.causes" to buildJsonObject { put("event", "7:6") },
-            "state.current" to buildJsonObject { },
-            "state.graph" to buildJsonObject { },
-            "state.path" to buildJsonObject { put("from", "s0") },
-        )
-        for ((op, params) in asked) {
-            val plain = call(op, params).result.toString()
-            assertTrue("SEED-TL" in plain, "twin: $op without redact is whole: $plain")
-            val redacted = call(op, JsonObject(params + ("redact" to kotlinx.serialization.json.JsonPrimitive(true)))).result.jsonObject
-            kotlin.test.assertFalse("SEED-TL" in redacted.toString(), "$op redacted: $redacted")
-            assertTrue(redacted["redaction"] != null, "$op says it is redacted: $redacted")
-        }
-        call("timeline.sequence", buildJsonObject { put("redact", true) })
-        assertEquals("redact", fake.lastTimeline!!.last(), "the sequence is built redacted (its query reads the masked text)")
-        for (op in listOf("timeline.events", "timeline.watch", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path")) {
-            assertTrue(io.yamsergey.dta.protocol.ops.Catalog.all.single { it.name == op }.params.any { it.name == "redact" }, "$op takes redact")
-        }
     }
 
     @Test

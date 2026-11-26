@@ -266,11 +266,15 @@ dta daemon status | stop
     entries are labeled by process run; in-flight entries of a dead process read
     `process-ended`. Capture starts before `Application.onCreate` and runs
     without a client (observation, constitution v1.3.0).
-  - Opt-in redaction (`redact`), applied by the daemon: credential headers,
-    secret/personal JSON/form/query fields, key/value pairs by their key (OTLP
-    attributes); decoded protobuf is redacted as JSON; formats it cannot inspect,
-    undecodable binary included, are withheld unless `allowUnredacted`. Off by
-    default.
+  - Redaction for agents (feature 072), applied by the daemon to every answer of
+    the CLI and the MCP servers (never to the plugin's own views): credential
+    headers, secret/personal JSON/form/query fields, key/value pairs by their key
+    (OTLP attributes); decoded protobuf is redacted as JSON; formats it cannot
+    inspect, undecodable binary included, are withheld. A mask reads
+    `[redacted len=N #fingerprint]`: equal fingerprints are equal values (keyed
+    HMAC, key in the DTA home), a JWT is masked by parts, and `redacted:#fingerprint`
+    finds the entries a value is masked in. On by default; one setting in the DTA
+    home that only the plugin changes; exports follow it.
   - Requirements: API 28+ and a debuggable app; otherwise the capability says
     why. Reductions use nine `network-*` degradation codes.
 

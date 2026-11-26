@@ -63,7 +63,6 @@ class EntryDetailPane(
     private var client: DaemonClient? = null
     private var target: JsonObject = JsonObject(emptyMap())
     private var side = Side.WIRE
-    private var lastRedact = false
     private var marks = io.yamsergey.dta.present.network.SearchMarks()
     private var hitTab: io.yamsergey.dta.present.network.HitTab? = null
     private var hits: List<io.yamsergey.dta.protocol.network.SearchHit> = emptyList()
@@ -87,7 +86,7 @@ class EntryDetailPane(
      * that the list as filtered does not show it (reached by a link, 025).
      */
     fun show(
-        client: DaemonClient?, target: JsonObject, id: String?, redact: Boolean, gone: Boolean, unlisted: Boolean = false,
+        client: DaemonClient?, target: JsonObject, id: String?, gone: Boolean, unlisted: Boolean = false,
         /** Feature 040: search words (D-034: and body filters) to mark, and the tab of the hit when one was moved to. */
         marks: io.yamsergey.dta.present.network.SearchMarks = io.yamsergey.dta.present.network.SearchMarks(), hitTab: io.yamsergey.dta.present.network.HitTab? = null,
         /** Feature 041: the entry's hits, for the "Found in" line. */
@@ -100,15 +99,13 @@ class EntryDetailPane(
         this.marks = marks
         this.hitTab = hitTab
         this.hits = hits
-        // D-099: a switched Redact reads the entry again, as the switch now says; the list and the detail agree.
-        if (shown == id && this.client === client && redact == lastRedact) {
+        if (shown == id && this.client === client) {
             if (gone != shownGone || unlisted != shownUnlisted || marksChanged) { shownUnlisted = unlisted; render(gone) }
             if (revision != shownRevision) follow(revision)
             return
         }
         shownRevision = revision
         shownUnlisted = unlisted
-        lastRedact = redact
         this.client = client
         this.target = target
         shown = id
@@ -118,7 +115,7 @@ class EntryDetailPane(
         val c = client ?: return empty("No DTA daemon connected.")
         empty("Loading…")
         loading = scope.launch {
-            val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)) + if (redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+            val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)))
             val result = runCatching { c.call("network.entry", params).result.jsonObject }
             withContext(Dispatchers.Main) {
                 raw = result.getOrNull()
@@ -139,7 +136,7 @@ class EntryDetailPane(
         if (following?.isActive == true) return
         val c = client ?: return
         val id = shown ?: return
-        val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)) + if (lastRedact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+        val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)))
         following = scope.launch {
             kotlinx.coroutines.delay(FOLLOW_MS)
             val asked = shownRevision
@@ -360,8 +357,7 @@ class EntryDetailPane(
         return MessagesView(client, bodyTarget(), scope, detail, raw ?: JsonObject(emptyMap()), marks.inBody(io.yamsergey.dta.present.network.SearchMarks.BodySide.ANY), top, open)
     }
 
-    /** What `network.body` is asked with: the view's redaction too (D-003), as the entry above it is. */
-    private fun bodyTarget(): JsonObject = if (lastRedact) JsonObject(target + ("redact" to JsonPrimitive(true))) else target
+    private fun bodyTarget(): JsonObject = target
 
     /** Feature 039: the connection's format rule — a new one prefilled with its socket, or [rule] to replace. */
     private fun editFormat(rule: String?) {
@@ -392,9 +388,8 @@ class EntryDetailPane(
     private fun reload() {
         val id = shown ?: return
         val c = client ?: return
-        val redact = lastRedact
         shown = null
-        show(c, target, id, redact, shownGone, shownUnlisted)
+        show(c, target, id, shownGone, shownUnlisted)
     }
 
     /** Why the entry could not be loaded; an entry that is no longer stored says so plainly (patterns.md). */

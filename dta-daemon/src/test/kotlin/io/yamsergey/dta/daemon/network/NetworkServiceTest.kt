@@ -243,7 +243,7 @@ class NetworkServiceTest {
         val result = service.body("struct", BodyPart.REQUEST, redact = true)
         val text = result.text!!
         assertTrue("SECRET-P" !in text && "visible" in text, text)
-        assertEquals(listOf("entry struct request body $.password"), result.redaction!!.masked)
+        assertEquals(listOf("entry struct request body $.password"), result.redaction!!.masked.map { it.place })
         assertEquals(DecodingOutcome.DECODED, result.decoding!!.outcome)
         assertEquals(service.body("struct", BodyPart.REQUEST).decoding, result.decoding, "the same decoding as plain text output")
         val file = java.io.File(tmp, "struct.json")
@@ -322,10 +322,10 @@ class NetworkServiceTest {
         val page = service.list(NetworkQuery(redact = true))
         assertTrue("SECRET" !in page.entries.toString(), page.entries.toString())
         assertEquals(true, page.redaction?.applied)
-        assertTrue(page.redaction!!.masked.any { "url.query token" in it })
+        assertTrue(page.redaction!!.masked.any { "url.query token" in it.place })
         val detail = service.entry("r1-2:1", redact = true)
         assertTrue("SECRET" !in detail.toString(), detail.toString())
-        assertTrue(detail.redaction!!.masked.any { "header Authorization" in it })
+        assertTrue(detail.redaction!!.masked.any { "header Authorization" in it.place })
     }
 
     @Test
@@ -339,21 +339,22 @@ class NetworkServiceTest {
     fun `redacted json body masks values and keeps the rest`() = withService { service, _ ->
         val result = service.body("secret", BodyPart.REQUEST, redact = true)
         assertTrue("SECRET-P" !in result.text!! && "\"name\":\"ok\"" in result.text!!, result.text)
-        assertEquals(listOf("entry secret request body $.password"), result.redaction!!.masked)
+        assertEquals(listOf("entry secret request body $.password"), result.redaction!!.masked.map { it.place })
     }
 
     @Test
-    fun `binary bodies are withheld under redaction unless explicitly allowed`() = withService { service, _ ->
+    fun `binary bodies are withheld under redaction`() = withService { service, _ ->
         val file = java.io.File(tmp, "w.pb")
         val withheld = service.body("proto", BodyPart.REQUEST, BodyOutput.File(file.path), redact = true)
         kotlin.test.assertFalse(file.exists(), "nothing written")
         assertEquals(0, withheld.bytes)
         assertTrue(withheld.redaction!!.withheld.single().contains("binary"))
         assertTrue(io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_REDACTION_WITHHELD in withheld.degraded!!.map { it.reason })
+        assertTrue("turn redaction for agents off" in withheld.note!!, "it says how to read it: ${withheld.note}")
 
-        val allowed = service.body("proto", BodyPart.REQUEST, BodyOutput.File(file.path), redact = true, allowUnredacted = true)
-        assertTrue(file.exists())
-        assertEquals(false, allowed.redaction!!.applied, "marked as not redacted")
+        val whole = service.body("proto", BodyPart.REQUEST, BodyOutput.File(file.path))
+        assertTrue(file.exists(), "without redaction (the plugin, or the setting off) it is written as is")
+        assertEquals(null, whole.redaction)
     }
 
     /** NET-RED-016: the body's summary travels with the body; its preview is the same text, so it is redacted too. */
@@ -368,17 +369,16 @@ class NetworkServiceTest {
         assertTrue("SECRET-P" !in DtaJson.encodeToString(BodyResult.serializer(), written))
         val plain = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
         assertTrue("SECRET-T" !in DtaJson.encodeToString(BodyResult.serializer(), plain), "a plain text body's preview is masked too")
-        val overridden = service.body("plainPreview", BodyPart.RESPONSE, redact = true, allowUnredacted = true)
-        assertEquals("token=SECRET-T, page 2", overridden.body.preview, "the explicit override returns it as is, marked not redacted")
-        assertEquals(false, overridden.redaction!!.applied)
+        val whole = service.body("plainPreview", BodyPart.RESPONSE)
+        assertEquals("token=SECRET-T, page 2", whole.body.preview, "without redaction the preview is as stored")
     }
 
     /** Decision 2026-11-22 (4): a text body of no structured format is masked by name and value and says what, not withheld. */
     @Test
     fun `a plain text body is masked under redaction, not withheld`() = withService { service, _ ->
         val result = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
-        assertEquals("token=${io.yamsergey.dta.protocol.network.Redactor.MASK}, page 2", result.text)
-        assertEquals(listOf("entry plainPreview response body text token"), result.redaction!!.masked)
+        assertEquals("token=${io.yamsergey.dta.protocol.network.Redactor.mask("SECRET-T")}, page 2", result.text)
+        assertEquals(listOf("entry plainPreview response body text token"), result.redaction!!.masked.map { it.place })
         assertTrue(result.redaction!!.withheld.isEmpty())
         assertTrue(result.degraded.orEmpty().none { it.reason == io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_REDACTION_WITHHELD })
     }

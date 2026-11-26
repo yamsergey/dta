@@ -25,18 +25,18 @@ class RedactorTest {
             "entry e1 request",
         )
         assertEquals(listOf("Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-Api-Key", "Content-Type"), headers.map { it.name })
-        assertTrue(headers.take(5).all { it.value == Redactor.MASK })
+        assertEquals(listOf("Bearer $MASKED", "Basic $MASKED", "session=$MASKED", "id=$MASKED; Path=/", MASKED), headers.take(5).map { it.value.plain() })
         assertEquals("application/json", headers.last().value)
-        assertEquals("entry e1 request.header Authorization", masked.first())
+        assertEquals("entry e1 request.header Authorization", masked.first().place)
         assertEquals(5, masked.size)
     }
 
     @Test
     fun `sensitive query parameters are masked in urls`() {
         val (url, masked) = Redactor.url("https://h/p?access_token=SECRET&page=2&email=a%40b.c", "entry e1")
-        assertEquals("https://h/p?access_token=${Redactor.MASK}&page=2&email=${Redactor.MASK}", url)
-        assertEquals(listOf("entry e1 url.query access_token", "entry e1 url.query email"), masked)
-        assertEquals("https://h/p" to emptyList<String>(), Redactor.url("https://h/p", "x"))
+        assertEquals("https://h/p?access_token=${MASKED}&page=2&email=${MASKED}", url.plain())
+        assertEquals(listOf("entry e1 url.query access_token", "entry e1 url.query email"), masked.places())
+        assertEquals("https://h/p" to emptyList<MaskedLocation>(), Redactor.url("https://h/p", "x"))
     }
 
     @Test
@@ -47,46 +47,46 @@ class RedactorTest {
             "entry e1 response",
         )
         val json = Json.parseToJsonElement(result.text!!).jsonObject
-        assertEquals(Redactor.MASK, json["token"]!!.jsonPrimitive.content)
-        assertEquals(Redactor.MASK, json["user"]!!.jsonObject["email"]!!.jsonPrimitive.content)
+        assertEquals(MASKED, json["token"]!!.jsonPrimitive.content.plain())
+        assertEquals(MASKED, json["user"]!!.jsonObject["email"]!!.jsonPrimitive.content.plain())
         assertEquals("visible", json["user"]!!.jsonObject["name"]!!.jsonPrimitive.content)
-        assertEquals(Redactor.MASK, json["user"]!!.jsonObject["phones"]!!.jsonPrimitive.content, "a sensitive key masks its whole subtree")
-        assertEquals(Redactor.MASK, json["refresh_token"]!!.jsonPrimitive.content)
+        assertEquals(MASKED, json["user"]!!.jsonObject["phones"]!!.jsonPrimitive.content.plain(), "a sensitive key masks its whole subtree")
+        assertEquals(MASKED, json["refresh_token"]!!.jsonPrimitive.content.plain())
         assertEquals(3, json["count"]!!.jsonPrimitive.content.toInt())
-        assertTrue("entry e1 response $.token" in result.masked, "${result.masked}")
-        assertTrue("entry e1 response $.user.phones" in result.masked, "${result.masked}")
+        assertTrue("entry e1 response $.token" in result.masked.places(), "${result.masked}")
+        assertTrue("entry e1 response $.user.phones" in result.masked.places(), "${result.masked}")
         assertFalse(listOf("SECRET-T", "a@b.c", "+1").any { it in result.text!! })
         assertNull(result.withheld)
     }
 
     @Test
     fun `json is recognized by content type or by shape`() {
-        assertEquals(Redactor.MASK, Json.parseToJsonElement(Redactor.body("""{"password":"p"}""", null, "x").text!!).jsonObject["password"]!!.jsonPrimitive.content)
-        assertEquals(Redactor.MASK, Json.parseToJsonElement(Redactor.body("""{"password":"p"}""", "application/vnd.api+json", "x").text!!).jsonObject["password"]!!.jsonPrimitive.content)
+        assertEquals(MASKED, Json.parseToJsonElement(Redactor.body("""{"password":"p"}""", null, "x").text!!).jsonObject["password"]!!.jsonPrimitive.content.plain())
+        assertEquals(MASKED, Json.parseToJsonElement(Redactor.body("""{"password":"p"}""", "application/vnd.api+json", "x").text!!).jsonObject["password"]!!.jsonPrimitive.content.plain())
     }
 
     @Test
     fun `form bodies are masked by field name`() {
         val result = Redactor.body("username=ana&password=SECRET&remember=1", "application/x-www-form-urlencoded", "entry e2 request")
-        assertEquals("username=ana&password=${Redactor.MASK}&remember=1", result.text)
-        assertEquals(listOf("entry e2 request form password"), result.masked)
+        assertEquals("username=ana&password=${MASKED}&remember=1", result.text!!.plain())
+        assertEquals(listOf("entry e2 request form password"), result.masked.places())
     }
 
     /** Decision 2026-11-22 (4): text of other formats is masked by the free-text rules, saying what, instead of withheld whole. */
     @Test
     fun `text of other formats is masked by name and value, not withheld`() {
         for ((text, type, expected) in listOf(
-            Triple("token=SECRET-1 user=ana", "text/plain", "token=${Redactor.MASK} user=ana"),
-            Triple("<a><password>SECRET-2</password><b>keep</b></a>", "application/xml", "<a><password>${Redactor.MASK}</password><b>keep</b></a>"),
-            Triple("""{"email":"SECRET-3","na""", null, """{"email":"${Redactor.MASK}","na"""),
-            Triple("42[\"auth\",{\"token\":\"SECRET-4\"}]", "text/plain", "42[\"auth\",{\"token\":\"${Redactor.MASK}\"}]"),
+            Triple("token=SECRET-1 user=ana", "text/plain", "token=${MASKED} user=ana"),
+            Triple("<a><password>SECRET-2</password><b>keep</b></a>", "application/xml", "<a><password>${MASKED}</password><b>keep</b></a>"),
+            Triple("""{"email":"SECRET-3","na""", null, """{"email":"${MASKED}","na"""),
+            Triple("42[\"auth\",{\"token\":\"SECRET-4\"}]", "text/plain", "42[\"auth\",{\"token\":\"${MASKED}\"}]"),
             Triple("nothing to hide here", "text/plain", "nothing to hide here"),
         )) {
             val result = Redactor.body(text, type, "entry e3 response")
-            assertEquals(expected, result.text, "$type: $text")
+            assertEquals(expected, result.text!!.plain(), "$type: $text")
             assertNull(result.withheld)
             assertEquals(text != expected, result.masked.isNotEmpty(), "masked is listed: ${result.masked}")
-            assertTrue(result.masked.all { it.startsWith("entry e3 response text") }, result.masked.toString())
+            assertTrue(result.masked.all { it.place.startsWith("entry e3 response text") }, result.masked.toString())
         }
     }
 
@@ -102,9 +102,9 @@ class RedactorTest {
         val text = redacted.toString()
         assertFalse(listOf("SECRET-Q", "SECRET-H", "SECRET-P", "SECRET-PLAIN").any { it in text }, text)
         redacted as HttpEntry
-        assertTrue(redacted.requestBody!!.preview!!.contains(Redactor.MASK))
-        assertEquals("session=${Redactor.MASK}; ok", redacted.responseBody!!.preview, "a text preview is masked, not dropped")
-        assertTrue(info.masked.any { "response preview text session" in it }, "${info.masked}")
+        assertTrue(redacted.requestBody!!.preview!!.plain().contains(MASKED))
+        assertEquals("session=${MASKED}; ok", redacted.responseBody!!.preview!!.plain(), "a text preview is masked, not dropped")
+        assertTrue(info.masked.places().any { "response preview text session" in it }, "${info.masked}")
         assertTrue(info.withheld.isEmpty(), "${info.withheld}")
     }
 
@@ -135,7 +135,7 @@ class RedactorTest {
                 "entry e request body $.attributes[0].value (key user.email)",
                 "entry e request body $.attributes[2].value (key session.token)",
             ),
-            r.masked,
+            r.masked.places(),
         )
     }
 
@@ -174,7 +174,7 @@ class RedactorTest {
         assertTrue("page=2" in app.url && "\"name\":\"visible\"" in app.body!!.preview!!, "the rest stays: $app")
         assertEquals(listOf("Authorization", "Cookie"), app.headers.map { it.name })
         for (place in listOf("app-request url.query access_token", "app-request.header Authorization", "app-request preview $.token", "app-response.header Set-Cookie", "app-response preview $.token")) {
-            assertTrue(info.masked.any { place in it }, "masked names $place: ${info.masked}")
+            assertTrue(info.masked.places().any { place in it }, "masked names $place: ${info.masked}")
         }
 
         val message = WsMessageEntry(
@@ -184,7 +184,7 @@ class RedactorTest {
         )
         val (m, mi) = Redactor.entry(message)
         assertFalse("SECRET" in m.toString(), m.toString())
-        assertTrue(mi.masked.any { "app-payload preview $.token" in it }, mi.masked.toString())
+        assertTrue(mi.masked.places().any { "app-payload preview $.token" in it }, mi.masked.toString())
     }
 
     /** A message carries its socket's URL (feature 025): the handshake query is masked there too. */
@@ -196,8 +196,8 @@ class RedactorTest {
             url = "wss://h/socket?room=7&token=SECRET-WS",
         )
         val (m, info) = Redactor.entry(message)
-        assertEquals("wss://h/socket?room=7&token=${Redactor.MASK}", (m as WsMessageEntry).url)
-        assertTrue(info.masked.any { "url.query token" in it }, info.masked.toString())
+        assertEquals("wss://h/socket?room=7&token=${MASKED}", (m as WsMessageEntry).url!!.plain())
+        assertTrue(info.masked.places().any { "url.query token" in it }, info.masked.toString())
     }
 
     /** Free text that quotes a URL (an exception message, a close reason, a script's words) has its query masked. */
@@ -210,8 +210,8 @@ class RedactorTest {
         )
         val (r, info) = Redactor.entry(http)
         assertFalse("SECRET" in r.toString(), r.toString())
-        assertEquals("java.io.FileNotFoundException: https://h/p?page=2&access_token=${Redactor.MASK}", (r as HttpEntry).failure)
-        assertTrue(info.masked.any { "failure" in it && "access_token" in it }, info.masked.toString())
+        assertEquals("java.io.FileNotFoundException: https://h/p?page=2&access_token=${MASKED}", (r as HttpEntry).failure!!.plain())
+        assertTrue(info.masked.places().any { "failure" in it && "access_token" in it }, info.masked.toString())
         val socket = WsConnectionEntry(
             id = "c1", runId = "r", timeMs = 1, library = "okhttp3-ws", url = "wss://h/s", state = WsState.FAILED,
             failure = "Expected HTTP 101 response but was '401' at wss://h/s?token=SECRET-F", closeReason = "bye wss://h/s?token=SECRET-C",
@@ -229,10 +229,10 @@ class RedactorTest {
         assertFalse("SECRET-N" in text || "SECRET-L" in text, text)
         val parsed = Json.parseToJsonElement(text).jsonObject
         val data = Json.parseToJsonElement(parsed["data"]!!.jsonPrimitive.content).jsonObject
-        assertEquals(Redactor.MASK, data["token"]!!.jsonPrimitive.content)
+        assertEquals(MASKED, data["token"]!!.jsonPrimitive.content.plain())
         assertEquals("ana", data["user"]!!.jsonPrimitive.content, "the rest of the nested JSON stays")
         assertEquals("{not json", parsed["note"]!!.jsonPrimitive.content)
-        assertEquals(listOf("entry e1 request body $.data(json).token", "entry e1 request body $.list(json)[0].password"), r.masked)
+        assertEquals(listOf("entry e1 request body $.data(json).token", "entry e1 request body $.list(json)[0].password"), r.masked.places())
         val untouched = """{"data":"{\"user\":\"ana\"}"}"""
         assertEquals(untouched, Redactor.body(untouched, "application/json", "x").text, "nested JSON with nothing to mask is kept as written")
     }
@@ -241,24 +241,24 @@ class RedactorTest {
     @Test
     fun `free text masks credentials and sensitive name value pairs`() {
         val cases = listOf(
-            "401 for Authorization: Bearer SECRET-B1.x_y" to "401 for Authorization: ${Redactor.MASK}",
-            "sent Bearer SECRET-B2abc to the proxy" to "sent Bearer ${Redactor.MASK} to the proxy",
-            "Basic U0VDUkVULUIz= refused" to "Basic ${Redactor.MASK} refused",
-            "login token=SECRET-K1 user=ana" to "login token=${Redactor.MASK} user=ana",
-            "POST /login failed: token=SECRET-K5" to "POST /login failed: token=${Redactor.MASK}",
-            "password: SECRET-K2, retry in 5s" to "password: ${Redactor.MASK}, retry in 5s",
-            "bad field \"api_key\":\"SECRET-K3\" in request" to "bad field \"api_key\":\"${Redactor.MASK}\" in request",
-            "cut preview {\"session\":\"SECRET-K4" to "cut preview {\"session\":\"${Redactor.MASK}",
-            "<user><password>SECRET-X1</password><name>ana</name></user>" to "<user><password>${Redactor.MASK}</password><name>ana</name></user>",
-            "Authorization: Token SECRET-T1" to "Authorization: ${Redactor.MASK}",
-            "see https://h/p?page=2&token=SECRET-U1" to "see https://h/p?page=2&token=${Redactor.MASK}",
+            "401 for Authorization: Bearer SECRET-B1.x_y" to "401 for Authorization: ${MASKED}",
+            "sent Bearer SECRET-B2abc to the proxy" to "sent Bearer ${MASKED} to the proxy",
+            "Basic U0VDUkVULUIz= refused" to "Basic ${MASKED} refused",
+            "login token=SECRET-K1 user=ana" to "login token=${MASKED} user=ana",
+            "POST /login failed: token=SECRET-K5" to "POST /login failed: token=${MASKED}",
+            "password: SECRET-K2, retry in 5s" to "password: ${MASKED}, retry in 5s",
+            "bad field \"api_key\":\"SECRET-K3\" in request" to "bad field \"api_key\":\"${MASKED}\" in request",
+            "cut preview {\"session\":\"SECRET-K4" to "cut preview {\"session\":\"${MASKED}",
+            "<user><password>SECRET-X1</password><name>ana</name></user>" to "<user><password>${MASKED}</password><name>ana</name></user>",
+            "Authorization: Token SECRET-T1" to "Authorization: ${MASKED}",
+            "see https://h/p?page=2&token=SECRET-U1" to "see https://h/p?page=2&token=${MASKED}",
             "WWW-Authenticate realm is \"api\"; page=2, name=visible" to "WWW-Authenticate realm is \"api\"; page=2, name=visible",
         )
         for ((given, expected) in cases) {
             val (text, masked) = Redactor.text(given, "entry e1 failure")
-            assertEquals(expected, text, given)
+            assertEquals(expected, text.plain(), given)
             assertEquals(given != expected, masked.isNotEmpty(), "masked is listed: $masked")
-            assertTrue(masked.all { it.startsWith("entry e1 failure") }, masked.toString())
+            assertTrue(masked.all { it.place.startsWith("entry e1 failure") }, masked.toString())
         }
     }
 
@@ -271,10 +271,10 @@ class RedactorTest {
         )
         assertFalse(headers.any { "SECRET" in it.value }, headers.toString())
         assertEquals("application/json", headers.last().value)
-        assertTrue(masked.any { "header Location" in it } && masked.any { "header X-Debug" in it }, masked.toString())
+        assertTrue(masked.places().any { "header Location" in it } && masked.places().any { "header X-Debug" in it }, masked.toString())
         val body = Redactor.body("""{"message":"failed for token=SECRET-J1","status":"ok"}""", "application/json", "x")
         assertFalse("SECRET-J1" in body.text!!, body.text)
         assertTrue("\"status\":\"ok\"" in body.text!!)
-        assertTrue(body.masked.any { "$.message" in it }, body.masked.toString())
+        assertTrue(body.masked.places().any { "$.message" in it }, body.masked.toString())
     }
 }

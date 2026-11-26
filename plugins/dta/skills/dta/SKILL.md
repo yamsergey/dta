@@ -100,7 +100,7 @@ When a body is binary protobuf and not decoded, the schemas or the mapping are m
 - To follow traffic over time: note the time, act, then call `network_list` with `sinceMs`.
 - `network_entry` gives headers, timing, the initiator stack (first app frame marked) and, for a WebSocket connection, its messages.
 - `network_body`: text for text bodies and decoded protobuf; for other binary bodies pass `output` (a file path) and read the file. Large bodies come back as a file automatically.
-- `redact: true` masks tokens, cookies, passwords and keys (in decoded protobuf too); bodies that cannot be redacted are withheld unless `allowUnredacted`.
+- Answers are redacted for you while the agents' setting is on (the default; no call turns it off, the developer changes it in the plugin's settings, Agents/MCP). Tokens, cookies, passwords, keys and personal data (in decoded protobuf too) read `[redacted len=212 #3f9a2c81d04e]`: the length of the value and a fingerprint — equal fingerprints are equal values wherever they occur (a token a login answered and the one a request sent), different ones differ. `Authorization: Bearer [redacted …]` keeps the scheme; a JWT shows `alg`, `typ`, `kid`, `iss`, `aud` and its times (`iat`, `nbf`, `exp`, ISO UTC) and masks the subject, other claims and signature with their own fingerprints. To find every place a masked value occurs, search `redacted:#3f9a2c81d04e` (`network_search`): it reads masked places only, and says so. Bodies that cannot be redacted are withheld. Every answer's `redaction` says what was masked, or that the setting is off; `network_export` follows the setting and its file says which it is.
 - `network_clear` empties the history (all runs).
 
 ## WebSocket message formats

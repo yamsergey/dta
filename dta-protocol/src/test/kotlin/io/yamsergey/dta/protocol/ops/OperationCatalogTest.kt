@@ -45,7 +45,7 @@ class OperationCatalogTest {
                 "web.capture", "web.status", "web.reload", "web.devtools",
                 "timeline.flow.start", "timeline.enabled", "timeline.flow.end", "timeline.flow.list", "timeline.flow.rename", "timeline.flow.remove",
                 "state.current", "state.graph", "state.path",
-                "daemon.status", "daemon.stop",
+                "daemon.status", "daemon.stop", "agents.redaction", "agents.redaction.set",
                 "data.list", "data.db.schema", "data.db.query", "data.db.exec",
                 "data.prefs.read", "data.prefs.set", "data.prefs.remove", "data.proto.read", "data.proto.write",
                 "data.files.list", "data.files.read", "data.files.write", "data.files.mkdir", "data.files.delete",
@@ -85,8 +85,8 @@ class OperationCatalogTest {
     @Test
     fun `agent tools exclude stop and the watches`() {
         val tools = Catalog.agentTools.map { it.name }
-        assertTrue("daemon.stop" !in tools && "network.watch" !in tools && "apps.watch" !in tools && "timeline.watch" !in tools && "layout.watch" !in tools)
-        assertEquals(Catalog.all.size - 5, tools.size)
+        assertTrue("daemon.stop" !in tools && "network.watch" !in tools && "apps.watch" !in tools && "timeline.watch" !in tools && "layout.watch" !in tools && "agents.redaction.set" !in tools, "the setting is changed from the plugin, not offered to agents")
+        assertEquals(Catalog.all.size - 6, tools.size)
     }
 
     @Test
@@ -96,7 +96,8 @@ class OperationCatalogTest {
         val props = schema["properties"]!!.jsonObject
         assertEquals("string", props["url"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals("integer", props["limit"]!!.jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("boolean", props["redact"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("boolean", props["archive"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertTrue("redact" !in props, "no per-call redaction (072)")
         val kinds = props["kinds"]!!.jsonObject
         assertEquals("array", kinds["type"]!!.jsonPrimitive.content)
         assertEquals(listOf("http", "ws-connection", "ws-message"), kinds["items"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content })
@@ -227,5 +228,24 @@ class OperationCatalogTest {
         assertTrue("app-request" in part && "app-response" in part && "mocked" in part, part)
         val list = agent("network_list").param("intervened")!!.description
         assertTrue("network script" in list, list)
+    }
+
+    /** 072 B3 (FR-004): every command and tool whose answer is redacted for agents says how to read a mask and that fingerprints are searched. */
+    @Test
+    fun `operations whose answers are redacted say how masks read and that fingerprints search`() {
+        val redacting = listOf(
+            "network.list", "network.search", "network.entry", "network.body", "network.export", "links.list", "links.entry",
+            "timeline.events", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path", "network.watch", "timeline.watch",
+        )
+        for (name in redacting) {
+            val cli = Catalog.cliCommands.single { it.name == name }.description
+            assertTrue("[redacted len=N #fingerprint]" in cli && "redacted:#fingerprint" in cli, "$name (cli): $cli")
+            Catalog.agentTools.singleOrNull { it.name == name }?.let { agent ->
+                assertTrue("[redacted len=N #fingerprint]" in agent.description && "redacted:#fingerprint" in agent.description, "$name (agent): ${agent.description}")
+            }
+        }
+        val q = Catalog["network.list"].param("q")!!.description
+        assertTrue("redacted:#" in q && "fingerprint" in q, q)
+        assertTrue("no per-call way to turn it off" in Catalog["agents.redaction"].description, Catalog["agents.redaction"].description)
     }
 }

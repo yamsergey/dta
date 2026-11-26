@@ -126,7 +126,7 @@ class NetworkModelTest {
                 notSearched = listOf("binary bodies (1)"),
                 clearedAtMs = 5,
             ),
-            redaction = RedactionInfo(masked = listOf("entry r1-42:1 request.header Authorization"), withheld = listOf("entry r1-42:1 request body (binary)")),
+            redaction = RedactionInfo(masked = listOf(MaskedLocation("entry r1-42:1 request.header Authorization", "0123456789ab", 6)), withheld = listOf("entry r1-42:1 request body (binary)")),
         )
         val json = DtaJson.encodeToString(NetworkPage.serializer(), page)
         assertTrue("\"request-body\"" in json && "\"process-ended\"" in json, json)

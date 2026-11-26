@@ -36,7 +36,12 @@ class AgentsConfigurable : Configurable {
 
     override fun createComponent(): JComponent {
         val s = CoroutineScope(SupervisorJob() + Dispatchers.Default).also { scope = it }
-        return AgentsPanel(AgentServerService.get().controller, ApplicationManager.getApplication().getService(AgentServerSettings::class.java), s)
+        // Feature 072: the Secrets setting is the daemon's, read and changed over the plugin's own connection.
+        io.yamsergey.dta.studio.DtaApplicationService.get().ensureStarted()
+        val redaction = io.yamsergey.dta.studio.agents.AgentRedactionController(
+            { (io.yamsergey.dta.studio.DtaApplicationService.get().session.state.value as? io.yamsergey.dta.studio.DaemonSession.State.Connected)?.client }, s,
+        )
+        return AgentsPanel(AgentServerService.get().controller, ApplicationManager.getApplication().getService(AgentServerSettings::class.java), s, redaction)
     }
 
     override fun isModified() = false

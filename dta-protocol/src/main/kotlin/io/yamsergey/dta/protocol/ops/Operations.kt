@@ -180,9 +180,19 @@ object Catalog {
         "Query line: key:value words filter — any entry: body: (text in any body, case ignored; body:/regex/ a pattern, also req:/…/ resp:/…/ — slashes group spaces, case ignored unless (?-i), body:\"/x/\" stays literal), url:, host:, kind:, source:app|webview|custom-tab, has:intervention, run:, since:5m, until:; " +
         "HTTP: method:, status: (200, 4xx, failed, pending), header:name or header:name=text, req: / resp: (text in the request or response body), mime:json, duration:>1s, size:>100k; " +
         "WebSocket: dir:sent|received, frame:text|binary, type: and topic: (as the message format reads them), conn:<connection id>, status:open|closed|connecting|failed|1006, header: (handshake), size:; " +
+        "redacted:#fingerprint (12 hex, as a mask shows it: [redacted len=N #fingerprint]) the entries where that value is masked — masked places only, in any app run; " +
         "bare GET/POST… and http/ws too; -key:value leaves matches out); other words and \"quoted phrases\" are searched exactly " +
         "(case and separators ignored: orderId = order_id = order id) in URLs, headers, bodies and message payloads; typos:on (or typos) also allows one typo in words of 5+ letters (numbers stay exact; body: is always exact). " +
         "Answers cover the app's current run unless archive is on (run:all alone widens nothing; run:current narrows a whole-history answer). No time limit cuts a pattern or a search."
+
+    /** Feature 072 (FR-004): what an agent reads in every description whose answer is redacted. */
+    private const val REDACTION_NOTE = "Secrets are masked while redaction for agents is on (the default; the answer's redaction says): [redacted len=N #fingerprint] — equal fingerprints are equal values wherever they occur; find the entries holding one with the query term redacted:#fingerprint."
+
+    /** Feature 072: the operations whose answers (and, for the watches, events) are redacted for agents. */
+    private val REDACTED_FOR_AGENTS = setOf(
+        "network.list", "network.search", "network.entry", "network.body", "network.export", "network.watch", "links.list", "links.entry",
+        "timeline.events", "timeline.watch", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path",
+    )
 
     /** Decision 2026-11-22: typo tolerance is asked for, never the default. */
     private val TYPOS = ParamSpec("typos", ParamType.BOOLEAN, "Search words and phrases also match one typo away, in words of 5+ letters (as typos:on in q); off by default: exact, case and separators ignored. body: text is always exact.")
@@ -225,12 +235,6 @@ object Catalog {
         "ignoreSavedFilters", ParamType.BOOLEAN,
         "Do not apply the app's saved network filters (they stay saved). By default they hide the network rows Network hides (requests, responses, sockets; never taps, screens or app events), and the result says how many.",
         cliName = "no-saved-filters",
-    )
-
-    /** Decision 2026-11-22: timeline and state answers are redacted as network answers are. */
-    private val TIMELINE_REDACT = ParamSpec(
-        "redact", ParamType.BOOLEAN,
-        "Mask secrets as network outputs do: credentials and sensitive name=value pairs in titles, errors, routes, texts and cause details; arguments, attributes and facets with sensitive names. The answer lists what was masked.",
     )
 
     private val TIMELINE_SOURCES = ParamSpec(
@@ -327,7 +331,6 @@ object Catalog {
                 ParamSpec("limit", ParamType.INT, "Page size, 1..1000 (default 100)."),
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets (tokens, cookies, passwords) in URLs and headers."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
@@ -347,7 +350,6 @@ object Catalog {
                 ParamSpec("limit", ParamType.INT, "Entries per page, 1..1000 (default 100)."),
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
-                ParamSpec("redact", ParamType.BOOLEAN, "Search URLs, headers and bodies as redacted: masked secrets are not found."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
                 TYPOS,
@@ -362,7 +364,6 @@ object Catalog {
             Scope.APP,
             listOf(
                 ParamSpec("id", ParamType.STRING, "Entry id from network.list.", required = true, positional = true),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs and headers."),
             ),
         ),
         OperationSpec(
@@ -375,8 +376,6 @@ object Catalog {
                 ParamSpec("output", ParamType.STRING, "Write the body to this file instead of returning text; the result gives path, size and sha256.", path = true, cliShort = "-o"),
                 ParamSpec("raw", ParamType.BOOLEAN, "With output: keep the bytes as sent on the wire (compressed), instead of decoded."),
                 ParamSpec("structured", ParamType.BOOLEAN, "With output: write the decoded JSON of a protobuf body instead of its bytes."),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets inside the body (decoded protobuf included); bodies that cannot be redacted are withheld."),
-                ParamSpec("allowUnredacted", ParamType.BOOLEAN, "With redact: return a body that cannot be redacted anyway, saying so."),
             ),
         ),
         OperationSpec("network.clear", "Delete the app's captured network history on the device. What this computer has not archived yet is copied first; the result says what could not be kept.", Scope.APP),
@@ -403,9 +402,9 @@ object Catalog {
                 ParamSpec("untilMs", ParamType.LONG, "Only entries at or before this epoch millisecond."),
                 ParamSpec("bodyContains", ParamType.STRING, "Text inside a body or payload, case ignored (as body: in q)."),
                 RUNS,
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
+                ParamSpec("unredacted", ParamType.BOOLEAN, "Write the file with secrets as they are. Only the Android Studio plugin may ask for this; every other client gets the file as the agents' setting says (redacted, with fingerprints, unless it is off in the plugin's settings)."),
                 ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network.list.", cliShort = "-q", cliName = "query"),
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
             ),
@@ -414,7 +413,6 @@ object Catalog {
             "network.watch", "Follow new network entries as they happen, until interrupted. With history=current, the running process's entries come first.", Scope.APP,
             NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; with archive, first every run's entries this computer keeps, oldest first; none (default): only new ones.", enumValues = listOf("current", "none")) +
                 ParamSpec("q", ParamType.STRING, "Query line, as in network.list: its filters apply, and search words list only the entries holding them (each with its hits).", cliShort = "-q", cliName = "query") +
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and previews, as network.list does; filters and search words match the masked text.") +
                 ParamSpec("archive", ParamType.BOOLEAN, "Every run: also entries of earlier runs that reach this computer later (e.g. a fresh daemon catching up the device's journal). Without it, only the app's current run (since its process last started); the answer's scope says how much more is kept.") +
                 TYPOS +
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
@@ -569,7 +567,6 @@ object Catalog {
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URIs, query parameters and extras."),
             ),
             cliPathOverride = listOf("links", "list"),
         ),
@@ -579,7 +576,6 @@ object Catalog {
             Scope.APP,
             listOf(
                 ParamSpec("id", ParamType.STRING, "The link's id from links.list.", required = true, positional = true),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in the URI, query parameters and extras."),
             ),
             cliPathOverride = listOf("links", "entry"),
         ),
@@ -611,7 +607,6 @@ object Catalog {
                 TIMELINE_KINDS,
                 ParamSpec("limit", ParamType.INT, "Page size, 1..500 (default 100)."),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -621,7 +616,6 @@ object Catalog {
                 TIMELINE_KINDS,
                 ParamSpec("history", ParamType.ENUM, "current: first the kept events, then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
             streaming = true, cliOnly = true,
         ),
@@ -635,7 +629,6 @@ object Catalog {
                 ParamSpec("depth", ParamType.INT, "How many links to follow, 1..32 (default 8)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Also follow inferred links (timing and matching data); they are marked inferred."),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -648,7 +641,6 @@ object Catalog {
                 ParamSpec("sinceMs", ParamType.LONG, "Only rows at or after this epoch millisecond (device clock)."),
                 ParamSpec("flow", ParamType.STRING, "Only this flow's rows: an id, or a name only one flow has."),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -713,7 +705,7 @@ object Catalog {
         OperationSpec(
             "state.current",
             "What the app is in now: every facet from every source that is on (the screen's structure, open windows, navigation, the app's own facets), with its source and when it changed, and each source's status.",
-            Scope.APP, listOf(TIMELINE_REDACT), cliPathOverride = listOf("state"),
+            Scope.APP, emptyList(), cliPathOverride = listOf("state"),
         ),
         OperationSpec(
             "state.graph",
@@ -721,7 +713,6 @@ object Catalog {
             Scope.APP,
             listOf(
                 STATE_FACETS,
-                TIMELINE_REDACT,
                 ParamSpec("minHoldMs", ParamType.LONG, "Merge states held for less than this into the next one (default 0)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Give inferred causes to transitions that have no known cause; they are marked inferred."),
             ),
@@ -735,7 +726,6 @@ object Catalog {
                 ParamSpec("from", ParamType.STRING, "A state id or label from state graph.", required = true),
                 ParamSpec("to", ParamType.STRING, "A state id or label; the current state when omitted."),
                 STATE_FACETS,
-                TIMELINE_REDACT,
             ),
             cliPathOverride = listOf("state", "path"),
         ),
@@ -959,7 +949,19 @@ object Catalog {
             "daemon.status", "The DTA service: version, uptime, adb, connected clients, devices and open app connections.", Scope.NONE,
         ),
         OperationSpec("daemon.stop", "Stop the DTA service (it starts again with the next command).", Scope.NONE, cliOnly = true),
-    )
+        OperationSpec(
+            "agents.redaction",
+            "Whether answers to agents (this command line, MCP tools) are redacted: secrets, tokens and personal data are masked as [redacted len=N #fingerprint] (equal values share a fingerprint; find a value with the query term redacted:#fingerprint). The setting is changed from the plugin's settings only; there is no per-call way to turn it off.",
+            Scope.NONE,
+        ),
+        OperationSpec(
+            "agents.redaction.set",
+            "Turn redaction of answers to agents on or off. Only the Android Studio plugin may do this: from here it is refused, so an agent cannot turn it off.",
+            Scope.NONE,
+            listOf(ParamSpec("redaction", ParamType.BOOLEAN, "true to mask secrets in answers to agents (the default), false to show them.", required = true)),
+            cliOnly = true,
+        ),
+    ).map { op -> if (op.name in REDACTED_FOR_AGENTS) op.copy(description = "${op.description} $REDACTION_NOTE") else op }
 
     private val byName = all.associateBy { it.name }
 

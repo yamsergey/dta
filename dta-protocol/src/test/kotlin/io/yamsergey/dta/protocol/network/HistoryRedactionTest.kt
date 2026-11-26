@@ -46,7 +46,7 @@ class HistoryRedactionTest {
         }
         val harmless = v.list(NetworkQuery(q = "body:/\"name\":\"visible\"/", redact = true))
         assertEquals(listOf("r1:1"), ids(harmless), "a harmless pattern still matches")
-        val masked = v.list(NetworkQuery(q = "body:/\\[redacted\\]/", redact = true))
+        val masked = v.list(NetworkQuery(q = "body:/\\[redacted\\s*\\]/", redact = true))
         assertEquals(listOf("r1:2", "r1:1"), ids(masked), "the mask itself is in the redacted text")
         val wide = v.list(NetworkQuery(q = "body:/.+/", redact = true))
         val out = DtaJson.encodeToString(NetworkPage.serializer(), wide) + DtaJson.encodeToString(SearchPage.serializer(), v.search(NetworkQuery(q = "body:/.+/", redact = true)))
