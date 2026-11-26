@@ -53,7 +53,7 @@ class AgentRedactionControllerTest {
 
     @Test
     fun `with no daemon it says so and keeps what it showed`() = runBlocking<Unit> {
-        val c = AgentRedactionController({ null }, scope)
+        val c = AgentRedactionController({ null }, scope, waitMs = 0)
         c.set(false)
         until { c.state.value.error != null }
         assertTrue("daemon" in c.state.value.error!!.lowercase(), c.state.value.error)

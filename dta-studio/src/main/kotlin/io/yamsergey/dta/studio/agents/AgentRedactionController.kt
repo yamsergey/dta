@@ -18,6 +18,8 @@ import kotlinx.serialization.json.jsonPrimitive
 class AgentRedactionController(
     private val client: () -> DaemonClient?,
     private val scope: CoroutineScope,
+    /** How long a call waits for the connection to be there (the page may open before the daemon connects). */
+    private val waitMs: Long = 10_000,
 ) {
     /** [on] null until the daemon has said; [error] the last thing that went wrong, cleared by the next success. */
     data class State(val on: Boolean? = null, val error: String? = null)
@@ -31,7 +33,9 @@ class AgentRedactionController(
 
     private fun run(call: suspend (DaemonClient) -> io.yamsergey.dta.protocol.ops.Selected) {
         scope.launch {
-            val c = client()
+            var c = client()
+            val until = System.currentTimeMillis() + waitMs
+            while (c == null && System.currentTimeMillis() < until) { kotlinx.coroutines.delay(200); c = client() }
             if (c == null) { mutable.value = mutable.value.copy(error = "No DTA daemon connected: the setting is read and changed there."); return@launch }
             mutable.value = runCatching { call(c).result.jsonObject["redaction"]?.jsonPrimitive?.booleanOrNull }.fold(
                 { State(on = it ?: mutable.value.on) },
