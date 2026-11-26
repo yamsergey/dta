@@ -422,6 +422,8 @@ class OperationDispatcher(
             entry = { id -> ops.networkEntry(c.device, c.app, id, redact) },
             body = { id, part, file ->
                 val result = ops.networkBody(c.device, c.app, id, part, BodyOutput.File(file.path), redact)
+                // D-111: a body a redacted export withholds is left out saying so, not "no bytes stored".
+                if (!file.exists()) result.redaction?.withheld?.takeIf { it.isNotEmpty() }?.let { error("cannot be redacted (${it.joinToString("; ")}); an unredacted export is made from the plugin's export dialog") }
                 check(file.exists()) { "no bytes stored" }
                 result.redaction
             },
