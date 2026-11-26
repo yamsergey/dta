@@ -52,7 +52,9 @@ class NetworkExport(
         var messages = 0
         var notExported = 0
         val masked = LinkedHashMap<Pair<String, String>, io.yamsergey.dta.protocol.network.MaskedLocation>()
-        fun masks(info: io.yamsergey.dta.protocol.network.RedactionInfo?) = info?.masked?.forEach { masked.putIfAbsent(it.place to it.fingerprint, it) }
+        // D-110: an entry's list-form previews are masked in its detail but the file holds the bodies, not the previews: they are not listed.
+        fun masks(info: io.yamsergey.dta.protocol.network.RedactionInfo?) =
+            info?.masked?.filterNot { " preview " in it.place }?.forEach { masked.putIfAbsent(it.place to it.fingerprint, it) }
         suspend fun content(id: String, part: BodyPart, info: BodyInfo?): Har.Content? {
             info ?: return null
             val note = if (info.completeness == Completeness.COMPLETE) null else "${wire(info.completeness)}: ${info.completenessReason}"
