@@ -102,7 +102,8 @@ class NetworkExport(
 
         output.absoluteFile.parentFile?.mkdirs()
         output.writeText(DtaJson.encodeToString(JsonObject.serializer(), Har.document(out.sortedBy { it.first }.map { it.second }, version, Har.Redaction(redacted, masked.values.take(MAX_MASKED).toList(), (masked.size - MAX_MASKED).coerceAtLeast(0)))))
-        return NetworkExportResult(output.path, entries = out.size, webSocketMessages = messages, bodies = bodies, bodiesOmitted = omitted, messagesNotExported = notExported, saved = saved, scope = scope)
+        return NetworkExportResult(output.path, entries = out.size, webSocketMessages = messages, bodies = bodies, bodiesOmitted = omitted, messagesNotExported = notExported, saved = saved, scope = scope,
+            redaction = if (redacted) io.yamsergey.dta.protocol.network.RedactionInfo(masked = masked.values.take(MAX_MASKED).toList()) else null)
     }
 
     companion object {

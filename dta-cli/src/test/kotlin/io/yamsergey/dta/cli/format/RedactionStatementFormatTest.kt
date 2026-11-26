@@ -32,4 +32,25 @@ class RedactionStatementFormatTest {
     fun `D-105 a page without redaction (the plugin's) states nothing`() {
         assertTrue("redacted" !in events(null), events(null))
     }
+
+    private val statement = "redacted for agents: 1 values masked (fingerprints: search redacted:#…)"
+
+    @Test
+    fun `D-109 an export's text states what was masked in the file`() {
+        val result = DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.NetworkExportResult.serializer(),
+            io.yamsergey.dta.protocol.network.NetworkExportResult("/tmp/x.har", 2, 0, 1, 0, redaction = on))
+        val text = f.format("network.export", result)
+        assertTrue(statement in text, text)
+    }
+
+    @Test
+    fun `D-109 a streamed search's end states redaction`() {
+        val page = DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.SearchPage.serializer(),
+            io.yamsergey.dta.protocol.network.SearchPage(emptyList(), redaction = on)) as kotlinx.serialization.json.JsonObject
+        val text = f.findEnd(page, 1)
+        assertTrue(statement in text, text)
+        val offText = f.findEnd(DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.network.SearchPage.serializer(),
+            io.yamsergey.dta.protocol.network.SearchPage(emptyList(), redaction = off)) as kotlinx.serialization.json.JsonObject, 1)
+        assertTrue("not redacted: redaction for agents is off in the plugin's settings" in offText, offText)
+    }
 }

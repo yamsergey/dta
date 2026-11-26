@@ -128,4 +128,26 @@ class NetworkExportTest {
         assertTrue("unredacted" in plain["creator"]!!.jsonObject["comment"]!!.jsonPrimitive.content, plain["creator"].toString())
         assertEquals("false", plain["_dta"]!!.jsonObject["redaction"]!!.jsonObject["applied"]!!.jsonPrimitive.content)
     }
+
+    /** D-109: the answer says what the file holds (the CLI/MCP text states it from here); the plugin's unredacted export says nothing was masked. */
+    @Test
+    fun `the result carries what was masked in the file`() = runBlocking {
+        val masked = io.yamsergey.dta.protocol.network.MaskedLocation("entry r1:1 request.header Authorization", "3f9a2c81d04e", 212)
+        fun result(redacted: Boolean): NetworkExportResult {
+            val out = File(Files.createTempDirectory("har").toFile(), "s.har")
+            return runBlocking {
+                NetworkExport(
+                    page = { NetworkPage(listOf(get), coverage = Coverage(searched = 1, stored = 1, persisted = true)) },
+                    entry = { NetworkEntryDetail(get, redaction = if (redacted) io.yamsergey.dta.protocol.network.RedactionInfo(masked = listOf(masked)) else null) },
+                    body = { _, _, file -> file.writeBytes("{}".toByteArray()); null },
+                    version = "0.10.0",
+                    redacted = redacted,
+                ).export(NetworkQuery(), out)
+            }
+        }
+        val on = result(true).redaction!!
+        assertEquals(true, on.applied)
+        assertEquals(listOf(masked), on.masked)
+        assertEquals(false, result(false).redaction?.applied ?: false)
+    }
 }

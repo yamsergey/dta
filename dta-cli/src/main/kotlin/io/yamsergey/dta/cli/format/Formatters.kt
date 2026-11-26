@@ -450,6 +450,7 @@ class Formatters(private val style: Style) {
         page.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         if (scope?.runAllIgnored == true) append("\n" + style.paint(io.yamsergey.dta.present.network.ScopeCaption.RUN_ALL_HINT + " Add --archive to include earlier runs.", Token.INK_MUTED))
         page.arr("notSearched").forEach { append("\n" + style.mark(io.yamsergey.dta.present.StatementKind.DEGRADED, "not searched: ${it.jsonContent}")) }
+        Statements.forRedaction(page["redaction"]).forEach { append("\n" + style.mark(it)) }
     }
 
     private fun networkSearch(o: JsonObject): String = buildString {

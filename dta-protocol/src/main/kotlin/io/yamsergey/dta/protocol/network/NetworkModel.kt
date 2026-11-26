@@ -689,6 +689,8 @@ data class NetworkExportResult(
     val saved: SavedFiltersApplied? = null,
     /** Feature 071 (FR-004): the scope the list answered, what lies outside it included. */
     val scope: HistoryScope? = null,
+    /** Feature 072 (FR-004): what redaction masked in the file (the places the file holds); null when it was not asked. */
+    val redaction: RedactionInfo? = null,
 )
 
 /** Result of `network_clear`. */
