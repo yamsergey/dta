@@ -281,10 +281,13 @@ class NetworkPanel(
         override fun update(e: AnActionEvent) { super.update(e); e.presentation.isEnabled = enabled() }
     }
 
-    private inner class Act(text: String, icon: javax.swing.Icon, private val enabled: () -> Boolean = { true }, private val run: () -> Unit) : com.intellij.openapi.project.DumbAwareAction(text, null, icon) {
+    private inner class Act(text: String, icon: javax.swing.Icon, private val enabled: () -> Boolean = { true }, private val hint: String? = null, private val run: () -> Unit) : com.intellij.openapi.project.DumbAwareAction(text, null, icon) {
         override fun getActionUpdateThread() = ActionUpdateThread.EDT
         override fun actionPerformed(e: AnActionEvent) = run()
-        override fun update(e: AnActionEvent) { e.presentation.isEnabled = enabled() }
+        override fun update(e: AnActionEvent) {
+            e.presentation.isEnabled = enabled()
+            hint?.let { e.presentation.putClientProperty(com.intellij.openapi.actionSystem.ex.ActionUtil.SECONDARY_TEXT, it) }
+        }
     }
 
     /** 072 (FR-013): Export HAR opens a menu: masked (the default), or with secrets, for the developer only. */
@@ -293,8 +296,8 @@ class NetworkPanel(
         override fun update(e: AnActionEvent) { e.presentation.isEnabled = last.app != null }
         override fun actionPerformed(e: AnActionEvent) {
             val group = DefaultActionGroup(
-                Act("Export HAR…", AllIcons.ToolbarDecorator.Export) { exportHar(unredacted = false) },
-                Act("Export HAR with Secrets…", AllIcons.ToolbarDecorator.Export) { exportHar(unredacted = true) },
+                Act("Export HAR…", AllIcons.ToolbarDecorator.Export, hint = "secrets masked") { exportHar(unredacted = false) },
+                Act("Export HAR with Secrets…", AllIcons.ToolbarDecorator.Export, hint = "for you only") { exportHar(unredacted = true) },
             )
             com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
                 .createActionGroupPopup(null, group, e.dataContext, com.intellij.openapi.ui.popup.JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
