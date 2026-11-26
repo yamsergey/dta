@@ -31,7 +31,24 @@ import java.time.format.DateTimeFormatter
  */
 class Formatters(private val style: Style) {
 
-    fun format(operation: String, result: JsonElement): String = when (operation) {
+    fun format(operation: String, result: JsonElement): String {
+        val text = formatBody(operation, result)
+        val said = redactionLines(operation, result)
+        if (said.isEmpty()) return text
+        // A page's last line stays its cursor ("next: ..."): the statement goes above it.
+        val cursor = text.lastIndexOf("\nnext:")
+        return if (operation == "timeline.events" && cursor >= 0) text.substring(0, cursor) + said + text.substring(cursor) else text + said
+    }
+
+    /**
+     * 072 FR-004: answers whose text has no statement lines of its own say what redaction did, on a line of their own
+     * (entry/body/links text carry it inside their statements).
+     */
+    private fun redactionLines(operation: String, result: JsonElement): String =
+        if (operation !in STATES_REDACTION) ""
+        else Statements.forRedaction((result as? JsonObject)?.get("redaction")).joinToString("") { "\n" + style.mark(it) }
+
+    private fun formatBody(operation: String, result: JsonElement): String = when (operation) {
         "devices.list" -> devices(result.arr)
         "apps.list" -> apps(result.obj)
         "capability.report" -> capability(result.obj)
@@ -433,6 +450,7 @@ class Formatters(private val style: Style) {
         page.str("next")?.let { append(style.paint("  next page: --before $it", Token.INK_MUTED)) }
         if (scope?.runAllIgnored == true) append("\n" + style.paint(io.yamsergey.dta.present.network.ScopeCaption.RUN_ALL_HINT + " Add --archive to include earlier runs.", Token.INK_MUTED))
         page.arr("notSearched").forEach { append("\n" + style.mark(io.yamsergey.dta.present.StatementKind.DEGRADED, "not searched: ${it.jsonContent}")) }
+        Statements.forRedaction(page["redaction"]).forEach { append("\n" + style.mark(it)) }
     }
 
     private fun networkSearch(o: JsonObject): String = buildString {
@@ -782,6 +800,8 @@ class Formatters(private val style: Style) {
     private fun section(title: String) = style.paint(title, Token.STRONG)
 
     companion object {
+        private val STATES_REDACTION = setOf("timeline.events", "timeline.sequence", "timeline.causes", "network.export")
+
         private val PRETTY = Json { prettyPrint = true }
 
         /** How an exchange ended: shown in the status column, not among the row's marks. */

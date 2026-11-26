@@ -38,11 +38,22 @@ class AgentsPanel(
     private val prefs: AgentServerPrefs,
     scope: CoroutineScope,
     private val redaction: io.yamsergey.dta.studio.agents.AgentRedactionController? = null,
-) : JPanel(BorderLayout()) {
+) : JPanel(BorderLayout()), javax.swing.Scrollable {
+    // D-107: inside Settings' own scroll pane the page takes the dialog's width (it wraps there) instead of keeping the width it once had.
+    override fun getPreferredScrollableViewportSize() = preferredSize
+    override fun getScrollableUnitIncrement(r: java.awt.Rectangle?, o: Int, d: Int) = JBUI.scale(16)
+    override fun getScrollableBlockIncrement(r: java.awt.Rectangle?, o: Int, d: Int) = JBUI.scale(64)
+    override fun getScrollableTracksViewportWidth() = true
+    override fun getScrollableTracksViewportHeight() = false
+    // Never wider than a narrow page: the host's scroll pane fills the width it has; the texts wrap to it.
+    override fun getPreferredSize(): java.awt.Dimension = super.getPreferredSize().also { it.width = minOf(it.width, JBUI.scale(280)) }
+
     /** 072 (FR-015): the Secrets group — one setting for every agent path and exports; the daemon holds it. */
     private val mask = JBCheckBox("Mask secrets in what agents read and in exports", true).apply { isEnabled = false }
     private val maskError = JBLabel().apply { foreground = JBColor.RED; isVisible = false }
-    private fun help(text: String) = JBLabel("<html><body style='width: ${JBUI.scale(520)}px'>$text</body></html>").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont(); border = JBUI.Borders.emptyLeft(24); setAllowAutoWrapping(true) }
+    /** D-107: every text that wraps takes the page's width (see [wrapAll]) instead of one of its own. */
+    private val wrapped = mutableListOf<WrappedLabel>()
+    private fun help(text: String) = WrappedLabel(text, indent = JBUI.scale(24)).apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }.also { wrapped += it }
 
     private val enabled = JBCheckBox("Serve DTA's tools to agents over HTTP", prefs.enabled)
     private val port = JBTextField(prefs.port.toString(), 6)
@@ -51,9 +62,9 @@ class AgentsPanel(
     private val agent = ComboBox(Agent.entries.toTypedArray()).apply {
         renderer = textRenderer { it.title }
     }
-    private val config = JBTextArea(6, 60).apply { isEditable = false; lineWrap = true; font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, font.size) }
+    private val config = JBTextArea(6, 1).apply { isEditable = false; lineWrap = true; font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, font.size) }
     private val where = JBLabel().apply { foreground = JBColor.GRAY }
-    private val note = JBLabel().apply { foreground = JBColor.GRAY; setAllowAutoWrapping(true) }
+    private val note = WrappedLabel().apply { foreground = JBColor.GRAY }.also { wrapped += it }
 
     /** Loaded off the UI thread (the keychain may prompt); null until then. */
     @Volatile private var credential: String? = null
@@ -112,6 +123,10 @@ class AgentsPanel(
             override fun getScrollableTracksViewportWidth() = true
             override fun getScrollableTracksViewportHeight() = false
         }.apply { add(form, BorderLayout.NORTH) }
+        // The wrapping texts follow the width the page has (the dialog's, less the form's margins).
+        tracking.addComponentListener(object : java.awt.event.ComponentAdapter() {
+            override fun componentResized(e: java.awt.event.ComponentEvent?) = wrapAll(tracking.width - form.insets.left - form.insets.right)
+        })
         add(JBScrollPane(tracking).apply { border = JBUI.Borders.empty(); horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER }, BorderLayout.CENTER)
         renderConfig()
         controller.credentialAsync { loaded -> credential = loaded; javax.swing.SwingUtilities.invokeLater { renderConfig() } }
@@ -158,8 +173,10 @@ class AgentsPanel(
         val rendered = AgentConfigs.render(selected, endpoint(), known)
         config.text = rendered.text
         where.text = rendered.where?.let { "Paste into $it" } ?: "Run in a terminal"
-        note.text = rendered.note?.let { "<html>${it.replace("&", "&amp;").replace("<", "&lt;")}</html>" }.orEmpty()
+        note.html = rendered.note?.let { it.replace("&", "&amp;").replace("<", "&lt;") }.orEmpty()
     }
+
+    private fun wrapAll(available: Int) { if (available > 0) wrapped.forEach { it.wrapTo(available) } }
 
     private fun endpoint() = "http://127.0.0.1:${prefs.port}/mcp"
 }

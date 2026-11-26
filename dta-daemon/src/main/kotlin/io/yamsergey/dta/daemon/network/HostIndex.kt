@@ -294,7 +294,10 @@ class HostIndex(
         val v = NetworkHistoryView({ emptyList() }, ::socket, { ctx }, { e, p -> hostBodyBytes(epochId, e, p) },
             { e, p -> decodedJson(e, p, epochId, ::socket) }, readEnvelope, { stop })
         // Feature 071: without the switch only the current run is in the view; a late update of an earlier run is not.
-        val d = if (!LiveScope.includes(query, entry, currentRun)) io.yamsergey.dta.protocol.network.EntryDecision.NO else v.decide(query, entry)
+        // D-112: a live event carries the list form (no headers); a search term reads headers too, so it reads the entry this computer holds.
+        val subject = if (query.resolved().second.isNotEmpty() && entry is io.yamsergey.dta.protocol.network.HttpEntry && entry.requestHeaders == null)
+            epochId?.let { runCatching { store.entry(it, entry.id) }.getOrNull() } ?: entry else entry
+        val d = if (!LiveScope.includes(query, entry, currentRun)) io.yamsergey.dta.protocol.network.EntryDecision.NO else v.decide(query, subject)
         return d to views.decided(view, query, entry.id, d.match)
     }
 

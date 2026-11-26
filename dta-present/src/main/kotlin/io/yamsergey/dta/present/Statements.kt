@@ -300,6 +300,9 @@ object Statements {
             explanation = Degradations.explain(marker.str("reason")))
     }
 
+    /** The statement of an answer's `redaction` (072 FR-004): what was masked for agents, or that the setting is off. */
+    fun forRedaction(element: JsonElement?): List<Statement> = redaction(element)
+
     private fun redaction(element: JsonElement?): List<Statement> {
         val r = element as? JsonObject ?: return emptyList()
         val forAgents = r.bool("forAgents")

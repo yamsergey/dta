@@ -122,7 +122,7 @@ open class FakeOperations : DaemonOperations {
         archiveHistory?.takeIf { query.archive && query.filter?.runs != io.yamsergey.dta.protocol.network.RunScope.CURRENT }?.let {
             return NetworkPage(it, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = it.size, stored = it.size, persisted = true))
         }
-        if (query.filter?.runs == io.yamsergey.dta.protocol.network.RunScope.CURRENT) {
+        if (withholdBodies || query.filter?.runs == io.yamsergey.dta.protocol.network.RunScope.CURRENT) {
             duringHistory()
             return NetworkPage(history, coverage = io.yamsergey.dta.protocol.network.Coverage(searched = history.size, stored = history.size, persisted = true))
         }
@@ -131,6 +131,7 @@ open class FakeOperations : DaemonOperations {
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail {
         lastEntryRedact = redact
         entryFailure?.let { throw it }
+        if (withholdBodies) history.firstOrNull { it.id == id }?.let { return NetworkEntryDetail(it) }
         val entry = if (entryKind == EntryKind.WS_MESSAGE) {
             WsMessageEntry(id, "r1-1", 1, "okhttp3-ws", connectionId = "r1-1:1", direction = Direction.IN, opcode = MessageOpcode.TEXT, payload = BodyInfo(BodyPart.MESSAGE, 2, completeness = Completeness.COMPLETE))
         } else {
@@ -142,9 +143,16 @@ open class FakeOperations : DaemonOperations {
         lastBodyRedact = redact
         bodyFailure?.let { throw it }
         lastBody = part to output
+        if (redact && withholdBodies) return BodyResult(
+            BodyInfo(part, 2, binary = true, completeness = Completeness.COMPLETE), bytes = 0,
+            redaction = io.yamsergey.dta.protocol.network.RedactionInfo(withheld = listOf("entry $id ${part.name.lowercase()} body (binary)")),
+            note = "withheld: it cannot be redacted",
+        )
         return BodyResult(BodyInfo(part, 2, binary = false, completeness = Completeness.COMPLETE), text = "{}", bytes = 2)
     }
     override suspend fun networkClear(serial: String, pkg: String) = ClearResult(3, 1)
+    /** D-111: with redaction on, a body is withheld (it cannot be redacted) and no bytes are written. */
+    var withholdBodies = false
     var historySet: Pair<Long?, Long?>? = null
     override suspend fun networkHistory(serial: String, pkg: String) =
         io.yamsergey.dta.protocol.network.HistorySummary(archive = io.yamsergey.dta.protocol.network.ArchiveHistory(5, 50))

@@ -358,4 +358,23 @@ class HostIndexLiveViewTest {
     }
 
     private suspend fun HostIndex.copyAllPending() = pendingBodies().forEach { copyBody(it.entryId, it.part) }
+
+    /** D-112: a live view of `redacted:#fp` joins the entry that carries the value — decided at once by its headers, as a list finds it. */
+    @Test
+    fun `a live view of a fingerprint joins a new entry carrying the value`() = runBlocking<Unit> {
+        val app = FakeJournalApp()
+        val host = index(app)
+        val entry = io.yamsergey.dta.protocol.network.HttpEntry("r1-1:1", "r1-1", 1_000, "okhttp3", method = "POST", url = "https://api.example.test/echo?page=2",
+            state = io.yamsergey.dta.protocol.network.HttpState.COMPLETE, status = 200,
+            requestHeaders = listOf(io.yamsergey.dta.protocol.network.Header("Authorization", "Bearer SEED-AUTH-456")))
+        val fingerprint = io.yamsergey.dta.protocol.network.Redactor.entry(entry).second.masked.first().fingerprint
+        val other = entry.copy(id = "r1-1:2", requestHeaders = listOf(io.yamsergey.dta.protocol.network.Header("Authorization", "Bearer SEED-OTHER-1")))
+        app.record(entry); app.record(other)
+        host.list(NetworkQuery())
+        val q = NetworkQuery(q = "redacted:#$fingerprint")
+        // A live event carries the list form (no headers): the decision reads the entry this computer holds.
+        val (d, _) = host.decide("v", q, entry.summary()) { null }
+        assertEquals(true, d.match, "the entry carrying the value joins the view")
+        assertEquals(false, host.decide("v", q, other.summary()) { null }.first.match, "another value does not")
+    }
 }

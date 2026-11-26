@@ -155,4 +155,18 @@ class AgentRedactionRoutingTest {
             }
         }
     }
+
+    /** D-111: a binary body of a redacted export is left out saying it cannot be redacted, not "no bytes stored". */
+    @Test
+    fun `a redacted export leaves a binary body out saying it cannot be redacted`() {
+        fake.withholdBodies = true
+        fake.history = listOf(io.yamsergey.dta.protocol.network.HttpEntry("r1-1:1", "r1-1", 1, "okhttp3", method = "GET", url = "https://api.example.com/bytes", state = io.yamsergey.dta.protocol.network.HttpState.COMPLETE, status = 200,
+            responseBody = io.yamsergey.dta.protocol.network.BodyInfo(io.yamsergey.dta.protocol.network.BodyPart.RESPONSE, 1_048_576, contentType = "application/octet-stream", binary = true, completeness = io.yamsergey.dta.protocol.network.Completeness.COMPLETE)))
+        val out = File.createTempFile("dta-export", ".har").also { it.delete() }.path
+        agents.setRedaction(true)
+        call("network.export", ClientKind.CLI, buildJsonObject { put("output", out) })
+        val har = File(out).readText()
+        assertTrue("cannot be redacted" in har, har)
+        assertFalse("no bytes stored" in har, har)
+    }
 }

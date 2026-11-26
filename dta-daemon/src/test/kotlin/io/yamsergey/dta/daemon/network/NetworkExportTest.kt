@@ -128,4 +128,44 @@ class NetworkExportTest {
         assertTrue("unredacted" in plain["creator"]!!.jsonObject["comment"]!!.jsonPrimitive.content, plain["creator"].toString())
         assertEquals("false", plain["_dta"]!!.jsonObject["redaction"]!!.jsonObject["applied"]!!.jsonPrimitive.content)
     }
+
+    /** D-109: the answer says what the file holds (the CLI/MCP text states it from here); the plugin's unredacted export says nothing was masked. */
+    @Test
+    fun `the result carries what was masked in the file`() = runBlocking {
+        val masked = io.yamsergey.dta.protocol.network.MaskedLocation("entry r1:1 request.header Authorization", "3f9a2c81d04e", 212)
+        fun result(redacted: Boolean): NetworkExportResult {
+            val out = File(Files.createTempDirectory("har").toFile(), "s.har")
+            return runBlocking {
+                NetworkExport(
+                    page = { NetworkPage(listOf(get), coverage = Coverage(searched = 1, stored = 1, persisted = true)) },
+                    entry = { NetworkEntryDetail(get, redaction = if (redacted) io.yamsergey.dta.protocol.network.RedactionInfo(masked = listOf(masked)) else null) },
+                    body = { _, _, file -> file.writeBytes("{}".toByteArray()); null },
+                    version = "0.10.0",
+                    redacted = redacted,
+                ).export(NetworkQuery(), out)
+            }
+        }
+        val on = result(true).redaction!!
+        assertEquals(true, on.applied)
+        assertEquals(listOf(masked), on.masked)
+        assertEquals(false, result(false).redaction?.applied ?: false)
+    }
+
+    /** D-110: an entry's list-form previews are masked in the entry detail but are not in the file; the file lists only the masks it holds. */
+    @Test
+    fun `masks of an entry's previews are not listed for the file`() = runBlocking {
+        val header = io.yamsergey.dta.protocol.network.MaskedLocation("entry r1:1 request.header Authorization", "3f9a2c81d04e", 212)
+        val preview = io.yamsergey.dta.protocol.network.MaskedLocation("entry r1:1 response preview text access_token", "64414fd18199", 239)
+        val out = File(Files.createTempDirectory("har").toFile(), "s.har")
+        val result = NetworkExport(
+            page = { NetworkPage(listOf(get), coverage = Coverage(searched = 1, stored = 1, persisted = true)) },
+            entry = { NetworkEntryDetail(get, redaction = io.yamsergey.dta.protocol.network.RedactionInfo(masked = listOf(header, preview))) },
+            body = { _, _, file -> file.writeBytes("{}".toByteArray()); null },
+            version = "0.10.0",
+            redacted = true,
+        ).export(NetworkQuery(), out)
+        val inFile = Json.parseToJsonElement(out.readText()).jsonObject["log"]!!.jsonObject["_dta"]!!.jsonObject["redaction"]!!.jsonObject["masked"]!!.jsonArray
+        assertEquals(listOf("3f9a2c81d04e"), inFile.map { it.jsonObject["fingerprint"]!!.jsonPrimitive.content })
+        assertEquals(listOf(header), result.redaction!!.masked)
+    }
 }
