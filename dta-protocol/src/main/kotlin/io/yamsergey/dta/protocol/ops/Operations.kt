@@ -929,6 +929,36 @@ object Catalog {
             ),
         ),
         OperationSpec(
+            "runtime.heap.snapshot",
+            "Take one heap snapshot of the app now: objects and shallow bytes per class, kept in the daemon for this app run (20 at most; named ones are kept over unnamed). It briefly stops the app's threads (usually 15-50 ms); the answer always states the pause and warns above 100 ms. It aborts itself at maxPauseMs and then keeps nothing. One per 2 seconds per app. Nothing else takes a snapshot. Not known: who keeps an object alive, retained size.",
+            Scope.APP,
+            listOf(
+                ParamSpec("name", ParamType.STRING, "A name for the snapshot (unique in the run); named snapshots are not dropped to make room."),
+                ParamSpec("gc", ParamType.BOOLEAN, "Run a garbage collection first, so unreachable objects are not counted."),
+                ParamSpec("maxPauseMs", ParamType.LONG, "Stop the walk if the app would be paused longer than this (default 1000)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "snapshot"),
+        ),
+        OperationSpec(
+            "runtime.heap.snapshots",
+            "The heap snapshots kept for the app's run: id, name, time, pause, objects, bytes, and the ones dropped to make room. Takes no snapshot.",
+            Scope.APP,
+            cliPathOverride = listOf("runtime", "heap", "list"),
+        ),
+        OperationSpec(
+            "runtime.heap.compare",
+            "Compare two heap snapshots of one run: classes that appeared, are gone, grew or shrank, with count and bytes before, after and the difference, biggest change first. Own classes only unless origin is all; the answer says what the filters left out. Snapshots of different runs are refused. Takes no snapshot. Not known: who keeps an object alive, retained size.",
+            Scope.APP,
+            listOf(
+                ParamSpec("a", ParamType.STRING, "The earlier snapshot: id (s1) or name.", required = true, positional = true),
+                ParamSpec("b", ParamType.STRING, "The later snapshot: id or name.", required = true, positional = true),
+                ParamSpec("origin", ParamType.ENUM, "Which classes: app (default), library, platform or all.", enumValues = listOf("app", "library", "platform", "all")),
+                ParamSpec("package", ParamType.STRING, "Only classes in this package (and below)."),
+                ParamSpec("top", ParamType.INT, "At most this many rows (default 30)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "compare"),
+        ),
+        OperationSpec(
             "archive.list",
             "The network history this computer keeps after devices forgot it (cleared, data wiped, reinstalled, rolled back to an earlier state): devices › apps › installs › epochs, with dates, why each epoch closed, entry counts and size on disk.",
             Scope.NONE,

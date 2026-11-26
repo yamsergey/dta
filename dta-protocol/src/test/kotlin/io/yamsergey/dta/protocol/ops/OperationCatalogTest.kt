@@ -51,7 +51,7 @@ class OperationCatalogTest {
                 "data.files.list", "data.files.read", "data.files.write", "data.files.mkdir", "data.files.delete",
                 "runtime.activities", "runtime.navigation", "runtime.navigate", "runtime.back", "runtime.viewmodels",
                 "runtime.vm.set", "runtime.saved.set", "runtime.memory", "runtime.threads", "runtime.di",
-                "runtime.functions", "runtime.invoke",
+                "runtime.functions", "runtime.invoke", "runtime.heap.snapshot", "runtime.heap.snapshots", "runtime.heap.compare",
             ),
             Catalog.all.map { it.name }.toSet(),
         )
@@ -80,6 +80,15 @@ class OperationCatalogTest {
         val push = Catalog["network.ws.push"]
         assertEquals(listOf("connection", "text", "base64", "waitMs"), push.params.map { it.name })
         assertTrue(push.param("text")!!.positional)
+    }
+
+    @Test
+    fun `heap operations take no snapshot as a side effect and have cli paths`() {
+        assertEquals(listOf("runtime", "heap", "snapshot"), Catalog["runtime.heap.snapshot"].cliPath)
+        assertEquals(listOf("runtime", "heap", "list"), Catalog["runtime.heap.snapshots"].cliPath)
+        assertEquals("runtime_heap_compare", Catalog["runtime.heap.compare"].toolName)
+        assertEquals(listOf("a", "b", "origin", "package", "top"), Catalog["runtime.heap.compare"].params.map { it.name })
+        assertTrue(Catalog["runtime.heap.compare"].param("a")!!.positional)
     }
 
     @Test

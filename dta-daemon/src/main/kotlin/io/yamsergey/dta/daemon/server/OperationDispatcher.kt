@@ -293,6 +293,16 @@ class OperationDispatcher(
         "runtime.threads" to { c -> rt(c, "runtime_threads", io.yamsergey.dta.protocol.data.ThreadList.serializer()) },
         "runtime.di" to { c -> rt(c, "runtime_di", io.yamsergey.dta.protocol.data.DiReport.serializer()) },
         "runtime.functions" to { c -> rt(c, "runtime_functions", io.yamsergey.dta.protocol.data.FunctionList.serializer()) },
+        "runtime.heap.snapshot" to { c ->
+            encode(io.yamsergey.dta.protocol.data.HeapSnapshotAnswer.serializer(), heapArgs { heap.snapshot(c.app, heapSidekick(c), c.string("name"), c.bool("gc"), c.long("maxPauseMs")) })
+        },
+        "runtime.heap.snapshots" to { c -> encode(io.yamsergey.dta.protocol.data.HeapListAnswer.serializer(), heap.list(c.app)) },
+        "runtime.heap.compare" to { c ->
+            encode(
+                io.yamsergey.dta.protocol.data.HeapCompareAnswer.serializer(),
+                heapArgs { heap.compare(c.app, c.required("a"), c.required("b"), c.string("origin"), c.string("package"), c.long("top")?.toInt()) },
+            )
+        },
         "runtime.invoke" to { c -> rt(c, "runtime_invoke", io.yamsergey.dta.protocol.data.InvokeResult.serializer()) },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },
         "network.mapping.remove" to { c ->
@@ -520,6 +530,7 @@ class OperationDispatcher(
 
     private fun translate(e: Exception, pkg: String?): Exception = when (e) {
         is ClientException -> e
+        is io.yamsergey.dta.daemon.runtime.HeapRefusal -> ClientException(ClientErrorCodes.NOT_AVAILABLE, e.message ?: "heap refused", unavailable("heap", e.message ?: "refused"))
         is InvalidParamsException -> ClientException(ErrorCodes.INVALID_PARAMS, e.message ?: "invalid params")
         is SchemaException -> ClientException(ErrorCodes.INVALID_PARAMS, e.message ?: "invalid schema")
         is SerializationException -> ClientException(ErrorCodes.INVALID_PARAMS, e.message?.lineSequence()?.first() ?: "invalid params")
@@ -564,6 +575,21 @@ class OperationDispatcher(
         throw ClientException(ClientErrorCodes.NOT_FOUND, "No $what '$id'", buildJsonObject { put("what", what); put("id", id) })
 
     private fun invalid(message: String): Nothing = throw InvalidParamsException(message)
+
+    /** Feature 074: snapshots live in the daemon, per app run. */
+    private val heap = io.yamsergey.dta.daemon.runtime.HeapService()
+
+    private suspend fun <T> heapArgs(block: suspend () -> T): T =
+        try { block() } catch (e: IllegalArgumentException) { invalid(e.message ?: "invalid argument") }
+
+    private fun heapSidekick(c: Call) = object : io.yamsergey.dta.daemon.runtime.HeapSidekick {
+        private val data = ops.data(c.device, c.app)
+        override suspend fun run() = data.runtime("runtime_heap_run", io.yamsergey.dta.protocol.data.HeapRunInfo.serializer(), JsonObject(emptyMap()))
+        override suspend fun walk(maxPauseMs: Long, gc: Boolean) = data.runtime(
+            "runtime_heap_walk", io.yamsergey.dta.protocol.data.HeapWalk.serializer(),
+            buildJsonObject { put("maxPauseMs", maxPauseMs); put("gc", gc) },
+        )
+    }
 
     companion object {
         /** The operations whose answers carry secrets: to an agent kind they carry a redaction statement (feature 072). */
