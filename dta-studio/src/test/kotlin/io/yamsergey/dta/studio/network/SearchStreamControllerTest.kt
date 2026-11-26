@@ -459,6 +459,57 @@ class SearchStreamControllerTest {
         assertTrue(ended.await(2, TimeUnit.SECONDS))
     }
 
+    /** NET-QRY-087: after an earlier run's late update the search goes on and ends done, never stopped. */
+    @Test
+    fun `an earlier run's late update during a search leaves it searching and it ends done`() = runBlocking<Unit> {
+        val release = CountDownLatch(1)
+        daemon.ops.findWalk = { _, _ ->
+            { _, onItem ->
+                (2 downTo 1).forEach { onItem(FoundItem(http(it), listOf(hit("r1-1:$it")))) }
+                release.await(10, TimeUnit.SECONDS)
+                FindEnd(null, null)
+            }
+        }
+        daemon.ops.decide = { _, _ -> EntryDecision(true) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 }
+        daemon.ops.events.emit(NetworkEntryEvent(http(7, run = "r0-1"), EntryChange.UPDATED))
+        delay(500)
+        assertEquals(FindState.SEARCHING, network.state.value.find, "the late update stops nothing")
+        assertEquals(1, daemon.ops.finds.size, "and starts nothing over")
+        release.countDown()
+        val done = await { it.find == FindState.DONE }
+        assertEquals(1, daemon.ops.finds.size)
+        assertTrue(done.list.rows.map { it.id }.containsAll(listOf("r1-1:1", "r1-1:2")), "the search's own rows stay")
+        assertNull(done.restart, "no restart banner")
+    }
+
+    /** NET-QRY-123: a supersede and the switch never stop the live list; a new matching entry arrives after each. */
+    @Test
+    fun `a live entry arrives after a supersede and after the switch`() = runBlocking<Unit> {
+        val ended = CountDownLatch(1)
+        daemon.ops.findWalk = slowWalk(2, ended)
+        daemon.ops.decide = { _, e -> EntryDecision(true, hits = listOf(hit(e.id))) to false }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        await { it.find == FindState.SEARCHING && it.list.rows.size == 2 }
+        // A supersede: the new query's search ends at once; then a live entry joins.
+        daemon.ops.findWalk = { _, _ -> { _, onItem -> onItem(FoundItem(http(7), listOf(hit("r1-1:7")))); FindEnd(null, null) } }
+        network.setQuery("other")
+        assertTrue(ended.await(2, TimeUnit.SECONDS), "the older search was stopped")
+        await { it.find == FindState.DONE }
+        daemon.ops.events.emit(NetworkEntryEvent(http(8), EntryChange.CREATED))
+        await { s -> s.list.rows.any { it.id == "r1-1:8" } }
+        // The switch: the search starts over in the archive; then a live entry joins again.
+        network.setArchiveOn(true)
+        await { it.find == FindState.DONE && it.scope?.archive == true }
+        daemon.ops.events.emit(NetworkEntryEvent(http(9), EntryChange.CREATED))
+        await { s -> s.list.rows.any { it.id == "r1-1:9" } }
+    }
+
     /** D-034: a body filter's hit, in the request body (the Payload tab). */
     private fun bodyHit(id: String) = SearchHit(id, SearchPlace.REQUEST_BODY, "main", 11, 15, io.yamsergey.dta.protocol.network.Fuzzy.Excerpt("{\"screen\":\"domain\"}", 13, 17), io.yamsergey.dta.protocol.network.BodyPart.REQUEST)
 
