@@ -54,8 +54,9 @@ class DaemonGoneException(val reason: String) : Exception(reason)
 class DaemonClient private constructor(private val timeout: Duration) {
     private lateinit var socket: WebSocket
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<Response>>()
+    internal val pendingForTest: ConcurrentHashMap<Long, CompletableDeferred<Response>> get() = pending
     private val ids = AtomicLong(0)
-    private val events = MutableSharedFlow<Event>(extraBufferCapacity = 1024)
+    private val events = EventHub()
     private val gone = MutableStateFlow<String?>(null)
 
     @Volatile
@@ -140,7 +141,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
         // Listen before asking: the subscription's first events (a history replay) may follow the
         // answer at once, before a collector started afterwards would be listening.
         val early = kotlinx.coroutines.channels.Channel<Event>(kotlinx.coroutines.channels.Channel.UNLIMITED)
-        val listening = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { events.collect { early.send(it) } }
+        val listening = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { events.flow.collect { early.send(it) } }
         val subscribed = DtaJson.decodeFromJsonElement(Selected.serializer(), request(subscribe, params))
         val id = (subscribed.result.jsonObject["subscription"] as JsonPrimitive).content
         send(buildJsonObject { put("selection", DtaJson.encodeToJsonElement(Selected.serializer(), subscribed)) })
@@ -172,7 +173,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
      */
     fun find(params: JsonObject, window: Int = 500, grant: (JsonObject) -> Int = { e -> (e["items"] as? kotlinx.serialization.json.JsonArray)?.size ?: 0 }): Flow<JsonObject> = callbackFlow<JsonObject> {
         val early = kotlinx.coroutines.channels.Channel<Event>(kotlinx.coroutines.channels.Channel.UNLIMITED)
-        val listening = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { events.collect { early.send(it) } }
+        val listening = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { events.flow.collect { early.send(it) } }
         val started = DtaJson.decodeFromJsonElement(Selected.serializer(), request(DaemonMethods.NETWORK_FIND, JsonObject(params + ("window" to JsonPrimitive(window)))))
         val id = (started.result.jsonObject["stream"] as JsonPrimitive).content
         var ended = false
@@ -207,7 +208,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
     }
 
     /** Lifecycle events (`daemon.replaced`, `daemon.stopping`) and every other push. */
-    val allEvents: Flow<Event> get() = events
+    val allEvents: Flow<Event> get() = events.flow
 
     suspend fun close() {
         runCatching { sends.enqueue { socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye") }.await() }
@@ -237,6 +238,24 @@ class DaemonClient private constructor(private val timeout: Duration) {
         pending.clear()
     }
 
+    /** One decoded message from the socket: a response goes to its caller, an event to the hub. */
+    internal fun deliver(message: Message?) {
+        when (message) {
+            is Response -> pending[message.id]?.complete(message)
+            is Event -> {
+                if (message.name == DaemonEvents.REPLACED || message.name == DaemonEvents.STOPPING) {
+                    // D-065: the first word ends it; a replaced daemon's stop follows its replacement.
+                    if (endedBy == null) endedBy = message
+                    events.publish(message)
+                    lost(describe(message))
+                } else {
+                    events.publish(message)
+                }
+            }
+            else -> Unit
+        }
+    }
+
     private inner class Listener : WebSocket.Listener {
         private val text = StringBuilder()
 
@@ -247,20 +266,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
             if (last) {
                 val message = runCatching { DtaJson.decodeFromString(Message.serializer(), text.toString()) }.getOrNull()
                 text.setLength(0)
-                when (message) {
-                    is Response -> pending[message.id]?.complete(message)
-                    is Event -> {
-                        if (message.name == DaemonEvents.REPLACED || message.name == DaemonEvents.STOPPING) {
-                            // D-065: the first word ends it; a replaced daemon's stop follows its replacement.
-                            if (endedBy == null) endedBy = message
-                            events.tryEmit(message)
-                            lost(describe(message))
-                        } else {
-                            events.tryEmit(message)
-                        }
-                    }
-                    else -> Unit
-                }
+                deliver(message)
             }
             webSocket.request(1)
             return null
@@ -277,6 +283,8 @@ class DaemonClient private constructor(private val timeout: Duration) {
     }
 
     companion object {
+        internal fun forTest(): DaemonClient = DaemonClient(1.minutes)
+
         /** Dials [port] with [token] and says hello; throws [DaemonCallException] or an IO error. */
         suspend fun connect(
             port: Int,
