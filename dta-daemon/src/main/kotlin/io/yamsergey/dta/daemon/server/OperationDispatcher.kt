@@ -307,9 +307,8 @@ class OperationDispatcher(
             encode(io.yamsergey.dta.protocol.data.HeapInstancesAnswer.serializer(), heapArgs { heap.instances(c.app, heapSidekick(c), c.required("class"), c.long("offset")?.toInt(), c.long("limit")?.toInt()) })
         },
         "runtime.heap.fields" to { c ->
-            // Agents (cli, mcp) always get redacted values; 072's AgentSettings.redactsFor replaces this rule when it is merged.
-            val redact = c.bool("redact") || c.client == "cli" || c.client == "mcp"
-            encode(io.yamsergey.dta.protocol.data.HeapFieldsAnswer.serializer(), heapArgs { heap.fields(c.app, heapSidekick(c), c.long("instance") ?: invalid("give instance"), c.bool("values"), redact) })
+            // Feature 072: who is redacted is the connection's kind and the agents' setting (c.redact), never the call.
+            encode(io.yamsergey.dta.protocol.data.HeapFieldsAnswer.serializer(), heapArgs { heap.fields(c.app, heapSidekick(c), c.long("instance") ?: invalid("give instance"), c.bool("values"), c.redact) })
         },
         "runtime.invoke" to { c -> rt(c, "runtime_invoke", io.yamsergey.dta.protocol.data.InvokeResult.serializer()) },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },
@@ -612,7 +611,7 @@ class OperationDispatcher(
         /** The operations whose answers carry secrets: to an agent kind they carry a redaction statement (feature 072). */
         private val REDACTING = setOf(
             "network.list", "network.search", "network.entry", "network.body", "network.export", "links.list", "links.entry",
-            "timeline.events", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path",
+            "runtime.heap.fields", "timeline.events", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path",
         )
 
         /** What a client other than the plugin is told when it tries to change the agents' setting. */

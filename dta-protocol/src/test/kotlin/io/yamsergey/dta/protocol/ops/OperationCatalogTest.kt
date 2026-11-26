@@ -98,7 +98,7 @@ class OperationCatalogTest {
         assertEquals(listOf("class", "offset", "limit"), Catalog["runtime.heap.instances"].params.map { it.name })
         assertTrue(Catalog["runtime.heap.instances"].param("class")!!.positional && Catalog["runtime.heap.instances"].param("class")!!.required)
         assertEquals(listOf("runtime", "heap", "fields"), Catalog["runtime.heap.fields"].cliPath)
-        assertEquals(listOf("instance", "values", "redact"), Catalog["runtime.heap.fields"].params.map { it.name })
+        assertEquals(listOf("instance", "values"), Catalog["runtime.heap.fields"].params.map { it.name })
         assertTrue(Catalog["runtime.heap.fields"].description.contains("values"))
     }
 

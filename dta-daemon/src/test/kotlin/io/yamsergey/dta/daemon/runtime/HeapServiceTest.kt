@@ -177,16 +177,25 @@ class HeapServiceTest {
         assertEquals(true, f.lastValues)
     }
 
-    @Test fun fieldsForAgentsAreRedactedAndTheAnswerSaysSo() = runBlocking {
+    @Test fun fieldsForAgentsAreMaskedByValueAndTheAnswerSaysSo() = runBlocking {
         val f = Fake(ok())
         val a = service.fields(app, f, 4294967297, values = true, redact = true)
-        assertTrue(!a.fields.fields[0].value.toString().contains("abc123"))
-        assertEquals(JsonPrimitive("Home"), a.fields.fields[1].value)
-        assertTrue(a.fields.redaction!!.contains("masked"))
+        val v = a.fields.fields.map { (it.value as JsonPrimitive).content }
+        assertTrue(v.all { Regex("""\[redacted len=\d+ #[0-9a-f]{12}]""").matches(it) }, v.toString())
+        assertEquals(6, a.fields.fields[0].length)
+        assertTrue(a.redaction!!.applied)
+        assertEquals(2, a.redaction!!.masked.size)
         assertTrue(a.note.contains("redacted"))
         val plain = service.fields(app, f, 4294967297, values = true, redact = false)
         assertEquals(JsonPrimitive("abc123"), plain.fields.fields[0].value)
-        assertNull(plain.fields.redaction)
+        assertNull(plain.redaction)
+    }
+
+    @Test fun fieldsForAgentsWithoutValuesStillStateTheRule() = runBlocking {
+        val f = Fake(ok()); f.read = HeapFieldsRead(fields = HeapFields(1, "com.x.Leak", listOf(HeapField("title", "com.x.Leak", "java.lang.String", false, null, 4))))
+        val a = service.fields(app, f, 1, values = false, redact = true)
+        assertTrue(a.redaction!!.applied)
+        assertTrue(a.redaction!!.masked.isEmpty())
     }
 
     @Test fun fieldsOfAGoneInstanceAreRefused() = runBlocking {

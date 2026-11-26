@@ -971,12 +971,11 @@ object Catalog {
         ),
         OperationSpec(
             "runtime.heap.fields",
-            "The fields of one live instance: name, declaring class, type, static or not; strings and arrays by length. Field values only with values:true. Agents get values redacted (names that look like secrets or personal data masked, credentials in text masked) and the answer says so. Takes no snapshot.",
+            "The fields of one live instance: name, declaring class, type, static or not; strings and arrays by length. Field values only with values:true. Agents get every string and primitive value masked as [redacted len=N #fingerprint] (the agents' setting; names, types, lengths and nulls stay) and the answer says so. Takes no snapshot.",
             Scope.APP,
             listOf(
                 ParamSpec("instance", ParamType.LONG, "The instance id from runtime.heap.instances.", required = true, positional = true),
                 ParamSpec("values", ParamType.BOOLEAN, "Show field values (default: names, types and lengths only)."),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in values (always on for agents)."),
             ),
             cliPathOverride = listOf("runtime", "heap", "fields"),
         ),

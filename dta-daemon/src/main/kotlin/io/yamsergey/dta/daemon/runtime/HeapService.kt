@@ -17,6 +17,7 @@ import io.yamsergey.dta.protocol.data.HeapInstancesAnswer
 import io.yamsergey.dta.protocol.data.HeapInstancesPage
 import io.yamsergey.dta.protocol.data.HeapRedaction
 import io.yamsergey.dta.protocol.data.HeapWalk
+import io.yamsergey.dta.protocol.network.RedactionInfo
 import kotlin.time.Duration.Companion.milliseconds
 
 /** The sidekick's two heap methods, as the service needs them. */
@@ -112,17 +113,20 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
         )
     }
 
-    /** One instance's fields; values only when asked, redacted when [redact] (agents). */
+    /** One instance's fields; values only when asked, masked by value when [redact] (the agents' setting, decided by the connection). */
     suspend fun fields(app: String, sidekick: HeapSidekick, instance: Long, values: Boolean, redact: Boolean): HeapFieldsAnswer {
         val read = sidekick.fields(instance, values)
         read.refusal?.let { throw HeapRefusal(it) }
         var f = read.fields ?: throw HeapRefusal("the app returned no fields for instance $instance")
-        if (values && redact) f = HeapRedaction.apply(f)
+        var info: RedactionInfo? = null
+        if (redact) {
+            if (values) HeapRedaction.apply(f).let { (masked, i) -> f = masked; info = i } else info = RedactionInfo()
+        }
         val note = when {
             !values -> "Field values are not shown unless asked for (values); names, types and the lengths of strings and arrays are."
-            redact -> "Values are redacted for agents; what was masked is stated below."
+            redact -> "Values are redacted for agents: every string and primitive is masked as [redacted len=N #fingerprint]; names, types, lengths and nulls are shown as they are."
             else -> "Values are shown as they are in the app."
         }
-        return HeapFieldsAnswer(f, values, note)
+        return HeapFieldsAnswer(f, values, note, info)
     }
 }

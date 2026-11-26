@@ -162,8 +162,6 @@ data class HeapFields(
     val instance: Long,
     val className: String,
     val fields: List<HeapField>,
-    /** Agents: what the redactor did (feature 072), stated in the answer. */
-    val redaction: String? = null,
     /** What the read left out (long collections, deep objects). */
     val notes: List<String> = emptyList(),
 )
@@ -199,6 +197,8 @@ data class HeapFieldsAnswer(
     /** False: names, types and lengths only. */
     val valuesShown: Boolean,
     val note: String,
+    /** Feature 072: for an agent, what was masked (or that nothing needed it); the daemon adds `forAgents` as for the other answers. */
+    val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
     val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
 

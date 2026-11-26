@@ -67,7 +67,9 @@ object HeapText {
             x.value?.let { append("  = ").append(it.toString()) }
         }
         f.notes.forEach { append("\n").append(it) }
-        f.redaction?.let { append("\n").append(it) }
+        a.redaction?.let { r ->
+            append("\n").append(if (r.masked.isEmpty()) "Redacted for agents: no value needed masking." else "Redacted for agents: ${r.masked.size} values masked (fingerprint and length shown in each mask).")
+        }
         a.notKnown.forEach { append("\nNot known: ").append(it) }
     }
 }

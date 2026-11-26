@@ -83,11 +83,10 @@ class HeapTextTest {
                 io.yamsergey.dta.protocol.data.HeapField("title", "com.x.Leak", "java.lang.String", false, null, 4),
                 io.yamsergey.dta.protocol.data.HeapField("count", "com.x.Base", "int", true, kotlinx.serialization.json.JsonPrimitive(3)),
             ),
-            redaction = "Values masked for agents: 1.",
         )
-        val t = HeapText.fields(io.yamsergey.dta.protocol.data.HeapFieldsAnswer(f, true, "note here"))
+        val t = HeapText.fields(io.yamsergey.dta.protocol.data.HeapFieldsAnswer(f, true, "note here", io.yamsergey.dta.protocol.network.RedactionInfo(masked = listOf(io.yamsergey.dta.protocol.network.MaskedLocation("p", "abcabcabcabc", 3)))))
         assertTrue(t.contains("title") && t.contains("java.lang.String") && t.contains("length 4"))
         assertTrue(t.contains("static") && t.contains("= 3") && t.contains("com.x.Base"))
-        assertTrue(t.contains("Values masked for agents") && t.contains("note here") && t.contains("Not known"))
+        assertTrue(t.contains("Redacted for agents") && t.contains("1 values masked") && t.contains("note here") && t.contains("Not known"))
     }
 }
