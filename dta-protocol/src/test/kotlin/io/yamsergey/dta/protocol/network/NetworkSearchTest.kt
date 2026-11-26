@@ -122,4 +122,12 @@ class NetworkSearchTest {
         assertEquals(1, s2.notSearched)
     }
 
+    /** D-112: a live view decides an uncopied body by its preview and again once the copy is here; it can only if the search says it read a preview. */
+    @Test
+    fun `a fingerprint term reading a preview counts it, so a live view decides again after the copy`() {
+        val uncopied = tick.copy(id = "r1:9", payload = body(BodyPart.MESSAGE).copy(preview = """{"type":"order"}"""))
+        val s = NetworkSearch(listOf(Term("#3f9a2c81d04e", redacted = true)), connectionUrl = { null }, bodyBytes = { _, _ -> null })
+        assertNull(s.hits(uncopied))
+        assertEquals(1, s.byPreview, "decided by the preview: to be decided again")
+    }
 }

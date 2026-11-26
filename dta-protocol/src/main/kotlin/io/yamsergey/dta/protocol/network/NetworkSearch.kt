@@ -78,12 +78,12 @@ class NetworkSearch(
     }
 
     /** Feature 041: bodies the host has no copy of yet, searched by their preview. */
-    var byPreview = 0
-        private set
+    val byPreview: Int get() = ownByPreview + (maskedSearch?.byPreview ?: 0)
+    private var ownByPreview = 0
 
     /** Bodies stored cut (searched as far as stored). */
-    var truncated = 0
-        private set
+    val truncated: Int get() = ownTruncated + (maskedSearch?.truncated ?: 0)
+    private var ownTruncated = 0
 
     /** The hits in [entry] (at most [PER_ENTRY]), or null when some term is not in it. */
     fun hits(entry: NetworkEntry): List<SearchHit>? {
@@ -157,7 +157,7 @@ class NetworkSearch(
     }
 
     private fun bodyPlace(entry: NetworkEntry, info: BodyInfo, part: BodyPart, place: SearchPlace): Place? {
-        if (info.completeness == Completeness.TRUNCATED) truncated++
+        if (info.completeness == Completeness.TRUNCATED) ownTruncated++
         if (info.binary) {
             decoded?.invoke(entry, part)?.let { json ->
                 if (!redact) return Place(place, json, part)
@@ -181,7 +181,7 @@ class NetworkSearch(
     private fun previewPlace(info: BodyInfo, part: BodyPart, place: SearchPlace): Place? {
         if (info.storedBytes <= 0 && info.preview == null) return null
         val preview = info.preview ?: run { ownNotSearched++; return null }
-        byPreview++
+        ownByPreview++
         val shown = if (redact) Redactor.body(preview, info.contentType, "").text ?: run { ownNotSearched++; return null } else preview
         return Place(place, if (redact) Redactor.plain(shown) else shown, part, shown = shown)
     }
