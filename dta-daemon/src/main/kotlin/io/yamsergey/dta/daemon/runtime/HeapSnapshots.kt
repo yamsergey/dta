@@ -29,7 +29,7 @@ class HeapSnapshotStore(
         data class Refused(val reason: String, val nextAllowedAtMs: Long? = null) : Begin()
     }
 
-    data class SnapshotInfo(val id: String, val name: String?, val takenAtMs: Long, val pauseMs: Long, val objects: Long, val bytes: Long)
+    data class SnapshotInfo(val id: String, val name: String?, val takenAtMs: Long, val pauseMs: Long, val objects: Long, val bytes: Long, val gcBefore: Boolean = false)
     data class DroppedInfo(val id: String, val name: String?)
     data class Listing(val run: String, val currentRun: String?, val snapshots: List<SnapshotInfo>, val dropped: List<DroppedInfo>)
     data class Completed(val snapshot: HeapSnapshot, val dropped: DroppedInfo?)
@@ -139,7 +139,7 @@ class HeapSnapshotStore(
         return Listing(
             run = run,
             currentRun = s.knownRun,
-            snapshots = s.snapshots.map { SnapshotInfo(it.id, it.name, it.takenAtMs, it.pauseMs, it.totals.objects, it.totals.bytes) },
+            snapshots = s.snapshots.map { SnapshotInfo(it.id, it.name, it.takenAtMs, it.pauseMs, it.totals.objects, it.totals.bytes, it.gcBefore) },
             dropped = s.dropped.toList(),
         )
     }
@@ -153,14 +153,22 @@ class HeapSnapshotStore(
     @Synchronized fun compare(app: String, a: String, b: String, filter: HeapFilter = HeapFilter()): HeapCompareResult {
         val s = apps[app]
         if (s == null || s.run == null) return HeapCompareResult.Refused("no snapshot has been taken for $app; take one first")
-        val sa = get(app, a) ?: return HeapCompareResult.Refused(unknown(s, a))
+        val sa = get(app, a) ?: if (a == EMPTY) emptyOf(s) else return HeapCompareResult.Refused(unknown(s, a))
         val sb = get(app, b) ?: return HeapCompareResult.Refused(unknown(s, b))
         return compareHeap(sa, sb, filter)
     }
+
+    /** `empty` as the earlier side: no classes, so the later snapshot's classes all appear (a histogram with the comparison's filters). */
+    private fun emptyOf(s: AppState) = HeapSnapshot(id = EMPTY, run = s.run!!, takenAtMs = 0, pauseMs = 0, classes = emptyList(), totals = HeapTotals(0, 0))
 
     private fun unknown(s: AppState, ref: String): String {
         val dropped = s.dropped.firstOrNull { it.id == ref || it.name == ref }
         return if (dropped != null) "snapshot '$ref' was dropped to stay within ${maxSnapshots} snapshots; name snapshots to keep them"
         else "no snapshot '$ref' in run ${s.run}; list them to see the ids and names"
+    }
+
+    companion object {
+        /** Not a snapshot: the key the plugin's histogram uses; a snapshot with this name is found first. */
+        const val EMPTY = "empty"
     }
 }

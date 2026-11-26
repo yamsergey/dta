@@ -281,7 +281,7 @@ data class HeapSnapshotAnswer(
 )
 
 @Serializable
-data class HeapSnapshotInfo(val id: String, val name: String? = null, val takenAtMs: Long, val pauseMs: Long, val objects: Long, val bytes: Long)
+data class HeapSnapshotInfo(val id: String, val name: String? = null, val takenAtMs: Long, val pauseMs: Long, val objects: Long, val bytes: Long, val gcBefore: Boolean = false)
 
 @Serializable
 data class HeapDroppedInfo(val id: String, val name: String? = null)

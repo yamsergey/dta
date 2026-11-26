@@ -950,7 +950,7 @@ object Catalog {
             "Compare two heap snapshots of one run: classes that appeared, are gone, grew or shrank, with count and bytes before, after and the difference, biggest change first. Own classes only unless origin is all; the answer says what the filters left out. Snapshots of different runs are refused. Takes no snapshot. Not known: who keeps an object alive, retained size.",
             Scope.APP,
             listOf(
-                ParamSpec("a", ParamType.STRING, "The earlier snapshot: id (s1) or name.", required = true, positional = true),
+                ParamSpec("a", ParamType.STRING, "The earlier snapshot: id (s1) or name; empty shows b's classes alone.", required = true, positional = true),
                 ParamSpec("b", ParamType.STRING, "The later snapshot: id or name.", required = true, positional = true),
                 ParamSpec("origin", ParamType.ENUM, "Which classes: app (default), library, platform or all.", enumValues = listOf("app", "library", "platform", "all")),
                 ParamSpec("package", ParamType.STRING, "Only classes in this package (and below)."),

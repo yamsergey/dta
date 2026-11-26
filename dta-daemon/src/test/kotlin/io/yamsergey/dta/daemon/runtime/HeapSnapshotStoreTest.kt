@@ -119,4 +119,25 @@ class HeapSnapshotStoreTest {
         val none = assertIs<HeapCompareResult.Refused>(store.compare("unknown.app", "a", "b"))
         assertTrue(none.reason.contains("no snapshot"))
     }
+
+    @Test fun emptyAsTheEarlierSideShowsTheLaterSnapshotsClassesAlone() {
+        take("later")
+        val ok = assertIs<HeapCompareResult.Ok>(store.compare(app, "empty", "later"))
+        assertEquals("empty", ok.comparison.a)
+        assertEquals(1, ok.comparison.rows.size)
+        assertEquals(io.yamsergey.dta.protocol.data.HeapChange.APPEARED, ok.comparison.rows[0].change)
+        assertEquals(1L, ok.comparison.rows[0].countB)
+    }
+
+    @Test fun aSnapshotNamedEmptyWinsOverTheEmptyKeyword() {
+        take("empty"); take("other")
+        val ok = assertIs<HeapCompareResult.Ok>(store.compare(app, "empty", "other"))
+        assertEquals("s1", ok.comparison.a)
+    }
+
+    @Test fun listingCarriesWhetherAGarbageCollectionRanFirst() {
+        val begin = assertIs<HeapSnapshotStore.Begin.Allowed>(store.begin(app, "r1", null))
+        store.complete(begin.ticket, 9, true, rows(), emptyList())
+        assertEquals(true, store.list(app)!!.snapshots.single().gcBefore)
+    }
 }

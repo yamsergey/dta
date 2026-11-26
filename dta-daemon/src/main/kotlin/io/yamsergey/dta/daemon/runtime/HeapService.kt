@@ -83,7 +83,7 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
         val l = store.list(app) ?: return HeapListAnswer(note = "No snapshot has been taken for this app; nothing takes one unless asked.")
         return HeapListAnswer(
             run = l.run,
-            snapshots = l.snapshots.map { HeapSnapshotInfo(it.id, it.name, it.takenAtMs, it.pauseMs, it.objects, it.bytes) },
+            snapshots = l.snapshots.map { HeapSnapshotInfo(it.id, it.name, it.takenAtMs, it.pauseMs, it.objects, it.bytes, it.gcBefore) },
             dropped = l.dropped.map { HeapDroppedInfo(it.id, it.name) },
             note = if (l.currentRun != null && l.currentRun != l.run) "These snapshots are of an earlier run of the app (${l.run}); it runs as ${l.currentRun} now, and they cannot be compared with new ones." else null,
         )
