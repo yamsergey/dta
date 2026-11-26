@@ -138,7 +138,7 @@ class AgentsTabPanel(
             body.add(left(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
                 isOpaque = false
                 add(JBLabel(line.text))
-                line.sample?.let { add(JBLabel(it).apply { font = mono(); foreground = DtaColors.of("redacted") }) }
+                line.sample?.let { add(JBLabel(it).apply { font = mono(); foreground = JBColor.GRAY }) }
             }))
             body.add(left(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
                 isOpaque = false
