@@ -18,6 +18,7 @@ import javax.swing.tree.TreePath
 /** Feature 028 US5: the Runtime tab against canned daemon answers; pictures go to build/body-views/. */
 class RuntimePanelRenderTest : BasePlatformTestCase() {
     private val out = File("build/body-views").apply { mkdirs() }
+    private var otherApp = false
     private val calls = mutableListOf<Pair<String, JsonObject>>()
 
     private fun answer(op: String, params: JsonObject): JsonObject = Json.parseToJsonElement(
@@ -36,7 +37,7 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
                 {"id":3,"name":"dta-sidekick-accept","state":"runnable","daemon":true,"priority":5,"stack":["android.net.LocalServerSocket.accept(LocalServerSocket.java:93)"]},
                 {"id":4,"name":"main","state":"runnable","daemon":false,"priority":5,"group":"main","stack":["android.os.MessageQueue.nativePollOnce(Native Method)","android.os.Looper.loop(Looper.java:317)","android.app.ActivityThread.main(ActivityThread.java:8705)"]},
                 {"id":5,"name":"sync","state":"blocked","daemon":false,"priority":5,"group":"main","stack":["java.io.FileOutputStream.write(FileOutputStream.java:1)","com.example.shop.Sync.flush(Sync.kt:42)","java.lang.Thread.run(Thread.java:1012)"]}]}"""
-            "runtime.di" -> """{"graphs":[
+            "runtime.di" -> if (otherApp) """{"graphs":[{"framework":"koin","name":"Koin","bindings":[{"type":"app.BrokerApi","name":"brokerApi","kind":"singleton","id":"0.0"}]}]}""" else """{"graphs":[
                 {"framework":"metro","name":"AppGraph 35db0f5","bindings":[
                   {"type":"io.ktor.client.HttpClient","name":"httpClient","runtimeType":"io.ktor.client.HttpClient","created":true,"kind":"singleton","id":"0.0"},
                   {"type":"app.data.WeatherApi","name":"weatherApi","runtimeType":"app.data.WeatherApi","created":true,"kind":"singleton","id":"0.1","dependsOn":["0.0","0.5"]},
@@ -152,5 +153,24 @@ class RuntimePanelRenderTest : BasePlatformTestCase() {
         render(p, "runtime-di-neighbours")
         v.mode(DiView.Mode.WHOLE)
         render(p, "runtime-di-whole")
+    }
+
+    fun `test switching the app clears DI and reads the new app's graph (D-103)`() {
+        val p = panel()
+        p.load()
+        select(p, "DI")
+        assertTrue(p.diView.summary, p.diView.summary.startsWith("2 graphs, 10 bindings"))
+        otherApp = true
+        p.load()
+        // The DI section was open: it is read again, for the new app, and nothing of the old graph is left.
+        assertEquals("1 graph, 1 binding, 0 created", p.diView.summary)
+        assertEquals(listOf("brokerApi"), (0 until p.diView.tree.rowCount).map { p.diView.tree.getPathForRow(it).lastPathComponent.toString() }.filter { it.contains("brokerApi") }.map { "brokerApi" })
+        assertFalse((0 until p.diView.tree.rowCount).any { p.diView.tree.getPathForRow(it).lastPathComponent.toString().contains("Forecast") })
+    }
+
+    fun `test the status line counts in the right number`() {
+        val p = panel()
+        p.load()
+        assertEquals("1 navigation host, 1 ViewModel.", p.statusLine)
     }
 }

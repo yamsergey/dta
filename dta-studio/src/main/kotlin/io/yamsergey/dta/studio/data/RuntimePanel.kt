@@ -16,6 +16,7 @@ import com.intellij.util.ui.JBUI
 import io.yamsergey.dta.present.data.PropertyRows
 import io.yamsergey.dta.present.data.RuntimeText
 import io.yamsergey.dta.protocol.data.FunctionList
+import io.yamsergey.dta.present.Units
 import io.yamsergey.dta.protocol.data.DiReport
 import io.yamsergey.dta.protocol.data.InvokeResult
 import io.yamsergey.dta.protocol.data.MemoryState
@@ -61,6 +62,8 @@ class RuntimePanel(
     private enum class Section(val label: String) { ACTIVITIES("Activities"), NAVIGATION("Navigation"), VIEWMODELS("ViewModels"), FUNCTIONS("Functions"), MEMORY("Memory"), THREADS("Threads"), DI("DI") }
     private data class Item(val section: Section, val label: String, val detail: String = "", val host: NavHostInfo? = null, val vm: ViewModelInfo? = null)
 
+    /** The status line's text (what the tests read). */
+    internal val statusLine: String get() = status.text
     private val status = JBLabel(" ").apply { foreground = JBColor.GRAY; setCopyable(true) }
     private val root = DefaultMutableTreeNode()
     private var viewModelsWanted = false
@@ -157,6 +160,11 @@ class RuntimePanel(
 
     /** Reads navigation hosts, ViewModels and functions again and rebuilds the tree. */
     fun load() {
+        // D-103: nothing of the previous app stays; DI, when it was open, is read again for this one.
+        val reopenDi = diOpen
+        diOpen = false
+        diView.clear()
+        cards.show(right, EMPTY)
         scope.launch {
             val nav = runCatching { decode(NavigationState.serializer(), call("runtime.navigation", EMPTY_PARAMS)) }
             val vms = runCatching { decode(ViewModelList.serializer(), call("runtime.viewmodels", EMPTY_PARAMS)) }
@@ -167,7 +175,7 @@ class RuntimePanel(
                     val node = DefaultMutableTreeNode(section)
                     when (section) {
                         Section.NAVIGATION -> nav.getOrNull()?.hosts?.forEach { h ->
-                            node.add(DefaultMutableTreeNode(Item(section, h.backStack.lastOrNull()?.let { it.route ?: it.label } ?: h.id, "${h.kind} · ${h.backStack.size} entries", host = h)))
+                            node.add(DefaultMutableTreeNode(Item(section, h.backStack.lastOrNull()?.let { it.route ?: it.label } ?: h.id, "${h.kind} · ${Units.count(h.backStack.size, "entry", "entries")}", host = h)))
                         }
                         Section.VIEWMODELS -> vms.getOrNull()?.viewModels?.forEach { v ->
                             node.add(DefaultMutableTreeNode(Item(section, v.className.substringAfterLast('.'), v.owner ?: "", vm = v)))
@@ -181,17 +189,23 @@ class RuntimePanel(
                 for (i in 0 until tree.rowCount) tree.expandRow(i)
                 status.text = listOfNotNull(nav.exceptionOrNull(), vms.exceptionOrNull()).firstOrNull()?.message
                     ?: (nav.getOrNull()?.completeness.orEmpty() + vms.getOrNull()?.completeness.orEmpty()).firstOrNull()?.reason
-                    ?: "${nav.getOrNull()?.hosts?.size ?: 0} navigation hosts, ${vms.getOrNull()?.viewModels?.size ?: 0} ViewModels."
+                    ?: "${Units.count(nav.getOrNull()?.hosts?.size ?: 0, "navigation host")}, ${Units.count(vms.getOrNull()?.viewModels?.size ?: 0, "ViewModel")}."
                 if (viewModelsWanted) {
                     viewModelsWanted = false
                     selectViewModels()
+                } else if (reopenDi) {
+                    root.children().asSequence().map { it as DefaultMutableTreeNode }.firstOrNull { it.userObject == Section.DI }?.let { tree.selectionPath = javax.swing.tree.TreePath(arrayOf<Any>(root, it)) }
                 }
             })
         }
     }
 
+    /** Whether the DI section is the one open (so a new app's DI is read again). */
+    private var diOpen = false
+
     private fun open(o: Any) {
         currentHost = null
+        diOpen = o == Section.DI
         when (o) {
             Section.ACTIVITIES -> showText("runtime.activities", RuntimeActivities.serializer(), RuntimeText::activities)
             Section.MEMORY -> showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, listOf("Run GC" to { showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, params = JsonObject(mapOf("gc" to JsonPrimitive(true)))) }))
@@ -264,7 +278,7 @@ class RuntimePanel(
         scope.launch {
             val result = runCatching { decode(ThreadList.serializer(), call("runtime.threads", EMPTY_PARAMS)) }
             ui.invoke(Runnable {
-                result.fold({ list -> threadsView.show(ThreadRows(list), RuntimeText.threads(list)); status.text = "${list.threads.size} threads." }, { status.text = it.message ?: it.javaClass.simpleName })
+                result.fold({ list -> threadsView.show(ThreadRows(list), RuntimeText.threads(list)); status.text = "${Units.count(list.threads.size, "thread")}." }, { status.text = it.message ?: it.javaClass.simpleName })
             })
         }
     }
