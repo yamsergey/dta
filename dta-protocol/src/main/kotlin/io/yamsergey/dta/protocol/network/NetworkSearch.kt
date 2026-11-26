@@ -13,6 +13,8 @@ enum class SearchPlace {
     @SerialName("response-body") RESPONSE_BODY,
     @SerialName("payload") PAYLOAD,
     @SerialName("envelope") ENVELOPE,
+    /** 072: free text an entry carries (a failure, a close reason, a script's error): found by `redacted:#fp` only. */
+    @SerialName("failure") FAILURE,
 }
 
 /**
@@ -58,7 +60,22 @@ class NetworkSearch(
     /** Without redaction (the plugin's own views), `redacted:#fp` still reads the redacted rendering: this search, redacting. */
     private var maskedSearch: NetworkSearch? = null
     private fun maskedPlaces(entry: NetworkEntry): List<Place> =
-        if (redact) places(entry) else (maskedSearch ?: NetworkSearch(emptyList(), connectionUrl, decoded, bodyBytes, redact = true).also { maskedSearch = it }).places(entry)
+        (if (redact) places(entry) else (maskedSearch ?: NetworkSearch(emptyList(), connectionUrl, decoded, bodyBytes, redact = true).also { maskedSearch = it }).places(entry)) + freeTextPlaces(entry)
+
+    /** The free text of an entry that redaction masks (a failure, a close reason, what a script said): places a fingerprint is found in, though no word search reads them. */
+    private fun freeTextPlaces(entry: NetworkEntry): List<Place> = buildList {
+        fun free(text: String?) {
+            text ?: return
+            val shown = Redactor.text(text, "").first
+            if (shown != text) add(Place(SearchPlace.FAILURE, Redactor.plain(shown), shown = shown))
+        }
+        when (entry) {
+            is HttpEntry -> free(entry.failure)
+            is WsConnectionEntry -> { free(entry.failure); free(entry.closeReason) }
+            else -> Unit
+        }
+        entry.intervention?.let { free(it.error); free(it.description) }
+    }
 
     /** Feature 041: bodies the host has no copy of yet, searched by their preview. */
     var byPreview = 0

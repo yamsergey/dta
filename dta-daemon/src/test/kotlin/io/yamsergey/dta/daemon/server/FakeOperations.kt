@@ -61,7 +61,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-class FakeOperations : DaemonOperations {
+open class FakeOperations : DaemonOperations {
     val calls = mutableListOf<String>()
     var lastQuery: NetworkQuery? = null
     /** What the last entry and body reads were asked about redaction. */

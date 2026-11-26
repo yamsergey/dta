@@ -21,6 +21,7 @@ object Hits {
             SearchPlace.RESPONSE_BODY -> "response body"
             SearchPlace.PAYLOAD -> "payload"
             SearchPlace.ENVELOPE -> "message format"
+            SearchPlace.FAILURE -> "failure text"
         }
         val side = if (h.part == BodyPart.APP_REQUEST || h.part == BodyPart.APP_RESPONSE || h.part == BodyPart.APP_MESSAGE) "app-side " else ""
         return side + base + if (h.binary) " (in binary)" else ""
@@ -35,7 +36,7 @@ object Hits {
 
     /** Feature 041: where an entry matched, one per place with its count, in the detail's tab order. */
     fun foundIn(hits: List<SearchHit>): List<FoundPlace> {
-        val order = listOf(SearchPlace.URL, SearchPlace.REQUEST_HEADER, SearchPlace.RESPONSE_HEADER, SearchPlace.REQUEST_BODY, SearchPlace.RESPONSE_BODY, SearchPlace.ENVELOPE, SearchPlace.PAYLOAD)
+        val order = listOf(SearchPlace.URL, SearchPlace.REQUEST_HEADER, SearchPlace.RESPONSE_HEADER, SearchPlace.REQUEST_BODY, SearchPlace.RESPONSE_BODY, SearchPlace.ENVELOPE, SearchPlace.PAYLOAD, SearchPlace.FAILURE)
         return hits.groupBy { Triple(it.place, it.part, it.header?.lowercase()) }.entries
             .sortedBy { order.indexOf(it.key.first) }
             .map { (_, hs) ->
