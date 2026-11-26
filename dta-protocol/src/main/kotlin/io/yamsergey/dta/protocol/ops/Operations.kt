@@ -930,7 +930,7 @@ object Catalog {
         ),
         OperationSpec(
             "runtime.heap.snapshot",
-            "Take one heap snapshot of the app now: objects and shallow bytes per class, kept in the daemon for this app run (20 at most; named ones are kept over unnamed). It briefly stops the app's threads (usually 15-50 ms); the answer always states the pause and warns above 100 ms. It aborts itself at maxPause and then keeps nothing. One per 2 seconds per app. Nothing else takes a snapshot. Not known: who keeps an object alive, retained size.",
+            "Take one heap snapshot of the app now: objects and shallow bytes per class, kept in the daemon for this app run (20 at most; named ones are kept over unnamed). It briefly stops the app's threads (usually 15-50 ms); the answer always states the pause and warns above 100 ms. It aborts itself at maxPause and then keeps nothing. One per 2 seconds per app. Nothing else takes a snapshot. Counts include boot-image and zygote objects (platform rows are not all the app's own). Not known: who keeps an object alive, retained size.",
             Scope.APP,
             listOf(
                 ParamSpec("name", ParamType.STRING, "A name for the snapshot (unique in the run); named snapshots are not dropped to make room."),

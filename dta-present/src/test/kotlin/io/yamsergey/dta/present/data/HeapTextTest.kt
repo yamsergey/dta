@@ -35,6 +35,7 @@ class HeapTextTest {
         assertFalse(t.contains("WARNING"))
         assertTrue(t.contains("com.x.A") && t.contains("4.0 KB") || t.contains("com.x.A"))
         assertTrue(t.contains("not known"))
+        assertTrue(t.contains("boot image") && t.contains("did not allocate"))
         val w = HeapText.snapshot(answer(150, warning = "The app's threads were stopped for 150 ms by this walk.", dropped = "Snapshot s1 was dropped."))
         assertTrue(w.contains("150 ms") && w.contains("stopped for 150 ms"))
         assertTrue(w.contains("was dropped"))
@@ -57,5 +58,6 @@ class HeapTextTest {
         assertTrue(t.contains("com.x.Leak") && t.contains("+3") && t.contains("+30"))
         assertTrue(t.contains("left out"))
         assertTrue(t.contains("not known"))
+        assertTrue(t.contains("boot image") && t.contains("did not allocate"))
     }
 }

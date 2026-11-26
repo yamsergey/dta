@@ -212,6 +212,7 @@ object HeapLimits {
     /** Said in every answer: what step 1 does not know. */
     val NOT_KNOWN = listOf(
         "Who keeps an object alive is not known (no reference paths); retained size is not known (shallow sizes only). A heap dump answers those, later.",
+        "The walk counts every object in the process, boot image and zygote included, so platform rows include objects the app did not allocate (the default view shows the app's own classes).",
         "Counts are of objects present at the walk, reachable or not, unless a garbage collection ran first (gc).",
     )
 }

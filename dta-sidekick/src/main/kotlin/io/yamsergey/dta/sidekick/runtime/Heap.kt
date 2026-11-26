@@ -70,6 +70,7 @@ internal class Heap(private val context: Context) {
                 namespaces,
             )
             val notes = buildList {
+                add("Boot-image and zygote objects are counted: platform rows include objects the app did not allocate.")
                 if (!gc) add("Garbage was not collected first: objects that are no longer reachable may be counted.")
                 if (stats[2] > 0) add("${stats[2]} objects of classes loaded during the walk are not counted per class.")
             }
