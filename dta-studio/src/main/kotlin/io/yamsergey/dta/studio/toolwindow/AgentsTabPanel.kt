@@ -85,6 +85,8 @@ class AgentsTabPanel(
             combine(feed.clients, controller.state, redaction.state) { clients, _, _ -> clients }.collect { clients ->
                 withContext(Dispatchers.Main) {
                     model.daemon(clients)
+                    // The command names the server's port: it follows the setting.
+                    connect.render()
                     if (clients != null) redaction.takeIf { it.state.value.on == null }?.refresh()
                     render()
                 }
