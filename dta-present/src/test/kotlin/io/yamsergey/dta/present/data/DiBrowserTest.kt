@@ -52,3 +52,36 @@ class DiBrowserTest {
         assertEquals(4, w.edges.size)
     }
 }
+
+class DiBrowserNotesTest {
+    private val report = DiReport(listOf(
+        DiGraph("koin", "Koin", listOf(
+            DiBinding("app.BrokerApi", "brokerApi", "app.BrokerApi", true, "singleton", id = "0.0"),
+            DiBinding("app.Repo", "repo", "app.Repo", true, "singleton", id = "0.1", dependsOn = listOf("0.0")),
+            DiBinding("app.Lazy", "lazy", null, false, "singleton", id = "0.2"),
+            DiBinding("app.Screen", "screen", null, false, "factory", id = "0.3"),
+        )),
+    ))
+    private val di = DiBrowser(report)
+
+    @Test
+    fun `a binding with users or dependencies needs no note`() {
+        assertEquals(null, di.usedByNote("0.0"))
+        assertEquals(null, di.dependsOnNote("0.1"))
+    }
+
+    @Test
+    fun `an empty used-by says what is seen, never a bare None`() {
+        val used = di.usedByNote("0.1")!!
+        assertTrue(used.startsWith("None known"), used)
+        assertTrue("call time" in used, used)
+        assertTrue("not created" in di.usedByNote("0.2")!!.lowercase())
+    }
+
+    @Test
+    fun `an empty depends-on of a binding that holds no instance says it cannot be read`() {
+        assertTrue(di.dependsOnNote("0.3")!!.startsWith("None known"))
+        assertTrue("no instance" in di.dependsOnNote("0.2")!!.lowercase())
+        assertEquals("None", di.dependsOnNote("0.0"))
+    }
+}

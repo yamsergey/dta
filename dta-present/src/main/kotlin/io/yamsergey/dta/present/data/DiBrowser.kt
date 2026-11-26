@@ -34,6 +34,30 @@ class DiBrowser(val report: DiReport) {
     fun dependsOn(id: String): List<Node> = byId[id]?.binding?.dependsOn.orEmpty().mapNotNull(byId::get)
     fun usedBy(id: String): List<Node> = users[id].orEmpty().mapNotNull(byId::get)
 
+    /**
+     * Why "Used by" is empty (D-104), or null when it is not. Links are read from created instances:
+     * one is a user of another when its fields hold it. A user that gets it at call time (Koin's get(),
+     * a factory, a lookup) or holds a provider of it, or that is not created yet, is not seen — so an
+     * empty list is "none known", not "none".
+     */
+    fun usedByNote(id: String): String? {
+        val n = byId[id] ?: return null
+        if (usedBy(id).isNotEmpty()) return null
+        return if (n.binding.runtimeType == null) "None known: it is not created yet, and users are seen only as created instances that hold it."
+        else "None known: users are seen only as created instances holding this one in a field; ones that get it at call time (a factory, Koin's get(), a lookup) or hold a provider of it are not seen."
+    }
+
+    /** Why "Depends on" is empty, or null when it is not; "None" when the instance is read and holds no other binding. */
+    fun dependsOnNote(id: String): String? {
+        val n = byId[id] ?: return null
+        if (dependsOn(id).isNotEmpty()) return null
+        return when {
+            n.binding.runtimeType == null && n.binding.kind == "factory" -> "None known: a new one is made each time, so there is no instance to read."
+            n.binding.runtimeType == null -> "None known: it has no instance yet, so what it holds cannot be read."
+            else -> "None"
+        }
+    }
+
     /** [id], its dependencies [depth] levels to the left and its dependents [depth] levels to the right. */
     fun neighbourhood(id: String, depth: Int = 2): Layout {
         val left = mutableListOf<List<String>>()
