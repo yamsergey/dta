@@ -87,9 +87,9 @@ class NetworkSearch(
     private class Place(val place: SearchPlace, val text: String, val part: BodyPart? = null, val header: String? = null, val inName: Boolean = false, val binary: Boolean = false)
 
     private fun places(entry: NetworkEntry): List<Place> = buildList {
-        fun url(u: String?) { u?.let { add(Place(SearchPlace.URL, if (redact) Redactor.url(it, "").first else it)) } }
+        fun url(u: String?) { u?.let { add(Place(SearchPlace.URL, if (redact) Redactor.plain(Redactor.url(it, "").first) else it)) } }
         fun headers(list: List<Header>?, place: SearchPlace) {
-            val h = list?.let { if (redact) Redactor.headers(it, "").first else it } ?: return
+            val h = list?.let { if (redact) Redactor.headers(it, "").first.map { h -> h.copy(value = Redactor.plain(h.value)) } else it } ?: return
             h.forEach { add(Place(place, it.name, header = it.name, inName = true)); add(Place(place, it.value, header = it.name)) }
         }
         fun body(info: BodyInfo?, part: BodyPart, place: SearchPlace) { info?.let { bodyPlace(entry, it, part, place)?.let(::add) } }
@@ -119,7 +119,7 @@ class NetworkSearch(
             decoded?.invoke(entry, part)?.let { json ->
                 if (!redact) return Place(place, json, part)
                 // Decoded protobuf is redacted as JSON (006 FR-016), and searched as it is shown.
-                return Redactor.body(json, "application/json", "").text?.let { Place(place, it, part) } ?: run { notSearched++; null }
+                return Redactor.body(json, "application/json", "").text?.let { Place(place, Redactor.plain(it), part) } ?: run { notSearched++; null }
             }
             val body = bodyBytes(entry, part) ?: run { if (info.storedBytes > 0) notSearched++; return null }
             if (!body.decoded) { notSearched++; return null }
@@ -131,7 +131,7 @@ class NetworkSearch(
         val text = String(body.bytes, Charsets.UTF_8)
         if (!redact) return Place(place, text, part)
         val r = Redactor.body(text, info.contentType, "")
-        return r.text?.let { Place(place, it, part) } ?: run { notSearched++; null }
+        return r.text?.let { Place(place, Redactor.plain(it), part) } ?: run { notSearched++; null }
     }
 
     /** Feature 041: no host copy — the preview is what is known; nothing is skipped without a count. */
@@ -139,7 +139,7 @@ class NetworkSearch(
         if (info.storedBytes <= 0 && info.preview == null) return null
         val preview = info.preview ?: run { notSearched++; return null }
         byPreview++
-        val text = if (redact) Redactor.body(preview, info.contentType, "").text ?: run { notSearched++; return null } else preview
+        val text = if (redact) Redactor.body(preview, info.contentType, "").text?.let { Redactor.plain(it) } ?: run { notSearched++; return null } else preview
         return Place(place, text, part)
     }
 

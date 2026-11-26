@@ -29,7 +29,7 @@ object IndexText {
         fun url(u: String?) {
             u ?: return
             text(u)
-            Redactor.url(u, "").first.takeIf { it != u }?.let { text(it) }
+            Redactor.url(u, "").first.takeIf { it != u }?.let { text(Redactor.plain(it)) }
         }
         fun headers(list: List<Header>?) {
             list ?: return
@@ -78,7 +78,7 @@ object IndexText {
                 if ('\\' in json && append(out, unescape(json), PART_CHARS)) cut = true
                 // Under redaction the decoded JSON is read redacted (006 FR-016): that rendering too.
                 if (Redactor.mayChangeWords(json)) {
-                    Redactor.body(json, "application/json", "").text?.takeIf { it != json }?.let { if (append(out, it, PART_CHARS)) cut = true }
+                    Redactor.body(json, "application/json", "").text?.takeIf { it != json }?.let { if (append(out, Redactor.plain(it), PART_CHARS)) cut = true }
                 }
             }
             // `body:` text also looks in the bytes; the search reads them as Latin-1 when no schema decodes them.
@@ -92,7 +92,7 @@ object IndexText {
         val text = bytes?.let { String(it.bytes, Charsets.UTF_8) } ?: info.preview ?: return cut
         if (append(out, text, PART_CHARS)) cut = true
         if (Redactor.mayChangeWords(text)) {
-            Redactor.body(text, info.contentType, "").text?.takeIf { it != text }?.let { if (append(out, it, PART_CHARS)) cut = true }
+            Redactor.body(text, info.contentType, "").text?.takeIf { it != text }?.let { if (append(out, Redactor.plain(it), PART_CHARS)) cut = true }
         }
         return cut
     }

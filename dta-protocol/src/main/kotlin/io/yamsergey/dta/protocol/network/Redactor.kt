@@ -47,6 +47,16 @@ object Redactor {
 
     fun isMasked(value: String) = value.startsWith(MASK_PREFIX)
 
+    private val MASK_IN_TEXT = Regex("""\[redacted(?: [^\]]*)?]""")
+
+    /**
+     * [text] as filters, patterns and search words read it under redaction (072 FR-012): every mask
+     * keeps `[redacted`, its closing bracket and its length, and what it says beyond that — its
+     * length, its fingerprint — becomes spaces, so no word or number of a mask is matched (the
+     * fingerprint is searched with `redacted:#…`) and every offset still counts in the text the answer shows.
+     */
+    fun plain(text: String): String = if (MASK_PREFIX in text) MASK_IN_TEXT.replace(text) { m -> MASK_PREFIX + " ".repeat(m.value.length - MASK_PREFIX.length - 1) + "]" } else text
+
     /** Masks [credential] and lists the place with its fingerprint and length. */
     internal fun hide(credential: String, place: String, masked: MutableList<MaskedLocation>): String {
         val (mask, jwt) = describe(credential)

@@ -64,7 +64,7 @@ class NetworkFilterEval(
     /** [text] of a body as an answer under redaction shows it; null when it cannot be redacted (counted). */
     private fun shown(text: String, contentType: String?): String? {
         if (!redact) return text
-        return Redactor.body(text, contentType, "").text ?: run { notRedactable++; null }
+        return Redactor.body(text, contentType, "").text?.let { Redactor.plain(it) } ?: run { notRedactable++; null }
     }
 
     private val compiled = HashMap<String, java.util.regex.Pattern>()
@@ -94,7 +94,7 @@ class NetworkFilterEval(
             if (!ok) return null
         }
         filter.url?.let { needle ->
-            val url = urlOf(entry)?.let { if (redact) Redactor.url(it, "").first else it }
+            val url = urlOf(entry)?.let { if (redact) Redactor.plain(Redactor.url(it, "").first) else it }
             if (url == null || !url.contains(needle, ignoreCase = true)) return null
             locations += MatchLocation.URL
         }
@@ -122,7 +122,7 @@ class NetworkFilterEval(
                 else -> return null
             }
             val value = filter.headerValue
-            val shownHeaders = if (redact && value != null) Redactor.headers(headers, "").first else headers
+            val shownHeaders = if (redact && value != null) Redactor.headers(headers, "").first.map { it.copy(value = Redactor.plain(it.value)) } else headers
             if (shownHeaders.none { it.name.equals(name, ignoreCase = true) && (value == null || it.value.contains(value, ignoreCase = true)) }) return null
         }
         filter.mime?.let { m ->
