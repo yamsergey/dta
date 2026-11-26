@@ -45,7 +45,7 @@ class OperationCatalogTest {
                 "web.capture", "web.status", "web.reload", "web.devtools",
                 "timeline.flow.start", "timeline.enabled", "timeline.flow.end", "timeline.flow.list", "timeline.flow.rename", "timeline.flow.remove",
                 "state.current", "state.graph", "state.path",
-                "daemon.status", "daemon.stop",
+                "daemon.status", "daemon.stop", "agents.redaction", "agents.redaction.set",
                 "data.list", "data.db.schema", "data.db.query", "data.db.exec",
                 "data.prefs.read", "data.prefs.set", "data.prefs.remove", "data.proto.read", "data.proto.write",
                 "data.files.list", "data.files.read", "data.files.write", "data.files.mkdir", "data.files.delete",
@@ -85,8 +85,8 @@ class OperationCatalogTest {
     @Test
     fun `agent tools exclude stop and the watches`() {
         val tools = Catalog.agentTools.map { it.name }
-        assertTrue("daemon.stop" !in tools && "network.watch" !in tools && "apps.watch" !in tools && "timeline.watch" !in tools && "layout.watch" !in tools)
-        assertEquals(Catalog.all.size - 5, tools.size)
+        assertTrue("daemon.stop" !in tools && "network.watch" !in tools && "apps.watch" !in tools && "timeline.watch" !in tools && "layout.watch" !in tools && "agents.redaction.set" !in tools, "the setting is changed from the plugin, not offered to agents")
+        assertEquals(Catalog.all.size - 6, tools.size)
     }
 
     @Test

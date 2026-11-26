@@ -39,6 +39,9 @@ object DaemonMain {
             log("adb unavailable: ${e.message}")
             DtaDaemon.withoutAdb(e.message ?: "adb not found", home)
         }
+        // Feature 072: the fingerprints of masked values are made under this home's key; the setting lives in the same home.
+        val agents = io.yamsergey.dta.daemon.AgentSettings(home)
+        io.yamsergey.dta.protocol.network.Redactor.use(agents.key)
         val ops = LibraryOperations(daemon)
         val selector = Selector(ops::devices, ops::apps)
         lateinit var server: DaemonServer
@@ -54,7 +57,7 @@ object DaemonMain {
         server = DaemonServer(
             identity = identity,
             stateFile = StateFile(File(home, "daemon")),
-            dispatcher = OperationDispatcher(ops, selector, identity.version),
+            dispatcher = OperationDispatcher(ops, selector, identity.version, agents),
             ops = ops,
             selector = selector,
             status = { clients ->

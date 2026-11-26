@@ -106,7 +106,7 @@ class OperationDispatcherTest {
     @Test
     fun `the plugin's selection is read back with who made it, and cleared (055)`() {
         val element = """[{"node":{"kind":"compose","id":160,"name":"Button","bounds":{"left":0,"top":0,"right":10,"bottom":10}},"path":["Root","Button"],"capturedAt":1}]"""
-        runBlocking { dispatcher.dispatch("layout.select", buildJsonObject { put("elements", element) }, client = "plugin") }
+        runBlocking { dispatcher.dispatch("layout.select", buildJsonObject { put("elements", element) }, client = io.yamsergey.dta.protocol.ops.ClientKind.IDE) }
         val read = call("layout.selection").result.jsonObject
         assertEquals("plugin", read["changedBy"]!!.jsonPrimitive.content)
         assertEquals("not-checked", read["elements"]!!.jsonArray.single().jsonObject["now"]!!.jsonPrimitive.content)

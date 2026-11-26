@@ -959,6 +959,18 @@ object Catalog {
             "daemon.status", "The DTA service: version, uptime, adb, connected clients, devices and open app connections.", Scope.NONE,
         ),
         OperationSpec("daemon.stop", "Stop the DTA service (it starts again with the next command).", Scope.NONE, cliOnly = true),
+        OperationSpec(
+            "agents.redaction",
+            "Whether answers to agents (this command line, MCP tools) are redacted: secrets, tokens and personal data are masked as [redacted len=N #fingerprint] (equal values share a fingerprint). The setting is changed from the plugin's settings only.",
+            Scope.NONE,
+        ),
+        OperationSpec(
+            "agents.redaction.set",
+            "Turn redaction of answers to agents on or off. Only the Android Studio plugin may do this: from here it is refused, so an agent cannot turn it off.",
+            Scope.NONE,
+            listOf(ParamSpec("redaction", ParamType.BOOLEAN, "true to mask secrets in answers to agents (the default), false to show them.", required = true)),
+            cliOnly = true,
+        ),
     )
 
     private val byName = all.associateBy { it.name }

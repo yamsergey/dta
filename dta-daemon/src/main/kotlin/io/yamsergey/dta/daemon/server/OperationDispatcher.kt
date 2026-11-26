@@ -39,6 +39,7 @@ import io.yamsergey.dta.protocol.network.ScriptLogPage
 import io.yamsergey.dta.protocol.network.ScriptStatus
 import io.yamsergey.dta.protocol.network.WsMessageEntry
 import io.yamsergey.dta.protocol.ops.AppList
+import io.yamsergey.dta.protocol.ops.ClientKind
 import io.yamsergey.dta.protocol.ops.Catalog
 import io.yamsergey.dta.protocol.ops.ClientErrorCodes
 import io.yamsergey.dta.protocol.ops.DeviceInfo
@@ -72,9 +73,13 @@ class OperationDispatcher(
     private val selector: Selector,
     /** Names DTA in exported files (HAR creator). */
     private val version: String = "dev",
+    /** Feature 072: the agents' setting; answers to agent kinds follow it. */
+    val agents: io.yamsergey.dta.daemon.AgentSettings = io.yamsergey.dta.daemon.AgentSettings.inMemory(),
 ) {
     /** What one handler sees: resolved target and validated params. */
-    private class Call(val serial: String?, val pkg: String?, val params: JsonObject, val client: String? = null) {
+    private class Call(val serial: String?, val pkg: String?, val params: JsonObject, val kind: ClientKind? = null) {
+        /** Who asks, as a record of changes names them (feature 055). */
+        val client: String? get() = kind?.let { who(it) }
         val device: String get() = serial!!
         val app: String get() = pkg!!
 
@@ -92,6 +97,12 @@ class OperationDispatcher(
     private val handlers: Map<String, suspend (Call) -> JsonElement> = mapOf(
         "devices.list" to { _ -> encode(ListSerializer(DeviceInfo.serializer()), ops.devices()) },
         "apps.list" to { c -> encode(AppList.serializer(), ops.apps(c.device)) },
+        "agents.redaction" to { _ -> buildJsonObject { put("redaction", agents.redaction) } },
+        "agents.redaction.set" to { c ->
+            if (c.kind != ClientKind.IDE) throw ClientException(ClientErrorCodes.NOT_AVAILABLE, AGENTS_SETTING_TEXT)
+            agents.setRedaction(c.bool("redaction"))
+            buildJsonObject { put("redaction", agents.redaction) }
+        },
         "capability.report" to { c -> encode(IdentityReport.serializer(), ops.capabilityReport(c.device, c.app)) },
         "layout.tree" to { c -> encode(LayoutCapture.serializer(), layout(c)) },
         "network.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, query(c.params), c.string("view"))) },
@@ -294,8 +305,8 @@ class OperationDispatcher(
     /** Operation names this dispatcher serves (the server owns the rest: status, stop, watch). */
     val handled: Set<String> get() = handlers.keys
 
-    /** [client]: who asks (cli, mcp, plugin), for what records who changed something (feature 055). */
-    suspend fun dispatch(method: String, params: JsonObject?, client: String? = null): Selected {
+    /** [client]: who asks (the hello's kind); none is treated as an agent. */
+    suspend fun dispatch(method: String, params: JsonObject?, client: ClientKind? = null): Selected {
         val spec = Catalog.find(method)
         val handler = handlers[method]
         if (spec == null || handler == null) {
@@ -530,6 +541,11 @@ class OperationDispatcher(
         throw ClientException(ClientErrorCodes.NOT_FOUND, "No $what '$id'", buildJsonObject { put("what", what); put("id", id) })
 
     private fun invalid(message: String): Nothing = throw InvalidParamsException(message)
+
+    companion object {
+        /** What a client other than the plugin is told when it tries to change the agents' setting. */
+        const val AGENTS_SETTING_TEXT = "changed from the plugin's settings (Agents/MCP)"
+    }
 
     private suspend fun <T> rt(c: Call, method: String, s: KSerializer<T>): JsonElement = encode(s, ops.data(c.device, c.app).runtime(method, s, c.forward()))
 

@@ -200,7 +200,7 @@ class DaemonServer(
                 else -> scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                     try {
                         val params = if (request.method == "network.list" || request.method == "network.search") withView(request.params) else request.params
-                        val selected = dispatcher.dispatch(request.method, params, hello?.client?.let { who(it) })
+                        val selected = dispatcher.dispatch(request.method, params, hello?.client)
                         respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), selected))
                         if (request.method == "network.clear") {
                             val device = selected.selection?.device
