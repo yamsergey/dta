@@ -47,4 +47,12 @@ internal object NativeAgent {
      * null when the runtime refused (the agent logs why).
      */
     @JvmStatic external fun nativeInstances(target: Class<*>): Array<Any?>?
+
+    /**
+     * Feature 074: one whole-heap walk summing objects and shallow bytes per class, aborting itself past
+     * [maxPauseMs]. Returns `[Class[] classes, long[] counts, long[] bytes, long[] {pauseMicros, objects,
+     * untagged, stopped}, String error]`; classes/counts/bytes are null when the walk stopped or failed;
+     * null when the agent is not attached.
+     */
+    @JvmStatic external fun nativeHeapHistogram(maxPauseMs: Long): Array<Any?>?
 }
