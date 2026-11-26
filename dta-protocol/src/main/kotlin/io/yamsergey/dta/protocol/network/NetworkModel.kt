@@ -525,6 +525,11 @@ data class Coverage(
 data class RedactionInfo(
     /** Always on the wire (D-041): a JSON reader sees `applied: true`, not only a missing field. */
     @kotlinx.serialization.EncodeDefault val applied: Boolean = true,
+    /**
+     * 072: true on an answer to an agent (cli, mcp): the daemon's setting "agents see redacted data" decided it, so
+     * `applied = false` with this says the setting is off in the plugin's settings.
+     */
+    val forAgents: Boolean = false,
     /** Locations masked, each with the fingerprint and length its mask shows (072 FR-009). */
     val masked: List<MaskedLocation> = emptyList(),
     /** Bodies/payloads not returned because they could not be redacted. */

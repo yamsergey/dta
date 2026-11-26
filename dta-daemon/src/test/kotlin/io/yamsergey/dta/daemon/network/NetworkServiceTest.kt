@@ -343,17 +343,18 @@ class NetworkServiceTest {
     }
 
     @Test
-    fun `binary bodies are withheld under redaction unless explicitly allowed`() = withService { service, _ ->
+    fun `binary bodies are withheld under redaction`() = withService { service, _ ->
         val file = java.io.File(tmp, "w.pb")
         val withheld = service.body("proto", BodyPart.REQUEST, BodyOutput.File(file.path), redact = true)
         kotlin.test.assertFalse(file.exists(), "nothing written")
         assertEquals(0, withheld.bytes)
         assertTrue(withheld.redaction!!.withheld.single().contains("binary"))
         assertTrue(io.yamsergey.dta.protocol.layout.DegradationCodes.NETWORK_REDACTION_WITHHELD in withheld.degraded!!.map { it.reason })
+        assertTrue("turn redaction for agents off" in withheld.note!!, "it says how to read it: ${withheld.note}")
 
-        val allowed = service.body("proto", BodyPart.REQUEST, BodyOutput.File(file.path), redact = true, allowUnredacted = true)
-        assertTrue(file.exists())
-        assertEquals(false, allowed.redaction!!.applied, "marked as not redacted")
+        val whole = service.body("proto", BodyPart.REQUEST, BodyOutput.File(file.path))
+        assertTrue(file.exists(), "without redaction (the plugin, or the setting off) it is written as is")
+        assertEquals(null, whole.redaction)
     }
 
     /** NET-RED-016: the body's summary travels with the body; its preview is the same text, so it is redacted too. */
@@ -368,9 +369,8 @@ class NetworkServiceTest {
         assertTrue("SECRET-P" !in DtaJson.encodeToString(BodyResult.serializer(), written))
         val plain = service.body("plainPreview", BodyPart.RESPONSE, redact = true)
         assertTrue("SECRET-T" !in DtaJson.encodeToString(BodyResult.serializer(), plain), "a plain text body's preview is masked too")
-        val overridden = service.body("plainPreview", BodyPart.RESPONSE, redact = true, allowUnredacted = true)
-        assertEquals("token=SECRET-T, page 2", overridden.body.preview, "the explicit override returns it as is, marked not redacted")
-        assertEquals(false, overridden.redaction!!.applied)
+        val whole = service.body("plainPreview", BodyPart.RESPONSE)
+        assertEquals("token=SECRET-T, page 2", whole.body.preview, "without redaction the preview is as stored")
     }
 
     /** Decision 2026-11-22 (4): a text body of no structured format is masked by name and value and says what, not withheld. */

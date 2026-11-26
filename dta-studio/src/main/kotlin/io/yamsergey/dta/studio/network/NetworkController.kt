@@ -619,7 +619,7 @@ class NetworkController(private val context: ContextController, private val scop
                 val params = JsonObject(
                     target(s) + s.applied.params(s.kind) + mapOf("limit" to JsonPrimitive((need - got.size).let { if (it > 0) it.coerceAtMost(SEARCH_PAGE) else CATCH_UP_PAGE }), "order" to JsonPrimitive("newest-first")) +
                         (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) +
-                        (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) + (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
+                        (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))),
                 )
                 val page = DtaJson.decodeFromJsonElement(SearchPage.serializer(), c.call("network.search", params).result)
                 first = first ?: page
@@ -755,7 +755,7 @@ class NetworkController(private val context: ContextController, private val scop
         val c = context.client ?: return done(Result.failure(IllegalStateException("No DTA daemon connected.")))
         scope.launch {
             val params = JsonObject(
-                target(s) + s.applied.params(s.kind) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                target(s) + s.applied.params(s.kind) +
                     (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: emptyMap()) +
                     // D-053 (071 FR-004): the switch's scope, as the list has it.
                     (if (s.archiveOn && s.archive == null) mapOf("archive" to JsonPrimitive(true)) else emptyMap()) + ("output" to JsonPrimitive(path)),
@@ -818,7 +818,7 @@ class NetworkController(private val context: ContextController, private val scop
             try {
                 val s = mutable.value
                 // D-085: counts: the daemon also says how many new entries of a run the tab does not list (the caption's M).
-                val live = mapOf("view" to JsonPrimitive(VIEW), "counts" to JsonPrimitive(true)) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+                val live = mapOf("view" to JsonPrimitive(VIEW), "counts" to JsonPrimitive(true)) +
                     (if (s.archiveOn) mapOf("archive" to JsonPrimitive(true)) else emptyMap())
                 client.networkEvents(JsonObject(target(s) + s.applied.params(s.kind) + live)).collect { data ->
                     if (data["selection"] != null) {
@@ -905,7 +905,7 @@ class NetworkController(private val context: ContextController, private val scop
 
     private fun params(s: NetworkViewState, before: String? = null) = JsonObject(
         target(s) + s.applied.params(s.kind) + mapOf("limit" to JsonPrimitive(PAGE)) +
-            (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) + (if (s.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap()) +
+            (before?.let { mapOf("before" to JsonPrimitive(it)) } ?: emptyMap()) +
             (s.archive?.let { mapOf("archiveScope" to JsonPrimitive(it)) } ?: mapOf("view" to JsonPrimitive(VIEW))) +
             (if (s.archiveOn && s.archive == null) mapOf("archive" to JsonPrimitive(true)) else emptyMap()),
     )

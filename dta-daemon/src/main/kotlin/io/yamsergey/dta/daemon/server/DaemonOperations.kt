@@ -70,7 +70,7 @@ interface DaemonOperations {
     /** Feature 067: a client went away: its views' match sets are dropped. */
     fun networkViewsClosed(prefix: String) {}
     suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean): NetworkEntryDetail
-    suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult
+    suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean): BodyResult
     suspend fun networkClear(serial: String, pkg: String): ClearResult
     suspend fun networkHistory(serial: String, pkg: String): io.yamsergey.dta.protocol.network.HistorySummary
     suspend fun networkHistorySet(serial: String, pkg: String, keepBytes: Long?, warnBytes: Long?): io.yamsergey.dta.protocol.network.HistorySettings
@@ -200,8 +200,8 @@ class LibraryOperations(private val daemon: DtaDaemon) : DaemonOperations {
         send: suspend (List<io.yamsergey.dta.protocol.network.FoundItem>) -> Unit,
     ) = daemon.networkFind(serial, pkg, query, limit, credit, waitingAt, started, send)
     override suspend fun networkEntry(serial: String, pkg: String, id: String, redact: Boolean) = daemon.networkEntry(serial, pkg, id, redact)
-    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean) =
-        daemon.networkBody(serial, pkg, id, part, output, redact, allowUnredacted)
+    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean) =
+        daemon.networkBody(serial, pkg, id, part, output, redact)
     override suspend fun networkClear(serial: String, pkg: String) = daemon.networkClear(serial, pkg)
     override suspend fun networkHistory(serial: String, pkg: String) = daemon.networkHistory(serial, pkg)
     override suspend fun networkHistorySet(serial: String, pkg: String, keepBytes: Long?, warnBytes: Long?) = daemon.networkHistorySet(serial, pkg, keepBytes, warnBytes)

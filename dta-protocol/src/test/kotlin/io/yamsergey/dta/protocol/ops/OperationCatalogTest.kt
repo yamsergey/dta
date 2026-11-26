@@ -96,7 +96,8 @@ class OperationCatalogTest {
         val props = schema["properties"]!!.jsonObject
         assertEquals("string", props["url"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals("integer", props["limit"]!!.jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("boolean", props["redact"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("boolean", props["archive"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertTrue("redact" !in props, "no per-call redaction (072)")
         val kinds = props["kinds"]!!.jsonObject
         assertEquals("array", kinds["type"]!!.jsonPrimitive.content)
         assertEquals(listOf("http", "ws-connection", "ws-message"), kinds["items"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content })

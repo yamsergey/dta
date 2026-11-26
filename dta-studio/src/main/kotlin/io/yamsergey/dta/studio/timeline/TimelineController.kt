@@ -338,7 +338,7 @@ class TimelineController(
         listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap()
 
     /** What reads the timeline and the state: with redact while Network's Redact Secrets is on. */
-    private fun reads(s: TimelineTabState) = if (redacting) target(s) + ("redact" to JsonPrimitive(true)) else target(s)
+    private fun reads(s: TimelineTabState) = target(s)
 
     companion object {
         const val PAGE = 500

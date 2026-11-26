@@ -61,32 +61,6 @@ class TimelineControllerTest {
     private suspend fun await(check: (TimelineTabState) -> Boolean): TimelineTabState =
         runCatching { withTimeout(5_000) { timeline.state.first(check) } }.getOrElse { error("timed out; timeline=${timeline.state.value}") }
 
-    /** Decision 2026-11-22 (3): with Network's Redact Secrets on, every timeline and state answer the tab reads is redacted. */
-    @Test
-    fun `with the Redact setting on, the tab reads everything redacted`() = runBlocking<Unit> {
-        val redact = kotlinx.coroutines.flow.MutableStateFlow(false)
-        val redacting = TimelineController(context, scope, redact)
-        suspend fun awaitR(check: (TimelineTabState) -> Boolean) =
-            runCatching { withTimeout(5_000) { redacting.state.first(check) } }.getOrElse { error("timed out; timeline=${redacting.state.value}") }
-        fun secretToast(seq: Long, secret: String) = TimelineEvent("1:$seq", seq, 1_000 + seq, 1_000 + seq, Sources.UI, Kinds.ui("toast"),
-            title = "toast Saved, token=$secret", ui = UiEvent("1:$seq", seq, 1_000 + seq, 1_000 + seq, UiEventKind.TOAST, UiSource.TOAST, text = "Saved, token=$secret"))
-        daemon.ops.timeline.ingest(TimelineRead(1, listOf(secretToast(1, "SEED-TC1")), lastSeq = 1))
-        session.start()
-        redacting.setActive(true)
-        awaitR { it.watching && it.view.events.size == 1 }
-        assertTrue("SEED-TC1" in redacting.state.value.view.events.toString(), "twin: with Redact off the tab shows it")
-        redact.value = true
-        awaitR { it.watching && it.view.events.size == 1 && "SEED-TC1" !in it.view.events.toString() }
-        daemon.ops.pushTimeline(secretToast(2, "SEED-TC2"))
-        val live = awaitR { it.view.events.size == 2 }
-        kotlin.test.assertFalse("SEED-TC2" in live.view.events.toString(), "a live event is redacted too: ${live.view.events}")
-        redacting.select("1:2")
-        val chained = awaitR { it.chain != io.yamsergey.dta.present.timeline.ChainView.EMPTY }
-        kotlin.test.assertFalse("SEED-TC2" in chained.chain.toString(), chained.chain.toString())
-        redacting.setShowSequence(true)
-        withTimeout(5_000) { while (!daemon.ops.sequenceRedacted.contains(true)) kotlinx.coroutines.delay(20) }
-    }
-
     @Test
     fun `everything kept is paged in after subscribing, then live events arrive`() = runBlocking<Unit> {
         daemon.ops.timeline.ingest(TimelineRead(1, (1..700L).map { ev(it, Sources.INPUT, Kinds.CLICK, 1_000 + it) }, lastSeq = 700))

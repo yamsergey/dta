@@ -267,8 +267,7 @@ class NetworkPanel(
     private val empty = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = com.intellij.ui.JBColor.GRAY }
     /** Feature 026: copy actions, with the view's redaction. */
     private val copyMenu = io.yamsergey.dta.studio.network.EntryCopyMenu(project, scope, { context.client }) {
-        JsonObject(listOfNotNull(last.device?.let { "device" to JsonPrimitive(it) }, last.app?.let { "app" to JsonPrimitive(it) }).toMap() +
-            if (last.redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+        JsonObject(listOfNotNull(last.device?.let { "device" to JsonPrimitive(it) }, last.app?.let { "app" to JsonPrimitive(it) }).toMap())
     }
     private val detail = EntryDetailPane(project, scope, copyMenu, open = { id -> network.reveal(id) }, formatsChanged = { network.refresh() })
     // The list gets most of the width; the person's own split is remembered.
@@ -299,8 +298,6 @@ class NetworkPanel(
         },
         Act("Previous Hit (Shift+Enter, Shift+F3)", AllIcons.Actions.PreviousOccurence, enabled = { last.applied.finds && last.hits.total > 0 }) { stepHit(forward = false) },
         Act("Next Hit (Enter, F3)", AllIcons.Actions.NextOccurence, enabled = { last.applied.finds && last.hits.total > 0 }) { stepHit(forward = true) },
-        com.intellij.openapi.actionSystem.Separator.getInstance(),
-        Toggle("Redact Secrets", AllIcons.Actions.ToggleVisibility, on = { last.redact }) { network.setRedact(it) },
         com.intellij.openapi.actionSystem.Separator.getInstance(),
         Act("Export HAR…", AllIcons.ToolbarDecorator.Export) { exportHar() },
     ), false).apply {

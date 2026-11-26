@@ -106,7 +106,7 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     val bodyCalls = java.util.concurrent.CopyOnWriteArrayList<Triple<String, BodyPart, Boolean>>()
     /** When set, network.body answers only once it completes (a test orders a reply after something else, D-101). */
     @Volatile var bodyGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
-    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean, allowUnredacted: Boolean): BodyResult {
+    override suspend fun networkBody(serial: String, pkg: String, id: String, part: BodyPart, output: BodyOutput, redact: Boolean): BodyResult {
         bodyCalls += Triple(id, part, redact)
         bodyGate?.await()
         return BodyResult(BodyInfo(part, 13, contentType = "application/json", completeness = Completeness.COMPLETE), text = "{\"items\":[]}", bytes = 12)

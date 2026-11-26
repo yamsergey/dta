@@ -227,12 +227,6 @@ object Catalog {
         cliName = "no-saved-filters",
     )
 
-    /** Decision 2026-11-22: timeline and state answers are redacted as network answers are. */
-    private val TIMELINE_REDACT = ParamSpec(
-        "redact", ParamType.BOOLEAN,
-        "Mask secrets as network outputs do: credentials and sensitive name=value pairs in titles, errors, routes, texts and cause details; arguments, attributes and facets with sensitive names. The answer lists what was masked.",
-    )
-
     private val TIMELINE_SOURCES = ParamSpec(
         "sources", ParamType.STRING_LIST,
         "Sources to include: input, ui, screen, network, nav, app (gaps and process ends always come).",
@@ -327,7 +321,6 @@ object Catalog {
                 ParamSpec("limit", ParamType.INT, "Page size, 1..1000 (default 100)."),
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets (tokens, cookies, passwords) in URLs and headers."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
                 ParamSpec("q", ParamType.STRING, "$QUERY_LINE_HELP Search words leave only the entries holding every word; the page's hits say where.", cliShort = "-q", cliName = "query"),
@@ -347,7 +340,6 @@ object Catalog {
                 ParamSpec("limit", ParamType.INT, "Entries per page, 1..1000 (default 100)."),
                 ParamSpec("order", ParamType.ENUM, "newest-first (default) or oldest-first.", enumValues = listOf("newest-first", "oldest-first")),
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
-                ParamSpec("redact", ParamType.BOOLEAN, "Search URLs, headers and bodies as redacted: masked secrets are not found."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
                 TYPOS,
@@ -362,7 +354,6 @@ object Catalog {
             Scope.APP,
             listOf(
                 ParamSpec("id", ParamType.STRING, "Entry id from network.list.", required = true, positional = true),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs and headers."),
             ),
         ),
         OperationSpec(
@@ -375,8 +366,6 @@ object Catalog {
                 ParamSpec("output", ParamType.STRING, "Write the body to this file instead of returning text; the result gives path, size and sha256.", path = true, cliShort = "-o"),
                 ParamSpec("raw", ParamType.BOOLEAN, "With output: keep the bytes as sent on the wire (compressed), instead of decoded."),
                 ParamSpec("structured", ParamType.BOOLEAN, "With output: write the decoded JSON of a protobuf body instead of its bytes."),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets inside the body (decoded protobuf included); bodies that cannot be redacted are withheld."),
-                ParamSpec("allowUnredacted", ParamType.BOOLEAN, "With redact: return a body that cannot be redacted anyway, saying so."),
             ),
         ),
         OperationSpec("network.clear", "Delete the app's captured network history on the device. What this computer has not archived yet is copied first; the result says what could not be kept.", Scope.APP),
@@ -403,7 +392,6 @@ object Catalog {
                 ParamSpec("untilMs", ParamType.LONG, "Only entries at or before this epoch millisecond."),
                 ParamSpec("bodyContains", ParamType.STRING, "Text inside a body or payload, case ignored (as body: in q)."),
                 RUNS,
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and bodies; bodies that cannot be redacted are left out."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
                 ParamSpec("q", ParamType.STRING, "Query line; its filters select what is written (search words hide nothing). See network.list.", cliShort = "-q", cliName = "query"),
@@ -414,7 +402,6 @@ object Catalog {
             "network.watch", "Follow new network entries as they happen, until interrupted. With history=current, the running process's entries come first.", Scope.APP,
             NETWORK_FILTERS + ParamSpec("history", ParamType.ENUM, "current: first the entries of the app's running process (e.g. its start-up traffic), then new ones; with archive, first every run's entries this computer keeps, oldest first; none (default): only new ones.", enumValues = listOf("current", "none")) +
                 ParamSpec("q", ParamType.STRING, "Query line, as in network.list: its filters apply, and search words list only the entries holding them (each with its hits).", cliShort = "-q", cliName = "query") +
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URLs, headers and previews, as network.list does; filters and search words match the masked text.") +
                 ParamSpec("archive", ParamType.BOOLEAN, "Every run: also entries of earlier runs that reach this computer later (e.g. a fresh daemon catching up the device's journal). Without it, only the app's current run (since its process last started); the answer's scope says how much more is kept.") +
                 TYPOS +
                 ParamSpec("ignoreSavedFilters", ParamType.BOOLEAN, "Do not apply the app's saved filters to this call (they stay saved); by default they apply and the result names them.", cliName = "no-saved-filters"),
@@ -569,7 +556,6 @@ object Catalog {
                 ParamSpec("before", ParamType.STRING, "Cursor: the next value of a previous page."),
                 ARCHIVE,
                 ARCHIVE_SCOPE,
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in URIs, query parameters and extras."),
             ),
             cliPathOverride = listOf("links", "list"),
         ),
@@ -579,7 +565,6 @@ object Catalog {
             Scope.APP,
             listOf(
                 ParamSpec("id", ParamType.STRING, "The link's id from links.list.", required = true, positional = true),
-                ParamSpec("redact", ParamType.BOOLEAN, "Mask secrets in the URI, query parameters and extras."),
             ),
             cliPathOverride = listOf("links", "entry"),
         ),
@@ -611,7 +596,6 @@ object Catalog {
                 TIMELINE_KINDS,
                 ParamSpec("limit", ParamType.INT, "Page size, 1..500 (default 100)."),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -621,7 +605,6 @@ object Catalog {
                 TIMELINE_KINDS,
                 ParamSpec("history", ParamType.ENUM, "current: first the kept events, then new ones; none (default): only new ones.", enumValues = listOf("current", "none")),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
             streaming = true, cliOnly = true,
         ),
@@ -635,7 +618,6 @@ object Catalog {
                 ParamSpec("depth", ParamType.INT, "How many links to follow, 1..32 (default 8)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Also follow inferred links (timing and matching data); they are marked inferred."),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -648,7 +630,6 @@ object Catalog {
                 ParamSpec("sinceMs", ParamType.LONG, "Only rows at or after this epoch millisecond (device clock)."),
                 ParamSpec("flow", ParamType.STRING, "Only this flow's rows: an id, or a name only one flow has."),
                 TIMELINE_IGNORE_SAVED,
-                TIMELINE_REDACT,
             ),
         ),
         OperationSpec(
@@ -713,7 +694,7 @@ object Catalog {
         OperationSpec(
             "state.current",
             "What the app is in now: every facet from every source that is on (the screen's structure, open windows, navigation, the app's own facets), with its source and when it changed, and each source's status.",
-            Scope.APP, listOf(TIMELINE_REDACT), cliPathOverride = listOf("state"),
+            Scope.APP, emptyList(), cliPathOverride = listOf("state"),
         ),
         OperationSpec(
             "state.graph",
@@ -721,7 +702,6 @@ object Catalog {
             Scope.APP,
             listOf(
                 STATE_FACETS,
-                TIMELINE_REDACT,
                 ParamSpec("minHoldMs", ParamType.LONG, "Merge states held for less than this into the next one (default 0)."),
                 ParamSpec("inferred", ParamType.BOOLEAN, "Give inferred causes to transitions that have no known cause; they are marked inferred."),
             ),
@@ -735,7 +715,6 @@ object Catalog {
                 ParamSpec("from", ParamType.STRING, "A state id or label from state graph.", required = true),
                 ParamSpec("to", ParamType.STRING, "A state id or label; the current state when omitted."),
                 STATE_FACETS,
-                TIMELINE_REDACT,
             ),
             cliPathOverride = listOf("state", "path"),
         ),

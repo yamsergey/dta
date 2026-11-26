@@ -118,7 +118,7 @@ class EntryDetailPane(
         val c = client ?: return empty("No DTA daemon connected.")
         empty("Loading…")
         loading = scope.launch {
-            val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)) + if (redact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+            val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)))
             val result = runCatching { c.call("network.entry", params).result.jsonObject }
             withContext(Dispatchers.Main) {
                 raw = result.getOrNull()
@@ -139,7 +139,7 @@ class EntryDetailPane(
         if (following?.isActive == true) return
         val c = client ?: return
         val id = shown ?: return
-        val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)) + if (lastRedact) mapOf("redact" to JsonPrimitive(true)) else emptyMap())
+        val params = JsonObject(target + mapOf("id" to JsonPrimitive(id)))
         following = scope.launch {
             kotlinx.coroutines.delay(FOLLOW_MS)
             val asked = shownRevision
@@ -361,7 +361,7 @@ class EntryDetailPane(
     }
 
     /** What `network.body` is asked with: the view's redaction too (D-003), as the entry above it is. */
-    private fun bodyTarget(): JsonObject = if (lastRedact) JsonObject(target + ("redact" to JsonPrimitive(true))) else target
+    private fun bodyTarget(): JsonObject = target
 
     /** Feature 039: the connection's format rule — a new one prefilled with its socket, or [rule] to replace. */
     private fun editFormat(rule: String?) {

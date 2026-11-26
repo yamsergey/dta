@@ -50,8 +50,8 @@ class McpTimelineSummaryTest {
             if (uiFails) throw DaemonCallException(-32014, "app not connected", null)
             val since = (params["since"] as? JsonPrimitive)?.content
             val read: TimelinePage = journal.page(if (since == "end") journal.end() else since, 50)
-            // As the daemon answers: redacted when asked.
-            val page = if ((params["redact"] as? JsonPrimitive)?.content == "true") io.yamsergey.dta.protocol.timeline.TimelineRedaction.page(read) else read
+            // As the daemon answers an mcp connection while the agents' setting is on (feature 072): redacted.
+            val page = io.yamsergey.dta.protocol.timeline.TimelineRedaction.page(read)
             Selected(null, DtaJson.encodeToJsonElement(TimelinePage.serializer(), page))
         } else {
             Selected(SelectionStatement("emulator-5554", DeviceRule.ONLY_DEVICE, app = "com.example"), buildJsonObject { put("ok", true) })
@@ -69,19 +69,15 @@ class McpTimelineSummaryTest {
         assertEquals("com.example", (uiCalls.single()["app"] as JsonPrimitive).content)
     }
 
-    /** Decision 2026-11-22 (3): a tool asked with redact gets its summary line redacted the same way. */
+    /** Decision 2026-11-22 (3), 072: the summary line is read through the same connection, so the daemon redacts it as it does the call's answer; it asks for nothing. */
     @Test
-    fun `a redacted call gets a redacted summary`() {
-        val redacted = JsonObject(mapOf("redact" to JsonPrimitive(true)))
-        runBlocking { tools.invoke("network_list", redacted, null) }
+    fun `the summary is redacted by the daemon and asks for no redaction`() {
+        call()
         toast("Saved, token=SEED-MS1")
-        val second = runBlocking { tools.invoke("network_list", redacted, null) }
-        assertTrue(uiCalls.all { (it["redact"] as? JsonPrimitive)?.content == "true" }, "the summary is read redacted: $uiCalls")
+        val second = call()
+        assertTrue(uiCalls.none { "redact" in it }, "no per-call redaction: $uiCalls")
         assertFalse("SEED-MS1" in second.text, second.text)
         assertTrue("Since your last call" in second.text, second.text)
-        toast("Saved, token=SEED-MS2")
-        val plain = call()
-        assertTrue("SEED-MS2" in plain.text, "twin: without redact the summary is whole: ${plain.text}")
     }
 
     @Test

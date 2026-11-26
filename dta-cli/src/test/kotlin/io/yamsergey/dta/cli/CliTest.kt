@@ -174,7 +174,9 @@ class CliTest {
     fun `one leaf per catalog operation, plus the host-local mcp and run`() {
         val cli = Cli(runner = { _, _, _ -> 0 }, mcp = { 0 })
         assertEquals((Catalog.all.map { it.cliPath } + listOf(listOf("mcp"), listOf("run"))).toSet(), cli.leafPaths().toSet())
-        assertTrue(listOf("--url", "--status", "--kinds", "--since-ms", "--redact") .all { it in cli.parameterNames(listOf("network", "list")) })
+        assertTrue(listOf("--url", "--status", "--kinds", "--since-ms") .all { it in cli.parameterNames(listOf("network", "list")) })
+        assertTrue("--redact" !in cli.parameterNames(listOf("network", "list")) && "--allow-unredacted" !in cli.parameterNames(listOf("network", "body")), "no per-call redaction (072)")
+        assertTrue(listOf("--url").all { it in cli.parameterNames(listOf("network", "list")) })
         assertTrue("ID" in cli.parameterNames(listOf("network", "entry")))
     }
 
@@ -395,11 +397,11 @@ class CliTest {
         assertTrue("r1-1:9" in lines[1], lines[1])
     }
 
-    /** D-003: network watch takes --redact (008 FR-012: every option of the operation), and its rows are masked. */
+    /** D-003, 072: network watch has no --redact; the CLI is an agent kind, so its rows are masked while the agents' setting is on. */
     @Test
-    fun `network watch --redact prints masked entries`() {
-        assertTrue("--redact" in Cli(runner = { _, _, _ -> 0 }, mcp = { 0 }).parameterNames(listOf("network", "watch")))
-        val watch = kotlin.concurrent.thread { dta("-d", "emulator-5554", "-a", "com.example.shop", "network", "watch", "--redact") }
+    fun `network watch prints masked entries`() {
+        assertTrue("--redact" !in Cli(runner = { _, _, _ -> 0 }, mcp = { 0 }).parameterNames(listOf("network", "watch")))
+        val watch = kotlin.concurrent.thread { dta("-d", "emulator-5554", "-a", "com.example.shop", "network", "watch") }
         waitFor { "Watching network traffic" in stderr }
         daemon.ops.events.tryEmit(io.yamsergey.dta.protocol.network.NetworkEntryEvent(
             io.yamsergey.dta.protocol.network.HttpEntry("r1-1:9", "r1-1", 1_700_000_009_000, "okhttp3", method = "GET", url = "https://api.example.com/p?page=2&access_token=SEED-QUERY-123",

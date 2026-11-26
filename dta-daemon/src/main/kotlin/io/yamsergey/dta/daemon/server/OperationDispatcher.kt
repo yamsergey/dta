@@ -77,7 +77,7 @@ class OperationDispatcher(
     val agents: io.yamsergey.dta.daemon.AgentSettings = io.yamsergey.dta.daemon.AgentSettings.inMemory(),
 ) {
     /** What one handler sees: resolved target and validated params. */
-    private class Call(val serial: String?, val pkg: String?, val params: JsonObject, val kind: ClientKind? = null) {
+    private class Call(val serial: String?, val pkg: String?, val params: JsonObject, val kind: ClientKind? = null, val redact: Boolean = false) {
         /** Who asks, as a record of changes names them (feature 055). */
         val client: String? get() = kind?.let { who(it) }
         val device: String get() = serial!!
@@ -105,9 +105,9 @@ class OperationDispatcher(
         },
         "capability.report" to { c -> encode(IdentityReport.serializer(), ops.capabilityReport(c.device, c.app)) },
         "layout.tree" to { c -> encode(LayoutCapture.serializer(), layout(c)) },
-        "network.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, query(c.params), c.string("view"))) },
-        "network.search" to { c -> encode(io.yamsergey.dta.protocol.network.SearchPage.serializer(), ops.networkSearch(c.device, c.app, query(c.params), c.string("view"))) },
-        "network.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
+        "network.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, query(c.params, c.redact), c.string("view"))) },
+        "network.search" to { c -> encode(io.yamsergey.dta.protocol.network.SearchPage.serializer(), ops.networkSearch(c.device, c.app, query(c.params, c.redact), c.string("view"))) },
+        "network.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.redact)) },
         "network.body" to { c -> encode(BodyResult.serializer(), body(c)) },
         "network.clear" to { c -> encode(ClearResult.serializer(), ops.networkClear(c.device, c.app)) },
         "network.history" to { c -> encode(io.yamsergey.dta.protocol.network.HistorySummary.serializer(), ops.networkHistory(c.device, c.app)) },
@@ -159,7 +159,7 @@ class OperationDispatcher(
                     c.device, c.app, c.string("since"), c.long("sinceMs"),
                     c.strings("sources").orEmpty().toSet(), c.strings("kinds").orEmpty().toSet(), c.long("limit")?.toInt() ?: 100,
                     c.bool("ignoreSavedFilters"),
-                ).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.page(it) else it },
+                ).let { if (c.redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.page(it) else it },
             )
         },
         "timeline.hidden" to { c ->
@@ -175,7 +175,7 @@ class OperationDispatcher(
                 encode(
                     io.yamsergey.dta.protocol.timeline.CauseChain.serializer(),
                     ops.timelineCauses(c.device, c.app, c.required("event"), direction, c.long("depth")?.toInt() ?: 8, c.bool("inferred"), c.bool("ignoreSavedFilters"))
-                        .let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.chain(it) else it },
+                        .let { if (c.redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.chain(it) else it },
                 )
             } catch (e: io.yamsergey.dta.daemon.timeline.CauseGraph.UnknownEvent) {
                 notFound("event", e.id)
@@ -185,7 +185,7 @@ class OperationDispatcher(
             val limit = c.long("limit")?.toInt() ?: io.yamsergey.dta.daemon.timeline.SequenceBuilder.DEFAULT_LIMIT
             if (limit !in 1..io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT) invalid("limit must be within 1..${io.yamsergey.dta.daemon.timeline.SequenceBuilder.MAX_LIMIT}, was $limit")
             val flow = c.string("flow")
-            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs"), flow, c.bool("ignoreSavedFilters"), c.bool("redact"))) }
+            knownFlow(flow) { encode(io.yamsergey.dta.protocol.timeline.SequencePage.serializer(), ops.timelineSequence(c.device, c.app, limit, c.string("q"), c.long("sinceMs"), flow, c.bool("ignoreSavedFilters"), c.redact)) }
         },
         "timeline.flow.start" to { c -> encode(io.yamsergey.dta.protocol.timeline.FlowStarted.serializer(), ops.timelineFlowStart(c.device, c.app, c.string("name"))) },
         "timeline.flow.end" to { c -> encode(io.yamsergey.dta.protocol.timeline.Flow.serializer(), ops.timelineFlowEnd(c.device, c.app)) },
@@ -225,15 +225,15 @@ class OperationDispatcher(
             encode(io.yamsergey.dta.protocol.layout.LayoutSelection.serializer(), ops.layoutSelect(c.device, c.app, c.string("mode") ?: "set", ids, c.string("at"), elements, c.client ?: "client"))
         },
         "web.devtools" to { c -> encode(io.yamsergey.dta.protocol.web.WebDevtools.serializer(), ops.webDevtools(c.device, c.app)) },
-        "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.current(it) else it }) },
+        "state.current" to { c -> encode(io.yamsergey.dta.protocol.timeline.CurrentState.serializer(), ops.stateCurrent(c.device, c.app).let { if (c.redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.current(it) else it }) },
         "state.graph" to { c ->
-            encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.graph(it) else it })
+            encode(io.yamsergey.dta.protocol.timeline.StateGraph.serializer(), ops.stateGraph(c.device, c.app, c.strings("facets"), c.long("minHoldMs") ?: 0, c.bool("inferred")).let { if (c.redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.graph(it) else it })
         },
         "state.path" to { c ->
-            encode(io.yamsergey.dta.protocol.timeline.StatePath.serializer(), ops.statePath(c.device, c.app, c.required("from"), c.string("to"), c.strings("facets")).let { if (c.bool("redact")) io.yamsergey.dta.protocol.timeline.TimelineRedaction.path(it) else it })
+            encode(io.yamsergey.dta.protocol.timeline.StatePath.serializer(), ops.statePath(c.device, c.app, c.required("from"), c.string("to"), c.strings("facets")).let { if (c.redact) io.yamsergey.dta.protocol.timeline.TimelineRedaction.path(it) else it })
         },
-        "links.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, linksQuery(c.params))) },
-        "links.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.bool("redact"))) },
+        "links.list" to { c -> encode(NetworkPage.serializer(), ops.network(c.device, c.app, linksQuery(c.params, c.redact))) },
+        "links.entry" to { c -> encode(NetworkEntryDetail.serializer(), ops.networkEntry(c.device, c.app, c.required("id"), c.redact)) },
         "links.open" to { c ->
             try {
                 encode(io.yamsergey.dta.protocol.network.LinkOpenResult.serializer(), ops.linksOpen(c.device, c.required("uri"), c.string("package"), c.bool("only")))
@@ -322,12 +322,24 @@ class OperationDispatcher(
             throw translate(e, app)
         }
         val resolution = selector.resolve(spec.scope, device, app)
+        // Feature 072: the connection decides, never the call. The plugin's own views are never redacted; every other kind (and an unknown one) follows the agents' setting.
+        val agent = client != ClientKind.IDE
+        val redact = agent && agents.redaction
         val result = try {
-            handler(Call(resolution.serial, resolution.pkg, own, client))
+            handler(Call(resolution.serial, resolution.pkg, own, client, redact))
         } catch (e: Exception) {
             throw translate(e, resolution.pkg)
         }
-        return Selected(resolution.statement, result)
+        return Selected(resolution.statement, if (agent && method in REDACTING) statedForAgents(result, redact) else result)
+    }
+
+    /** An answer to an agent kind says whether redaction was applied: what masked it, or that the setting is off (FR-004). */
+    private fun statedForAgents(result: JsonElement, redacted: Boolean): JsonElement {
+        if (result !is JsonObject) return result
+        val said = result["redaction"] as? JsonObject
+        val statement = if (said != null) JsonObject(said + ("forAgents" to JsonPrimitive(true)))
+        else buildJsonObject { put("applied", redacted); put("forAgents", true) }
+        return JsonObject(result + ("redaction" to statement))
     }
 
     // --- Params
@@ -364,15 +376,16 @@ class OperationDispatcher(
     }
 
     /** `links.list` is the app's history filtered to links (feature 012 R1). */
-    private fun linksQuery(params: JsonObject): NetworkQuery {
+    private fun linksQuery(params: JsonObject, redact: Boolean): NetworkQuery {
         val renamed = JsonObject(params.mapKeys { (k, _) -> if (k == "uri") "url" else k } + ("kinds" to kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive("link")) }))
-        return query(renamed)
+        return query(renamed, redact)
     }
 
     /** Feature 071: a streamed search's query, read as `network.list` reads its params. */
-    internal fun networkQuery(params: JsonObject): NetworkQuery = query(params)
+    internal fun networkQuery(params: JsonObject, redact: Boolean): NetworkQuery = query(params, redact)
 
-    private fun query(params: JsonObject): NetworkQuery {
+    /** The library query of [params]; [redact] is the connection's, never a param. */
+    private fun query(params: JsonObject, redact: Boolean): NetworkQuery {
         val filterKeys = NetworkFilter.serializer().descriptor.let { d -> (0 until d.elementsCount).map { d.getElementName(it) } }
         val archive = (params["archiveScope"] as? JsonPrimitive)?.content?.let { text ->
             try {
@@ -386,7 +399,7 @@ class OperationDispatcher(
             params.filterKeys { it !in filterKeys && it != "archiveScope" }.forEach { (k, v) -> put(k, v) }
             archive?.let { put("archiveScope", it) }
         }
-        return NetworkQuery.parse(raw).also { it.resolved() } // a bad query line is refused here, naming each problem
+        return NetworkQuery.parse(raw).copy(redact = redact).also { it.resolved() } // a bad query line is refused here, naming each problem
     }
 
     private suspend fun layout(c: Call): LayoutCapture {
@@ -399,17 +412,17 @@ class OperationDispatcher(
     /** Feature 026: the list's selection as one HAR file; bodies through `network.body`'s path, redaction alike. */
     private suspend fun export(c: Call): io.yamsergey.dta.protocol.network.NetworkExportResult {
         val output = java.io.File(c.required("output"))
-        val redact = c.bool("redact")
+        val redact = c.redact
         val params = JsonObject(c.params.filterKeys { it != "output" && it != "format" })
         return io.yamsergey.dta.daemon.network.NetworkExport(
             page = { q -> ops.network(c.device, c.app, q) },
             entry = { id -> ops.networkEntry(c.device, c.app, id, redact) },
             body = { id, part, file ->
-                ops.networkBody(c.device, c.app, id, part, BodyOutput.File(file.path), redact, allowUnredacted = false)
+                ops.networkBody(c.device, c.app, id, part, BodyOutput.File(file.path), redact)
                 check(file.exists()) { "no bytes stored" }
             },
             version = version,
-        ).export(query(params), output)
+        ).export(query(params, redact), output)
     }
 
     private suspend fun body(c: Call): BodyResult {
@@ -417,7 +430,7 @@ class OperationDispatcher(
         val part = c.string("part")?.let { wire -> BodyPart.entries.first { DtaJson.encodeToString(BodyPart.serializer(), it).trim('"') == wire } }
             ?: if (ops.networkEntry(c.device, c.app, id, false).entry is WsMessageEntry) BodyPart.MESSAGE else BodyPart.RESPONSE
         val output = c.string("output")?.let { BodyOutput.File(it, decoded = !c.bool("raw"), structured = c.bool("structured")) } ?: BodyOutput.Text
-        return ops.networkBody(c.device, c.app, id, part, output, c.bool("redact"), c.bool("allowUnredacted"))
+        return ops.networkBody(c.device, c.app, id, part, output, c.redact)
     }
 
     /** A folder the daemon reads, or sources (and derived mappings) a client read (feature 013, research R1). */
@@ -543,6 +556,12 @@ class OperationDispatcher(
     private fun invalid(message: String): Nothing = throw InvalidParamsException(message)
 
     companion object {
+        /** The operations whose answers carry secrets: to an agent kind they carry a redaction statement (feature 072). */
+        private val REDACTING = setOf(
+            "network.list", "network.search", "network.entry", "network.body", "network.export", "links.list", "links.entry",
+            "timeline.events", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path",
+        )
+
         /** What a client other than the plugin is told when it tries to change the agents' setting. */
         const val AGENTS_SETTING_TEXT = "changed from the plugin's settings (Agents/MCP)"
     }
