@@ -293,12 +293,12 @@ data class HeapDroppedInfo(val id: String, val name: String? = null)
 @Serializable
 data class HeapListAnswer(
     val run: String? = null,
-    /** The run the app is in now, when the daemon could ask; differs from [run] after the app's process was replaced. */
-    val currentRun: String? = null,
     @EncodeDefault val snapshots: List<HeapSnapshotInfo> = emptyList(),
     @EncodeDefault val dropped: List<HeapDroppedInfo> = emptyList(),
     /** Set when the snapshots listed are of an earlier run than the app's current one. */
     val note: String? = null,
+    /** The run the app is in now, when the daemon could ask; differs from [run] after the app's process was replaced. */
+    val currentRun: String? = null,
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
 

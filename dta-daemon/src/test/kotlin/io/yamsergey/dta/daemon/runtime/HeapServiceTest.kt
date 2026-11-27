@@ -170,7 +170,7 @@ class HeapServiceTest {
         val broken = object : HeapSidekick by f { override suspend fun run(): HeapRunInfo = throw RuntimeException("not connected") }
         val l = service.list(app, broken)
         assertEquals(1, l.snapshots.size)
-        assertEquals(null, l.currentRun)
+        assertEquals(null, l.note, "no statement of an earlier run when the app cannot be asked")
     }
 
     @Test fun compareRefusalsCarryTheReason() = runBlocking<Unit> {
