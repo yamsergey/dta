@@ -52,11 +52,16 @@ object ClassNameFit {
         if (cut <= 0) return end(full, measure, width)
         val head = full.substring(0, cut)
         val tail = full.substring(cut)
-        for (n in head.length - 1 downTo 0) {
+        // ":id/" belongs to the identifying part: it stays with the name; the package before it gives way from its start.
+        val kind = head.substringAfterLast(':', "").let { if (it.isEmpty()) "/" else ":$it" }
+        for (n in head.length - 1 downTo kind.length) {
             val candidate = "…" + head.takeLast(n) + tail
             if (measure(candidate) <= width) return candidate
         }
-        return if (measure("…/$tail") <= width) "…/$tail" else end(tail, measure, width)
+        // Still too wide: the name ends in an ellipsis, the kind and the start of the name stay.
+        val lead = "…$kind"
+        val room = width - measure(lead)
+        return if (room > 0) lead + end(tail, measure, room) else end(tail, measure, width)
     }
 
     /** [text] cut at its end with an ellipsis so it fits [width]; whole when it fits. */

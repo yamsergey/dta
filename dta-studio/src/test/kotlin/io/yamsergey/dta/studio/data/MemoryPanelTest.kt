@@ -165,4 +165,21 @@ class MemoryPanelTest : BasePlatformTestCase() {
             assertTrue("instance viewport ${p.instanceScroll.viewport.height} px of $h, three rows are $rows", p.instanceScroll.viewport.height >= rows)
         }
     }
+
+    /** V1 again: in the IDE a row is ~25 px (the renderer's height), not the font's 17: three rows are measured by the renderer. */
+    fun testTheInstanceListKeepsThreeRowsOfTheRealRowHeight() {
+        snapshots = true
+        val p = panel()
+        val plain = p.instanceList.cellRenderer
+        p.instanceList.cellRenderer = javax.swing.ListCellRenderer { list, row, i, sel, focus ->
+            (plain.getListCellRendererComponent(list, row, i, sel, focus) as javax.swing.JComponent).apply { preferredSize = java.awt.Dimension(100, 25) }
+        }
+        p.setSize(420, 400)
+        layout(p)
+        p.load()
+        p.table.setRowSelectionInterval(0, 0)
+        repeat(3) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+        assertEquals(25 * 3, p.instanceScroll.minimumSize.height - p.instanceScroll.insets.top - p.instanceScroll.insets.bottom)
+        assertTrue("viewport ${p.instanceScroll.viewport.height}", p.instanceScroll.viewport.height >= 75)
+    }
 }
