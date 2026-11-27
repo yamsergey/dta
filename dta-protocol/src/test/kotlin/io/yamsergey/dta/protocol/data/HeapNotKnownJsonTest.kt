@@ -10,7 +10,9 @@ import kotlin.test.assertTrue
 
 /** Feature 074 FR-012: `notKnown` is in every JSON answer, DtaJson does not encode defaults. */
 class HeapNotKnownJsonTest {
-    private fun has(json: String) = Json.parseToJsonElement(json).jsonObject["notKnown"]?.jsonArray?.isNotEmpty() == true
+    /** The JSON text an MCP or `--json` client reads says what is not known: who keeps objects alive, retained size (CLIENT-012). */
+    private fun has(json: String) = Json.parseToJsonElement(json).jsonObject["notKnown"]?.jsonArray?.isNotEmpty() == true &&
+        "retained size" in json && "alive" in json
 
     @Test fun snapshotAnswerCarriesNotKnown() {
         val a = HeapSnapshotAnswer(HeapSnapshotSummary("s1", null, "r", 0, 1, false, HeapTotals(0, 0), 0, emptyList()), 1)
