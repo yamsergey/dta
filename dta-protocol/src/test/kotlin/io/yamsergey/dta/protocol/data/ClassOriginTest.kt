@@ -35,7 +35,15 @@ class ClassOriginTest {
         assertEquals(HeapOrigin.UNKNOWN, classOrigin("com.example.app.Main", LoaderKind.APP, emptyList()))
     }
 
-    @Test fun unknownLoaderIsUnknown() {
-        assertEquals(HeapOrigin.UNKNOWN, classOrigin("com.example.app.Main", LoaderKind.OTHER, ns))
+    @Test fun secondAppLoaderGivesTheSameOriginAsTheMainOne() {
+        // D-119: same name, two loaders, both decided by the name against the namespaces
+        for (loader in listOf(LoaderKind.APP, LoaderKind.OTHER)) {
+            assertEquals(HeapOrigin.APP, classOrigin("com.example.app.HeldC", loader, ns), "$loader")
+            assertEquals(HeapOrigin.LIBRARY, classOrigin("okhttp3.Call", loader, ns), "$loader")
+        }
+    }
+
+    @Test fun otherLoaderWithUnknownNamespacesIsStillUnknown() {
+        assertEquals(HeapOrigin.UNKNOWN, classOrigin("com.example.app.Main", LoaderKind.OTHER, null))
     }
 }
