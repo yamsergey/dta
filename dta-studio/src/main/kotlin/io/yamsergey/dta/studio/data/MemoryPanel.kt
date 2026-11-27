@@ -173,11 +173,14 @@ class MemoryPanel(
     }
     /** Never less than three whole rows, however little height the table pane leaves (V1 of the 2026-11-27 recheck). */
     internal val instanceScroll = object : JBScrollPane(instanceList) {
-        /** The row height as the list draws it (the renderer's, on this font and look: 25 px in the IDE, not the font's 17). */
+        /** The row height as the list itself draws it (its UI's: 24 px in the IDE for a 17 px renderer), never less than the renderer's. */
         private fun rowHeight(): Int {
+            val drawn = if (instanceModel.isEmpty) 0 else instanceList.getCellBounds(0, 0)?.height ?: 0
+            val fixed = instanceList.fixedCellHeight.coerceAtLeast(0)
             val sample = (if (instanceModel.isEmpty) null else instanceModel.getElementAt(0)) ?: MemoryRows.InstanceRow("@0", "alive", null, null, null, 0L)
-            val c = instanceList.cellRenderer.getListCellRendererComponent(instanceList, sample, 0, false, false)
-            return maxOf(c.preferredSize.height, instanceList.getFontMetrics(instanceList.font).height, 1)
+            val renderer = instanceList.cellRenderer.getListCellRendererComponent(instanceList, sample, 0, false, false).preferredSize.height
+            val font = instanceList.getFontMetrics(instanceList.font).height + JBUI.scale(7)
+            return maxOf(drawn, fixed, renderer, if (drawn == 0 && fixed == 0) font else 0, 1)
         }
         private fun rows(n: Int) = n * rowHeight() + insets.top + insets.bottom
         override fun getMinimumSize() = java.awt.Dimension(0, rows(3))
@@ -198,7 +201,7 @@ class MemoryPanel(
     internal val rowCount: Int get() = tableModel.rowCount
     internal fun cell(row: Int, col: Int): String = tableModel.rows[row].cells[col]
 
-    private val splitter = JBSplitter(false, "dta.memory.split", 0.62f)
+    internal val splitter = JBSplitter(false, "dta.memory.split", 0.62f)
 
     init {
         add(vbar(), BorderLayout.WEST)
@@ -222,7 +225,10 @@ class MemoryPanel(
             add(snapshotRow)
             add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply { add(originControl); add(packageField) })
         }
-        val tablePane = JBScrollPane(table)
+        // A table never asks for more than two rows to stay: the instances below it keep their three (the splitter honours both minimums).
+        val tablePane = object : JBScrollPane(table) {
+            override fun getMinimumSize() = java.awt.Dimension(0, minOf(super.getMinimumSize().height, JBUI.scale(60)))
+        }
         val instances = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(4, 10)
@@ -230,6 +236,7 @@ class MemoryPanel(
             instanceHeader.alignmentX = Component.LEFT_ALIGNMENT; readFields.alignmentX = Component.LEFT_ALIGNMENT; instanceLink.alignmentX = Component.LEFT_ALIGNMENT
             isVisible = false
         }
+        splitter.setHonorComponentsMinimumSize(true)
         splitter.firstComponent = tablePane
         splitter.secondComponent = instances
         content.add(JPanel(BorderLayout()).apply {

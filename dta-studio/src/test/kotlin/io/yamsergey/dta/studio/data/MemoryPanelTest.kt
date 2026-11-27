@@ -182,4 +182,23 @@ class MemoryPanelTest : BasePlatformTestCase() {
         assertEquals(25 * 3, p.instanceScroll.minimumSize.height - p.instanceScroll.insets.top - p.instanceScroll.insets.bottom)
         assertTrue("viewport ${p.instanceScroll.viewport.height}", p.instanceScroll.viewport.height >= 75)
     }
+
+    /** V1, third time: the IDE's list draws a 24 px row for a 17 px renderer, and the narrow (vertical) splitter must give the list its minimum. */
+    fun testTheInstanceListKeepsThreeRowsThatTheListDrawsInAVerticalSplitter() {
+        snapshots = true
+        for (h in listOf(700, 500, 420)) {
+            val p = panel()
+            p.instanceList.fixedCellHeight = 24 // what the list's UI draws; the renderer's component asks for less
+            p.setSize(420, h)
+            layout(p)
+            p.load()
+            p.table.setRowSelectionInterval(0, 0)
+            repeat(4) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+            assertEquals("minimum at $h", 3 * 24, p.instanceScroll.minimumSize.height - p.instanceScroll.insets.top - p.instanceScroll.insets.bottom)
+            assertTrue("narrow: the splitter is vertical", p.splitter.isVertical)
+            val second = p.splitter.secondComponent
+            if (h >= 500) assertTrue("second part ${second.height} px of its minimum ${second.minimumSize.height} at $h", second.height >= second.minimumSize.height)
+            assertTrue("viewport ${p.instanceScroll.viewport.height} px at $h (3 rows = 72)", p.instanceScroll.viewport.height >= 72)
+        }
+    }
 }
