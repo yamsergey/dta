@@ -124,6 +124,19 @@ class AppRunToolTest {
         )
     }
 
+    /**
+     * D-124: MCP says a progress value MUST increase with each notification; the steps done (0, 1, 1) repeat, so a client that gets
+     * them out of order (the HTTP transport delivers each on its own) cannot put "Building and installing" and "Building: compile" right.
+     */
+    @Test
+    fun `each progress notification of a call carries a larger progress than the one before`() {
+        val seen = mutableListOf<AppRunTool.Progress>()
+        runBlocking { AppRunTool(runner, projects = { listOf(File("/w")) }).invoke(JsonObject(emptyMap())) { seen += it } }
+        val values = seen.mapIndexed { n, p -> AppRunTool.notification("t", n, p).progress() }
+        assertEquals(values.sorted().distinct(), values, "strictly increasing: $values")
+        assertEquals(seen.map { it.message }, seen.mapIndexed { n, p -> AppRunTool.notification("t", n, p).message() }, "the words are the same")
+    }
+
     private val daemon = TestDaemon()
 
     @AfterTest
@@ -148,8 +161,9 @@ class AppRunToolTest {
                 assertTrue("\"outcome\":\"connected\"" in (result.content().single() as McpSchema.TextContent).text())
                 val deadline = System.currentTimeMillis() + 5_000
                 while (progress.size < 3 && System.currentTimeMillis() < deadline) Thread.sleep(20)
-                assertEquals(listOf("Resolving", "Building and installing", "Building: compile"), progress.map { it.message() })
-                assertTrue(progress.all { it.progressToken() == "p1" && it.total() == StepName.entries.size.toDouble() })
+                // D-124: the transport delivers each notification on its own, in any order; a client puts them right by their progress value.
+                assertEquals(listOf("Resolving", "Building and installing", "Building: compile"), progress.sortedBy { it.progress() }.map { it.message() })
+                assertTrue(progress.all { it.progressToken() == "p1" })
             } finally {
                 client.closeGracefully()
             }
