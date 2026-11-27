@@ -7,12 +7,12 @@ enum class LoaderKind { BOOT, APP, OTHER }
 
 /**
  * The pure part of the origin rule (research R5): platform = boot loader; app = app loader and a package under one
- * of the app's namespaces; library = app loader otherwise; unknown when the namespaces (or the loader) are not
- * known — never guessed.
+ * of the app's namespaces; library = app loader otherwise; unknown when the namespaces are not known — never
+ * guessed. Any non-boot loader (the main one or a second PathClassLoader / DexClassLoader of the app, D-119) is
+ * decided by the class name against the namespaces, not by which loader it is.
  */
 fun classOrigin(className: String, loader: LoaderKind, namespaces: List<String>?): HeapOrigin {
     if (loader == LoaderKind.BOOT) return HeapOrigin.PLATFORM
-    if (loader != LoaderKind.APP) return HeapOrigin.UNKNOWN
     if (namespaces.isNullOrEmpty()) return HeapOrigin.UNKNOWN
     val element = className.removeSuffix("[]").let { var s = it; while (s.endsWith("[]")) s = s.removeSuffix("[]"); s }
     val inApp = namespaces.any { ns -> element == ns || element.startsWith("$ns.") }

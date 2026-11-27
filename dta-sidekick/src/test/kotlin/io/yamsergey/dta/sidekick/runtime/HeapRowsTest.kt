@@ -33,7 +33,15 @@ class HeapRowsTest {
             ns,
         )
         assertEquals(listOf("L1", "L2", null), rows.map { it.loader })
-        assertEquals(HeapOrigin.UNKNOWN, rows[0].origin)
+        assertEquals(HeapOrigin.LIBRARY, rows[0].origin)
+    }
+
+    @Test fun sameAppClassInTwoLoadersIsAppInBoth() {
+        val rows = HeapRows.assemble(
+            listOf(raw("com.example.HeldC", LoaderKind.APP, "L1", 7, 70), raw("com.example.HeldC", LoaderKind.OTHER, "L2", 3, 30)),
+            ns,
+        )
+        assertEquals(listOf(HeapOrigin.APP, HeapOrigin.APP), rows.map { it.origin })
     }
 
     @Test fun emptyNamespacesGiveUnknownNeverGuessed() {
