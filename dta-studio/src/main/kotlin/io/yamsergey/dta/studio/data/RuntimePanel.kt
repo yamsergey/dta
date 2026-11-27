@@ -134,7 +134,10 @@ class RuntimePanel(
                         if (o.detail.isNotEmpty()) {
                             // Truncation rules, rule 4: the name stays whole, the secondary text ends in … at the room that is left.
                             val metrics = t.getFontMetrics(font)
-                            val x = t.getRowBounds(row)?.x ?: 0
+                            // Never ask the tree for row geometry here: the tree asks this renderer for it. The indent comes from the depth.
+                            val ui = t.ui as? javax.swing.plaf.basic.BasicTreeUI
+                            val level = (value as? DefaultMutableTreeNode)?.level ?: 1
+                            val x = ((level - (if (t.isRootVisible) 0 else 1)) * ((ui?.leftChildIndent ?: 0) + (ui?.rightChildIndent ?: 0))) + JBUI.scale(20)
                             val room = t.width - x - metrics.stringWidth(o.label) - JBUI.scale(24)
                             append(io.yamsergey.dta.studio.ui.ClassNameFit.end("  " + o.detail, { metrics.stringWidth(it) }, room.coerceAtLeast(metrics.stringWidth("  …"))), SimpleTextAttributes.GRAYED_ATTRIBUTES)
                         }
