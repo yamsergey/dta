@@ -36,4 +36,21 @@ class NodeDetailPaneFitTest : BasePlatformTestCase() {
         assertTrue(labels.any { it.toolTipText == cls })
         assertTrue(labels.all { it.minimumSize.width == 0 })
     }
+
+    /** V2: the selected element (the last item) is whole, the middle ones are one "…", the whole path is a tooltip. */
+    fun `test the breadcrumb keeps the selected element whole and folds the middle`() {
+        val p = pane(260)
+        val path = listOf("DecorView", "ActionBarOverlayLayout", "FrameLayout", "LinearLayout", "TextView")
+        p.show(NodeDetail("t", path, listOf("Kind" to "view"), null, emptyList(), emptyList(), emptyList()), null)
+        lay(p)
+        val row = all(p).filterIsInstance<io.yamsergey.dta.studio.ui.BreadcrumbRow>().single()
+        lay(row)
+        val last = row.items.last()
+        assertTrue("selected visible", last.isVisible)
+        assertEquals("TextView", (last as javax.swing.JLabel).text)
+        assertTrue("selected whole: ${last.width} of ${last.preferredSize.width}", last.width >= last.preferredSize.width)
+        assertTrue("the middle is folded", row.ellipsis.isVisible)
+        assertTrue("nothing past the edge", row.items.filter { it.isVisible }.all { it.x + it.width <= row.width })
+        assertEquals(path.joinToString(" › "), row.toolTipText)
+    }
 }
