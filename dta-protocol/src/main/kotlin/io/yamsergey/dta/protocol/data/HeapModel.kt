@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package io.yamsergey.dta.protocol.data
 
 import kotlinx.serialization.EncodeDefault
@@ -42,11 +44,11 @@ data class HeapSnapshot(
     val takenAtMs: Long,
     /** Measured walk time. */
     val pauseMs: Long,
-    val gcBefore: Boolean = false,
+    @EncodeDefault val gcBefore: Boolean = false,
     /** All classes with at least one instance. */
     val classes: List<HeapClassRow>,
     val totals: HeapTotals,
-    val notes: List<String> = emptyList(),
+    @EncodeDefault val notes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -84,19 +86,19 @@ enum class HeapOriginFilter(val origin: HeapOrigin?) {
 /** Filters of a comparison; the default is the app's own classes. */
 @Serializable
 data class HeapFilter(
-    val origin: HeapOriginFilter = HeapOriginFilter.APP,
+    @EncodeDefault val origin: HeapOriginFilter = HeapOriginFilter.APP,
     val packagePrefix: String? = null,
-    val top: Int = 30,
+    @EncodeDefault val top: Int = 30,
 )
 
 /** What the filters left out, so the answer never cuts silently. */
 @Serializable
 data class HeapLeftOut(
-    val byOrigin: Int = 0,
-    val byPackage: Int = 0,
-    val byTop: Int = 0,
+    @EncodeDefault val byOrigin: Int = 0,
+    @EncodeDefault val byPackage: Int = 0,
+    @EncodeDefault val byTop: Int = 0,
     /** Sum of the bytes change of all left-out rows. */
-    val bytesDelta: Long = 0,
+    @EncodeDefault val bytesDelta: Long = 0,
 ) {
     val total: Int get() = byOrigin + byPackage + byTop
 
@@ -153,7 +155,7 @@ data class HeapField(
     val name: String,
     val declaredIn: String,
     val type: String,
-    val static: Boolean = false,
+    @EncodeDefault val static: Boolean = false,
     val value: JsonElement? = null,
     /** For strings and arrays when values were not asked for. */
     val length: Int? = null,
@@ -165,7 +167,7 @@ data class HeapFields(
     val className: String,
     val fields: List<HeapField>,
     /** What the read left out (long collections, deep objects). */
-    val notes: List<String> = emptyList(),
+    @EncodeDefault val notes: List<String> = emptyList(),
 )
 
 /** What the sidekick answers to `runtime_heap_instances`. */
@@ -209,21 +211,21 @@ data class HeapFieldsAnswer(
 data class HeapRunInfo(
     /** Identifies the app process: its pid and start time. Snapshots of two runs are never compared. */
     val run: String,
-    val namespaces: List<String> = emptyList(),
+    @EncodeDefault val namespaces: List<String> = emptyList(),
 )
 
 /** What the sidekick answers to `runtime_heap_walk`: rows, or why there are none. Never a partial snapshot. */
 @Serializable
 data class HeapWalk(
     val run: String,
-    val classes: List<HeapClassRow> = emptyList(),
+    @EncodeDefault val classes: List<HeapClassRow> = emptyList(),
     /** The walk's wall time (the app's threads were stopped that long). */
-    val pauseMs: Long = 0,
-    val gcBefore: Boolean = false,
-    val notes: List<String> = emptyList(),
+    @EncodeDefault val pauseMs: Long = 0,
+    @EncodeDefault val gcBefore: Boolean = false,
+    @EncodeDefault val notes: List<String> = emptyList(),
     /** The walk aborted itself at the pause bound: nothing was counted. */
-    val stopped: Boolean = false,
-    val maxPauseMs: Long = HeapLimits.DEFAULT_MAX_PAUSE_MS,
+    @EncodeDefault val stopped: Boolean = false,
+    @EncodeDefault val maxPauseMs: Long = HeapLimits.DEFAULT_MAX_PAUSE_MS,
     /** Why there is no walk (agent not attached, not debuggable, runtime refused). */
     val refusal: String? = null,
 )
@@ -267,7 +269,7 @@ data class HeapSnapshotSummary(
     val classCount: Int,
     /** The [HeapLimits.SUMMARY_TOP] classes with most bytes. */
     val top: List<HeapClassRow>,
-    val notes: List<String> = emptyList(),
+    @EncodeDefault val notes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -283,7 +285,7 @@ data class HeapSnapshotAnswer(
 )
 
 @Serializable
-data class HeapSnapshotInfo(val id: String, val name: String? = null, val takenAtMs: Long, val pauseMs: Long, val objects: Long, val bytes: Long, val gcBefore: Boolean = false)
+data class HeapSnapshotInfo(val id: String, val name: String? = null, val takenAtMs: Long, val pauseMs: Long, val objects: Long, val bytes: Long, @EncodeDefault val gcBefore: Boolean = false)
 
 @Serializable
 data class HeapDroppedInfo(val id: String, val name: String? = null)
@@ -291,8 +293,8 @@ data class HeapDroppedInfo(val id: String, val name: String? = null)
 @Serializable
 data class HeapListAnswer(
     val run: String? = null,
-    val snapshots: List<HeapSnapshotInfo> = emptyList(),
-    val dropped: List<HeapDroppedInfo> = emptyList(),
+    @EncodeDefault val snapshots: List<HeapSnapshotInfo> = emptyList(),
+    @EncodeDefault val dropped: List<HeapDroppedInfo> = emptyList(),
     /** Set when the snapshots listed are of an earlier run than the app's current one. */
     val note: String? = null,
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
