@@ -30,7 +30,7 @@ import javax.swing.JComponent
  */
 class ScreenPane(private val controller: LayoutController) : JComponent() {
     private var state = LayoutViewState()
-    private var decodedFor: LayoutTree? = null
+    private val pictures = ScreenImageCache()
     private var image: BufferedImage? = null
 
     init {
@@ -56,10 +56,8 @@ class ScreenPane(private val controller: LayoutController) : JComponent() {
 
     fun show(s: LayoutViewState) {
         state = s
-        if (s.tree !== decodedFor) {
-            decodedFor = s.tree
-            image = s.tree?.screen?.png?.let { runCatching { ImageIO.read(ByteArrayInputStream(it)) }.getOrNull() }
-        }
+        // D-142: by the capture's screen, not by the tree (Hide containers makes another tree over the same capture).
+        image = pictures.imageOf(s.tree)
         toolTipText = hoverText(s)
         repaint()
     }

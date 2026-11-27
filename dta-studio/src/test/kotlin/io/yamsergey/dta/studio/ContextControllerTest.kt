@@ -129,4 +129,28 @@ class ContextControllerTest {
         assertEquals("Pixel 8", back.deviceModel)
         controller.await { it.connection == Connection.CONNECTED }
     }
+
+    /** D-143: the package in front changed with no new process: the daemon says `foreground`, the plugin reads the apps again and follows. */
+    @Test
+    fun `a foreground event moves the app to the one in front, or names what without DTA is in front`() = runBlocking<Unit> {
+        daemon.ops.appInfos = listOf(io.yamsergey.dta.protocol.ops.AppInfo("com.example.shop", true), io.yamsergey.dta.protocol.ops.AppInfo("com.example.plain", false))
+        val controller = ContextController(session.state, scope).also { session.start() }
+        controller.await { it.app == "com.example.shop" }
+        withTimeout(5_000) { controller.watching.first { it } }
+        // The other app with DTA comes to the front: followed.
+        daemon.ops.foreground = "com.example.plain"
+        daemon.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", "com.example.plain", "foreground"))
+        controller.await { it.app == "com.example.plain" }
+        // Settings (no DTA) in front of it: the app stays and the line names it.
+        daemon.ops.foreground = "com.android.settings"
+        daemon.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", "com.android.settings", "foreground"))
+        val line = controller.await { it.inFront == "com.android.settings" }
+        assertEquals("com.example.plain", line.app)
+        assertEquals("com.android.settings is in front of com.example.plain", line.frontLine)
+        // Back to the first app: followed again, the line gone.
+        daemon.ops.foreground = "com.example.shop"
+        daemon.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", "com.example.shop", "foreground"))
+        val back = controller.await { it.app == "com.example.shop" }
+        assertEquals(null, back.inFront)
+    }
 }

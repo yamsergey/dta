@@ -35,15 +35,24 @@ class AppConnectionWatcher(
     private val interval: Duration = 1.seconds,
     /** D-074: the socket id discovery last saw for an app (a new one is a new process). */
     private val socketOf: (ConnectionKey) -> String? = { null },
+    /** D-143: the package in front on [serial] (a change of it is told as a `foreground` event); null: not known. */
+    private val foreground: (serial: String) -> String? = { null },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     /** What each watcher watches: a device, or every device ([ALL]). */
     private val watching = ConcurrentHashMap<Any, String>()
     private var loop: Job? = null
 
+    /** D-143: the package in front per device as the last look saw it, and the changes of it (told to every watcher of that device). */
+    private val lastForeground = ConcurrentHashMap<String, String>()
+    private val foregroundChanges = kotlinx.coroutines.flow.MutableSharedFlow<AppConnectionEvent>(extraBufferCapacity = 64)
+
     fun events(serial: String?): Flow<AppConnectionEvent> = channelFlow {
         launch(start = CoroutineStart.UNDISPATCHED) {
             manager.changes.collect { if (serial == null || it.device == serial) send(it) }
+        }
+        launch(start = CoroutineStart.UNDISPATCHED) {
+            foregroundChanges.collect { if (serial == null || it.device == serial) send(it) }
         }
         // Connected before this watcher came: no change will say so.
         manager.connectedKeys().filter { serial == null || it.serial == serial }.forEach { send(AppConnectionEvent(it.serial, it.packageName, "connected")) }
@@ -68,6 +77,7 @@ class AppConnectionWatcher(
         if (watching.isEmpty()) {
             loop?.cancel()
             loop = null
+            lastForeground.clear()
         }
     }
 
@@ -81,11 +91,14 @@ class AppConnectionWatcher(
             val targets = watching.values.toSet().let { t -> if (ALL in t) listOf<String?>(null) else t.toList() }
             val running = HashSet<ConnectionKey>()
             val looked = HashSet<String?>()
+            val devices = LinkedHashSet<String>()
             for (target in targets) {
                 // A failed look (adb hiccup) keeps what we knew rather than ending every app.
                 val found = runCatching { instances(target) }.getOrElse { known.filter { k -> target == null || k.serial == target } }
                 running += found
                 looked += target
+                if (target != null) devices += target
+                found.forEach { devices += it.serial }
             }
             running.filter { dialling.add(it) }.forEach { key ->
                 launch {
@@ -95,6 +108,13 @@ class AppConnectionWatcher(
                         dialling.remove(key)
                     }
                 }
+            }
+            // D-143: the package in front, once per device and round: an app brought to the front without a new process changes no
+            // connection, so the clients are told here (the first look says nothing: they read the apps when they start).
+            for (serial in devices) {
+                val now = runCatching { foreground(serial) }.getOrNull() ?: continue
+                val before = lastForeground.put(serial, now)
+                if (before != null && before != now) foregroundChanges.tryEmit(AppConnectionEvent(serial, now, "foreground"))
             }
             // Only apps of a device looked at this round can have ended.
             (known - running).filter { k -> null in looked || k.serial in looked }.forEach { key -> manager.ended(key) }
