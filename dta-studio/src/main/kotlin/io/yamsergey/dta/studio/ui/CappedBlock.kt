@@ -9,8 +9,8 @@ import javax.swing.ScrollPaneConstants
  * Lines of text above or below a table that never take more than [fraction] of their parent's height: the lines
  * wrap to the width, and past the cap the block scrolls, so the table keeps its rows (D-138).
  */
-class CappedBlock(parts: List<JComponent>, private val fraction: Double = 0.25) : JBScrollPane(
-    Page().apply { border = com.intellij.util.ui.JBUI.Borders.empty(); parts.forEach { line(it) } },
+class CappedBlock(private val parts: List<JComponent>, private val fraction: Double = 0.25) : JBScrollPane(
+    Page().apply { border = com.intellij.util.ui.JBUI.Borders.empty(); parts.forEach { (it as? javax.swing.text.JTextComponent)?.border = null; line(it) } },
     ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
     ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
 ) {
@@ -23,7 +23,11 @@ class CappedBlock(parts: List<JComponent>, private val fraction: Double = 0.25) 
         verticalScrollBar.unitIncrement = lineHeight()
     }
 
-    private fun lineHeight() = getFontMetrics(font).height.coerceAtLeast(1)
+    /** The line of the text drawn (its own font), so the block's height and its scrolling are whole lines of it. */
+    private fun lineHeight(): Int {
+        val text = parts.firstOrNull { it is javax.swing.text.JTextComponent } ?: this
+        return text.getFontMetrics(text.font).height.coerceAtLeast(1)
+    }
 
     override fun getPreferredSize(): Dimension {
         val natural = viewport.view.preferredSize.height + insets.top + insets.bottom
