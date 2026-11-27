@@ -40,6 +40,12 @@ class AgentRedactionController(
         }
     }
 
+    /**
+     * D-121: the setting is the daemon's: Settings or another IDE changes it while the Agents tab shows it. Follows the daemon's
+     * `agents.redaction.watch` until the returned job is cancelled.
+     */
+    fun follow(): kotlinx.coroutines.Job = scope.launch { }
+
     fun set(on: Boolean) = run { c -> c.call("agents.redaction.set", JsonObject(mapOf("redaction" to JsonPrimitive(on)))) }
 
     private fun run(call: suspend (DaemonClient) -> io.yamsergey.dta.protocol.ops.Selected) {

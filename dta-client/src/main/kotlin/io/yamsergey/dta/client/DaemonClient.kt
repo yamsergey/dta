@@ -126,6 +126,13 @@ class DaemonClient private constructor(private val timeout: Duration) {
         subscription(DaemonMethods.CLIENTS_SUBSCRIBE, DaemonMethods.CLIENTS_UNSUBSCRIBE, setOf(DaemonEvents.CLIENTS), JsonObject(emptyMap()))
 
     /**
+     * The agents' redaction setting (`agents.redaction.watch`, the plugin's own connection only): the first element is
+     * `{"selection": Selected}` whose result holds `redaction`; then each change's data (`subscription`, `redaction`), pushed as it happens.
+     */
+    fun redactionEvents(): Flow<JsonObject> =
+        subscription(DaemonMethods.AGENTS_REDACTION_SUBSCRIBE, DaemonMethods.AGENTS_REDACTION_UNSUBSCRIBE, setOf(DaemonEvents.AGENTS_REDACTION), JsonObject(emptyMap()))
+
+    /**
      * The app's timeline as it happens (`timeline.watch`, features 015/016). The first element is
      * `{"selection": Selected}`; then each `timeline.event`'s data (`subscription`, `device`, `app`, `event`).
      */

@@ -75,4 +75,23 @@ class AgentRedactionControllerTest {
         kotlinx.coroutines.delay(300)
         assertEquals(false, tab.state.value.on, "no watch, no read")
     }
+
+    /** D-121 (push, 2026-11-27): the tab's controller follows the daemon's change event: no poll. */
+    @Test
+    fun `a change made by another client shows on the daemon's event, and stops showing when the follow ends`() = runBlocking<Unit> {
+        val tab = AgentRedactionController({ ide.value }, scope)
+        val follow = tab.follow()
+        until { tab.state.value.on == true }
+        val other = runBlocking { daemon.connect(ClientKind.IDE).client }
+        val settingsPage = AgentRedactionController({ other }, scope)
+        settingsPage.set(false)
+        until { tab.state.value.on == false }
+        settingsPage.set(true)
+        until { tab.state.value.on == true }
+        follow.cancel()
+        settingsPage.set(false)
+        until { settingsPage.state.value.on == false }
+        kotlinx.coroutines.delay(300)
+        assertEquals(true, tab.state.value.on, "no follow, no change")
+    }
 }
