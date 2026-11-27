@@ -82,6 +82,11 @@ class DaemonServer(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val sessions = ConcurrentHashMap.newKeySet<Session>()
+
+    init {
+        // D-121: a change of the agents' setting reaches every plugin connection that watches it.
+        dispatcher.agents.onChange { on -> sessions.forEach { it.pushRedaction(on) } }
+    }
     private val stopping = AtomicBoolean(false)
     private lateinit var serverSocket: ServerSocket
     private lateinit var token: String
@@ -168,6 +173,26 @@ class DaemonServer(
         @Volatile private var reportedServer: String? = null
         /** Feature 073: this connection's `daemon.clients` subscriptions. */
         private val clientSubs = ConcurrentHashMap.newKeySet<String>()
+        /** D-121: this connection's `agents.redaction.watch` subscriptions. */
+        private val redactionSubs = ConcurrentHashMap.newKeySet<String>()
+
+        fun pushRedaction(on: Boolean) {
+            redactionSubs.toList().forEach { id ->
+                if (subscriptions[id]?.isActive != true) { redactionSubs -= id; return@forEach }
+                send(Event(name = DaemonEvents.AGENTS_REDACTION, seq = seq.incrementAndGet(), data = buildJsonObject { put("subscription", id); put("redaction", on) }))
+            }
+        }
+
+        private fun subscribeRedaction(request: Request) {
+            if (hello?.client != io.yamsergey.dta.protocol.ops.ClientKind.IDE) {
+                error(request.id, io.yamsergey.dta.protocol.ops.ClientErrorCodes.NOT_AVAILABLE, "${DaemonMethods.AGENTS_REDACTION_SUBSCRIBE} is the Android Studio plugin's: the agents' setting is not for agents to follow")
+                return
+            }
+            val id = "s${subscriptionIds.incrementAndGet()}"
+            subscriptions[id] = kotlinx.coroutines.Job()
+            redactionSubs += id
+            respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("subscription", id); put("redaction", dispatcher.agents.redaction) })))
+        }
 
         /**
          * Feature 073: the client rows this connection stands for. An HTTP server's connection stands for its agent
@@ -238,6 +263,7 @@ class DaemonServer(
                 DaemonMethods.LAYOUT_SUBSCRIBE -> scope.launch { subscribeLayout(request) }
                 DaemonMethods.SELECTION_SUBSCRIBE -> scope.launch { subscribeSelection(request) }
                 DaemonMethods.CLIENTS_SUBSCRIBE -> subscribeClients(request)
+                DaemonMethods.AGENTS_REDACTION_SUBSCRIBE -> subscribeRedaction(request)
                 DaemonMethods.CLIENT_NAME -> clientName(request)
                 DaemonMethods.CLIENT_SESSIONS -> clientSessions(request)
                 DaemonMethods.NETWORK_FIND -> scope.launch { find(request) }
@@ -260,7 +286,7 @@ class DaemonServer(
                     if (call != null) { cancelled += id; call.cancel() }
                     respond(request.id, buildJsonObject { put("cancelled", call != null) })
                 }
-                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, DaemonMethods.SELECTION_UNSUBSCRIBE, DaemonMethods.CLIENTS_UNSUBSCRIBE -> {
+                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, DaemonMethods.SELECTION_UNSUBSCRIBE, DaemonMethods.CLIENTS_UNSUBSCRIBE, DaemonMethods.AGENTS_REDACTION_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
                     id?.let { networkTargets.remove(it) }

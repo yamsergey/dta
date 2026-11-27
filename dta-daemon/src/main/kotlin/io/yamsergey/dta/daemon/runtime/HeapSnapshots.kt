@@ -123,6 +123,8 @@ class HeapSnapshotStore(
             dropped = DroppedInfo(victim.id, victim.name)
             s.dropped += dropped
         }
+        // 2026-11-27: DTA's own classes are not the user's: out of the rows and totals, said in one line.
+        val split = io.yamsergey.dta.protocol.data.HeapDta.split(classes)
         val snapshot = HeapSnapshot(
             id = "s${s.nextSeq++}",
             name = ticket.name,
@@ -130,9 +132,9 @@ class HeapSnapshotStore(
             takenAtMs = clock(),
             pauseMs = pauseMs,
             gcBefore = gcBefore,
-            classes = classes,
-            totals = HeapTotals(classes.sumOf { it.count }, classes.sumOf { it.bytes }),
-            notes = notes,
+            classes = split.kept,
+            totals = HeapTotals(split.kept.sumOf { it.count }, split.kept.sumOf { it.bytes }),
+            notes = notes + listOfNotNull(io.yamsergey.dta.protocol.data.HeapDta.line(split.leftOut)),
         )
         s.snapshots += snapshot
         return Completion.Stored(Completed(snapshot, dropped))

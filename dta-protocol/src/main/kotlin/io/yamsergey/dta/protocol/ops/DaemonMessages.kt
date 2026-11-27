@@ -168,6 +168,8 @@ object DaemonEvents {
     const val NETWORK_FOUND = "network.found"
     /** Feature 073: the agent clients changed: data `subscription`, `clients` (list of ClientInfo). */
     const val CLIENTS = "daemon.clients"
+    /** The agents' redaction setting changed (user decision 2026-11-27, D-121): data `subscription`, `redaction` (true: masked). To IDE clients that watch it. */
+    const val AGENTS_REDACTION = "agents.redaction.changed"
     const val REPLACED = "daemon.replaced"
     const val STOPPING = "daemon.stopping"
 }
@@ -205,6 +207,9 @@ object DaemonMethods {
     /** Feature 073: the connected clients now and at every change (`daemon.clients` events). */
     const val CLIENTS_SUBSCRIBE = "daemon.clients"
     const val CLIENTS_UNSUBSCRIBE = "daemon.clients.unsubscribe"
+    /** The agents' redaction setting now and at every change (`agents.redaction.changed` events); the plugin only (an IDE client). */
+    const val AGENTS_REDACTION_SUBSCRIBE = "agents.redaction.watch"
+    const val AGENTS_REDACTION_UNSUBSCRIBE = "agents.redaction.unwatch"
     /** Feature 073: a stdio MCP client says its agent's name ({name, version?}). */
     const val CLIENT_NAME = "client.name"
     /** Feature 073: the plugin's HTTP server reports its agent sessions ({sessions: [{name, version, since}], server}). */

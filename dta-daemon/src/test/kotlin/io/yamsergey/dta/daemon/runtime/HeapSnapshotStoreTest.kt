@@ -157,4 +157,20 @@ class HeapSnapshotStoreTest {
         store.complete(begin.ticket, 9, true, rows(), emptyList())
         assertEquals(true, store.list(app)!!.snapshots.single().gcBefore)
     }
+
+    /** Feature 074 (2026-11-27): DTA's own classes are left out of the snapshot's rows and totals, and one line says so. */
+    @Test fun dtaOwnClassesAreLeftOutOfRowsAndTotalsAndSaid() {
+        val begin = store.begin(app, "r1", null)
+        val ticket = assertIs<HeapSnapshotStore.Begin.Allowed>(begin).ticket
+        val rows = listOf(
+            HeapClassRow("com.example.Cart", null, HeapOrigin.APP, 2, 20),
+            HeapClassRow("io.yamsergey.dta.sidekick.runtime.Heap", null, HeapOrigin.LIBRARY, 3, 30),
+        )
+        val done = assertIs<HeapSnapshotStore.Completion.Stored>(store.complete(ticket, 12, false, rows, listOf("a note"))).result
+        val snap = store.get(app, done.snapshot.id)!!
+        assertEquals(listOf("com.example.Cart"), snap.classes.map { it.className })
+        assertEquals(2L, snap.totals.objects)
+        assertEquals(20L, snap.totals.bytes)
+        assertEquals(listOf("a note", "3 objects of DTA itself left out (30 bytes)"), snap.notes)
+    }
 }

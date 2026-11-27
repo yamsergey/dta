@@ -137,4 +137,27 @@ class ClientRegistryTest {
         assertEquals(listOf("dta CLI"), rows.map { it.jsonObject.str("name") })
         cli.close()
     }
+
+    /** D-121 (user decision 2026-11-27): a change of the agents' redaction setting is pushed to every IDE client that watches it. */
+    @Test
+    fun `a redaction change made by one IDE client is pushed to another that watches it`() = runBlocking<Unit> {
+        val settings = connect(ClientKind.IDE)
+        val tab = connect(ClientKind.IDE)
+        val seen = async { withTimeout(5_000) { tab.redactionEvents().take(3).toList() } }
+        delay(300)
+        settings.call("agents.redaction.set", buildJsonObject { put("redaction", false) })
+        settings.call("agents.redaction.set", buildJsonObject { put("redaction", true) })
+        val events = seen.await()
+        assertEquals(true, events[0]["selection"]!!.jsonObject["result"]!!.jsonObject["redaction"]!!.jsonPrimitive.content.toBoolean(), "the first answer holds the setting")
+        assertEquals(listOf(false, true), events.drop(1).map { it["redaction"]!!.jsonPrimitive.content.toBoolean() })
+        settings.close(); tab.close()
+    }
+
+    @Test
+    fun `only the plugin's connection watches the redaction setting`() = runBlocking<Unit> {
+        val cli = connect(ClientKind.CLI)
+        val refused = runCatching { withTimeout(5_000) { cli.redactionEvents().first() } }
+        assertTrue(refused.isFailure, "an agent's connection is refused")
+        cli.close()
+    }
 }
