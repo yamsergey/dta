@@ -656,6 +656,8 @@ class DtaDaemon(
         if (discovery.listInstances().none { it.serial == serial && it.packageName == pkg }) {
             throw io.yamsergey.dta.daemon.adb.AppNotRunningException("$pkg is not running with DTA inside on $serial, so a flow cannot start")
         }
+        // D-154 (049 FR-009, 056 US2-AS4): the app's timeline records nothing while it is off, so a flow has nothing to mark.
+        io.yamsergey.dta.daemon.timeline.TimelineOff.require(timelineEnabled(serial, pkg, null))
         return flows.start(serial, pkg, name, readRecorded(serial, pkg).newestMs)
     }
 
