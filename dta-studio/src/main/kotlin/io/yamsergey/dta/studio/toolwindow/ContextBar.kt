@@ -77,7 +77,7 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
         val shown = ConnectionChipFit.of(chipText, chipReason, fm.stringWidth(chipText) + gap, fm.stringWidth(chipText.substringBefore(' ')) + gap, base, JBUI.scale(160), available)
         connection.text = shown.text
         connection.toolTipText = shown.tooltip
-        val others = others + (if (shown.text.isEmpty()) 0 else connection.preferredSize.width + gap)
+        val others = base + (if (shown.text.isEmpty()) 0 else connection.preferredSize.width + gap)
         devices.preferredSize = null
         apps.preferredSize = null
         val room = (available - others).coerceAtLeast(JBUI.scale(160))
