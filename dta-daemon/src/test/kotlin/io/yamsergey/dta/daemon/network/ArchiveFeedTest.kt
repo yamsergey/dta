@@ -14,6 +14,7 @@ import io.yamsergey.dta.protocol.rpc.DtaJson
 import io.yamsergey.dta.protocol.rpc.Event
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -101,6 +102,23 @@ class ArchiveFeedTest {
     private class SlowPages(private val ms: Long) : FakeJournalApp() {
         override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
             if (method == "network_journal") kotlinx.coroutines.delay(ms)
+            return super.requestFull(method, params, timeout)
+        }
+    }
+
+    /**
+     * D-125: a channel whose journal pages come until [gateAt] of them were served, then waits for [release]: the test reads the
+     * catch-up's state at a known place, not after a sleep that a slow machine can miss.
+     */
+    private class GatedPages : FakeJournalApp() {
+        @Volatile var served = 0
+        @Volatile var gateAt = Int.MAX_VALUE
+        val blocked = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
+            if (method == "network_journal") {
+                if (++served > gateAt) { blocked.complete(Unit); release.await() }
+            }
             return super.requestFull(method, params, timeout)
         }
     }
@@ -203,7 +221,7 @@ class ArchiveFeedTest {
 
     @Test
     fun `how far the catch-up is comes from the device, also when it removed what was archived`() = runBlocking<Unit> {
-        val app = SlowPages(ms = 300)
+        val app = GatedPages()
         repeat(1_000) { http(app, 10) }
         val host = index(app)
         host.pageSize = 500
@@ -211,10 +229,13 @@ class ArchiveFeedTest {
         repeat(3_000) { http(app, 10) }
         // The device removed what this computer archived: it holds fewer entries than were read.
         app.entriesOverride = 2_500
+        // The catch-up serves two pages (1,000 of the 3,000 more), then waits: its state is read there, not after a sleep (D-125).
+        app.gateAt = app.served + 2
         val catching = this.async(kotlinx.coroutines.Dispatchers.IO) { host.list(NetworkQuery(limit = 1)) }
-        kotlinx.coroutines.delay(800)
+        withTimeout(10_000) { app.blocked.await() }
         val behind = host.history().device?.catchingUp
         assertTrue(behind != null && behind in 1_500..2_500, "records left after the page read: $behind")
+        app.release.complete(Unit)
         catching.await()
     }
 }
