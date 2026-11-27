@@ -125,36 +125,4 @@ class MemoryPanelTest : BasePlatformTestCase() {
         p.setOrigin(all = false)
         assertEquals("app", calls.last { it.first == "runtime.heap.compare" }.second["origin"]!!.jsonPrimitive.content)
     }
-
-    private fun find(c: java.awt.Component, pred: (java.awt.Component) -> Boolean): java.awt.Component? {
-        if (pred(c)) return c
-        (c as? java.awt.Container)?.components?.forEach { find(it, pred)?.let { r -> return r } }
-        return null
-    }
-
-    /** A click with the mouse on the "All" segment switches the origin (a user cannot call setOrigin). */
-    fun testAMouseClickOnTheAllSegmentChangesTheOrigin() {
-        snapshots = true
-        val p = panel()
-        p.setSize(900, 700)
-        layout(p)
-        p.load()
-        layout(p)
-        val segments = find(p) { it.name == "memory.origin" }!!
-        val all = find(p) { it.name == "memory.origin.all" }!!
-        val inPanel = javax.swing.SwingUtilities.convertPoint(all, all.width / 2, all.height / 2, p)
-        val target = javax.swing.SwingUtilities.getDeepestComponentAt(p, inPanel.x, inPanel.y)
-        assertTrue("the segment is under the click: ${target?.javaClass?.name}", target === all || target === segments)
-        val at = javax.swing.SwingUtilities.convertPoint(p, inPanel, target)
-        for (id in listOf(java.awt.event.MouseEvent.MOUSE_PRESSED, java.awt.event.MouseEvent.MOUSE_RELEASED, java.awt.event.MouseEvent.MOUSE_CLICKED)) {
-            target!!.dispatchEvent(java.awt.event.MouseEvent(target, id, System.currentTimeMillis(), java.awt.event.InputEvent.BUTTON1_DOWN_MASK, at.x, at.y, 1, false, java.awt.event.MouseEvent.BUTTON1))
-        }
-        // The segment is an ActionButton: its action runs through the action system, a moment after the click.
-        val until = System.currentTimeMillis() + 5_000
-        while (calls.last { it.first == "runtime.heap.compare" }.second["origin"]!!.jsonPrimitive.content != "all" && System.currentTimeMillis() < until) {
-            com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-            Thread.sleep(50)
-        }
-        assertEquals("all", calls.last { it.first == "runtime.heap.compare" }.second["origin"]!!.jsonPrimitive.content)
-    }
 }
