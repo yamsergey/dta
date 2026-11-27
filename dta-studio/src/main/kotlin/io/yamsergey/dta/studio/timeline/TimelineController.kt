@@ -326,8 +326,12 @@ class TimelineController(
         }
     }
 
+    private val stateReads = java.util.concurrent.atomic.AtomicLong()
+
     private suspend fun readState(client: DaemonClient) {
+        val mine = stateReads.incrementAndGet()
         val state = DtaJson.decodeFromJsonElement(CurrentState.serializer(), client.call("state.current", JsonObject(reads(mutable.value))).result)
+        if (stateReads.get() != mine) return
         change(TimelineChange.State(state.facets))
         if (state.sources.isNotEmpty()) change(TimelineChange.Sources(state.sources))
     }
