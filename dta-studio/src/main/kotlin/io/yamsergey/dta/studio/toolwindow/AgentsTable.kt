@@ -63,8 +63,21 @@ class AgentsTable(rows: List<AgentRow>, narrow: Boolean) {
         }
     }
 
-    /** Stub: the old behaviour, columns share the width evenly. */
-    private fun fitColumns(t: JBTable, r: DefaultTableCellRenderer) {}
+    /** The name is the identifying part: Agent takes what is left, every other column its content's width. */
+    private fun fitColumns(t: JBTable, r: DefaultTableCellRenderer) {
+        val cm = t.columnModel
+        for (i in 1 until cm.columnCount) {
+            val col = cm.getColumn(i)
+            val header = t.tableHeader.defaultRenderer.getTableCellRendererComponent(t, col.headerValue, false, false, -1, i).preferredSize.width
+            val cells = (0 until t.rowCount).maxOfOrNull { row ->
+                val c = t.prepareRenderer(r, row, i)
+                t.getFontMetrics(c.font).stringWidth(t.getValueAt(row, i)?.toString().orEmpty()) + JBUI.scale(12)
+            } ?: 0
+            val w = maxOf(header, cells) + JBUI.scale(4)
+            col.minWidth = w; col.maxWidth = w; col.preferredWidth = w
+        }
+        cm.getColumn(0).apply { minWidth = JBUI.scale(60); preferredWidth = JBUI.scale(400) }
+    }
 
     private fun mono(): Font = JBUI.Fonts.create(Font.MONOSPACED, JBUI.Fonts.label().size)
 }
