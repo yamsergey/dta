@@ -90,7 +90,7 @@ class AgentsPanel(
             .addComponent(TitledSeparator("Connect an agent"))
             .addLabeledComponent("Agent", agentRow)
             .addComponent(connect.where)
-            .addComponent(connect.command)
+            .addComponent(connect.commandView)
             .addComponent(copyRow)
             .addComponent(help("The credential is kept in the IDE's password safe. DTA never writes into an agent's files."))
             .addComponent(connect.note)

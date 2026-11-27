@@ -155,9 +155,10 @@ class AgentsTabPanel(
         body.add(left(JPanel(LineOrStack(JBUI.scale(8), lastAtEdge = false)).apply {
             isOpaque = false
             add(connect.agent)
+            add(ActionLink("Copy command") { connect.copyCommand() }.apply { name = "agents.copy" })
             add(JBLabel("Copy the command or the prompt from the strip at the left.").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() })
         }))
-        body.add(left(connect.command.also { it.border = JBUI.Borders.compound(JBUI.Borders.customLine(JBColor.border()), JBUI.Borders.empty(6, 8)) }, top = 6))
+        body.add(left(connect.commandView, top = 6))
     }
 
     private fun table(view: AgentsView.Running): JComponent {
@@ -177,6 +178,12 @@ class AgentsTabPanel(
                     foreground = if (name == "Agent") JBColor.foreground() else JBColor.GRAY
                     border = JBUI.Borders.empty(0, 6)
                     horizontalAlignment = SwingConstants.LEFT
+                    // Truncation rules, rule 3: a name ends in …, the whole name is in the tooltip (never a hard cut).
+                    val whole = v?.toString().orEmpty()
+                    val metrics = getFontMetrics(font)
+                    val room = t.columnModel.getColumn(col).width - JBUI.scale(12)
+                    text = io.yamsergey.dta.studio.ui.ClassNameFit.end(whole, { metrics.stringWidth(it) }, room)
+                    toolTipText = whole
                     return this
                 }
             }

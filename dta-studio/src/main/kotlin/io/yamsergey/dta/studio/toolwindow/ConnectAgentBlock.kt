@@ -25,12 +25,19 @@ class ConnectAgentBlock(
     private val prefs: AgentServerPrefs,
 ) {
     val agent = ComboBox(Agent.entries.toTypedArray()).apply { renderer = textRenderer { it.title } }
-    val command = JBTextArea(3, 40).apply {
+    val command = JBTextArea(0, 40).apply {
         isEditable = false
-        lineWrap = true
-        wrapStyleWord = false
+        // Truncation rules, rule 3: the command breaks only at its own " \\" continuations; the masked credential never wraps.
+        lineWrap = false
         font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, JBUI.Fonts.smallFont().size)
         border = JBUI.Borders.empty(6, 8)
+    }
+    /** The command in a box that scrolls sideways when a line is wider than the room, never wrapping inside a line. */
+    val commandView = com.intellij.ui.components.JBScrollPane(command).apply {
+        horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+        verticalScrollBarPolicy = javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
+        border = JBUI.Borders.customLine(JBColor.border())
+        name = "agents.command"
     }
     val where = JBLabel().apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }
     /** An agent's own note (Claude Code's plugin), when it has one. */
