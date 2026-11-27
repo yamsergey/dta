@@ -67,4 +67,16 @@ class RuntimeViewModelRowTest : BasePlatformTestCase() {
         val node = (p.tree.model.root as DefaultMutableTreeNode).depthFirstEnumeration().toList().map { it as DefaultMutableTreeNode }.first { it.userObject.toString().contains("SavedStateHandlesVM") }
         p.tree.cellRenderer.getTreeCellRendererComponent(p.tree, node, false, false, true, p.tree.getRowForPath(TreePath(node.path)), false)
     }
+
+    fun testTheRoomIsTheViewportsNotTheWiderTrees() {
+        val p = RuntimePanel(project, CoroutineScope(Dispatchers.Unconfined), ui = { it.run() }) { op, _ -> answer(op) }
+        p.load()
+        val scroll = javax.swing.JScrollPane(p.tree)
+        scroll.viewport.setSize(244, 300)
+        p.tree.setSize(1200, 300)
+        val node = (p.tree.model.root as DefaultMutableTreeNode).depthFirstEnumeration().toList().map { it as DefaultMutableTreeNode }.first { it.userObject.toString().contains("SavedStateHandlesVM") }
+        val r = p.tree.cellRenderer.getTreeCellRendererComponent(p.tree, node, false, false, true, p.tree.getRowForPath(TreePath(node.path)), false) as ColoredTreeCellRenderer
+        val text = r.getCharSequence(false).toString()
+        assertTrue(text, text.endsWith("…"))
+    }
 }

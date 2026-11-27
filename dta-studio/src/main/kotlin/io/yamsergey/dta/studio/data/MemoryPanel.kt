@@ -164,7 +164,7 @@ class MemoryPanel(
                 font = mono
                 isOpaque = true
                 val metrics = getFontMetrics(font)
-                val room = (list.width - JBUI.scale(8)).coerceAtLeast(JBUI.scale(40))
+                val room = (io.yamsergey.dta.studio.ui.VisibleWidth.of(list) - JBUI.scale(8)).coerceAtLeast(JBUI.scale(40))
                 text = io.yamsergey.dta.studio.ui.ClassNameFit.end(instanceLine(row), { metrics.stringWidth(it) }, room)
                 background = if (selected) JBUI.CurrentTheme.List.background(true, true) else JBUI.CurrentTheme.List.background(false, false)
             }
@@ -372,13 +372,28 @@ class MemoryPanel(
         compare()
     }
 
-    /** The class name gets the room; the numbers stay narrow. */
+    /**
+     * The class name gets the room first (truncation rules): every number column takes its content's width, header
+     * included; the Class column's minimum is its widest simple name, so a name is never clipped without an ellipsis.
+     */
     private fun sizeColumns() {
         val cm = table.columnModel
-        // Class takes what is left; the numbers keep room for "+283.4 KB" even at 420 px (the board drops A and B instead).
-        for (i in 0 until cm.columnCount) cm.getColumn(i).apply {
-            if (i == 0) { minWidth = JBUI.scale(60); preferredWidth = JBUI.scale(if (narrow) 160 else 300) }
-            else { minWidth = JBUI.scale(58); preferredWidth = JBUI.scale(if (narrow) 84 else 72) }
+        val plain = table.getFontMetrics(mono)
+        val bold = table.getFontMetrics(mono.deriveFont(Font.BOLD))
+        val pad = JBUI.scale(16)
+        for (i in 0 until cm.columnCount) {
+            val col = cm.getColumn(i)
+            val header = table.tableHeader.defaultRenderer.getTableCellRendererComponent(table, col.headerValue, false, false, -1, i).preferredSize.width
+            if (i == 0) {
+                val simple = tableModel.rows.maxOfOrNull { plain.stringWidth(it.className.substringAfterLast('.').substringBefore('$')) } ?: 0
+                col.minWidth = maxOf(JBUI.scale(60), minOf(simple, JBUI.scale(260)) + pad)
+                col.maxWidth = Int.MAX_VALUE
+                col.preferredWidth = JBUI.scale(if (narrow) 160 else 420)
+            } else {
+                val content = tableModel.rows.maxOfOrNull { maxOf(plain.stringWidth(it.cells[i]), bold.stringWidth(it.cells[i])) } ?: 0
+                val w = maxOf(header, content + pad)
+                col.minWidth = w; col.maxWidth = w; col.preferredWidth = w
+            }
         }
     }
 
