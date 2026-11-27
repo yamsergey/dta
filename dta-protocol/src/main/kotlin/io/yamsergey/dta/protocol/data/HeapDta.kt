@@ -21,8 +21,8 @@ object HeapDta {
     }
 
     fun split(rows: List<HeapClassRow>): Split {
-        // not left out yet
-        return Split(rows, HeapTotals(0, 0))
+        val (dta, kept) = rows.partition(::isDta)
+        return Split(kept, HeapTotals(dta.sumOf { it.count }, dta.sumOf { it.bytes }))
     }
 
     /** The one line of the answer; null when nothing of DTA was in the walk. */
