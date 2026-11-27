@@ -28,12 +28,11 @@ object McpServerSpecs {
             .callHandler { exchange, request ->
                 val args = McpTools.arguments(request.arguments()) { mapper.writeValueAsString(it) }
                 val token = request.meta()?.get("progressToken")
+                var reported = 0
                 val outcome = runBlocking {
                     tool.invoke(args) { p ->
                         if (token != null) {
-                            runCatching {
-                                exchange.progressNotification(McpSchema.ProgressNotification(token, p.step.toDouble(), AppRunTool.TOTAL.toDouble(), p.message))
-                            }
+                            runCatching { exchange.progressNotification(AppRunTool.notification(token, reported++, p)) }
                         }
                     }
                 }

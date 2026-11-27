@@ -124,6 +124,19 @@ class AppRunToolTest {
         )
     }
 
+    /**
+     * D-124: MCP says a progress value MUST increase with each notification; the steps done (0, 1, 1) repeat, so a client that gets
+     * them out of order (the HTTP transport delivers each on its own) cannot put "Building and installing" and "Building: compile" right.
+     */
+    @Test
+    fun `each progress notification of a call carries a larger progress than the one before`() {
+        val seen = mutableListOf<AppRunTool.Progress>()
+        runBlocking { AppRunTool(runner, projects = { listOf(File("/w")) }).invoke(JsonObject(emptyMap())) { seen += it } }
+        val values = seen.mapIndexed { n, p -> AppRunTool.notification("t", n, p).progress() }
+        assertEquals(values.sorted().distinct(), values, "strictly increasing: $values")
+        assertEquals(seen.map { it.message }, seen.mapIndexed { n, p -> AppRunTool.notification("t", n, p).message() }, "the words are the same")
+    }
+
     private val daemon = TestDaemon()
 
     @AfterTest

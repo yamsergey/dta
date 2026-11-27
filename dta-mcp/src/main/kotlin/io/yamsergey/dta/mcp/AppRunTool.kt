@@ -82,6 +82,10 @@ class AppRunTool(private val runner: AppRunner, private val projects: () -> List
 
     companion object {
         const val NAME = "app_run"
+
+        /** The progress notification for the [n]th report of a call (0, 1, 2...). */
+        fun notification(token: Any, n: Int, p: Progress): io.modelcontextprotocol.spec.McpSchema.ProgressNotification =
+            io.modelcontextprotocol.spec.McpSchema.ProgressNotification(token, p.step.toDouble(), TOTAL.toDouble(), p.message)
         val TOTAL = StepName.entries.size
 
         const val DESCRIPTION =
