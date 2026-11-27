@@ -150,4 +150,19 @@ class MemoryPanelTest : BasePlatformTestCase() {
         p.setOrigin(all = false)
         assertEquals("app", calls.last { it.first == "runtime.heap.compare" }.second["origin"]!!.jsonPrimitive.content)
     }
+
+    /** V1 (D-138 residue): the instance list always shows at least three whole rows, however little height the table pane leaves. */
+    fun testTheInstanceListKeepsThreeRowsAtNarrowWidth() {
+        snapshots = true
+        for (h in listOf(700, 500, 400)) {
+            val p = panel()
+            p.setSize(420, h)
+            layout(p)
+            p.load()
+            p.table.setRowSelectionInterval(0, 0)
+            repeat(3) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+            val rows = 3 * p.instanceList.getFontMetrics(p.instanceList.font).height
+            assertTrue("instance viewport ${p.instanceScroll.viewport.height} px of $h, three rows are $rows", p.instanceScroll.viewport.height >= rows)
+        }
+    }
 }

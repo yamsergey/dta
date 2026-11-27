@@ -19,13 +19,18 @@ class CappedBlock(parts: List<JComponent>, private val fraction: Double = 0.25) 
         viewportBorder = null
         isOpaque = false
         viewport.isOpaque = false
+        // Whole lines: it scrolls a line at a time and its cap is a number of lines, so no line is half-cut at an edge.
+        verticalScrollBar.unitIncrement = lineHeight()
     }
+
+    private fun lineHeight() = getFontMetrics(font).height.coerceAtLeast(1)
 
     override fun getPreferredSize(): Dimension {
         val natural = viewport.view.preferredSize.height + insets.top + insets.bottom
         val parentHeight = parent?.height ?: 0
-        val cap = if (parentHeight > 0) maxOf(MIN, (parentHeight * fraction).toInt()) else natural
-        return Dimension(super.getPreferredSize().width, minOf(natural, cap))
+        val line = lineHeight()
+        val cap = if (parentHeight > 0) maxOf((parentHeight * fraction).toInt() / line, (MIN + line - 1) / line) * line else natural
+        return Dimension(super.getPreferredSize().width, if (natural <= cap) natural else cap)
     }
 
     override fun getMinimumSize(): Dimension = Dimension(0, minOf(MIN, preferredSize.height))

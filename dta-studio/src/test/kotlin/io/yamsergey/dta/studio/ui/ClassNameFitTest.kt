@@ -75,4 +75,15 @@ class ClassNameFitTest {
         assertEquals("hello…", ClassNameFit.end("hello world", m, 6))
         assertEquals("…", ClassNameFit.end("hello world", m, 1))
     }
+
+    @Test
+    fun `a resource id keeps the id whole and gives up its package from the start`() {
+        val id = "io.yamsergey.dta.fixture.channel:id/form_submit"
+        val m = { t: String -> t.length }
+        assertEquals(id, ClassNameFit.resource(id, m, 100))
+        val cut = ClassNameFit.resource(id, m, 30)
+        assertTrue(cut.startsWith("…") && cut.endsWith(":id/form_submit") && cut.length <= 30, cut)
+        assertEquals("…/form_submit", ClassNameFit.resource(id, m, 13))
+        assertEquals("form_sub…", ClassNameFit.resource(id, m, 9))
+    }
 }

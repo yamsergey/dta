@@ -92,7 +92,7 @@ class LayoutPanel(
     private val hideContainers = JBCheckBox("Hide containers", true)
     /** US4: something without DTA is in front of the app. */
     private val front = io.yamsergey.dta.studio.ui.FitLabel().apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8); isVisible = false }
-    private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Search name, text, id, test tag" }
+    private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Search nodes"; toolTipText = "Search name, text, id, test tag" }
     private val position = JBLabel().apply { foreground = JBColor.GRAY }
     private val hide = JBCheckBox("Only matches")
     private val status = JBLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = JBColor.GRAY }

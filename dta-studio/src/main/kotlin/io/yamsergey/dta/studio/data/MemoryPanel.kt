@@ -171,6 +171,12 @@ class MemoryPanel(
         }
         toolTipText = ""
     }
+    /** Never less than three whole rows, however little height the table pane leaves (V1 of the 2026-11-27 recheck). */
+    internal val instanceScroll = object : JBScrollPane(instanceList) {
+        private fun rows(n: Int) = n * instanceList.getFontMetrics(instanceList.font).height.coerceAtLeast(1) + insets.top + insets.bottom
+        override fun getMinimumSize() = java.awt.Dimension(0, rows(3))
+        override fun getPreferredSize() = java.awt.Dimension(super.getPreferredSize().width, maxOf(rows(3), minOf(rows(8), super.getPreferredSize().height)))
+    }
     private val instanceHeader = JBLabel(" ").apply { font = mono.deriveFont(Font.BOLD); name = "memory.instances.header" }
     private val instanceSummary = WrappingText("", JBColor.GRAY)
     private val instanceLink = ActionLink("") { instanceList.selectedValue?.let { r -> r.target?.let { openView(it, r.ref) } } }.apply { isVisible = false; name = "memory.instances.link" }
@@ -214,7 +220,7 @@ class MemoryPanel(
         val instances = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(4, 10)
-            add(instanceHeader); add(instanceSummary); add(JBScrollPane(instanceList)); add(instanceLink); add(readFields); add(fieldsScroll)
+            add(instanceHeader); add(instanceSummary); add(instanceScroll); add(instanceLink); add(readFields); add(fieldsScroll)
             instanceHeader.alignmentX = Component.LEFT_ALIGNMENT; readFields.alignmentX = Component.LEFT_ALIGNMENT; instanceLink.alignmentX = Component.LEFT_ALIGNMENT
             isVisible = false
         }

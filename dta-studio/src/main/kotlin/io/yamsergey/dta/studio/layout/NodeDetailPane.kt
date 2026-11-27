@@ -48,10 +48,7 @@ class NodeDetailPane(
         lastShown = detail to note
         if (detail == null) return empty(note ?: "Select a node to see its properties.")
         rebuild {
-            add(row(*detail.breadcrumb.mapIndexed { i, name ->
-                if (i == detail.breadcrumb.lastIndex) JBLabel(name).apply { font = font.deriveFont(Font.BOLD) }
-                else ActionLink(name) { onAncestor(i + 1) }
-            }.flatMap { listOf(it, JBLabel("›").apply { foreground = JBColor.GRAY }) }.dropLast(1).toTypedArray()))
+            add(io.yamsergey.dta.studio.ui.BreadcrumbRow(detail.breadcrumb) { depth -> onAncestor(depth) }.left())
             if (detail.statements.isNotEmpty()) add(row(*detail.statements.map { StatementMark(it) }.toTypedArray()))
             val form = FormBuilder.createFormBuilder()
             detail.fields.forEach { (label, value) -> form.addLabeledComponent("$label:", valueLabel(label, value)) }
@@ -75,7 +72,7 @@ class NodeDetailPane(
     private val chainView = io.yamsergey.dta.studio.ui.CallChainView(openSource) { lastShown?.let { (d, n) -> show(d, n) } }
 
     /** A property's value on one line: ends in an ellipsis at the pane's edge, the whole in the tooltip, copied from a right-click. */
-    private fun valueLabel(label: String, value: String) = io.yamsergey.dta.studio.ui.FitLabel(asClass = label == "Class").apply {
+    private fun valueLabel(label: String, value: String) = io.yamsergey.dta.studio.ui.FitLabel(asClass = label == "Class", asResource = label == "Resource id").apply {
         show(value)
         componentPopupMenu = javax.swing.JPopupMenu().apply {
             add(javax.swing.JMenuItem("Copy").apply {
