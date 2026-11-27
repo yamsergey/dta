@@ -76,7 +76,12 @@ enum class ClientKind {
 
 /** First request of every client connection (contract daemon-protocol §Connect). */
 @Serializable
-data class DaemonHello(val client: ClientKind, val identity: VersionIdentity)
+data class DaemonHello(
+    val client: ClientKind,
+    val identity: VersionIdentity,
+    /** Feature 073: what the client calls itself ("dta CLI" for the CLI); null when it does not say. */
+    val name: String? = null,
+)
 
 @Serializable
 data class DaemonHelloResult(val identity: VersionIdentity, val pid: Long)
@@ -86,7 +91,30 @@ data class DaemonHelloResult(val identity: VersionIdentity, val pid: Long)
 data class ReplaceParams(val by: VersionIdentity)
 
 @Serializable
-data class ClientInfo(val kind: ClientKind, val version: String, val connectedAtMs: Long)
+data class ClientInfo(
+    val kind: ClientKind,
+    /** The DTA build of the client's connection. */
+    val version: String,
+    val connectedAtMs: Long,
+    /** Feature 073: the agent's name (MCP clientInfo, "dta CLI"); null when the client did not say. */
+    val name: String? = null,
+    /** Feature 073: the agent's own version (an MCP session's clientInfo); null for the CLI and unnamed clients. */
+    val agentVersion: String? = null,
+    /** Feature 073: for an agent served by an IDE's server, which server (its url); null otherwise. */
+    val server: String? = null,
+)
+
+/** Feature 073: one agent session of the plugin's HTTP server, as `client.sessions` reports it. */
+@Serializable
+data class ClientSession(val name: String, val version: String? = null, val since: Long)
+
+/** Feature 073: `client.sessions` params: every live session of the reporting server (a report replaces the last). */
+@Serializable
+data class ClientSessions(val sessions: List<ClientSession>, val server: String? = null)
+
+/** Feature 073: `client.name` params: the stdio MCP client's name, from its `initialize`. */
+@Serializable
+data class ClientName(val name: String, val version: String? = null)
 
 @Serializable
 data class AdbInfo(val path: String? = null, val available: Boolean, val reason: String? = null)
@@ -138,6 +166,8 @@ object DaemonEvents {
     const val LAYOUT_SELECTION = "layout.selection"
     /** Feature 071: a streamed search's rows and state (FoundEvent). */
     const val NETWORK_FOUND = "network.found"
+    /** Feature 073: the agent clients changed: data `subscription`, `clients` (list of ClientInfo). */
+    const val CLIENTS = "daemon.clients"
     const val REPLACED = "daemon.replaced"
     const val STOPPING = "daemon.stopping"
 }
@@ -172,6 +202,13 @@ object DaemonMethods {
     const val NETWORK_FIND_MORE = "network.find.more"
     /** Feature 071: stops a stream (`stream`); its last event says stopped. */
     const val NETWORK_FIND_STOP = "network.find.stop"
+    /** Feature 073: the connected clients now and at every change (`daemon.clients` events). */
+    const val CLIENTS_SUBSCRIBE = "daemon.clients"
+    const val CLIENTS_UNSUBSCRIBE = "daemon.clients.unsubscribe"
+    /** Feature 073: a stdio MCP client says its agent's name ({name, version?}). */
+    const val CLIENT_NAME = "client.name"
+    /** Feature 073: the plugin's HTTP server reports its agent sessions ({sessions: [{name, version, since}], server}). */
+    const val CLIENT_SESSIONS = "client.sessions"
     /** Feature 071: cancels a running call of this client (`id`); it answers CANCELLED. */
     const val REQUEST_CANCEL = "request.cancel"
 }

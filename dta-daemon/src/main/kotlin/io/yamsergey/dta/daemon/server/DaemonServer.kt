@@ -12,6 +12,9 @@ import io.yamsergey.dta.protocol.network.WsConnectionEntry
 import io.yamsergey.dta.protocol.ops.AppConnectionEvent
 import io.yamsergey.dta.protocol.ops.AppList
 import io.yamsergey.dta.protocol.ops.ClientInfo
+import io.yamsergey.dta.protocol.ops.ClientName
+import io.yamsergey.dta.protocol.ops.ClientSession
+import io.yamsergey.dta.protocol.ops.ClientSessions
 import io.yamsergey.dta.protocol.ops.DaemonEvents
 import io.yamsergey.dta.protocol.ops.DaemonHello
 import io.yamsergey.dta.protocol.ops.DaemonHelloResult
@@ -157,7 +160,68 @@ class DaemonServer(
         private fun statedOff(): io.yamsergey.dta.protocol.network.RedactionInfo? =
             if (hello?.client != io.yamsergey.dta.protocol.ops.ClientKind.IDE && !dispatcher.agents.redaction) io.yamsergey.dta.protocol.network.RedactionInfo(applied = false, forAgents = true) else null
 
-        val info: ClientInfo? get() = hello?.let { ClientInfo(it.client, it.identity.version, connectedAt) }
+        /** Feature 073: what this connection says it is; null until hello. */
+        @Volatile private var name: String? = null
+        @Volatile private var agentVersion: String? = null
+        /** Feature 073: the agent sessions an HTTP server reported (replaced by each report), and which server. */
+        @Volatile private var reported: List<ClientSession> = emptyList()
+        @Volatile private var reportedServer: String? = null
+        /** Feature 073: this connection's `daemon.clients` subscriptions. */
+        private val clientSubs = ConcurrentHashMap.newKeySet<String>()
+
+        /**
+         * Feature 073: the client rows this connection stands for. An HTTP server's connection stands for its agent
+         * sessions (none when it has none: the server is not an agent); any other, for itself.
+         */
+        val infos: List<ClientInfo> get() {
+            val h = hello ?: return emptyList()
+            return if (h.client == io.yamsergey.dta.protocol.ops.ClientKind.MCP_HTTP) {
+                reported.map { ClientInfo(h.client, h.identity.version, it.since, it.name, it.version, reportedServer) }
+            } else {
+                listOf(ClientInfo(h.client, h.identity.version, connectedAt, name ?: h.name, agentVersion))
+            }
+        }
+
+        fun pushClients() {
+            if (clientSubs.isEmpty()) return
+            val rows = DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(ClientInfo.serializer()), clientInfos())
+            clientSubs.toList().forEach { id ->
+                if (subscriptions[id]?.isActive != true) { clientSubs -= id; return@forEach }
+                send(Event(name = DaemonEvents.CLIENTS, seq = seq.incrementAndGet(), data = buildJsonObject { put("subscription", id); put("clients", rows) }))
+            }
+        }
+
+        private fun subscribeClients(request: Request) {
+            val id = "s${subscriptionIds.incrementAndGet()}"
+            subscriptions[id] = kotlinx.coroutines.Job()
+            clientSubs += id
+            val rows = DtaJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(ClientInfo.serializer()), clientInfos())
+            respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("subscription", id); put("clients", rows) })))
+        }
+
+        private fun clientName(request: Request) {
+            val p = request.params?.let { runCatching { DtaJson.decodeFromJsonElement(ClientName.serializer(), it) }.getOrNull() }
+            if (p == null || p.name.isBlank()) {
+                error(request.id, ErrorCodes.INVALID_PARAMS, "${DaemonMethods.CLIENT_NAME} requires {name}")
+                return
+            }
+            name = p.name
+            agentVersion = p.version
+            respond(request.id, buildJsonObject { put("named", true) })
+            clientsChanged()
+        }
+
+        private fun clientSessions(request: Request) {
+            val p = request.params?.let { runCatching { DtaJson.decodeFromJsonElement(ClientSessions.serializer(), it) }.getOrNull() }
+            if (p == null) {
+                error(request.id, ErrorCodes.INVALID_PARAMS, "${DaemonMethods.CLIENT_SESSIONS} requires {sessions: [{name, version, since}]}")
+                return
+            }
+            reported = p.sessions
+            if (p.server != null) reportedServer = p.server
+            respond(request.id, buildJsonObject { put("sessions", p.sessions.size) })
+            clientsChanged()
+        }
 
         override fun onText(connection: WebSocketConnection, text: String) {
             val request = runCatching { DtaJson.decodeFromString(Message.serializer(), text) }.getOrNull() as? Request ?: return
@@ -173,6 +237,9 @@ class DaemonServer(
                 DaemonMethods.TIMELINE_SUBSCRIBE -> scope.launch { subscribeTimeline(request) }
                 DaemonMethods.LAYOUT_SUBSCRIBE -> scope.launch { subscribeLayout(request) }
                 DaemonMethods.SELECTION_SUBSCRIBE -> scope.launch { subscribeSelection(request) }
+                DaemonMethods.CLIENTS_SUBSCRIBE -> subscribeClients(request)
+                DaemonMethods.CLIENT_NAME -> clientName(request)
+                DaemonMethods.CLIENT_SESSIONS -> clientSessions(request)
                 DaemonMethods.NETWORK_FIND -> scope.launch { find(request) }
                 DaemonMethods.NETWORK_FIND_MORE -> {
                     val id = (request.params?.get("stream") as? JsonPrimitive)?.content
@@ -193,7 +260,7 @@ class DaemonServer(
                     if (call != null) { cancelled += id; call.cancel() }
                     respond(request.id, buildJsonObject { put("cancelled", call != null) })
                 }
-                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, DaemonMethods.SELECTION_UNSUBSCRIBE -> {
+                DaemonMethods.NETWORK_UNSUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, DaemonMethods.TIMELINE_UNSUBSCRIBE, DaemonMethods.LAYOUT_UNSUBSCRIBE, DaemonMethods.SELECTION_UNSUBSCRIBE, DaemonMethods.CLIENTS_UNSUBSCRIBE -> {
                     val id = (request.params?.get("subscription") as? JsonPrimitive)?.content
                     subscriptions.remove(id)?.cancel()
                     id?.let { networkTargets.remove(it) }
@@ -201,7 +268,7 @@ class DaemonServer(
                 }
                 "daemon.status" -> respond(
                     request.id,
-                    DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, DtaJson.encodeToJsonElement(DaemonStatus.serializer(), status(sessions.mapNotNull { it.info })))),
+                    DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, DtaJson.encodeToJsonElement(DaemonStatus.serializer(), status(clientInfos())))),
                 )
                 "daemon.stop" -> {
                     respond(request.id, DtaJson.encodeToJsonElement(Selected.serializer(), Selected(null, buildJsonObject { put("stopping", true) })))
@@ -310,6 +377,7 @@ class DaemonServer(
             connectedAt = clock()
             sessions += this
             respond(request.id, DtaJson.encodeToJsonElement(DaemonHelloResult.serializer(), DaemonHelloResult(identity, pid)))
+            clientsChanged()
         }
 
         private fun replace(request: Request) {
@@ -734,6 +802,7 @@ class DaemonServer(
 
         fun closed() {
             sessions -= this
+            clientsChanged()
             subscriptions.values.forEach { it.cancel() }
             subscriptions.clear()
             // Feature 071: a client that went away stops its searches and its calls.
@@ -742,6 +811,12 @@ class DaemonServer(
             ops.networkViewsClosed(viewPrefix)
         }
     }
+
+    /** Feature 073: every agent row now, in connection order of the sessions. */
+    private fun clientInfos(): List<ClientInfo> = sessions.flatMap { it.infos }
+
+    /** Feature 073: tells every `daemon.clients` subscriber the list changed. */
+    private fun clientsChanged() = sessions.forEach { it.pushClients() }
 
     private fun requestStop(reason: String) {
         thread(name = "dta-daemon-stop", isDaemon = false) {

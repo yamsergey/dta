@@ -1,20 +1,15 @@
 package io.yamsergey.dta.studio.toolwindow
 
-import com.intellij.openapi.ide.CopyPasteManager
-import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
-import io.yamsergey.dta.studio.ui.textRenderer
+import com.intellij.ui.TitledSeparator
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
-import io.yamsergey.dta.present.agents.Agent
-import io.yamsergey.dta.present.agents.AgentConfigs
 import io.yamsergey.dta.present.agents.AgentServerState
 import io.yamsergey.dta.studio.agents.AgentServerController
 import io.yamsergey.dta.studio.agents.AgentServerPrefs
@@ -25,13 +20,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
 import java.awt.FlowLayout
-import java.awt.datatransfer.StringSelection
 import javax.swing.JButton
 import javax.swing.JPanel
 
 /**
- * The Agents view (FR-018/FR-019): the agent server's switch, port and state, and the
- * configuration each agent needs, ready to copy. DTA never writes into an agent's files.
+ * Settings › Tools › DTA › Agents (FR-018/FR-019, feature 073 boards 2 and 7): Agent server, Connect an agent, Secrets.
+ * The credential is never on screen; Copy command and Copy prompt put it in the clipboard. DTA never writes into an agent's files.
  */
 class AgentsPanel(
     private val controller: AgentServerController,
@@ -59,33 +53,21 @@ class AgentsPanel(
     private val port = JBTextField(prefs.port.toString(), 6)
     private val stateLine = JBLabel()
     private val fix = ActionLink("") { port.requestFocusInWindow(); port.selectAll() }.apply { isVisible = false }
-    private val agent = ComboBox(Agent.entries.toTypedArray()).apply {
-        renderer = textRenderer { it.title }
-    }
-    private val config = JBTextArea(6, 1).apply { isEditable = false; lineWrap = true; font = JBUI.Fonts.create(java.awt.Font.MONOSPACED, font.size) }
-    private val where = JBLabel().apply { foreground = JBColor.GRAY }
-    private val note = WrappedLabel().apply { foreground = JBColor.GRAY }.also { wrapped += it }
-
-    /** Loaded off the UI thread (the keychain may prompt); null until then. */
-    @Volatile private var credential: String? = null
+    private val connect = ConnectAgentBlock(controller, prefs).also { wrapped += it.note }
 
     init {
         enabled.addActionListener { controller.setEnabled(enabled.isSelected) }
         val applyPort = JButton("Apply").apply {
             addActionListener { port.text.trim().toIntOrNull()?.let(controller::setPort) ?: controller.setPort(-1) }
         }
-        agent.addActionListener { renderConfig() }
-        val copy = JButton("Copy").apply {
-            addActionListener { CopyPasteManager.getInstance().setContents(StringSelection(config.text)) }
+        val copy = JButton("Copy command").apply {
+            toolTipText = "Copy the command for the chosen agent, with the credential"
+            addActionListener { connect.copyCommand() }
         }
         // An instruction for the agent to configure the server itself.
         val copyPrompt = JButton("Copy prompt").apply {
             toolTipText = "Copy an instruction to paste into the agent, so it sets up the DTA server itself"
-            addActionListener {
-                val selected = agent.selectedItem as? Agent ?: return@addActionListener
-                val known = credential ?: return@addActionListener
-                CopyPasteManager.getInstance().setContents(StringSelection(AgentConfigs.prompt(selected, endpoint(), known)))
-            }
+            addActionListener { connect.copyPrompt() }
         }
         val regenerate = ActionLink("Regenerate credential") {
             val answer = Messages.showYesNoDialog(
@@ -93,23 +75,26 @@ class AgentsPanel(
                 "Regenerate DTA Agent Credential", null,
             )
             if (answer == Messages.YES) {
-                controller.regenerate { fresh -> credential = fresh; javax.swing.SwingUtilities.invokeLater { renderConfig() } }
+                controller.regenerate { fresh -> connect.regenerated(fresh) }
             }
         }
         val portRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(port); add(applyPort) }
         val stateRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(stateLine); add(fix) }
+        val agentRow = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { add(connect.agent) }
         val copyRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { add(copy); add(copyPrompt); add(regenerate) }
         val form = FormBuilder.createFormBuilder()
+            .addComponent(TitledSeparator("Agent server"))
             .addComponent(enabled)
             .addLabeledComponent("Port", portRow)
             .addLabeledComponent("State", stateRow)
-            .addSeparator()
-            .addLabeledComponent("Agent", agent)
-            .addComponent(where)
-            .addComponent(JBScrollPane(config))
+            .addComponent(TitledSeparator("Connect an agent"))
+            .addLabeledComponent("Agent", agentRow)
+            .addComponent(connect.where)
+            .addComponent(connect.command)
             .addComponent(copyRow)
-            .addComponent(note)
-            .addComponent(com.intellij.ui.TitledSeparator("Secrets"))
+            .addComponent(help("The credential is kept in the IDE's password safe. DTA never writes into an agent's files."))
+            .addComponent(connect.note)
+            .addComponent(TitledSeparator("Secrets"))
             .addComponent(mask)
             .addComponent(help("Applies to this server, dta mcp and the CLI. A masked value keeps its length and a fingerprint, <code>#3f9a2c81d04e</code>: the same value has the same fingerprint everywhere, so an agent can tell an old token from a new one and search where it came from. The DTA tabs always show values as sent."))
             .addComponent(help("Keeps secrets out of an agent's context, logs and shared files; it does not stop a program that reads DTA's files on this computer."))
@@ -128,8 +113,6 @@ class AgentsPanel(
             override fun componentResized(e: java.awt.event.ComponentEvent?) = wrapAll(tracking.width - form.insets.left - form.insets.right)
         })
         add(JBScrollPane(tracking).apply { border = JBUI.Borders.empty(); horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER }, BorderLayout.CENTER)
-        renderConfig()
-        controller.credentialAsync { loaded -> credential = loaded; javax.swing.SwingUtilities.invokeLater { renderConfig() } }
         redaction?.let { r ->
             mask.addActionListener { mask.isEnabled = false; r.set(mask.isSelected) }
             scope.launch {
@@ -150,7 +133,7 @@ class AgentsPanel(
     }
 
     private fun show(state: AgentServerState) {
-        stateLine.text = state.line
+        stateLine.text = (state as? AgentServerState.On)?.let { "Serving at ${it.url}" } ?: state.line
         stateLine.foreground = when (state) {
             is AgentServerState.On -> DtaColors.of("live")
             is AgentServerState.Failed -> DtaColors.of("status-server")
@@ -160,23 +143,8 @@ class AgentsPanel(
         fix.isVisible = state.action != null
         enabled.isSelected = prefs.enabled
         port.text = prefs.port.toString()
-        renderConfig()
-    }
-
-    private fun renderConfig() {
-        val selected = agent.selectedItem as? Agent ?: return
-        val known = credential
-        if (known == null) {
-            config.text = "Reading the credential from the IDE's password safe…"
-            return
-        }
-        val rendered = AgentConfigs.render(selected, endpoint(), known)
-        config.text = rendered.text
-        where.text = rendered.where?.let { "Paste into $it" } ?: "Run in a terminal"
-        note.html = rendered.note?.let { it.replace("&", "&amp;").replace("<", "&lt;") }.orEmpty()
+        connect.render()
     }
 
     private fun wrapAll(available: Int) { if (available > 0) wrapped.forEach { it.wrapTo(available) } }
-
-    private fun endpoint() = "http://127.0.0.1:${prefs.port}/mcp"
 }

@@ -37,6 +37,18 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             service.network.setArchive(scope)
             tabs.selectedIndex = 0
         }
+        // Feature 073: who can reach DTA through agents, now.
+        val agentServer = io.yamsergey.dta.studio.agents.AgentServerService.get().controller
+        val agentsPanel = AgentsTabPanel(
+            service.scope,
+            io.yamsergey.dta.studio.agents.AgentClientsFeed(DtaApplicationService.get().session.state, service.scope),
+            agentServer,
+            io.yamsergey.dta.studio.agents.AgentRedactionController(
+                { (DtaApplicationService.get().session.state.value as? io.yamsergey.dta.studio.DaemonSession.State.Connected)?.client }, service.scope,
+            ),
+            ConnectAgentBlock(agentServer, com.intellij.openapi.application.ApplicationManager.getApplication().getService(io.yamsergey.dta.studio.agents.AgentServerSettings::class.java)),
+            openSettings = { com.intellij.openapi.options.ShowSettingsUtil.getInstance().showSettingsDialog(project, io.yamsergey.dta.studio.settings.AgentsConfigurable::class.java) },
+        )
         val layoutPanel = LayoutPanel(project, service.layout, service.scope, service.selection)
         val scriptPanel = ScriptPanel(project, controller, service.scope)
         val linksPanel = LinksPanel(project, controller, service.scope)
@@ -74,7 +86,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             runtimePanel.openViewModels()
         }
         var dataFor: Pair<String?, String?>? = null
-        // Feature 056: Agents and Schemas live in Settings › Tools › DTA; Timeline is a feature switched there.
+        // Feature 056: Schemas live in Settings › Tools › DTA, Timeline is a feature switched there; feature 073: Agents is a tab again, its settings there.
         tabs = JBTabbedPane().apply {
             addTab("Network", NetworkPanel(project, service.network, controller, service.scope, openHistory = { openHistory() }, openScript = { tabs.selectedComponent = scriptPanel; scriptPanel.refresh() }))
             addTab("Data", dataPanel)
@@ -82,6 +94,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
             addTab("Links", linksPanel)
             addTab("Layout", layoutPanel)
             addTab("Script", scriptPanel)
+            addTab("Agents", agentsPanel)
             addTab("Daemon", daemonPanel)
         }
         openHistory = {

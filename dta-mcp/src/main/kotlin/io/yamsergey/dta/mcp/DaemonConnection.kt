@@ -22,6 +22,22 @@ class DaemonConnection(private val connect: suspend () -> DaemonLauncher.Connect
 
     suspend fun call(operation: String, params: JsonObject): Selected = client().call(operation, params)
 
+    /** Feature 073: what this connection tells the daemon about itself, once per connection (the latest of each method). */
+    private val announced = LinkedHashMap<String, JsonObject>()
+
+    /**
+     * Feature 073: tells the daemon [method] now (connecting when needed) and again after every reconnect.
+     * Best effort: a daemon that does not know it, or is gone, is logged and the call goes on.
+     */
+    suspend fun announce(method: String, params: JsonObject) {
+        synchronized(announced) { announced[method] = params }
+        try {
+            client().request(method, params)
+        } catch (e: Exception) {
+            log("could not tell the daemon $method: ${e.message}")
+        }
+    }
+
     /**
      * Feature 071: `network.search` as a streamed search gathered into its page ([FindCollector]):
      * [progress] hears how many were found after each batch; cancelling the caller stops the search.
@@ -49,7 +65,7 @@ class DaemonConnection(private val connect: suspend () -> DaemonLauncher.Connect
     private suspend fun client(): DaemonClient {
         val current = mutex.withLock {
             client?.takeIf { it.goneReason == null } ?: try {
-                connect().also { c -> c.statements.forEach(log) }.client.also { client = it }
+                connect().also { c -> c.statements.forEach(log) }.client.also { client = it; tell(it) }
             } catch (e: VersionConflictException) {
                 fatal = e.message
                 throw DaemonGoneException(e.message!!)
@@ -58,6 +74,12 @@ class DaemonConnection(private val connect: suspend () -> DaemonLauncher.Connect
             }
         }
         return current
+    }
+
+    /** Feature 073: after a (re)connect, what the daemon should know of this connection. */
+    private suspend fun tell(connected: DaemonClient) {
+        val all = synchronized(announced) { announced.toMap() }
+        all.forEach { (method, params) -> runCatching { connected.request(method, params) } }
     }
 
     suspend fun close() = mutex.withLock { client?.let { runCatching { it.close() } }; client = null }

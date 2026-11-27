@@ -47,12 +47,19 @@ data class DaemonView(
                 adb = adb?.str("path")?.takeIf { adb.bool("available") },
                 adbProblem = if (adb?.bool("available") == true) null else
                     Statement(StatementKind.DEGRADED, word = "adb unavailable", detail = "adb unavailable: ${adb?.str("reason") ?: "no reason given"}"),
-                clients = status.arr("clients").map { (it as JsonObject).let { c -> "${c.str("kind")} ${c.str("version")}" } },
+                clients = status.arr("clients").map { clientLine(it as JsonObject) },
                 devices = status.arr("devices").map { (it as JsonObject).let { d -> listOfNotNull(d.str("serial"), d.str("state"), d.str("model")).joinToString(" ") } },
                 connections = status.arr("connections").map { (it as JsonObject).let { c -> "${c.str("device")} ${c.str("app")}" } },
                 sidekick = capability?.let { "sidekick ${it.str("sidekickVersion")}" + (it.str("sidekickBuild")?.let { b -> " (build $b)" } ?: "") + " in ${it.str("packageName")}" },
                 capabilities = rows,
             )
+        }
+
+        /** Feature 073 (FR-008): `kind version`, then the agent's name and version and the server it came through, when known. */
+        fun clientLine(c: JsonObject): String = buildString {
+            append("${c.str("kind")} ${c.str("version")}")
+            c.str("name")?.let { append(" — ").append(it); c.str("agentVersion")?.let { v -> append(" ").append(v) } }
+            c.str("server")?.let { append(" · ").append(it) }
         }
 
         private fun row(o: JsonObject, depth: Int, gaps: Map<String?, Statement>): CapabilityRow {

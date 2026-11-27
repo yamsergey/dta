@@ -6,6 +6,9 @@ import io.modelcontextprotocol.server.McpSyncServer
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider
 import io.yamsergey.dta.client.DaemonLauncher
 import io.yamsergey.dta.client.VersionInfo
+import io.yamsergey.dta.protocol.ops.DaemonMethods
+import io.yamsergey.dta.protocol.rpc.DtaJson
+import kotlinx.serialization.json.jsonObject
 import jakarta.servlet.DispatcherType
 import jakarta.servlet.Filter
 import jakarta.servlet.FilterChain
@@ -50,6 +53,26 @@ class McpHttpServer(
     private var mcp: McpSyncServer? = null
     private var connection: DaemonConnection? = null
 
+    /** Feature 073: the agent sessions, reported to the daemon whenever the list changes. */
+    private val sessions = SessionRegistry()
+    private var reported: List<io.yamsergey.dta.protocol.ops.ClientSession> = emptyList()
+    private var reporter: java.util.concurrent.ScheduledExecutorService? = null
+
+    /** Tells the daemon the sessions when they differ from the last report. In order: one thread reports. */
+    private fun report() {
+        val executor = reporter ?: return
+        val conn = connection ?: return
+        runCatching {
+            executor.execute {
+                val now = sessions.snapshot()
+                if (now == reported) return@execute
+                reported = now
+                val params = DtaJson.encodeToJsonElement(io.yamsergey.dta.protocol.ops.ClientSessions.serializer(), io.yamsergey.dta.protocol.ops.ClientSessions(now, url)).jsonObject
+                runBlocking { conn.announce(DaemonMethods.CLIENT_SESSIONS, params) }
+            }
+        }
+    }
+
     /** Starts serving; [PortInUseException] when [port] is taken. */
     @Synchronized
     fun start() {
@@ -76,7 +99,7 @@ class McpHttpServer(
             jetty.addConnector(ServerConnector(jetty).apply { host = HOST; port = this@McpHttpServer.port })
             jetty.handler = ServletContextHandler().apply {
                 addFilter(FilterHolder(BearerFilter(credential)), "/*", EnumSet.of(DispatcherType.REQUEST))
-                addFilter(FilterHolder(ObservingFilter(cancels)), "/*", EnumSet.of(DispatcherType.REQUEST))
+                addFilter(FilterHolder(ObservingFilter(cancels, sessions, ::report)), "/*", EnumSet.of(DispatcherType.REQUEST))
                 addServlet(ServletHolder(transport), ENDPOINT)
             }
             try {
@@ -90,6 +113,9 @@ class McpHttpServer(
             this.jetty = jetty
             this.mcp = mcp
             this.connection = connection
+            reported = emptyList()
+            reporter = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "dta-agent-sessions").apply { isDaemon = true } }
+                .also { it.scheduleWithFixedDelay({ report() }, IDLE_CHECK_SECONDS, IDLE_CHECK_SECONDS, java.util.concurrent.TimeUnit.SECONDS) }
             log("DTA agent server on $url")
         } finally {
             thread.contextClassLoader = previous
@@ -101,6 +127,8 @@ class McpHttpServer(
     fun stop() {
         runCatching { mcp?.closeGracefully() }
         runCatching { jetty?.stop() }
+        reporter?.shutdownNow()
+        reporter = null
         connection?.let { runBlocking { it.close() } }
         mcp = null
         jetty = null
@@ -123,12 +151,28 @@ class McpHttpServer(
     }
 
     /** Feature 071: each message a client posts is shown to [cancels] (an agent's cancel stops its call), then served as sent. */
-    private class ObservingFilter(private val cancels: McpCancels) : Filter {
+    private class ObservingFilter(private val cancels: McpCancels, private val sessions: SessionRegistry, private val changed: () -> Unit) : Filter {
         override fun doFilter(request: ServletRequest, response: ServletResponse, chain: FilterChain) {
             val http = request as HttpServletRequest
+            val session = http.getHeader(SESSION_HEADER)
+            if (http.method == "DELETE") {
+                chain.doFilter(request, response)
+                if (session != null && sessions.end(session)) changed()
+                return
+            }
             if (http.method != "POST") return chain.doFilter(request, response)
             val body = http.inputStream.readBytes()
-            cancels.observe(String(body, Charsets.UTF_8), http.getHeader("Mcp-Session-Id"))
+            val text = String(body, Charsets.UTF_8)
+            cancels.observe(text, session)
+            // Feature 073: a request of a known session; its initialize starts one (the session id comes with the answer).
+            if (session != null) sessions.touch(session)
+            val named = ClientNaming.fromInitialize(text)
+            doChain(http, response, chain, body)
+            if (named != null) (response as HttpServletResponse).getHeader(SESSION_HEADER)?.let { sessions.start(it, named) }
+            changed()
+        }
+
+        private fun doChain(http: HttpServletRequest, response: ServletResponse, chain: FilterChain, body: ByteArray) {
             chain.doFilter(object : jakarta.servlet.http.HttpServletRequestWrapper(http) {
                 override fun getInputStream(): jakarta.servlet.ServletInputStream {
                     val bytes = java.io.ByteArrayInputStream(body)
@@ -151,6 +195,8 @@ class McpHttpServer(
         const val HOST = "127.0.0.1"
         const val ENDPOINT = "/mcp"
         const val DEFAULT_PORT = 12321
+        const val SESSION_HEADER = "Mcp-Session-Id"
+        private const val IDLE_CHECK_SECONDS = 30L
         const val UNAUTHORIZED = "DTA agent server: missing or wrong credential"
     }
 }

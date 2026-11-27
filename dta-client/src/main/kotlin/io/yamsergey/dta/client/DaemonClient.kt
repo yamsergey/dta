@@ -119,6 +119,13 @@ class DaemonClient private constructor(private val timeout: Duration) {
     fun appEvents(params: JsonObject): Flow<JsonObject> = subscription(DaemonMethods.APPS_SUBSCRIBE, DaemonMethods.APPS_UNSUBSCRIBE, setOf(DaemonEvents.APP_CONNECTION), params)
 
     /**
+     * Feature 073: the connected clients (`daemon.clients`): the first element is `{"selection": Selected}` whose result
+     * holds `clients`; then each change's data (`subscription`, `clients`), pushed as it happens.
+     */
+    fun clientEvents(): Flow<JsonObject> =
+        subscription(DaemonMethods.CLIENTS_SUBSCRIBE, DaemonMethods.CLIENTS_UNSUBSCRIBE, setOf(DaemonEvents.CLIENTS), JsonObject(emptyMap()))
+
+    /**
      * The app's timeline as it happens (`timeline.watch`, features 015/016). The first element is
      * `{"selection": Selected}`; then each `timeline.event`'s data (`subscription`, `device`, `app`, `event`).
      */
@@ -284,6 +291,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
 
     companion object {
         internal fun forTest(): DaemonClient = DaemonClient(1.minutes)
+        const val CLI_NAME = "dta CLI"
 
         /** Dials [port] with [token] and says hello; throws [DaemonCallException] or an IO error. */
         suspend fun connect(
@@ -292,6 +300,8 @@ class DaemonClient private constructor(private val timeout: Duration) {
             kind: ClientKind,
             identity: VersionIdentity,
             timeout: Duration = 2.minutes,
+            /** Feature 073: what the client calls itself; the CLI says "dta CLI" when this is not given. */
+            name: String? = null,
         ): DaemonClient {
             val client = DaemonClient(timeout)
             client.socket = HttpClient.newHttpClient().newWebSocketBuilder()
@@ -303,7 +313,7 @@ class DaemonClient private constructor(private val timeout: Duration) {
             try {
                 val hello = client.request(
                     DaemonMethods.HELLO,
-                    DtaJson.encodeToJsonElement(DaemonHello.serializer(), DaemonHello(kind, identity)).jsonObject,
+                    DtaJson.encodeToJsonElement(DaemonHello.serializer(), DaemonHello(kind, identity, name ?: if (kind == ClientKind.CLI) CLI_NAME else null)).jsonObject,
                     5.seconds,
                 )
                 client.daemon = DtaJson.decodeFromJsonElement(DaemonHelloResult.serializer(), hello)

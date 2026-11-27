@@ -11,7 +11,7 @@ import javax.swing.SwingUtilities
  * otherwise one under another at full size — never overlapping or squeezed, as the tab is at any
  * width (a caption beside "N new below", a body's title beside its view modes).
  */
-class LineOrStack(private val gap: Int) : LayoutManager {
+class LineOrStack(private val gap: Int, private val lastAtEdge: Boolean = true) : LayoutManager {
     private var stackedWhenMeasured: Boolean? = null
 
     override fun addLayoutComponent(name: String?, comp: Component?) {}
@@ -53,7 +53,7 @@ class LineOrStack(private val gap: Int) : LayoutManager {
         parts.forEachIndexed { i, c ->
             val p = c.preferredSize
             val w = minOf(p.width, room - (x - ins.left)).coerceAtLeast(0)
-            val left = if (i == parts.lastIndex && i > 0) ins.left + room - w else x
+            val left = if (lastAtEdge && i == parts.lastIndex && i > 0) ins.left + room - w else x
             c.setBounds(left, ins.top + ((height - p.height) / 2).coerceAtLeast(0), w, p.height)
             x += w + gap
         }

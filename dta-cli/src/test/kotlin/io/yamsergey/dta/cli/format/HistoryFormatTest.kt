@@ -68,4 +68,13 @@ class HistoryFormatTest {
             f.format("network.clear", Json.parseToJsonElement("""{"clearedEntries":12,"clearedAtMs":1,"notKept":{"entries":2,"bodies":3,"reason":"the copy did not finish in 20 s"}}""")),
         )
     }
+
+    @Test
+    fun `the daemon status lists each client with its agent name and server (073 FR-008)`() {
+        val text = f.format("daemon.status", Json.parseToJsonElement(
+            """{"identity":{"version":"0.10.0","build":"b"},"pid":1,"uptimeMs":1000,"home":"/h","adb":{"available":true,"path":"/adb"},"clients":[{"kind":"mcp-http","version":"0.10.0","connectedAtMs":1,"name":"claude-code","agentVersion":"2.1.330","server":"http://127.0.0.1:7341/mcp"},{"kind":"cli","version":"0.10.0","connectedAtMs":2,"name":"dta CLI"}],"devices":[],"connections":[]}""",
+        ))
+        assertTrue("mcp-http 0.10.0 — claude-code 2.1.330 · http://127.0.0.1:7341/mcp" in text, text)
+        assertTrue("cli 0.10.0 — dta CLI" in text, text)
+    }
 }

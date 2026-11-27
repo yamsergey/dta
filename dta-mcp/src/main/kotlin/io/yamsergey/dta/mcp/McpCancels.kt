@@ -54,13 +54,13 @@ class McpCancels(
 }
 
 /** Feature 071: bytes on their way to the SDK, shown to [cancels] line by line. */
-class ObservedInput(input: java.io.InputStream, private val cancels: McpCancels) : java.io.FilterInputStream(input) {
+class ObservedInput(input: java.io.InputStream, private val cancels: McpCancels, private val also: (String) -> Unit = {}) : java.io.FilterInputStream(input) {
     private val line = java.io.ByteArrayOutputStream()
 
     private fun seen(b: ByteArray, off: Int, n: Int) {
         for (i in off until off + n) {
             val c = b[i]
-            if (c == '\n'.code.toByte()) { cancels.observe(line.toString(Charsets.UTF_8)); line.reset() } else line.write(c.toInt())
+            if (c == '\n'.code.toByte()) { line.toString(Charsets.UTF_8).let { cancels.observe(it); also(it) }; line.reset() } else line.write(c.toInt())
         }
     }
 
