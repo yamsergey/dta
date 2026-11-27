@@ -130,8 +130,14 @@ class RuntimePanel(
                 when (val o = (value as? DefaultMutableTreeNode)?.userObject) {
                     is Section -> append(o.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
                     is Item -> {
-                        append(o.label)
-                        if (o.detail.isNotEmpty()) {
+                        val labelMetrics = t.getFontMetrics(font)
+                        val labelX = (((value as? DefaultMutableTreeNode)?.level ?: 1) - (if (t.isRootVisible) 0 else 1)) *
+                            (((t.ui as? javax.swing.plaf.basic.BasicTreeUI)?.leftChildIndent ?: 0) + ((t.ui as? javax.swing.plaf.basic.BasicTreeUI)?.rightChildIndent ?: 0)) + JBUI.scale(20)
+                        val labelRoom = io.yamsergey.dta.studio.ui.VisibleWidth.of(t) - labelX - JBUI.scale(24)
+                        // D-139: the name itself wider than the pane: an ellipsis inside it (the tooltip has the whole), no detail; never a clip.
+                        val wholeLabel = labelRoom <= 0 || labelMetrics.stringWidth(o.label) <= labelRoom
+                        append(if (wholeLabel) o.label else io.yamsergey.dta.studio.ui.ClassNameFit.end(o.label, { labelMetrics.stringWidth(it) }, labelRoom))
+                        if (wholeLabel && o.detail.isNotEmpty()) {
                             // Truncation rules, rule 4: the name stays whole, the secondary text ends in … at the room that is left.
                             val metrics = t.getFontMetrics(font)
                             // Never ask the tree for row geometry here: the tree asks this renderer for it. The indent comes from the depth.
