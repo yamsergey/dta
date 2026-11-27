@@ -79,7 +79,7 @@ class AgentsTabPanel(
         }.apply { add(body, BorderLayout.NORTH) }
         add(JBScrollPane(tracking).apply { border = JBUI.Borders.empty(); horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER }, BorderLayout.CENTER)
         addComponentListener(object : java.awt.event.ComponentAdapter() {
-            override fun componentResized(e: java.awt.event.ComponentEvent?) = render()
+            override fun componentResized(e: java.awt.event.ComponentEvent?) { render(); wrapped.forEach { it.wrapTo(room()) } }
         })
         scope.launch {
             combine(feed.clients, controller.state, redaction.state) { clients, _, _ -> clients }.collect { clients ->
@@ -104,6 +104,7 @@ class AgentsTabPanel(
         if (shown == view to narrow) return
         shown = view to narrow
         body.removeAll()
+        wrapped.clear()
         body.border = JBUI.Borders.empty(12, 16)
         when (view) {
             AgentsView.DaemonNotRunning -> body.add(left(JBLabel("Daemon not running").apply { foreground = JBColor.GRAY }))
@@ -116,11 +117,14 @@ class AgentsTabPanel(
     private fun running(view: AgentsView.Running) {
         body.add(heading("Agent server") { ActionLink("Settings…") { openSettings() } })
         val server = view.server
-        body.add(left(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
+        body.add(left(JPanel(LineOrStack(JBUI.scale(8))).apply {
             isOpaque = false
             val color = when (server.tone) { Tone.LIVE -> DtaColors.of("live"); Tone.FAILED -> DtaColors.of("status-server"); Tone.NEUTRAL -> JBColor.GRAY }
-            add(JBLabel("●").apply { foreground = color })
-            add(JBLabel(server.word).apply { foreground = if (server.tone == Tone.NEUTRAL) JBColor.foreground() else color })
+            add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
+                isOpaque = false
+                add(JBLabel("●").apply { foreground = color })
+                add(JBLabel(server.word).apply { foreground = if (server.tone == Tone.NEUTRAL) JBColor.foreground() else color })
+            })
             server.address?.let { add(JBLabel(it).apply { font = mono() }) }
             server.action?.let { add(ActionLink(it) { openSettings() }) }
         }))
@@ -135,20 +139,17 @@ class AgentsTabPanel(
 
         view.redaction?.let { line ->
             body.add(heading("Secrets"))
-            body.add(left(JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+            body.add(left(JPanel(LineOrStack(0)).apply {
                 isOpaque = false
-                add(JBLabel(line.text))
-                line.sample?.let { add(JBLabel(it).apply { font = mono(); foreground = JBColor.GRAY }) }
+                add(JBLabel(line.text.trimEnd()))
+                line.sample?.let { add(JBLabel(it).apply { font = mono(); foreground = JBColor.GRAY; border = JBUI.Borders.emptyLeft(4) }) }
             }))
-            body.add(left(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
-                isOpaque = false
-                add(JBLabel("The server, dta mcp and the CLI, and every export. These tabs show values as sent.").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() })
-                add(ActionLink("Change in Settings…") { openSettings() })
-            }))
+            body.add(left(note("The server, dta mcp and the CLI, and every export. These tabs show values as sent.")))
+            body.add(left(ActionLink("Change in Settings…") { openSettings() }, top = 0))
         }
 
         body.add(heading("Connect an agent"))
-        body.add(left(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
+        body.add(left(JPanel(LineOrStack(JBUI.scale(8))).apply {
             isOpaque = false
             add(connect.agent)
             add(JBLabel("Copy the command or the prompt from the strip at the left.").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() })
@@ -204,8 +205,13 @@ class AgentsTabPanel(
         alignmentX = LEFT_ALIGNMENT
         border = JBUI.Borders.emptyTop(top)
         add(c, BorderLayout.CENTER)
-        maximumSize = java.awt.Dimension(Int.MAX_VALUE, preferredSize.height)
     }
+
+    /** Muted small text that wraps at the width the tab has. */
+    private fun note(text: String): JComponent = WrappedLabel(text.replace("&", "&amp;").replace("<", "&lt;")).apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }.also { wrapped += it; it.wrapTo(room()) }
+
+    private val wrapped = mutableListOf<WrappedLabel>()
+    private fun room() = (width - JBUI.scale(34 + 32)).coerceAtLeast(JBUI.scale(120))
 
     private class Act(text: String, icon: javax.swing.Icon, private val run: () -> Unit) : DumbAwareAction(text, null, icon) {
         override fun getActionUpdateThread() = ActionUpdateThread.BGT
