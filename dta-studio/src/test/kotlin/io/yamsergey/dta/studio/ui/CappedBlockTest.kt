@@ -30,4 +30,15 @@ class CappedBlockTest : BasePlatformTestCase() {
     fun testASmallPanelStillGivesTheBlockAReadableLine() {
         assertTrue(heightIn(60, tall(900)) >= 24)
     }
+
+    /** V1: a capped block ends on a whole line and scrolls by whole lines, so no line is half-cut. */
+    fun testTheCapIsAWholeNumberOfLinesAndScrollsByLines() {
+        val block = CappedBlock(listOf(tall(900)), 0.3)
+        val parent = JPanel(BorderLayout()).apply { add(block, BorderLayout.NORTH); setSize(420, 590) }
+        parent.doLayout()
+        val line = block.getFontMetrics(block.font).height
+        val h = block.preferredSize.height
+        assertEquals("height $h, line $line", 0, h % line)
+        assertEquals(line, block.verticalScrollBar.unitIncrement)
+    }
 }
