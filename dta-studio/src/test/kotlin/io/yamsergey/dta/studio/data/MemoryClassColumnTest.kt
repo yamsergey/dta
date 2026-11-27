@@ -22,6 +22,8 @@ class MemoryClassColumnTest : BasePlatformTestCase() {
                 {"className":"$pkg.HeapLeakActivity","origin":"app","countA":1,"countB":4,"bytesA":4,"bytesB":16,"change":"grew"},
                 {"className":"$pkg.HeapLeakService","origin":"app","countA":1,"countB":3,"bytesA":4,"bytesB":12,"change":"grew"}],
                 "filters":{},"leftOut":{},"unchangedClasses":0,"totalsDeltaObjects":0,"totalsDeltaBytes":0},"leftOut":"none"}"""
+            "runtime.heap.instances" -> """{"className":"$pkg.HeapLeakActivity","total":1,"offset":0,"instances":[
+                {"id":4294967297,"className":"$pkg.HeapLeakActivity","bytes":400,"link":{"kind":"activity","ref":"7a3c01"},"state":"destroyed but still referenced from a static field of a long-lived singleton"}],"note":"now"}"""
             else -> "{}"
         },
     ).jsonObject
@@ -48,5 +50,21 @@ class MemoryClassColumnTest : BasePlatformTestCase() {
         assertTrue(a, allowed.matches(a)); assertTrue(b, allowed.matches(b))
         assertTrue("$a vs $b", a != b)
         assertTrue(a, a.length < "$pkg.HeapLeakActivity".length)
+    }
+
+    fun testAnInstanceLineEndsInAnEllipsisWithTheWholeLineInTheTooltip() {
+        val p = MemoryPanel(project, CoroutineScope(Dispatchers.Unconfined), ui = { it.run() }, call = { op, _ -> answer(op) })
+        p.setSize(420, 700); layout(p); p.load(); layout(p)
+        p.table.setRowSelectionInterval(0, 0)
+        layout(p)
+        val list = p.instanceList
+        val value = list.model.getElementAt(0)
+        val label = list.cellRenderer.getListCellRendererComponent(list, value, 0, false, false) as JLabel
+        val whole = "${value.label}   ${value.state}" + (value.linkText?.let { "   $it" } ?: "")
+        assertTrue("list is laid out: ${list.width}", list.width > 0)
+        assertTrue(label.text, label.text.endsWith("…"))
+        assertTrue(label.text, label.getFontMetrics(label.font).stringWidth(label.text) <= list.width)
+        val e = java.awt.event.MouseEvent(list, 0, 0, 0, 5, 5, 0, false)
+        assertEquals(whole, list.getToolTipText(e))
     }
 }
