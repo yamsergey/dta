@@ -261,7 +261,17 @@ class TimelineController(
             val base = if (moved) TimelineTabState(inferred = it.inferred, showSequence = it.showSequence) else it
             base.copy(device = target.device, app = target.app, watching = false, error = null)
         }
-        val client = target.client ?: return
+        val client = target.client ?: run {
+            // D-156 (017 FR-014, as the Network tab since D-083): no daemon, nothing is watched, and what the list showed is no longer live:
+            // it is cleared and the tab says why, in the shared banner's words (the error is left for the daemon's return to clear).
+            mutable.update {
+                it.copy(
+                    view = io.yamsergey.dta.present.timeline.TimelineView(), chain = ChainView.EMPTY, loading = false, watching = false,
+                    error = context.state.value.banner?.text ?: "The DTA daemon is not connected: the timeline cannot be read.",
+                )
+            }
+            return
+        }
         if (target.device == null || target.app == null || !target.hasDta) return
         source = scope.launch {
             val me = coroutineContext[Job]
