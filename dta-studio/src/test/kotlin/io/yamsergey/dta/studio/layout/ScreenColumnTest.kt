@@ -27,3 +27,17 @@ class ScreenColumnTest : BasePlatformTestCase() {
         }
     }
 }
+
+/** D-144: at a narrow column the caption keeps a hovered element's class name whole; the link gives way. */
+class ScreenColumnCaptionTest : BasePlatformTestCase() {
+    fun `test the caption has room for a class name at the narrow width`() {
+        val column = ScreenColumn(JPanel()) {}
+        column.setCaption("LinearLayout")
+        column.setSize(238, 400)
+        fun lay(c: java.awt.Container) { c.doLayout(); c.components.filterIsInstance<java.awt.Container>().forEach { lay(it) } }
+        lay(column)
+        val metrics = column.captionLabel.getFontMetrics(column.captionLabel.font)
+        val need = metrics.stringWidth("LinearLayout") + column.captionLabel.insets.left + column.captionLabel.insets.right
+        assertTrue("caption ${column.captionLabel.width} px, needs $need", column.captionLabel.width >= need)
+    }
+}
