@@ -117,7 +117,7 @@ class AgentsTabPanel(
     private fun running(view: AgentsView.Running) {
         body.add(heading("Agent server") { ActionLink("Settings…") { openSettings() } })
         val server = view.server
-        body.add(left(JPanel(LineOrStack(JBUI.scale(8))).apply {
+        body.add(left(JPanel(LineOrStack(JBUI.scale(8), lastAtEdge = false)).apply {
             isOpaque = false
             val color = when (server.tone) { Tone.LIVE -> DtaColors.of("live"); Tone.FAILED -> DtaColors.of("status-server"); Tone.NEUTRAL -> JBColor.GRAY }
             add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply {
@@ -139,7 +139,7 @@ class AgentsTabPanel(
 
         view.redaction?.let { line ->
             body.add(heading("Secrets"))
-            body.add(left(JPanel(LineOrStack(0)).apply {
+            body.add(left(JPanel(LineOrStack(0, lastAtEdge = false)).apply {
                 isOpaque = false
                 add(JBLabel(line.text.trimEnd()))
                 line.sample?.let { add(JBLabel(it).apply { font = mono(); foreground = JBColor.GRAY; border = JBUI.Borders.emptyLeft(4) }) }
@@ -149,7 +149,7 @@ class AgentsTabPanel(
         }
 
         body.add(heading("Connect an agent"))
-        body.add(left(JPanel(LineOrStack(JBUI.scale(8))).apply {
+        body.add(left(JPanel(LineOrStack(JBUI.scale(8), lastAtEdge = false)).apply {
             isOpaque = false
             add(connect.agent)
             add(JBLabel("Copy the command or the prompt from the strip at the left.").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() })
