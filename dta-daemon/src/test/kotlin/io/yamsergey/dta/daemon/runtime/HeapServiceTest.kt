@@ -146,6 +146,33 @@ class HeapServiceTest {
         assertTrue(service.compare(app, "empty", "b", "all", null, null).notes.any { it.contains("of DTA itself left out") })
     }
 
+    @Test fun listAfterANewProcessSaysTheCurrentRunHasNoSnapshot() = runBlocking<Unit> {
+        val f = Fake(ok())
+        service.snapshot(app, f, "a", false, null)
+        now += 3000
+        service.snapshot(app, f, "b", false, null)
+        f.run = "r2"
+        val l = service.list(app, f)
+        assertEquals("r2", l.currentRun)
+        assertEquals("r1", l.run)
+        assertEquals(2, l.snapshots.size)
+        assertTrue(l.note!!.contains("r2") && l.note!!.contains("no snapshot") && l.note!!.contains("earlier run (r1)"), l.note)
+        assertFailsWith<HeapRefusal> { service.compare(app, "a", "b", null, null, null, f) }.also { assertTrue(it.message!!.contains("earlier run"), it.message) }
+        assertEquals(0, f.walks - 2, "listing and comparing take no snapshot")
+        // The same run: no statement of an earlier run.
+        f.run = "r1"
+        assertEquals(null, service.list(app, f).note)
+    }
+
+    @Test fun listWhenTheAppCannotBeAskedKeepsTheOldAnswer() = runBlocking<Unit> {
+        val f = Fake(ok())
+        service.snapshot(app, f, "a", false, null)
+        val broken = object : HeapSidekick by f { override suspend fun run(): HeapRunInfo = throw RuntimeException("not connected") }
+        val l = service.list(app, broken)
+        assertEquals(1, l.snapshots.size)
+        assertEquals(null, l.currentRun)
+    }
+
     @Test fun compareRefusalsCarryTheReason() = runBlocking<Unit> {
         val e = assertFailsWith<HeapRefusal> { service.compare(app, "x", "y", null, null, null) }
         assertTrue(e.message!!.contains("no snapshot"))

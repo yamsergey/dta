@@ -79,7 +79,7 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
         )
     }
 
-    fun list(app: String): HeapListAnswer {
+    suspend fun list(app: String, sidekick: HeapSidekick? = null): HeapListAnswer {
         val l = store.list(app) ?: return HeapListAnswer(note = "No snapshot has been taken for this app; nothing takes one unless asked.")
         return HeapListAnswer(
             run = l.run,
@@ -89,7 +89,7 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
         )
     }
 
-    fun compare(app: String, a: String, b: String, origin: String?, packagePrefix: String?, top: Int?): HeapCompareAnswer {
+    suspend fun compare(app: String, a: String, b: String, origin: String?, packagePrefix: String?, top: Int?, sidekick: HeapSidekick? = null): HeapCompareAnswer {
         val o = if (origin == null) HeapOriginFilter.APP else HeapOriginFilter.entries.firstOrNull { it.name.equals(origin, ignoreCase = true) }
             ?: throw IllegalArgumentException("origin is app, library, platform or all; got '$origin'")
         require(top == null || top >= 0) { "top must not be negative" }
