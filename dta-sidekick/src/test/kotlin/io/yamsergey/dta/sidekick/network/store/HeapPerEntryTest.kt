@@ -12,6 +12,7 @@ import io.yamsergey.dta.protocol.network.StackFrame
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertTrue
 
 /**
  * 011 T001/T009 (research R0, SC-001): what the store's in-memory history costs. Before 011 it
@@ -48,7 +49,7 @@ class HeapPerEntryTest {
         val results = listOf(1_000, 10_000, 100_000).map { count ->
             val root = File(dir, "n$count")
             val before = used()
-            val store = NetworkStore(StorageDir(root), pid = 1)
+            val store = NetworkStore(StorageDir(root), pid = 1).also { assertTrue(it.awaitLoaded()) }
             repeat(count) { store.upsert(entry(store, it)) }
             store.flush()
             val after = used()

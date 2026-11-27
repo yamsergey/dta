@@ -39,7 +39,7 @@ class NetworkDegradationAuditTest {
         startWriter: Boolean = true,
         block: (NetworkStore, NetworkRecorder) -> T,
     ): T {
-        val store = NetworkStore(root?.let { StorageDir(it) }, pid = 1, clock = { now++ }, queueCapacity = queueCapacity, startWriter = startWriter, bounds = bounds)
+        val store = NetworkStore(root?.let { StorageDir(it) }, pid = 1, clock = { now++ }, queueCapacity = queueCapacity, startWriter = startWriter, bounds = bounds).also { assertTrue(it.awaitLoaded()) }
         return try {
             block(store, NetworkRecorder(store, clock = { now }) { _, _ -> })
         } finally {

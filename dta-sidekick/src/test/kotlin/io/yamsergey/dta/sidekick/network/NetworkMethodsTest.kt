@@ -37,7 +37,7 @@ class NetworkMethodsTest {
     private var queueCapacity = 10_000
     private var writerOn = true
     private val store by lazy {
-        NetworkStore(StorageDir(dir), pid = 7, clock = { now++ }, queueCapacity = queueCapacity, startWriter = writerOn)
+        NetworkStore(StorageDir(dir), pid = 7, clock = { now++ }, queueCapacity = queueCapacity, startWriter = writerOn).also { assertTrue(it.awaitLoaded()) }
     }
     private val recorder by lazy { NetworkRecorder(store, clock = { now }) { _, _ -> } }
     private var status = CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE)
@@ -246,7 +246,7 @@ class NetworkMethodsTest {
 
     @Test
     fun `a page reaching the evicted boundary says history was evicted`() {
-        val small = NetworkStore(StorageDir(File(dir, "small")), pid = 8, clock = { now++ }, bounds = StoreBounds(historyBytes = 20_000, segmentBytes = 500)) // each 800-byte body takes a 4 KB block
+        val small = NetworkStore(StorageDir(File(dir, "small")), pid = 8, clock = { now++ }, bounds = StoreBounds(historyBytes = 20_000, segmentBytes = 500)).also { assertTrue(it.awaitLoaded()) } // each 800-byte body takes a 4 KB block
         try {
             val rec = NetworkRecorder(small, clock = { now }) { _, _ -> }
             val ids = (1..6).map { i ->

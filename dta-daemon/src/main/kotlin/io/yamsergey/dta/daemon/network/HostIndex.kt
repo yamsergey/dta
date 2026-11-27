@@ -256,6 +256,9 @@ class HostIndex(
      */
     private val viewQueries = java.util.concurrent.ConcurrentHashMap<String, NetworkQuery>()
 
+    /** D-128: what this index holds per entry or per request in memory (live sockets, bodies being copied, live views): tests check it does not follow the archive's size. */
+    internal fun heldInMemory(): Int = liveSockets.size + copying.size + viewQueries.size
+
     private fun stopperFor(view: String, query: NetworkQuery): () -> Unit {
         val mine = views.key(query)
         viewQueries[view] = mine
