@@ -13,7 +13,12 @@ import javax.swing.JPanel
  * Feature 057: the row is one line high whether empty or not, so hovering never resizes the picture.
  */
 class ScreenColumn(picture: JComponent, onNext: () -> Unit) : JPanel(BorderLayout()) {
-    private val caption = JBLabel(" ").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8) }
+    /** Asks for no width of its own (D-123): a long name is cut with an ellipsis, the full text is the tooltip. */
+    private val caption = object : JBLabel(" ") {
+        override fun getMinimumSize() = java.awt.Dimension(0, super.getMinimumSize().height)
+        override fun getPreferredSize() = java.awt.Dimension(0, super.getPreferredSize().height)
+        fun show(text: String) { setText(text); toolTipText = text.takeIf { it.isNotBlank() } }
+    }.apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8) }
 
     init {
         add(picture, BorderLayout.CENTER)
@@ -23,5 +28,5 @@ class ScreenColumn(picture: JComponent, onNext: () -> Unit) : JPanel(BorderLayou
         }, BorderLayout.SOUTH)
     }
 
-    fun setCaption(text: String) { caption.text = text.ifEmpty { " " } }
+    fun setCaption(text: String) = caption.show(text.ifEmpty { " " })
 }
