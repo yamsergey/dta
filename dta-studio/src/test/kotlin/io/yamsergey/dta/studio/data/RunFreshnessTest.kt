@@ -55,3 +55,45 @@ class RunFreshnessTest {
         assertFalse(f.stale(device, app))
     }
 }
+
+/** D-122: the Data and Runtime tabs read the app once per run: loaded when shown and stale, also when the app ran again while shown. */
+class FreshTabTest {
+    private val daemon = TestDaemon()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val session = DaemonSession(connect = { daemon.connect(ClientKind.IDE) }, scope = scope)
+    private val context = ContextController(session.state, scope)
+
+    @AfterTest fun tearDown() { scope.cancel(); daemon.close() }
+
+    private suspend fun until(check: () -> Boolean) = withTimeout(5_000) { while (!check()) kotlinx.coroutines.delay(20) }
+
+    @Test
+    fun `it loads when shown and stale, not when hidden, and again when the app ran again while shown`() = runBlocking<Unit> {
+        val loads = AtomicInteger()
+        var shown = false
+        val chosen = { context.state.value.device to context.state.value.app }
+        lateinit var tab: FreshTab
+        val fresh = RunFreshness(context.appConnections, chosen, scope) { tab.refresh() }
+        tab = FreshTab(fresh, { shown }, chosen) { loads.incrementAndGet() }
+        session.start()
+        until { context.state.value.app != null && context.watching.value }
+        tab.refresh()
+        assertEquals(0, loads.get(), "hidden: nothing is read")
+        shown = true
+        tab.refresh()
+        assertEquals(1, loads.get(), "shown and never read")
+        tab.refresh()
+        assertEquals(1, loads.get(), "fresh: not again")
+        val app = context.state.value.app!!
+        daemon.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", app, "ended"))
+        daemon.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", app, "connected"))
+        until { loads.get() == 2 }
+        shown = false
+        daemon.ops.appEventFlow.emit(AppConnectionEvent("emulator-5554", app, "connected"))
+        kotlinx.coroutines.delay(300)
+        assertEquals(2, loads.get(), "hidden when it ran again: read when shown")
+        shown = true
+        tab.refresh()
+        assertEquals(3, loads.get())
+    }
+}
