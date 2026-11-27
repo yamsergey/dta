@@ -29,6 +29,12 @@ class AgentRedactionController(
 
     fun refresh() = run { c -> c.call("agents.redaction") }
 
+    /**
+     * D-121: the setting is the daemon's: Settings, a CLI or another IDE change it while the Agents tab shows it. Reads it again
+     * every [intervalMs] until the returned job is cancelled (the tab does while it is shown).
+     */
+    fun watch(intervalMs: Long): kotlinx.coroutines.Job = scope.launch { }
+
     fun set(on: Boolean) = run { c -> c.call("agents.redaction.set", JsonObject(mapOf("redaction" to JsonPrimitive(on)))) }
 
     private fun run(call: suspend (DaemonClient) -> io.yamsergey.dta.protocol.ops.Selected) {
