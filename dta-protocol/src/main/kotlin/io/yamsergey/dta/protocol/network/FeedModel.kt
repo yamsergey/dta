@@ -34,13 +34,15 @@ data class FeedBatch(
     }
 }
 
-/** A subscription ended: [reason] is [OVERFLOW] or [CLOSED]; nothing after [at] was sent. */
+/** A subscription ended: [reason] is [OVERFLOW], [CLOSED] or [REPLACED]; nothing after [at] was sent. */
 @Serializable
 data class FeedEnded(val subscription: String, val reason: String, val at: String) {
     companion object {
         const val EVENT = "network.feed.ended"
         const val OVERFLOW = "overflow"
         const val CLOSED = "closed"
+        /** D-137: another computer's daemon opened the feed (the app has one live listener): this subscription gets nothing more; pages are read again. */
+        const val REPLACED = "replaced"
     }
 }
 

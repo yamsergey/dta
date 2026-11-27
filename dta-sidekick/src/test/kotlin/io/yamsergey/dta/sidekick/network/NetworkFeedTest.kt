@@ -171,4 +171,28 @@ class NetworkFeedTest {
         val batch = sink.batches.first { b -> b.records.any { it.id == held.id } }
         assertTrue((batch.waitedMs ?: 0) >= 400, "waited ${batch.waitedMs} ms")
     }
+
+    /**
+     * D-137: the app has one live listener. A second daemon (another DTA home: the CLI beside the IDE, a test) opening the feed takes it;
+     * the first used to be dropped without a word, believed itself live and read no pages, so it never saw what came later.
+     * It must be told its subscription ended, so it reads pages again.
+     */
+    @Test
+    fun `a second subscription tells the first it ended, replaced`() {
+        val s = store()
+        repeat(3) { s.upsert(http(s)) }
+        s.flush()
+        val read = s.journal(null, 100)
+        val sink = Sink()
+        val f = feed(s, sink)
+        val first = assertNotNull(f.open(FeedOpenParams(read.journalId, read.next)).subscription)
+        val second = assertNotNull(f.open(FeedOpenParams(read.journalId, read.next)).subscription)
+        waitFor("the first one is told") { sink.ended.any { it.subscription == first } }
+        assertEquals(FeedEnded.REPLACED, sink.ended.single { it.subscription == first }.reason)
+        assertTrue(sink.ended.none { it.subscription == second }, "the second goes on")
+        // The second is live: a record after it reaches the batches of the second only.
+        s.upsert(http(s)); s.flush()
+        waitFor("a live batch of the second") { sink.batches.any { it.subscription == second && it.records.isNotEmpty() } }
+        assertTrue(sink.batches.none { it.subscription == first && it.records.isNotEmpty() }, "the first gets nothing more")
+    }
 }

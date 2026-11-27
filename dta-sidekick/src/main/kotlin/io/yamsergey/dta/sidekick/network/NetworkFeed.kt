@@ -41,7 +41,9 @@ class NetworkFeed(
         if (!identity.persisted) return FeedOpenResult(refused = FeedOpenResult.NOT_PERSISTED)
         if (store.isReading) return FeedOpenResult(refused = FeedOpenResult.READING)
         if (identity.journalId != params.journalId) return FeedOpenResult(refused = FeedOpenResult.JOURNAL_CHANGED)
-        current?.stop()
+        // D-137: the first is told (its thread sends `ended: replaced` once its queue is empty), not dropped in silence: its daemon
+        // otherwise believes itself live, reads no pages and never sees what comes next.
+        current?.end(FeedEnded.REPLACED)
         current = null
         val sub = Sub("f${ids.incrementAndGet()}", identity.journalId, params.after)
         val start = store.startLive(params.after, PAGE, onEnd = { sub.end(FeedEnded.CLOSED) }) { entry, at, takenMs -> sub.offer(entry, at, takenMs) }
