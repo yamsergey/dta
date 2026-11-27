@@ -808,6 +808,7 @@ class NetworkController(private val context: ContextController, private val scop
         }
         if (target.device == null || target.app == null || !target.hasDta) return
         source = scope.launch {
+            val me = coroutineContext[Job]
             mutable.update { it.copy(loading = true) }
             try {
                 val s = mutable.value
@@ -870,7 +871,9 @@ class NetworkController(private val context: ContextController, private val scop
                 mutable.update { it.copy(error = if (superseded(e)) it.error else e.message ?: e.javaClass.simpleName, searching = if (searchJob?.isActive == true) it.searching else false) }
             } finally {
                 // Cancelled by a new query, the next list's search goes on: searching is left as it is.
-                mutable.update { it.copy(loading = false, watching = false) }
+                // D-115: only the subscription the tab still holds clears it; a replaced job's cleanup, run late by the pool,
+                // must not clear the new one's watching (reload cleared it for the old one already).
+                if (source === me || source == null) mutable.update { it.copy(loading = false, watching = false) }
             }
         }
     }

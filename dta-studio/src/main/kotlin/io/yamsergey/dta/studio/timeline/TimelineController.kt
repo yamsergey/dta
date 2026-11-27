@@ -256,6 +256,7 @@ class TimelineController(
         val client = target.client ?: return
         if (target.device == null || target.app == null || !target.hasDta) return
         source = scope.launch {
+            val me = coroutineContext[Job]
             mutable.update { it.copy(loading = true) }
             val refresher = launch {
                 while (isActive) {
@@ -298,7 +299,9 @@ class TimelineController(
                 refresher.cancel()
                 sequence.cancel()
                 hidden.cancel()
-                mutable.update { it.copy(loading = false, watching = false) }
+                // D-115: only the subscription the tab still holds clears it (see NetworkController): a replaced job's cleanup,
+                // run late by the pool, must not clear the new one's watching.
+                if (source === me || source == null) mutable.update { it.copy(loading = false, watching = false) }
             }
         }
     }
