@@ -174,15 +174,22 @@ class TimelineController(
     }
 
     /** Feature 065: which network entries the List leaves out now (it keeps every event itself). */
+    /** D-126: the number of the latest read of each kind: an answer of an earlier read, coming after a later one's, is not shown. */
+    private val hiddenReads = java.util.concurrent.atomic.AtomicLong()
+    private val sequenceReads = java.util.concurrent.atomic.AtomicLong()
+
     private suspend fun readHidden(client: DaemonClient) {
+        val mine = hiddenReads.incrementAndGet()
         val params = target(mutable.value) + ("ignoreSavedFilters" to JsonPrimitive(mutable.value.showHidden))
         val h = DtaJson.decodeFromJsonElement(TimelineHidden.serializer(), client.call("timeline.hidden", JsonObject(params)).result)
+        if (hiddenReads.get() != mine) return
         mutable.update {
             it.copy(listSaved = h.saved, view = it.view.reduce(TimelineChange.Hidden(h.hidden.toSet(), h.notJudged.toSet())))
         }
     }
 
     private suspend fun readSequence(client: DaemonClient) {
+        val mine = sequenceReads.incrementAndGet()
         val view = mutable.value.sequence
         val query = view.query.trim()
         val params = reads(mutable.value) + buildMap {
@@ -193,6 +200,7 @@ class TimelineController(
         }
         try {
             val page = DtaJson.decodeFromJsonElement(SequencePage.serializer(), client.call("timeline.sequence", JsonObject(params)).result)
+            if (sequenceReads.get() != mine) return
             mutable.update { it.copy(sequence = it.sequence.receive(page, query), sequenceError = null) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

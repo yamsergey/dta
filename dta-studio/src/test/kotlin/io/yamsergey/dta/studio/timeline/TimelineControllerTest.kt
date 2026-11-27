@@ -164,15 +164,17 @@ class TimelineSavedFiltersTest {
 
     @Test
     fun `Show them shows everything and asks with the opt-out, Hide them again hides again`() = runBlocking<Unit> {
+        daemon.ops.sequenceWhen = { ignore -> io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), if (ignore) 99 else 1, emptyList()) }
         listShown()
         await { it.view.hiddenEntries.isNotEmpty() }
         timeline.setShowHidden(true)
         val shown = await { it.showHidden && it.view.shown.size == 3 }
         assertEquals(io.yamsergey.dta.present.timeline.TimelineSavedBar.Action.HIDE, shown.listBar.action)
+        // D-126: the page says which ask it answers (99 with the opt-out, 1 without); the latest read's answer is the one shown.
         timeline.setShowSequence(true)
-        await { daemon.ops.sequenceIgnored.lastOrNull() == true }
+        await { it.sequence.page?.total == 99 }
         timeline.setShowHidden(false)
-        await { !it.showHidden && daemon.ops.sequenceIgnored.lastOrNull() == false }
+        await { !it.showHidden && it.sequence.page?.total == 1 }
     }
 
     @Test
