@@ -296,11 +296,11 @@ class OperationDispatcher(
         "runtime.heap.snapshot" to { c ->
             encode(io.yamsergey.dta.protocol.data.HeapSnapshotAnswer.serializer(), heapArgs { heap.snapshot(c.app, heapSidekick(c), c.string("name"), c.bool("gc"), c.string("maxPause")?.let { io.yamsergey.dta.protocol.data.HeapLimits.parseDurationMs(it) }) })
         },
-        "runtime.heap.snapshots" to { c -> encode(io.yamsergey.dta.protocol.data.HeapListAnswer.serializer(), heap.list(c.app)) },
+        "runtime.heap.snapshots" to { c -> encode(io.yamsergey.dta.protocol.data.HeapListAnswer.serializer(), heap.list(c.app, heapSidekick(c))) },
         "runtime.heap.compare" to { c ->
             encode(
                 io.yamsergey.dta.protocol.data.HeapCompareAnswer.serializer(),
-                heapArgs { heap.compare(c.app, c.required("a"), c.required("b"), c.string("origin"), c.string("package"), c.long("top")?.toInt()) },
+                heapArgs { heap.compare(c.app, c.required("a"), c.required("b"), c.string("origin"), c.string("package"), c.long("top")?.toInt(), heapSidekick(c)) },
             )
         },
         "runtime.heap.instances" to { c ->

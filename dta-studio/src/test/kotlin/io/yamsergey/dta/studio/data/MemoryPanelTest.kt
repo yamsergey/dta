@@ -15,6 +15,7 @@ class MemoryPanelTest : BasePlatformTestCase() {
     private var snapshots = false
     private var refuse: String? = null
     private var pauseB = 38
+    private var currentRun: String? = null
     private var notes = """"3 objects of DTA itself left out (96 bytes)""""
 
     private fun answer(op: String, p: JsonObject): JsonObject {
@@ -23,7 +24,7 @@ class MemoryPanelTest : BasePlatformTestCase() {
             when (op) {
                 "runtime.memory" -> """{"javaUsedBytes":43200000,"javaMaxBytes":201326592,"javaFreeBytes":1,"nativeAllocatedBytes":19300000,"nativeHeapBytes":2,"pssKb":98304,"gcCount":14,"gcTimeMs":210,"gcRun":false}"""
                 "runtime.heap.snapshots" -> if (!snapshots) """{"notKnown":[]}""" else
-                    """{"run":"r1","snapshots":[{"id":"s1","name":"before","takenAtMs":1,"pauseMs":21,"objects":10,"bytes":100},{"id":"s2","name":"after","takenAtMs":2,"pauseMs":$pauseB,"objects":40,"bytes":400}]}"""
+                    """{"run":"r1"${currentRun?.let { ""","currentRun":"$it"""" } ?: ""},"snapshots":[{"id":"s1","name":"before","takenAtMs":1,"pauseMs":21,"objects":10,"bytes":100},{"id":"s2","name":"after","takenAtMs":2,"pauseMs":$pauseB,"objects":40,"bytes":400}]}"""
                 "runtime.heap.snapshot" -> { snapshots = true; """{"snapshot":{"id":"s2","name":"after","run":"r1","takenAtMs":2,"pauseMs":38,"gcBefore":false,"totals":{"objects":40,"bytes":400},"classCount":1,"top":[]},"pauseMs":38}""" }
                 "runtime.heap.compare" -> """{"comparison":{"a":"s1","b":"s2","run":"r1","rows":[
                     {"className":"io.x.broker.ui.OrderActivity","origin":"app","countA":1,"countB":4,"bytesA":400,"bytesB":1600,"change":"grew"}],
@@ -74,6 +75,17 @@ class MemoryPanelTest : BasePlatformTestCase() {
         val p = panel()
         p.load()
         assertTrue(p.leftOutLine, p.leftOutLine.contains("3 objects of DTA itself left out (96 bytes)"))
+    }
+
+    fun testAfterANewRunTheEarlierSnapshotsAreNotOfferedAndTheEmptyStateSaysSo() {
+        snapshots = true
+        currentRun = "r2"
+        val p = panel()
+        p.load()
+        assertFalse(p.hasSnapshots)
+        assertEquals(0, p.rowCount)
+        assertEquals("2 snapshots of the previous run (r1); this run has none yet", p.earlierLine)
+        assertFalse(calls.any { it.first == "runtime.heap.compare" })
     }
 
     fun testAClassShowsItsInstancesWithLinks() {

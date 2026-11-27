@@ -55,6 +55,15 @@ object MemoryRows {
         Row(cells, r.className, r.deltaBytes > 0)
     }
 
+    /** The snapshots of the run the app is in; none when the listed ones are of an earlier run (a new process). */
+    fun currentSnapshots(l: io.yamsergey.dta.protocol.data.HeapListAnswer): List<HeapSnapshotInfo> =
+        if (l.currentRun != null && l.currentRun != l.run) emptyList() else l.snapshots
+
+    /** What stands in the empty state when snapshots of an earlier run are still held; null otherwise. */
+    fun earlierRunLine(l: io.yamsergey.dta.protocol.data.HeapListAnswer): String? =
+        if (l.currentRun != null && l.currentRun != l.run && l.snapshots.isNotEmpty())
+            "${l.snapshots.size} snapshot${if (l.snapshots.size == 1) "" else "s"} of the previous run (${l.run}); this run has none yet" else null
+
     fun pickerLabel(i: HeapSnapshotInfo, time: (Long) -> String): String = listOfNotNull(i.id, i.name, time(i.takenAtMs)).joinToString(" · ")
 
     /** The pause of [side] (A or B) stated beside its numbers; the warning above 100 ms; the boot image when platform rows are shown. */

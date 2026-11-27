@@ -79,21 +79,30 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
         )
     }
 
-    fun list(app: String): HeapListAnswer {
+    /** Asks the app which run it is in (a read, never a walk) so the store knows a new process replaced the one the snapshots are of. */
+    private suspend fun learnRun(app: String, sidekick: HeapSidekick?) {
+        if (sidekick == null) return
+        runCatching { sidekick.run().run }.getOrNull()?.let { store.runStarted(app, it) }
+    }
+
+    suspend fun list(app: String, sidekick: HeapSidekick? = null): HeapListAnswer {
+        learnRun(app, sidekick)
         val l = store.list(app) ?: return HeapListAnswer(note = "No snapshot has been taken for this app; nothing takes one unless asked.")
         return HeapListAnswer(
             run = l.run,
+            currentRun = l.currentRun,
             snapshots = l.snapshots.map { HeapSnapshotInfo(it.id, it.name, it.takenAtMs, it.pauseMs, it.objects, it.bytes, it.gcBefore) },
             dropped = l.dropped.map { HeapDroppedInfo(it.id, it.name) },
-            note = if (l.currentRun != null && l.currentRun != l.run) "These snapshots are of an earlier run of the app (${l.run}); it runs as ${l.currentRun} now, and they cannot be compared with new ones." else null,
+            note = if (l.currentRun != null && l.currentRun != l.run) "The app runs as ${l.currentRun} now and this run has no snapshot yet. The ${l.snapshots.size} snapshots listed are of an earlier run (${l.run}); they stay readable but cannot be compared with new ones. Take a snapshot to start this run's list." else null,
         )
     }
 
-    fun compare(app: String, a: String, b: String, origin: String?, packagePrefix: String?, top: Int?): HeapCompareAnswer {
+    suspend fun compare(app: String, a: String, b: String, origin: String?, packagePrefix: String?, top: Int?, sidekick: HeapSidekick? = null): HeapCompareAnswer {
         val o = if (origin == null) HeapOriginFilter.APP else HeapOriginFilter.entries.firstOrNull { it.name.equals(origin, ignoreCase = true) }
             ?: throw IllegalArgumentException("origin is app, library, platform or all; got '$origin'")
         require(top == null || top >= 0) { "top must not be negative" }
         val filter = HeapFilter(o, packagePrefix?.takeIf { it.isNotBlank() }, top ?: 30)
+        learnRun(app, sidekick)
         return when (val r = store.compare(app, a, b, filter)) {
             is HeapCompareResult.Ok -> HeapCompareAnswer(r.comparison, r.comparison.leftOut.describe(), store.get(app, b)?.notes.orEmpty())
             is HeapCompareResult.Refused -> throw HeapRefusal(r.reason)

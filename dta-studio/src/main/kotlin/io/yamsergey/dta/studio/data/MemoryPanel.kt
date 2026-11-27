@@ -69,6 +69,7 @@ class MemoryPanel(
     private val stats = WrappingText(" ", JBColor.foreground()).apply { font = mono; name = "memory.stats" }
     private val status = WrappingText("", JBColor.GRAY).apply { name = "memory.status" }
     private val statement = WrappingText("", JBColor.GRAY).apply { name = "memory.statement" }
+    private val earlier = WrappingText("", JBColor.GRAY).apply { name = "memory.earlier" }
     private val leftOut = WrappingText("", JBColor.GRAY).apply { name = "memory.leftOut" }
     private val notKnown = WrappingText(MemoryRows.NOT_KNOWN, JBColor.GRAY)
     private val cards = CardLayout()
@@ -197,7 +198,8 @@ class MemoryPanel(
     internal val statusLine: String get() = status.text
     internal val statementLine: String get() = statement.text
     internal val leftOutLine: String get() = leftOut.text
-    internal val hasSnapshots: Boolean get() = list?.snapshots?.isNotEmpty() == true
+    internal val hasSnapshots: Boolean get() = list?.let { MemoryRows.currentSnapshots(it).isNotEmpty() } == true
+    internal val earlierLine: String get() = earlier.text
     internal val rowCount: Int get() = tableModel.rowCount
     internal fun cell(row: Int, col: Int): String = tableModel.rows[row].cells[col]
 
@@ -217,7 +219,7 @@ class MemoryPanel(
         main.add(content, BorderLayout.CENTER)
         add(main, BorderLayout.CENTER)
 
-        content.add(JPanel(BorderLayout()).apply { add(JBLabel("<html><div style='width:320px;text-align:center'>${MemoryRows.EMPTY}</div></html>", JBLabel.CENTER).apply { foreground = JBColor.GRAY; name = "memory.empty" }, BorderLayout.CENTER) }, EMPTY)
+        content.add(JPanel(BorderLayout()).apply { add(JBLabel("<html><div style='width:320px;text-align:center'>${MemoryRows.EMPTY}</div></html>", JBLabel.CENTER).apply { foreground = JBColor.GRAY; name = "memory.empty" }, BorderLayout.CENTER); add(earlier, BorderLayout.SOUTH) }, EMPTY)
         // Two rows so nothing is cut at a narrow width: which snapshots, then which classes.
         val pickers = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -309,7 +311,8 @@ class MemoryPanel(
 
     private fun applyList(l: HeapListAnswer, selectNewest: Boolean) {
         list = l
-        val snaps = l.snapshots
+        val snaps = MemoryRows.currentSnapshots(l)
+        earlier.text = MemoryRows.earlierRunLine(l) ?: ""
         if (snaps.isEmpty()) {
             comparison = null; tableModel.rows = emptyList(); tableModel.fireTableDataChanged()
             cards.show(content, EMPTY)
