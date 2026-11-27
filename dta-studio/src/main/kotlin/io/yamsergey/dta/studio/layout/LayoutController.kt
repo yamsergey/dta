@@ -179,7 +179,9 @@ class LayoutController(
                                 else -> RefreshPolicy.Signal.RECONNECTING
                             }
                         } else {
-                            val at = (data["at"] as? JsonPrimitive)?.content?.toLongOrNull() ?: clock()
+                            // D-149: when the signal reached this computer, not the device's `at` (another clock: an emulator's was 359 ms ahead,
+                            // which added that much to the debounce, and a clock behind made the change look older than the last capture).
+                            val at = clock()
                             val why = (data["reasons"] as? kotlinx.serialization.json.JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty()
                             policy.changed(at, why)
                         }
