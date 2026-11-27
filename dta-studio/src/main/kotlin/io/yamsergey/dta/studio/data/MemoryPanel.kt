@@ -148,17 +148,28 @@ class MemoryPanel(
     }
 
     private val instanceModel = DefaultListModel<MemoryRows.InstanceRow>()
-    internal val instanceList = JBList(instanceModel).apply {
+    private fun instanceLine(row: MemoryRows.InstanceRow) = "${row.label}   ${row.state}${row.linkText?.let { "   $it" } ?: ""}"
+    internal val instanceList = object : JBList<MemoryRows.InstanceRow>(instanceModel) {
+        /** The whole line, whatever the row shows of it (truncation rules: secondary text ends in …, never a hard cut). */
+        override fun getToolTipText(e: java.awt.event.MouseEvent): String? {
+            val i = locationToIndex(e.point)
+            return if (i >= 0) instanceLine(model.getElementAt(i)) else null
+        }
+    }.apply {
         name = "memory.instances"
         selectionMode = ListSelectionModel.SINGLE_SELECTION
         visibleRowCount = 6
-        cellRenderer = javax.swing.ListCellRenderer { _, row, _, selected, _ ->
-            JBLabel("${row.label}   ${row.state}${row.linkText?.let { "   $it" } ?: ""}").apply {
+        cellRenderer = javax.swing.ListCellRenderer { list, row, _, selected, _ ->
+            JBLabel().apply {
                 font = mono
                 isOpaque = true
+                val metrics = getFontMetrics(font)
+                val room = (list.width - JBUI.scale(8)).coerceAtLeast(JBUI.scale(40))
+                text = io.yamsergey.dta.studio.ui.ClassNameFit.end(instanceLine(row), { metrics.stringWidth(it) }, room)
                 background = if (selected) JBUI.CurrentTheme.List.background(true, true) else JBUI.CurrentTheme.List.background(false, false)
             }
         }
+        toolTipText = ""
     }
     private val instanceHeader = JBLabel(" ").apply { font = mono.deriveFont(Font.BOLD); name = "memory.instances.header" }
     private val instanceSummary = WrappingText("", JBColor.GRAY)
