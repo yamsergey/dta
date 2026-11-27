@@ -3,6 +3,7 @@ package io.yamsergey.dta.studio.data
 import io.yamsergey.dta.protocol.ops.AppConnectionEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 
 /**
  * D-122: what a tab that reads the running app once (Runtime) last read it for. It is stale when the chosen app is another,
@@ -19,7 +20,11 @@ class RunFreshness(
     @Volatile private var runs = 0
 
     init {
-        // not wired yet
+        scope.launch {
+            connections.collect { e ->
+                if (e.state == "connected" && (e.device to e.app) == chosen()) { runs++; onNewRun() }
+            }
+        }
     }
 
     fun stale(device: String?, app: String?): Boolean = loadedFor != Triple(device, app, runs)

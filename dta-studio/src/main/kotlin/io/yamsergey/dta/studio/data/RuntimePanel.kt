@@ -207,8 +207,9 @@ class RuntimePanel(
     internal val currentViewModelClass: String? get() = currentVm?.className
 
     /** Feature 048: the ViewModels alive now, asked for from the Timeline; read only for this. */
-    fun openViewModels() {
-        if (root.childCount == 0) {
+    fun openViewModels(reload: Boolean = false) {
+        // D-122: a list read for an earlier run of the app is read again first.
+        if (reload || root.childCount == 0) {
             viewModelsWanted = true
             load()
         } else {
