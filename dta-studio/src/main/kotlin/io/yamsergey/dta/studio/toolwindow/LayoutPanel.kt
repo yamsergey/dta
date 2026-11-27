@@ -108,16 +108,8 @@ class LayoutPanel(
     private val splitter = JBSplitter(false, 0.45f)
     /** Feature 014: the picture beside the tree, between the tree and the detail. */
     private val screen = io.yamsergey.dta.studio.layout.ScreenPane(controller)
-    // Feature 057: one line high whether empty or not, so hovering never resizes the picture.
-    private val screenCaption = JBLabel(" ").apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8) }
     private val screenToggle = JBCheckBox("Screen", true)
-    private val screenPanel = JPanel(BorderLayout()).apply {
-        add(screen, BorderLayout.CENTER)
-        add(JPanel(BorderLayout()).apply {
-            add(screenCaption, BorderLayout.CENTER)
-            add(ActionLink("Next under pointer (N)") { controller.nextUnderPointer() }, BorderLayout.EAST)
-        }, BorderLayout.SOUTH)
-    }
+    private val screenPanel = io.yamsergey.dta.studio.layout.ScreenColumn(screen) { controller.nextUnderPointer() }
     private val inner = JBSplitter(false, 0.5f)
     private var last = LayoutViewState()
     private var updating = false
@@ -249,7 +241,7 @@ class LayoutPanel(
             screenToggle.isSelected = s.screenShown
             if (screenPanel.isVisible != s.screenShown) { screenPanel.isVisible = s.screenShown; inner.revalidate() }
             screen.show(s)
-            screenCaption.text = screen.caption(s).ifEmpty { " " }
+            screenPanel.setCaption(screen.caption(s))
             position.text = s.search?.position(s.selected) ?: ""
             status.text = when {
                 s.device == null -> "Choose a device to see its screen."
