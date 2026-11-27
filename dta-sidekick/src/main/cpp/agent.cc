@@ -11,6 +11,7 @@
 #include <jni.h>
 
 #include <cstring>
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -20,6 +21,7 @@
 #include "transform.h"
 
 #define LOG_TAG "DtaAgent"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 namespace {
@@ -447,5 +449,203 @@ Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeInstances(JNIEnv* env, jc
     env->DeleteLocalRef(objects[i]);
   }
   g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(objects));
+  return result;
+}
+
+// Feature 074: heap snapshot by class. Tags every loaded class with its index (+1), walks the whole
+// heap once (IterateThroughHeap, no class filter) summing count and shallow size per class tag, and
+// aborts itself past [max_pause_ms] (a stopped walk is never returned as a snapshot). The app's
+// threads are suspended for the walk, so this is the pause the answer states.
+//
+// Result: Object[6] = { Class[] classes (with instances), long[] counts, long[] bytes,
+//                       long[] {pauseMicros, objects, untagged, stopped(0/1)}, String error, int[] unused }
+namespace {
+struct HeapSums {
+  std::vector<jlong> count;
+  std::vector<jlong> bytes;
+  jlong objects = 0;
+  jlong untagged = 0;
+  bool stopped = false;
+  double deadline_ms = 0;
+};
+
+double NowMs() {
+  timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return t.tv_sec * 1e3 + t.tv_nsec / 1e6;
+}
+
+jint JNICALL HistogramCallback(jlong class_tag, jlong size, jlong*, jint, void* user_data) {
+  auto* sums = static_cast<HeapSums*>(user_data);
+  sums->objects++;
+  if (class_tag > 0 && static_cast<size_t>(class_tag) < sums->count.size()) {
+    sums->count[class_tag]++;
+    sums->bytes[class_tag] += size;
+  } else {
+    sums->untagged++;
+  }
+  // The clock is read every 4096 objects, not on every one.
+  if ((sums->objects & 4095) == 0 && NowMs() > sums->deadline_ms) {
+    sums->stopped = true;
+    return JVMTI_VISIT_ABORT;
+  }
+  return 0;
+}
+}  // namespace
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHeapHistogram(JNIEnv* env, jclass,
+                                                                     jlong max_pause_ms) {
+  jclass object_class = env->FindClass("java/lang/Object");
+  jobjectArray result = env->NewObjectArray(5, object_class, nullptr);
+  env->DeleteLocalRef(object_class);
+  if (result == nullptr) return nullptr;
+  auto fail = [&](const std::string& why) {
+    jstring s = env->NewStringUTF(why.c_str());
+    env->SetObjectArrayElement(result, 4, s);
+    env->DeleteLocalRef(s);
+    return result;
+  };
+  if (g_jvmti == nullptr) return fail("agent not attached");
+
+  // Shares the tag space with nativeInstances: no instance search runs during a walk.
+  std::lock_guard<std::mutex> lock(g_instances_mutex);
+  jint class_count = 0;
+  jclass* classes = nullptr;
+  jvmtiError error = g_jvmti->GetLoadedClasses(&class_count, &classes);
+  if (error != JVMTI_ERROR_NONE) return fail("GetLoadedClasses: " + JvmtiErrorName(error));
+  for (jint i = 0; i < class_count; i++) g_jvmti->SetTag(classes[i], i + 1);
+
+  HeapSums sums;
+  sums.count.assign(class_count + 1, 0);
+  sums.bytes.assign(class_count + 1, 0);
+  jvmtiHeapCallbacks callbacks;
+  memset(&callbacks, 0, sizeof(callbacks));
+  callbacks.heap_iteration_callback = HistogramCallback;
+  double start = NowMs();
+  sums.deadline_ms = start + static_cast<double>(max_pause_ms);
+  error = g_jvmti->IterateThroughHeap(0, nullptr, &callbacks, &sums);
+  double elapsed = NowMs() - start;
+
+  // Clear the class tags again so none stay on the app's objects.
+  for (jint i = 0; i < class_count; i++) g_jvmti->SetTag(classes[i], 0);
+
+  std::string failure;
+  if (error != JVMTI_ERROR_NONE) failure = "IterateThroughHeap: " + JvmtiErrorName(error);
+  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "heap walk: %d loaded classes, %lld objects, %lld untagged, %.1f ms%s",
+                      class_count, static_cast<long long>(sums.objects), static_cast<long long>(sums.untagged), elapsed,
+                      sums.stopped ? ", stopped at the bound" : "");
+
+  jlong stats[4] = {static_cast<jlong>(elapsed * 1000), sums.objects, sums.untagged, sums.stopped ? 1 : 0};
+  jlongArray stats_array = env->NewLongArray(4);
+  env->SetLongArrayRegion(stats_array, 0, 4, stats);
+  env->SetObjectArrayElement(result, 3, stats_array);
+  env->DeleteLocalRef(stats_array);
+
+  if (failure.empty() && !sums.stopped) {
+    jint used = 0;
+    for (jint i = 1; i <= class_count; i++) if (sums.count[i] > 0) used++;
+    jclass class_class = env->FindClass("java/lang/Class");
+    jobjectArray used_classes = env->NewObjectArray(used, class_class, nullptr);
+    env->DeleteLocalRef(class_class);
+    jlongArray counts = env->NewLongArray(used);
+    jlongArray bytes = env->NewLongArray(used);
+    if (used_classes != nullptr && counts != nullptr && bytes != nullptr) {
+      jint k = 0;
+      for (jint i = 1; i <= class_count; i++) {
+        if (sums.count[i] == 0) continue;
+        env->SetObjectArrayElement(used_classes, k, classes[i - 1]);
+        env->SetLongArrayRegion(counts, k, 1, &sums.count[i]);
+        env->SetLongArrayRegion(bytes, k, 1, &sums.bytes[i]);
+        k++;
+      }
+      env->SetObjectArrayElement(result, 0, used_classes);
+      env->SetObjectArrayElement(result, 1, counts);
+      env->SetObjectArrayElement(result, 2, bytes);
+    } else {
+      failure = "out of memory assembling the histogram";
+    }
+    if (used_classes != nullptr) env->DeleteLocalRef(used_classes);
+    if (counts != nullptr) env->DeleteLocalRef(counts);
+    if (bytes != nullptr) env->DeleteLocalRef(bytes);
+  }
+
+  // GetLoadedClasses hands out one local reference per class: release them all.
+  for (jint i = 0; i < class_count; i++) env->DeleteLocalRef(classes[i]);
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(classes));
+  if (!failure.empty()) return fail(failure);
+  return result;
+}
+
+// Feature 074 (B2): the live instances of exactly [target], each tagged with a persistent id (a JVMTI
+// tag from 2^32 up, kept until the object dies; an object that already has one keeps it). Returns
+// long[] {id, shallowBytes, id, shallowBytes, ...} in heap order, or null when the runtime refuses.
+// Tag range: class tags of the histogram (1..N) and the temporary tags of nativeInstances stay below it.
+namespace {
+jlong g_next_heap_id = 1LL << 32;
+
+struct InstanceIds {
+  std::vector<jlong> out;
+};
+
+jint JNICALL TagForId(jlong, jlong size, jlong* tag_ptr, jint, void* user_data) {
+  auto* ids = static_cast<InstanceIds*>(user_data);
+  if (*tag_ptr == 0) *tag_ptr = g_next_heap_id++;
+  ids->out.push_back(*tag_ptr);
+  ids->out.push_back(size);
+  return 0;
+}
+}  // namespace
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHeapInstanceIds(JNIEnv* env, jclass,
+                                                                       jclass target) {
+  if (g_jvmti == nullptr) return nullptr;
+  std::lock_guard<std::mutex> lock(g_instances_mutex);
+  InstanceIds ids;
+  jvmtiHeapCallbacks callbacks;
+  memset(&callbacks, 0, sizeof(callbacks));
+  callbacks.heap_iteration_callback = TagForId;
+  jvmtiError error = g_jvmti->IterateThroughHeap(0, target, &callbacks, &ids);
+  if (error != JVMTI_ERROR_NONE) {
+    LOGW("instances not tagged: %s", JvmtiErrorName(error).c_str());
+    return nullptr;
+  }
+  jlongArray result = env->NewLongArray(static_cast<jsize>(ids.out.size()));
+  if (result != nullptr && !ids.out.empty()) {
+    env->SetLongArrayRegion(result, 0, static_cast<jsize>(ids.out.size()), ids.out.data());
+  }
+  return result;
+}
+
+// The objects behind [ids], aligned with them; null where the object is gone (or the id was never given).
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_yamsergey_dta_sidekick_hooks_NativeAgent_nativeHeapObjects(JNIEnv* env, jclass,
+                                                                   jlongArray ids) {
+  if (g_jvmti == nullptr || ids == nullptr) return nullptr;
+  jsize n = env->GetArrayLength(ids);
+  std::vector<jlong> wanted(n);
+  if (n > 0) env->GetLongArrayRegion(ids, 0, n, wanted.data());
+  jclass object_class = env->FindClass("java/lang/Object");
+  jobjectArray result = env->NewObjectArray(n, object_class, nullptr);
+  env->DeleteLocalRef(object_class);
+  if (result == nullptr || n == 0) return result;
+  std::lock_guard<std::mutex> lock(g_instances_mutex);
+  jint found = 0;
+  jobject* objects = nullptr;
+  jlong* found_tags = nullptr;
+  jvmtiError error = g_jvmti->GetObjectsWithTags(n, wanted.data(), &found, &objects, &found_tags);
+  if (error != JVMTI_ERROR_NONE) {
+    LOGW("objects by id not read: %s", JvmtiErrorName(error).c_str());
+    return nullptr;
+  }
+  for (jint i = 0; i < found; i++) {
+    for (jsize k = 0; k < n; k++) {
+      if (wanted[k] == found_tags[i]) env->SetObjectArrayElement(result, k, objects[i]);
+    }
+    env->DeleteLocalRef(objects[i]);
+  }
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(objects));
+  g_jvmti->Deallocate(reinterpret_cast<unsigned char*>(found_tags));
   return result;
 }

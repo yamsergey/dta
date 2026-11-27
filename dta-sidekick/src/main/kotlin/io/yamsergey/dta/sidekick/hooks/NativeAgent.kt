@@ -47,4 +47,21 @@ internal object NativeAgent {
      * null when the runtime refused (the agent logs why).
      */
     @JvmStatic external fun nativeInstances(target: Class<*>): Array<Any?>?
+
+    /**
+     * Feature 074: one whole-heap walk summing objects and shallow bytes per class, aborting itself past
+     * [maxPauseMs]. Returns `[Class[] classes, long[] counts, long[] bytes, long[] {pauseMicros, objects,
+     * untagged, stopped}, String error]`; classes/counts/bytes are null when the walk stopped or failed;
+     * null when the agent is not attached.
+     */
+    @JvmStatic external fun nativeHeapHistogram(maxPauseMs: Long): Array<Any?>?
+
+    /**
+     * Feature 074: the live instances of exactly [target], each with a persistent id (JVMTI tag, kept while the
+     * object lives): `[id, shallowBytes, id, shallowBytes, …]`; null when the runtime refused.
+     */
+    @JvmStatic external fun nativeHeapInstanceIds(target: Class<*>): LongArray?
+
+    /** Feature 074: the objects behind [ids], aligned with them; null entries where the object is gone. */
+    @JvmStatic external fun nativeHeapObjects(ids: LongArray): Array<Any?>?
 }

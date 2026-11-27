@@ -99,9 +99,16 @@ class RuntimePanel(
     val threadsView = ThreadsView { showThreads() }
     /** DI graphs as a tree, the chosen binding's links, its neighbourhood or the whole graph drawn (feature 037). */
     val diView = DiView { showDi() }
+    /** Heap snapshots by class, their comparison, instances and fields (feature 074); opening it takes no snapshot. */
+    val memoryPanel = MemoryPanel(project, scope, ui, openView = { target, ref -> openLinked(target, ref) }, call = call)
     private var currentVm: ViewModelInfo? = null
     private var currentHost: NavHostInfo? = null
     private var functions: FunctionList? = null
+    private val body = JPanel(BorderLayout())
+    private val splitter = JBSplitter(false, "dta.runtime.split", 0.28f)
+    private val sectionCombo = javax.swing.JComboBox(Section.entries.toTypedArray())
+    private var syncingCombo = false
+    private var narrow = false
 
     init {
         add(JPanel(BorderLayout()).apply {
@@ -129,6 +136,7 @@ class RuntimePanel(
         right.add(adaptiveSplitter("dta.runtime.vm.split", 0.4f, JBScrollPane(propsTable), valueView), PROPS)
         right.add(threadsView, THREADS)
         right.add(diView, DI)
+        right.add(memoryPanel, MEMORY)
         propsTable.selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) showValue() }
         propsTable.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
@@ -136,11 +144,67 @@ class RuntimePanel(
                 if (e.clickCount == 2 && row >= 0 && !propsModel.isCellEditable(row, propsTable.columnAtPoint(e.point).coerceAtLeast(0))) valueView.beginEdit()
             }
         })
-        add(JBSplitter(false, "dta.runtime.split", 0.28f).apply {
-            firstComponent = JBScrollPane(tree)
-            secondComponent = right
-        }, BorderLayout.CENTER)
+        body.add(splitter, BorderLayout.CENTER)
+        add(body, BorderLayout.CENTER)
+        splitter.firstComponent = JBScrollPane(tree)
+        splitter.secondComponent = right
+        sectionCombo.name = "runtime.sections"
+        sectionCombo.renderer = javax.swing.ListCellRenderer { list, value, _, selected, _ ->
+            JBLabel((value as? Section)?.label ?: "").apply {
+                isOpaque = true
+                border = JBUI.Borders.empty(2, 6)
+                background = if (selected) list.selectionBackground else list.background
+                foreground = if (selected) list.selectionForeground else list.foreground
+            }
+        }
+        sectionCombo.addActionListener { if (!syncingCombo) (sectionCombo.selectedItem as? Section)?.let { selectSection(it) } }
+        tree.addTreeSelectionListener {
+            val o = (tree.lastSelectedPathComponent as? DefaultMutableTreeNode)?.userObject
+            val section = (o as? Section) ?: (o as? Item)?.section
+            if (section != null && sectionCombo.selectedItem != section) { syncingCombo = true; sectionCombo.selectedItem = section; syncingCombo = false }
+        }
+        addComponentListener(object : java.awt.event.ComponentAdapter() {
+            override fun componentResized(e: java.awt.event.ComponentEvent) = layoutFor(width in 1 until NARROW)
+        })
     }
+
+    /** Wide: the sections beside the view. Narrow (< 700 px): one combo above the view, the connection state stays (round-2 tab rules). */
+    private fun layoutFor(isNarrow: Boolean) {
+        if (isNarrow == narrow) return
+        narrow = isNarrow
+        body.removeAll()
+        if (isNarrow) {
+            splitter.secondComponent = null
+            body.add(JPanel(BorderLayout()).apply {
+                add(JPanel(BorderLayout()).apply { border = JBUI.Borders.empty(2, 8); add(sectionCombo, BorderLayout.CENTER) }, BorderLayout.NORTH)
+                add(right, BorderLayout.CENTER)
+            }, BorderLayout.CENTER)
+        } else {
+            splitter.secondComponent = right
+            body.add(splitter, BorderLayout.CENTER)
+        }
+        body.revalidate(); body.repaint()
+    }
+
+    private fun selectSection(section: Section) {
+        val node = root.children().asSequence().map { it as DefaultMutableTreeNode }.firstOrNull { it.userObject == section } ?: return
+        tree.selectionPath = javax.swing.tree.TreePath(arrayOf<Any>(root, node))
+    }
+
+    /** A link from a heap instance: the Runtime view of that kind. */
+    internal fun openLinked(target: io.yamsergey.dta.present.data.MemoryRows.Target, ref: String?) {
+        // Where the view can select by id (a ViewModel, a navigation host) the exact one is selected; otherwise the section.
+        val exact = ref?.let { id ->
+            root.depthFirstEnumeration().toList().map { it as DefaultMutableTreeNode }.firstOrNull { n ->
+                (n.userObject as? Item)?.let { (target == io.yamsergey.dta.present.data.MemoryRows.Target.VIEWMODELS && it.vm?.id == id) || (target == io.yamsergey.dta.present.data.MemoryRows.Target.NAVIGATION && it.host?.id == id) } == true
+            }
+        }
+        if (exact != null) tree.selectionPath = javax.swing.tree.TreePath(exact.path)
+        else selectSection(Section.entries.first { it.label == target.section })
+    }
+
+    /** The class of the ViewModel shown (what tests read). */
+    internal val currentViewModelClass: String? get() = currentVm?.className
 
     /** Feature 048: the ViewModels alive now, asked for from the Timeline; read only for this. */
     fun openViewModels() {
@@ -208,7 +272,7 @@ class RuntimePanel(
         diOpen = o == Section.DI
         when (o) {
             Section.ACTIVITIES -> showText("runtime.activities", RuntimeActivities.serializer(), RuntimeText::activities)
-            Section.MEMORY -> showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, listOf("Run GC" to { showText("runtime.memory", MemoryState.serializer(), RuntimeText::memory, params = JsonObject(mapOf("gc" to JsonPrimitive(true)))) }))
+            Section.MEMORY -> { cards.show(right, MEMORY); memoryPanel.load() }
             Section.THREADS -> showThreads()
             Section.DI -> showDi()
             Section.FUNCTIONS -> showFunctions()
@@ -337,6 +401,9 @@ class RuntimePanel(
         private const val PROPS = "props"
         private const val THREADS = "threads"
         private const val DI = "di"
+        private const val MEMORY = "memory"
+        /** Below this width the sections are a combo above the view, not a list beside it (round-2 tab rules). */
+        private const val NARROW = 700
         private val EMPTY_PARAMS = JsonObject(emptyMap())
     }
 }

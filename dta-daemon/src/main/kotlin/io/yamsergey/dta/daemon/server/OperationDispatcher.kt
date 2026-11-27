@@ -293,6 +293,23 @@ class OperationDispatcher(
         "runtime.threads" to { c -> rt(c, "runtime_threads", io.yamsergey.dta.protocol.data.ThreadList.serializer()) },
         "runtime.di" to { c -> rt(c, "runtime_di", io.yamsergey.dta.protocol.data.DiReport.serializer()) },
         "runtime.functions" to { c -> rt(c, "runtime_functions", io.yamsergey.dta.protocol.data.FunctionList.serializer()) },
+        "runtime.heap.snapshot" to { c ->
+            encode(io.yamsergey.dta.protocol.data.HeapSnapshotAnswer.serializer(), heapArgs { heap.snapshot(c.app, heapSidekick(c), c.string("name"), c.bool("gc"), c.string("maxPause")?.let { io.yamsergey.dta.protocol.data.HeapLimits.parseDurationMs(it) }) })
+        },
+        "runtime.heap.snapshots" to { c -> encode(io.yamsergey.dta.protocol.data.HeapListAnswer.serializer(), heap.list(c.app)) },
+        "runtime.heap.compare" to { c ->
+            encode(
+                io.yamsergey.dta.protocol.data.HeapCompareAnswer.serializer(),
+                heapArgs { heap.compare(c.app, c.required("a"), c.required("b"), c.string("origin"), c.string("package"), c.long("top")?.toInt()) },
+            )
+        },
+        "runtime.heap.instances" to { c ->
+            encode(io.yamsergey.dta.protocol.data.HeapInstancesAnswer.serializer(), heapArgs { heap.instances(c.app, heapSidekick(c), c.required("class"), c.long("offset")?.toInt(), c.long("limit")?.toInt()) })
+        },
+        "runtime.heap.fields" to { c ->
+            // Feature 072: who is redacted is the connection's kind and the agents' setting (c.redact), never the call.
+            encode(io.yamsergey.dta.protocol.data.HeapFieldsAnswer.serializer(), heapArgs { heap.fields(c.app, heapSidekick(c), c.long("instance") ?: invalid("give instance"), c.bool("values"), c.redact) })
+        },
         "runtime.invoke" to { c -> rt(c, "runtime_invoke", io.yamsergey.dta.protocol.data.InvokeResult.serializer()) },
         "network.mapping.list" to { c -> encode(ListSerializer(BodyMapping.serializer()), ops.networkMappings(c.app)) },
         "network.mapping.remove" to { c ->
@@ -520,6 +537,7 @@ class OperationDispatcher(
 
     private fun translate(e: Exception, pkg: String?): Exception = when (e) {
         is ClientException -> e
+        is io.yamsergey.dta.daemon.runtime.HeapRefusal -> ClientException(ClientErrorCodes.NOT_AVAILABLE, e.message ?: "heap refused", unavailable("heap", e.message ?: "refused"))
         is InvalidParamsException -> ClientException(ErrorCodes.INVALID_PARAMS, e.message ?: "invalid params")
         is SchemaException -> ClientException(ErrorCodes.INVALID_PARAMS, e.message ?: "invalid schema")
         is SerializationException -> ClientException(ErrorCodes.INVALID_PARAMS, e.message?.lineSequence()?.first() ?: "invalid params")
@@ -565,11 +583,35 @@ class OperationDispatcher(
 
     private fun invalid(message: String): Nothing = throw InvalidParamsException(message)
 
+    /** Feature 074: snapshots live in the daemon, per app run. */
+    private val heap = io.yamsergey.dta.daemon.runtime.HeapService()
+
+    private suspend fun <T> heapArgs(block: suspend () -> T): T =
+        try { block() } catch (e: IllegalArgumentException) { invalid(e.message ?: "invalid argument") }
+
+    private fun heapSidekick(c: Call) = object : io.yamsergey.dta.daemon.runtime.HeapSidekick {
+        private val data = ops.data(c.device, c.app)
+        override suspend fun run() = data.runtime("runtime_heap_run", io.yamsergey.dta.protocol.data.HeapRunInfo.serializer(), JsonObject(emptyMap()))
+        override suspend fun instances(className: String, offset: Int, limit: Int) = data.runtime(
+            "runtime_heap_instances", io.yamsergey.dta.protocol.data.HeapInstancesPage.serializer(),
+            buildJsonObject { put("class", className); put("offset", offset); put("limit", limit) },
+        )
+        override suspend fun fields(instance: Long, values: Boolean) = data.runtime(
+            "runtime_heap_fields", io.yamsergey.dta.protocol.data.HeapFieldsRead.serializer(),
+            buildJsonObject { put("instance", instance); put("values", values) },
+        )
+        override suspend fun walk(maxPauseMs: Long, gc: Boolean, timeout: kotlin.time.Duration) = data.runtime(
+            "runtime_heap_walk", io.yamsergey.dta.protocol.data.HeapWalk.serializer(),
+            buildJsonObject { put("maxPauseMs", maxPauseMs); put("gc", gc) },
+            timeout,
+        )
+    }
+
     companion object {
         /** The operations whose answers carry secrets: to an agent kind they carry a redaction statement (feature 072). */
         private val REDACTING = setOf(
             "network.list", "network.search", "network.entry", "network.body", "network.export", "links.list", "links.entry",
-            "timeline.events", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path",
+            "runtime.heap.fields", "timeline.events", "timeline.causes", "timeline.sequence", "state.current", "state.graph", "state.path",
         )
 
         /** What a client other than the plugin is told when it tries to change the agents' setting. */

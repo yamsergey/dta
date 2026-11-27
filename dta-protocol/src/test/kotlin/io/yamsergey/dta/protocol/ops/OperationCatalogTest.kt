@@ -51,7 +51,7 @@ class OperationCatalogTest {
                 "data.files.list", "data.files.read", "data.files.write", "data.files.mkdir", "data.files.delete",
                 "runtime.activities", "runtime.navigation", "runtime.navigate", "runtime.back", "runtime.viewmodels",
                 "runtime.vm.set", "runtime.saved.set", "runtime.memory", "runtime.threads", "runtime.di",
-                "runtime.functions", "runtime.invoke",
+                "runtime.functions", "runtime.invoke", "runtime.heap.snapshot", "runtime.heap.snapshots", "runtime.heap.compare", "runtime.heap.instances", "runtime.heap.fields",
             ),
             Catalog.all.map { it.name }.toSet(),
         )
@@ -80,6 +80,26 @@ class OperationCatalogTest {
         val push = Catalog["network.ws.push"]
         assertEquals(listOf("connection", "text", "base64", "waitMs"), push.params.map { it.name })
         assertTrue(push.param("text")!!.positional)
+    }
+
+    @Test
+    fun `heap operations take no snapshot as a side effect and have cli paths`() {
+        assertEquals(listOf("name", "gc", "maxPause"), Catalog["runtime.heap.snapshot"].params.map { it.name })
+        assertEquals(listOf("runtime", "heap", "snapshot"), Catalog["runtime.heap.snapshot"].cliPath)
+        assertEquals(listOf("runtime", "heap", "list"), Catalog["runtime.heap.snapshots"].cliPath)
+        assertEquals("runtime_heap_compare", Catalog["runtime.heap.compare"].toolName)
+        assertEquals(listOf("a", "b", "origin", "package", "top"), Catalog["runtime.heap.compare"].params.map { it.name })
+        assertTrue(Catalog["runtime.heap.compare"].param("a")!!.positional)
+    }
+
+    @Test
+    fun `heap instances and fields`() {
+        assertEquals(listOf("runtime", "heap", "instances"), Catalog["runtime.heap.instances"].cliPath)
+        assertEquals(listOf("class", "offset", "limit"), Catalog["runtime.heap.instances"].params.map { it.name })
+        assertTrue(Catalog["runtime.heap.instances"].param("class")!!.positional && Catalog["runtime.heap.instances"].param("class")!!.required)
+        assertEquals(listOf("runtime", "heap", "fields"), Catalog["runtime.heap.fields"].cliPath)
+        assertEquals(listOf("instance", "values"), Catalog["runtime.heap.fields"].params.map { it.name })
+        assertTrue(Catalog["runtime.heap.fields"].description.contains("values"))
     }
 
     @Test

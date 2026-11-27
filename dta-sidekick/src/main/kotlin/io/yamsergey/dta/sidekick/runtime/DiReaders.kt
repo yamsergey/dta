@@ -109,12 +109,22 @@ object DiReaders {
      * an injected / assisted binding (what an activity or ViewModel received) on the binding that
      * provided that same instance. Nothing is called or created. Pure on its inputs.
      */
+    /** Feature 074: each instance → the id (`graph.binding`) of the binding that provides it, as [link] numbers them. */
+    fun providers(graphs: List<DiGraph>, instances: IdentityHashMap<DiBinding, Any>): IdentityHashMap<Any, String> {
+        val provider = IdentityHashMap<Any, String>()
+        graphs.forEachIndexed { gi, g ->
+            g.bindings.forEachIndexed { bi, b ->
+                if (b.kind != "injected" && b.kind != "assisted") instances[b]?.let { provider.putIfAbsent(it, "$gi.$bi") }
+            }
+        }
+        return provider
+    }
+
     fun link(graphs: List<DiGraph>, instances: IdentityHashMap<DiBinding, Any>): List<DiGraph> {
         val ids = IdentityHashMap<DiBinding, String>()
         graphs.forEachIndexed { gi, g -> g.bindings.forEachIndexed { bi, b -> ids[b] = "$gi.$bi" } }
         // Each instance → the binding that provides it (the first non-consumer one).
-        val provider = IdentityHashMap<Any, String>()
-        graphs.forEach { g -> g.bindings.filter { it.kind != "injected" && it.kind != "assisted" }.forEach { b -> instances[b]?.let { provider.putIfAbsent(it, ids[b]!!) } } }
+        val provider = providers(graphs, instances)
         return graphs.map { g ->
             g.copy(note = listOfNotNull(g.note, io.yamsergey.dta.protocol.data.DiLinks.note(g.framework)).joinToString(" "), bindings = g.bindings.map { b ->
                 val id = ids[b]!!

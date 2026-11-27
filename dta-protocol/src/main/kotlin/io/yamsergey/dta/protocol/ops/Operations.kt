@@ -929,6 +929,57 @@ object Catalog {
             ),
         ),
         OperationSpec(
+            "runtime.heap.snapshot",
+            "Take one heap snapshot of the app now: objects and shallow bytes per class, kept in the daemon for this app run (20 at most; named ones are kept over unnamed). It briefly stops the app's threads (usually 15-50 ms); the answer always states the pause and warns above 100 ms. It aborts itself at maxPause and then keeps nothing. One per 2 seconds per app. Nothing else takes a snapshot. Counts include boot-image and zygote objects (platform rows are not all the app's own). Not known: who keeps an object alive, retained size.",
+            Scope.APP,
+            listOf(
+                ParamSpec("name", ParamType.STRING, "A name for the snapshot (unique in the run); named snapshots are not dropped to make room."),
+                ParamSpec("gc", ParamType.BOOLEAN, "Run a garbage collection first, so unreachable objects are not counted."),
+                ParamSpec("maxPause", ParamType.STRING, "Stop the walk if the app would be paused longer than this: 500ms, 3s, or milliseconds (default 1s)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "snapshot"),
+        ),
+        OperationSpec(
+            "runtime.heap.snapshots",
+            "The heap snapshots kept for the app's run: id, name, time, pause, objects, bytes, and the ones dropped to make room. Takes no snapshot.",
+            Scope.APP,
+            cliPathOverride = listOf("runtime", "heap", "list"),
+        ),
+        OperationSpec(
+            "runtime.heap.compare",
+            "Compare two heap snapshots of one run: classes that appeared, are gone, grew or shrank, with count and bytes before, after and the difference, biggest change first. Own classes only unless origin is all; the answer says what the filters left out. Snapshots of different runs are refused. Takes no snapshot. Not known: who keeps an object alive, retained size.",
+            Scope.APP,
+            listOf(
+                ParamSpec("a", ParamType.STRING, "The earlier snapshot: id (s1) or name; empty shows b's classes alone.", required = true, positional = true),
+                ParamSpec("b", ParamType.STRING, "The later snapshot: id or name.", required = true, positional = true),
+                ParamSpec("origin", ParamType.ENUM, "Which classes: app (default), library, platform or all.", enumValues = listOf("app", "library", "platform", "all")),
+                ParamSpec("package", ParamType.STRING, "Only classes in this package (and below)."),
+                ParamSpec("top", ParamType.INT, "At most this many rows (default 30)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "compare"),
+        ),
+        OperationSpec(
+            "runtime.heap.instances",
+            "The live instances of one class, now: id, shallow bytes, a link to DTA's own view when DTA has one (activity, ViewModel, NavController, DI binding) and its state where known (an activity that is destroyed but still held). It lists objects as they are at this call, not as they were at a snapshot. Ids last while the object lives and until the class is listed again by another heap read. Takes no snapshot. Not known: who keeps an instance alive, retained size.",
+            Scope.APP,
+            listOf(
+                ParamSpec("class", ParamType.STRING, "The class name as the snapshot shows it (com.example.Foo, byte[]).", required = true, positional = true),
+                ParamSpec("offset", ParamType.INT, "Skip this many instances (default 0)."),
+                ParamSpec("limit", ParamType.INT, "At most this many (default 50)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "instances"),
+        ),
+        OperationSpec(
+            "runtime.heap.fields",
+            "The fields of one live instance: name, declaring class, type, static or not; strings and arrays by length. Field values only with values:true. Agents get every string and primitive value masked as [redacted len=N #fingerprint] (the agents' setting; names, types, lengths and nulls stay) and the answer says so. Takes no snapshot.",
+            Scope.APP,
+            listOf(
+                ParamSpec("instance", ParamType.LONG, "The instance id from runtime.heap.instances.", required = true, positional = true),
+                ParamSpec("values", ParamType.BOOLEAN, "Show field values (default: names, types and lengths only)."),
+            ),
+            cliPathOverride = listOf("runtime", "heap", "fields"),
+        ),
+        OperationSpec(
             "archive.list",
             "The network history this computer keeps after devices forgot it (cleared, data wiped, reinstalled, rolled back to an earlier state): devices › apps › installs › epochs, with dates, why each epoch closed, entry counts and size on disk.",
             Scope.NONE,
