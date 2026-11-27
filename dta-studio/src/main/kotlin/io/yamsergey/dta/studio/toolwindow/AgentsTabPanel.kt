@@ -94,8 +94,11 @@ class AgentsTabPanel(
         }
     }
 
-    override fun addNotify() { super.addNotify(); ticker.start(); redaction.refresh() }
-    override fun removeNotify() { ticker.stop(); super.removeNotify() }
+    private var watching: kotlinx.coroutines.Job? = null
+
+    // D-121: the setting is the daemon's and Settings has its own controller: the tab reads it again while it is shown.
+    override fun addNotify() { super.addNotify(); ticker.start(); watching?.cancel(); watching = redaction.watch(REDACTION_EVERY_MS) }
+    override fun removeNotify() { ticker.stop(); watching?.cancel(); watching = null; super.removeNotify() }
 
     private val narrow get() = width in 1 until JBUI.scale(NARROW_BELOW)
 
@@ -221,5 +224,7 @@ class AgentsTabPanel(
     companion object {
         /** Below this width the list drops its Version column (mockup board 5). */
         const val NARROW_BELOW = 800
+        /** D-121: how often the shown tab reads the redaction setting again. */
+        const val REDACTION_EVERY_MS = 2_000L
     }
 }
