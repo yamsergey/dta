@@ -8,6 +8,10 @@ class FreshTab(
     private val load: () -> Unit,
 ) {
     fun refresh() {
-        // not wired yet
+        if (!shown()) return
+        val (device, app) = chosen()
+        if (!fresh.stale(device, app)) return
+        fresh.mark(device, app)
+        load()
     }
 }
