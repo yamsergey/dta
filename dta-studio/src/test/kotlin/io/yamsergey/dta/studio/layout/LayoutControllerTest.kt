@@ -121,6 +121,28 @@ class LayoutControllerTest {
         assertTrue(daemon.ops.layoutRequests.all { it.second == DetailLevel.COMPOSITION })
     }
 
+    /**
+     * D-149: the screen-change signal says when it happened on the DEVICE's clock; the debounce is counted on the plugin's. A device
+     * clock ahead of the computer's (the emulator's was 359 ms) made Auto wait that much longer (1.57-1.94 s against a 1.5 s limit), and one
+     * behind made the signal look older than the last capture and be dropped. The plugin takes the moment the signal reached it.
+     */
+    @Test
+    fun `auto debounces from the moment the signal arrived, whatever the device's clock says`() = runBlocking<Unit> {
+        shown()
+        withTimeout(5_000) { while (daemon.ops.signalWatchers.get() == 0) kotlinx.coroutines.delay(20) }
+        layout.setRefreshMode(io.yamsergey.dta.present.layout.RefreshPolicy.Mode.AUTO)
+        kotlinx.coroutines.delay(1_100)
+        for (skewMs in listOf(6 * 60_000L, -6 * 60_000L)) {
+            val before = daemon.ops.layoutRequests.size
+            daemon.ops.signal.tryEmit(
+                io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update.Changed(io.yamsergey.dta.protocol.layout.LayoutChanged(System.currentTimeMillis() + skewMs, listOf("windows"))),
+            )
+            withTimeout(4_000) { while (daemon.ops.layoutRequests.size == before) kotlinx.coroutines.delay(20) }
+            await { !it.loading }
+            kotlinx.coroutines.delay(1_100)
+        }
+    }
+
     /** V4 (D-143): the line that Auto cannot follow a capture of an app without DTA goes when the app with DTA is captured again. */
     @Test
     fun `the line that auto cannot follow goes when the app's own capture comes back`() = runBlocking<Unit> {
