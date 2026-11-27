@@ -19,8 +19,11 @@ class ScreenImageCache {
     private var image: BufferedImage? = null
 
     fun imageOf(tree: LayoutTree?): BufferedImage? {
-        // not cached yet: decodes on every call
-        decodes++
-        return tree?.screen?.png?.let { runCatching { ImageIO.read(ByteArrayInputStream(it)) }.getOrNull() }
+        val screen = tree?.screen
+        if (keyed && screen === forScreen) return image
+        keyed = true
+        forScreen = screen
+        image = screen?.png?.let { decodes++; runCatching { ImageIO.read(ByteArrayInputStream(it)) }.getOrNull() }
+        return image
     }
 }
