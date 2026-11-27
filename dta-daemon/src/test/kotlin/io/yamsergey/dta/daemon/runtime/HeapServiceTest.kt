@@ -50,7 +50,7 @@ class HeapServiceTest {
     private fun rows(n: Long) = (1..30).map { HeapClassRow("c.C$it", null, HeapOrigin.APP, n, n * it) }
     private fun ok(pause: Long = 20, n: Long = 1) = HeapWalk(run = "r1", classes = rows(n), pauseMs = pause)
 
-    @Test fun snapshotStatesPauseAndSummarisesTop20() = runBlocking {
+    @Test fun snapshotStatesPauseAndSummarisesTop20() = runBlocking<Unit> {
         val a = service.snapshot(app, Fake(ok()), "base", false, null)
         assertEquals(20, a.pauseMs)
         assertNull(a.warning)
@@ -61,14 +61,14 @@ class HeapServiceTest {
         assertTrue(a.notKnown.any { it.contains("retained") })
     }
 
-    @Test fun warnsAboveHundredMillis() = runBlocking {
+    @Test fun warnsAboveHundredMillis() = runBlocking<Unit> {
         val a = service.snapshot(app, Fake(ok(pause = 101)), null, false, null)
         assertTrue(a.warning!!.contains("101"))
         now += 5_000
         assertNull(service.snapshot(app, Fake(ok(pause = 100)), null, false, null).warning)
     }
 
-    @Test fun passesBoundAndGcAndDefaultsTheBound() = runBlocking {
+    @Test fun passesBoundAndGcAndDefaultsTheBound() = runBlocking<Unit> {
         val f = Fake(ok())
         service.snapshot(app, f, null, true, 3000)
         assertEquals(3000L, f.lastMax); assertEquals(true, f.lastGc)
@@ -77,7 +77,7 @@ class HeapServiceTest {
         assertEquals(1000L, f.lastMax)
     }
 
-    @Test fun requestTimeoutIsAboveTheBoundWithMargin() = runBlocking {
+    @Test fun requestTimeoutIsAboveTheBoundWithMargin() = runBlocking<Unit> {
         val f = Fake(ok())
         service.snapshot(app, f, null, false, null)
         assertTrue(f.lastTimeout!!.inWholeMilliseconds >= 1000 + 10_000)
@@ -86,19 +86,19 @@ class HeapServiceTest {
         assertTrue(f.lastTimeout!!.inWholeMilliseconds >= 60_000 + 10_000, "timeout ${f.lastTimeout}")
     }
 
-    @Test fun stoppedWalkIsRefusedWithHowToRaiseAndStoresNothing() = runBlocking {
+    @Test fun stoppedWalkIsRefusedWithHowToRaiseAndStoresNothing() = runBlocking<Unit> {
         val f = Fake(HeapWalk(run = "r1", pauseMs = 1004, stopped = true, maxPauseMs = 1000))
         val e = assertFailsWith<HeapRefusal> { service.snapshot(app, f, null, false, null) }
         assertTrue(e.message!!.contains("1004") && e.message!!.contains("maxPause"))
         assertTrue(service.list(app).snapshots.isEmpty())
     }
 
-    @Test fun sidekickRefusalPassesItsReason() = runBlocking {
+    @Test fun sidekickRefusalPassesItsReason() = runBlocking<Unit> {
         val f = Fake(HeapWalk(run = "r1", refusal = "the app is not debuggable"))
         assertEquals("the app is not debuggable", assertFailsWith<HeapRefusal> { service.snapshot(app, f, null, false, null) }.message)
     }
 
-    @Test fun tooSoonIsRefusedBeforeTheWalk() = runBlocking {
+    @Test fun tooSoonIsRefusedBeforeTheWalk() = runBlocking<Unit> {
         val f = Fake(ok())
         service.snapshot(app, f, null, false, null)
         val e = assertFailsWith<HeapRefusal> { service.snapshot(app, f, null, false, null) }
@@ -106,7 +106,7 @@ class HeapServiceTest {
         assertEquals(1, f.walks)
     }
 
-    @Test fun listAndCompareTakeNoSnapshot() = runBlocking {
+    @Test fun listAndCompareTakeNoSnapshot() = runBlocking<Unit> {
         val f = Fake(ok(n = 1))
         service.snapshot(app, f, "a", false, null)
         now += 3000
@@ -122,7 +122,7 @@ class HeapServiceTest {
         assertEquals(2, f.runCalls)
     }
 
-    @Test fun compareFiltersAndSaysWhatItLeftOut() = runBlocking {
+    @Test fun compareFiltersAndSaysWhatItLeftOut() = runBlocking<Unit> {
         val f = Fake(ok(n = 1))
         service.snapshot(app, f, "a", false, null)
         now += 3000
@@ -136,12 +136,12 @@ class HeapServiceTest {
         assertFailsWith<IllegalArgumentException> { service.compare(app, "a", "b", "nonsense", null, null) }
     }
 
-    @Test fun compareRefusalsCarryTheReason() = runBlocking {
+    @Test fun compareRefusalsCarryTheReason() = runBlocking<Unit> {
         val e = assertFailsWith<HeapRefusal> { service.compare(app, "x", "y", null, null, null) }
         assertTrue(e.message!!.contains("no snapshot"))
     }
 
-    @Test fun droppedSnapshotIsSaidInTheAnswer() = runBlocking {
+    @Test fun droppedSnapshotIsSaidInTheAnswer() = runBlocking<Unit> {
         val f = Fake(ok())
         repeat(21) { service.snapshot(app, f, null, false, null); now += 3000 }
         val l = service.list(app)
@@ -150,7 +150,7 @@ class HeapServiceTest {
         assertNotNull(l.run)
     }
 
-    @Test fun instancesAreLiveNowAndNeverTakeASnapshot() = runBlocking {
+    @Test fun instancesAreLiveNowAndNeverTakeASnapshot() = runBlocking<Unit> {
         val f = Fake(ok())
         val a = service.instances(app, f, "com.x.Leak", null, null)
         assertEquals(2, a.total)
@@ -162,12 +162,12 @@ class HeapServiceTest {
         assertTrue(service.list(app).snapshots.isEmpty())
     }
 
-    @Test fun instancesRefusalCarriesTheReason() = runBlocking {
+    @Test fun instancesRefusalCarriesTheReason() = runBlocking<Unit> {
         val f = Fake(ok()); f.page = HeapInstancesPage("x", 0, 0, emptyList(), refusal = "no class 'x' is loaded")
         assertEquals("no class 'x' is loaded", assertFailsWith<HeapRefusal> { service.instances(app, f, "x", null, null) }.message)
     }
 
-    @Test fun fieldsShowNoValuesUnlessAsked() = runBlocking {
+    @Test fun fieldsShowNoValuesUnlessAsked() = runBlocking<Unit> {
         val f = Fake(ok())
         val a = service.fields(app, f, 4294967297, values = false, redact = false)
         assertEquals(false, f.lastValues)
@@ -177,7 +177,7 @@ class HeapServiceTest {
         assertEquals(true, f.lastValues)
     }
 
-    @Test fun fieldsForAgentsAreMaskedByValueAndTheAnswerSaysSo() = runBlocking {
+    @Test fun fieldsForAgentsAreMaskedByValueAndTheAnswerSaysSo() = runBlocking<Unit> {
         val f = Fake(ok())
         val a = service.fields(app, f, 4294967297, values = true, redact = true)
         val v = a.fields.fields.map { (it.value as JsonPrimitive).content }
@@ -191,14 +191,14 @@ class HeapServiceTest {
         assertNull(plain.redaction)
     }
 
-    @Test fun fieldsForAgentsWithoutValuesStillStateTheRule() = runBlocking {
+    @Test fun fieldsForAgentsWithoutValuesStillStateTheRule() = runBlocking<Unit> {
         val f = Fake(ok()); f.read = HeapFieldsRead(fields = HeapFields(1, "com.x.Leak", listOf(HeapField("title", "com.x.Leak", "java.lang.String", false, null, 4))))
         val a = service.fields(app, f, 1, values = false, redact = true)
         assertTrue(a.redaction!!.applied)
         assertTrue(a.redaction!!.masked.isEmpty())
     }
 
-    @Test fun fieldsOfAGoneInstanceAreRefused() = runBlocking {
+    @Test fun fieldsOfAGoneInstanceAreRefused() = runBlocking<Unit> {
         val f = Fake(ok()); f.read = HeapFieldsRead(refusal = "instance 5 is gone: the object was collected")
         assertTrue(assertFailsWith<HeapRefusal> { service.fields(app, f, 5, values = false, redact = false) }.message!!.contains("gone"))
     }
