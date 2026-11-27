@@ -130,15 +130,17 @@ class MemoryPanel(
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         font = mono
         setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
+            private val className = io.yamsergey.dta.studio.ui.ClassNameLabel()
             override fun getTableCellRendererComponent(t: javax.swing.JTable, v: Any?, sel: Boolean, focus: Boolean, row: Int, col: Int): Component {
                 val c = super.getTableCellRendererComponent(t, v, sel, focus, row, col)
                 val r = tableModel.rows.getOrNull(row)
                 c.font = if (r?.grew == true && !histogram && col >= (if (narrow) 1 else 3)) mono.deriveFont(Font.BOLD) else mono
                 horizontalAlignment = if (col == 0) LEFT else RIGHT
                 if (col == 0 && r != null) {
-                    // The simple name stays: the middle of a long name is elided to the room the column has.
-                    val chars = ((t.columnModel.getColumn(0).width - JBUI.scale(10)) / t.getFontMetrics(mono).charWidth('m')).coerceAtLeast(6)
-                    text = MemoryRows.elide(r.className, chars)
+                    // Truncation rules, rule 1: the simple name stays whole, the package gives way (muted); the tooltip has the full name.
+                    className.font = mono
+                    className.show(r.className, t.columnModel.getColumn(0).width - JBUI.scale(4), sel, c.background)
+                    return className
                 }
                 return c
             }
