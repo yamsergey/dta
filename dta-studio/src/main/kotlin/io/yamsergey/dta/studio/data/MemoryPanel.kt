@@ -221,9 +221,9 @@ class MemoryPanel(
         splitter.firstComponent = tablePane
         splitter.secondComponent = instances
         content.add(JPanel(BorderLayout()).apply {
-            add(JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); add(pickers); add(statement); statement.alignmentX = Component.LEFT_ALIGNMENT }, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply { add(pickers, BorderLayout.NORTH); add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(statement)), BorderLayout.CENTER) }, BorderLayout.NORTH)
             add(splitter, BorderLayout.CENTER)
-            add(JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); add(leftOut); add(notKnown) }, BorderLayout.SOUTH)
+            add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(leftOut, notKnown)), BorderLayout.SOUTH)
         }, CONTENT)
         cards.show(content, EMPTY)
         layoutPickers()
