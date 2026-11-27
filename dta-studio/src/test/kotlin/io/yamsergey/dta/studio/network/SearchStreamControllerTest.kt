@@ -126,7 +126,7 @@ class SearchStreamControllerTest {
         await { it.watching }
         network.setQuery("token")
         await { it.find == FindState.DONE }
-        network.setArchiveOn(true)
+        network.chooseSource(io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING)
         val on = await { it.find == FindState.DONE && it.scope?.archive == true }
         assertTrue(daemon.ops.finds.last().archive)
         assertEquals(1, on.list.rows.size)
@@ -504,7 +504,7 @@ class SearchStreamControllerTest {
         daemon.ops.events.emit(NetworkEntryEvent(http(8), EntryChange.CREATED))
         await { s -> s.list.rows.any { it.id == "r1-1:8" } }
         // The switch: the search starts over in the archive; then a live entry joins again.
-        network.setArchiveOn(true)
+        network.chooseSource(io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING)
         await { it.find == FindState.DONE && it.scope?.archive == true }
         daemon.ops.events.emit(NetworkEntryEvent(http(9), EntryChange.CREATED))
         await { s -> s.list.rows.any { it.id == "r1-1:9" } }

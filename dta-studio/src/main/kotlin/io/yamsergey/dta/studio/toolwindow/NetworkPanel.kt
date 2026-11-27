@@ -145,7 +145,7 @@ class NetworkPanel(
             "WebSocket: dir:sent|received frame:text|binary type: topic: conn: status:open|closed|1006<br>" +
             "body: req: resp: take text or a /regex/ pattern: body:/\"id\":\\s*\\d+/ (case ignored; body:\"/x/\" is literal text)<br>" +
             "-key:value leaves matches out; other words are searched in URLs, headers, bodies and messages: only the matches are listed.<br>" +
-            "The list and search cover the app's current run; Archive includes earlier runs and archived history (run:all alone does not).<br>" +
+            "The list and search cover the app's current run; the source list's All includes earlier runs and archived history (run:all alone does not).<br>" +
             "A search shows its matches as it finds them; Stop (or a new query) ends it. No time limit cuts a pattern.<br>" +
             "Enter saves the filters for this app as chips; with only search words Enter / Shift+Enter (F3 / Shift+F3): next / previous hit.<br>" +
             "${completionShortcut()} or Down lists every filter at the caret.</html>"
@@ -172,11 +172,6 @@ class NetworkPanel(
             null -> Unit
         }
     }.apply { isVisible = false }
-    /** Feature 071: the Archive switch, after the source (off at each IDE start). */
-    private val archiveBox = com.intellij.ui.components.JBCheckBox("Archive").apply {
-        toolTipText = "Include every earlier run and the archived history this computer keeps for the app. Off: only the app's current run (since its process last started)."
-        isOpaque = false
-    }
     /** Feature 071 (board 5): run:all while the switch is off widens nothing; said under the line. */
     private val runAllHint = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
         isOpaque = false
@@ -351,11 +346,9 @@ class NetworkPanel(
         val viewRow = JPanel(com.intellij.util.ui.WrapLayout(FlowLayout.LEFT, JBUI.scale(6), JBUI.scale(2))).apply {
             add(kindSwitch)
             add(source)
-            add(archiveBox)
             // D-024: the network script in force, after the source; wraps to the next row when narrow.
             add(scriptControl)
         }
-        archiveBox.addActionListener { if (archiveBox.isSelected != last.archiveOn) network.setArchiveOn(archiveBox.isSelected) }
         val toolbar = JPanel().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
             listOf(queryRow, problemRow, runAllHint, chipRow, viewRow, restartBanner).forEach { it.alignmentX = LEFT_ALIGNMENT; add(it) }
@@ -369,7 +362,7 @@ class NetworkPanel(
             // In one line when it fits, else "N new below" under the caption: never over it.
             add(JPanel(LineOrStack(JBUI.scale(12))).apply {
                 border = JBUI.Borders.empty(2, 6, 0, 4)
-                add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false; add(spinner); add(caption); add(captionLink) })
+                add(CaptionRow(spinner, caption, captionLink))
                 add(empty)
                 add(newBar)
             }, BorderLayout.SOUTH)
@@ -499,12 +492,11 @@ class NetworkPanel(
         // D-083: no daemon, no run: no count of one ("0 entries in this run").
         if (!s.online) caption.text = ""
         if (s.findHeld && words != null) caption.text = words.text + " · more as you scroll"
+        caption.toolTipText = caption.text.ifEmpty { null }   // D-106: the whole words when the row ends them with an ellipsis
         spinner.isVisible = words?.searching == true
         captionAction = words?.action?.takeIf { s.online }
         captionLink.text = captionAction?.let { io.yamsergey.dta.present.network.ScopeCaption.label(it) }.orEmpty()
         captionLink.isVisible = captionAction != null
-        if (archiveBox.isSelected != s.archiveOn) archiveBox.isSelected = s.archiveOn
-        archiveBox.isEnabled = s.archive == null
         runAllHint.isVisible = !s.archiveOn && s.archive == null && s.applied.parsed.filter.runs == io.yamsergey.dta.protocol.network.RunScope.ALL && s.applied.parsed.problems.isEmpty()
         restartBanner.show(s.restart?.let { io.yamsergey.dta.present.context.Banner(io.yamsergey.dta.present.StatementKind.PROCESS_ENDED, it) })
         if (s.hits != previous.hits) table.repaint()

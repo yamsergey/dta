@@ -507,7 +507,7 @@ class NetworkControllerTest {
             return daemon.ops.queries.drop(before).first().second
         }
         assertEquals(false, exported().archive, "off: the app's current run")
-        network.setArchiveOn(true)
+        network.chooseSource(io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING)
         await { it.archiveOn && it.list.rows.size == 3 }
         assertEquals(true, exported().archive, "on: everything this computer keeps, as the list")
     }

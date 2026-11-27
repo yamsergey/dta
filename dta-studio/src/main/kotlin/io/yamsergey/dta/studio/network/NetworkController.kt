@@ -424,8 +424,8 @@ class NetworkController(private val context: ContextController, private val scop
     /** The run the tab showed when the app started again, named by the banner once the new run is listed. */
     @Volatile private var restartFrom: io.yamsergey.dta.protocol.network.ScopeRun? = null
 
-    /** Feature 071: the Archive switch; a search running in the old scope stops and starts over in the new one. */
-    fun setArchiveOn(on: Boolean) {
+    /** Feature 071: the archive scope (D-106: set only by [chooseSource], the source list's All / Live); a search running in the old scope stops and starts over in the new one. */
+    private fun setArchiveOn(on: Boolean) {
         if (mutable.value.archiveOn == on) return
         restartFrom = null
         restartAsks.set(0)
