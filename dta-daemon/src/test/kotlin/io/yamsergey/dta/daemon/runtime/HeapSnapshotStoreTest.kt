@@ -116,7 +116,7 @@ class HeapSnapshotStoreTest {
         take("run1", run = "r1")
         take("run2", run = "r2")
         val bad = assertIs<HeapCompareResult.Refused>(store.compare(app, "run1", "run2"))
-        assertTrue(bad.reason.contains("earlier run") && bad.reason.contains("r1") && bad.reason.contains("not comparable"), bad.reason)
+        assertTrue(bad.reason.contains("earlier run") && bad.reason.contains("r1") && bad.reason.contains("new app process") && bad.reason.contains("not comparable across runs"), bad.reason)
         assertTrue(!bad.reason.contains("no snapshot 'run1'"), bad.reason)
     }
 
@@ -124,7 +124,7 @@ class HeapSnapshotStoreTest {
         take("run1", run = "r1")
         store.runStarted(app, "r2")
         val bad = assertIs<HeapCompareResult.Refused>(store.compare(app, "run1", "run2"))
-        assertTrue(bad.reason.contains("earlier run") && bad.reason.contains("r1") && bad.reason.contains("r2") && bad.reason.contains("not comparable"), bad.reason)
+        assertTrue(bad.reason.contains("earlier run") && bad.reason.contains("r1") && bad.reason.contains("r2") && bad.reason.contains("new app process") && bad.reason.contains("not comparable across runs"), bad.reason)
     }
 
     @Test fun compareResolvesByIdOrNameAndExplainsUnknown() {

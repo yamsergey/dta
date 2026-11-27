@@ -160,7 +160,7 @@ class HeapSnapshotStore(
         if (s == null || s.run == null) return HeapCompareResult.Refused("no snapshot has been taken for $app; take one first")
         val known = s.knownRun
         if (known != null && known != s.run) {
-            return HeapCompareResult.Refused("the snapshots listed are of an earlier run (${s.run}); the app now runs $known, a new process: counts are not comparable across runs. Take a snapshot in the current run and compare within it")
+            return HeapCompareResult.Refused("the snapshots listed are of an earlier run (${s.run}); the app now runs $known, a new app process: counts are not comparable across runs. Take a snapshot in the current run and compare within it")
         }
         val sa = get(app, a) ?: if (a == EMPTY) emptyOf(s) else return HeapCompareResult.Refused(unknown(s, a))
         val sb = get(app, b) ?: return HeapCompareResult.Refused(unknown(s, b))
@@ -175,7 +175,7 @@ class HeapSnapshotStore(
     private fun unknown(s: AppState, ref: String): String {
         s.earlier?.let { (run, snaps) ->
             if (snaps.any { it.first == ref || it.second == ref }) {
-                return "snapshot '$ref' belongs to an earlier run ($run) of the app, a different process; it is gone from the store and counts are not comparable across runs (this run is ${s.run})"
+                return "snapshot '$ref' belongs to an earlier run ($run) of the app, a new app process; it is gone from the store and counts are not comparable across runs (this run is ${s.run})"
             }
         }
         val dropped = s.dropped.firstOrNull { it.id == ref || it.name == ref }
