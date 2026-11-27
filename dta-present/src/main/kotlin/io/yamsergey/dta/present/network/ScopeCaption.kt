@@ -35,7 +35,7 @@ object ScopeCaption {
         val savedOn = saved?.takeIf { !it.ignored && it.words.isNotEmpty() }?.words?.size
         val savedText = savedOn?.let { " · $it saved filter${if (it == 1) "" else "s"} on" }.orEmpty()
         val more = !on && (scope?.outside ?: 0) > 0 && scope?.explicit == null
-        val earlier = if (more) " · earlier runs are in the archive$ALL_POINTER" else ""
+        val earlier = if (more) " · earlier runs: All" else ""
         if (scope?.explicit != null) {
             return Caption("${grouped(shown)} shown · ${grouped(total)} in the archived part$savedText", searching = state == FindState.SEARCHING || state == FindState.WAITING)
         }
@@ -58,8 +58,9 @@ object ScopeCaption {
 
     /** Board 5: the line's hint when `run:all` is in it while the switch is off, and its link. */
     const val RUN_ALL_HINT = io.yamsergey.dta.protocol.network.NetworkQuery.RUN_ALL_HINT
-    /** What the caption says after "earlier runs are in the archive": where the tab shows them (the source list). */
-    const val ALL_POINTER = " (source: All)"
+    /** The tab's short words for earlier runs, next to the source list (D-106); the CLI says the long form. */
+    const val EARLIER_TAB = " · earlier runs: All"
+    const val EARLIER_CLI = " · earlier runs are in the archive"
     /** Board 5 in the tab (D-106): no link; the source list's "All" widens it. */
     const val RUN_ALL_HINT_TAB = "run:all reads only this run. Earlier runs: source All."
 
@@ -86,7 +87,7 @@ object ScopeCaption {
 
     /** The CLI's caption: the tab's words, with the switch named where the tab offers a link. */
     fun cli(caption: Caption): String =
-        if (caption.earlier) caption.text.replace(ALL_POINTER, "") + " (--archive includes them)" else caption.text
+        if (caption.earlier) caption.text.replace(EARLIER_TAB, EARLIER_CLI) + " (--archive includes them)" else caption.text
 
     private fun end(e: RunEnd) = when (e) { RunEnd.PROCESS_ENDED -> "process-ended" }
 

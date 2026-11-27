@@ -369,7 +369,7 @@ class NetworkPanel(
             // In one line when it fits, else "N new below" under the caption: never over it.
             add(JPanel(LineOrStack(JBUI.scale(12))).apply {
                 border = JBUI.Borders.empty(2, 6, 0, 4)
-                add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)).apply { isOpaque = false; add(spinner); add(caption); add(captionLink) })
+                add(CaptionRow(spinner, caption, captionLink))
                 add(empty)
                 add(newBar)
             }, BorderLayout.SOUTH)
@@ -499,6 +499,7 @@ class NetworkPanel(
         // D-083: no daemon, no run: no count of one ("0 entries in this run").
         if (!s.online) caption.text = ""
         if (s.findHeld && words != null) caption.text = words.text + " · more as you scroll"
+        caption.toolTipText = caption.text.ifEmpty { null }   // D-106: the whole words when the row ends them with an ellipsis
         spinner.isVisible = words?.searching == true
         captionAction = words?.action?.takeIf { s.online }
         captionLink.text = captionAction?.let { io.yamsergey.dta.present.network.ScopeCaption.label(it) }.orEmpty()
