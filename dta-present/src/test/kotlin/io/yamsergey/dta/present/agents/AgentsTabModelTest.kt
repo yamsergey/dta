@@ -148,7 +148,22 @@ class AgentsTabModelTest {
             assertTrue(AgentsTabModel.MASK in shown, agent.title)
             val copied = AgentsTabModel.toCopy(agent, "http://127.0.0.1:7341/mcp", credential)
             assertTrue(credential in copied, agent.title)
-            assertEquals(shown, copied.replace(credential, AgentsTabModel.MASK), agent.title)
+            assertEquals(shown.replace(" \\\n  ", " "), copied.replace(credential, AgentsTabModel.MASK), agent.title)
         }
+    }
+
+    @Test
+    fun `the mask is 8 dots whatever the credential's length (truncation rules, rule 3)`() {
+        assertEquals("••••••••", AgentsTabModel.MASK)
+    }
+
+    @Test
+    fun `the command breaks only at its own continuations and the masked credential is one piece`() {
+        val shown = AgentsTabModel.shown(Agent.CLAUDE_CODE, "http://127.0.0.1:7341/mcp")
+        val lines = shown.lines()
+        assertTrue(lines.size > 1, shown)
+        assertTrue(lines.dropLast(1).all { it.endsWith(" \\") }, shown)
+        assertEquals(1, lines.count { "Bearer ${AgentsTabModel.MASK}\"" in it }, shown)
+        assertTrue(lines.none { it.contains("Bearer") && !it.contains(AgentsTabModel.MASK) }, shown)
     }
 }

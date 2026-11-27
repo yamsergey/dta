@@ -68,7 +68,14 @@ class RuntimePanel(
     private val root = DefaultMutableTreeNode()
     private var viewModelsWanted = false
     private val treeModel = DefaultTreeModel(root)
-    val tree = Tree(treeModel)
+    val tree = object : Tree(treeModel) {
+        /** Truncation rules, rule 4: class, id and owner of a ViewModel, whatever the row shows of them. */
+        override fun getToolTipText(e: java.awt.event.MouseEvent): String? {
+            val item = (getPathForLocation(e.x, e.y)?.lastPathComponent as? DefaultMutableTreeNode)?.userObject as? Item ?: return null
+            val vm = item.vm ?: return null
+            return listOfNotNull(vm.className, vm.id, vm.owner).joinToString(" · ")
+        }
+    }.also { javax.swing.ToolTipManager.sharedInstance().registerComponent(it) }
     private val cards = CardLayout()
     private val right = JPanel(cards)
     private val text = JBTextArea().apply { isEditable = false; font = Font(Font.MONOSPACED, Font.PLAIN, JBUI.scaleFontSize(12f)) }
@@ -122,7 +129,16 @@ class RuntimePanel(
             override fun customizeCellRenderer(t: javax.swing.JTree, value: Any?, selected: Boolean, expanded: Boolean, leaf: Boolean, row: Int, hasFocus: Boolean) {
                 when (val o = (value as? DefaultMutableTreeNode)?.userObject) {
                     is Section -> append(o.label, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                    is Item -> { append(o.label); if (o.detail.isNotEmpty()) append("  " + o.detail, SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+                    is Item -> {
+                        append(o.label)
+                        if (o.detail.isNotEmpty()) {
+                            // Truncation rules, rule 4: the name stays whole, the secondary text ends in … at the room that is left.
+                            val metrics = t.getFontMetrics(font)
+                            val x = t.getRowBounds(row)?.x ?: 0
+                            val room = t.width - x - metrics.stringWidth(o.label) - JBUI.scale(24)
+                            append(io.yamsergey.dta.studio.ui.ClassNameFit.end("  " + o.detail, { metrics.stringWidth(it) }, room.coerceAtLeast(metrics.stringWidth("  …"))), SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                        }
+                    }
                 }
             }
         }

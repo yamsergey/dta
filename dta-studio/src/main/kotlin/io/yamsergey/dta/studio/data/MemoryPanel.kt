@@ -130,15 +130,17 @@ class MemoryPanel(
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
         font = mono
         setDefaultRenderer(Any::class.java, object : DefaultTableCellRenderer() {
+            private val className = io.yamsergey.dta.studio.ui.ClassNameLabel()
             override fun getTableCellRendererComponent(t: javax.swing.JTable, v: Any?, sel: Boolean, focus: Boolean, row: Int, col: Int): Component {
                 val c = super.getTableCellRendererComponent(t, v, sel, focus, row, col)
                 val r = tableModel.rows.getOrNull(row)
                 c.font = if (r?.grew == true && !histogram && col >= (if (narrow) 1 else 3)) mono.deriveFont(Font.BOLD) else mono
                 horizontalAlignment = if (col == 0) LEFT else RIGHT
                 if (col == 0 && r != null) {
-                    // The simple name stays: the middle of a long name is elided to the room the column has.
-                    val chars = ((t.columnModel.getColumn(0).width - JBUI.scale(10)) / t.getFontMetrics(mono).charWidth('m')).coerceAtLeast(6)
-                    text = MemoryRows.elide(r.className, chars)
+                    // Truncation rules, rule 1: the simple name stays whole, the package gives way (muted); the tooltip has the full name.
+                    className.font = mono
+                    className.show(r.className, t.columnModel.getColumn(0).width - JBUI.scale(4), sel, c.background)
+                    return className
                 }
                 return c
             }
@@ -146,17 +148,28 @@ class MemoryPanel(
     }
 
     private val instanceModel = DefaultListModel<MemoryRows.InstanceRow>()
-    internal val instanceList = JBList(instanceModel).apply {
+    private fun instanceLine(row: MemoryRows.InstanceRow) = "${row.label}   ${row.state}${row.linkText?.let { "   $it" } ?: ""}"
+    internal val instanceList = object : JBList<MemoryRows.InstanceRow>(instanceModel) {
+        /** The whole line, whatever the row shows of it (truncation rules: secondary text ends in …, never a hard cut). */
+        override fun getToolTipText(e: java.awt.event.MouseEvent): String? {
+            val i = locationToIndex(e.point)
+            return if (i >= 0) instanceLine(model.getElementAt(i)) else null
+        }
+    }.apply {
         name = "memory.instances"
         selectionMode = ListSelectionModel.SINGLE_SELECTION
         visibleRowCount = 6
-        cellRenderer = javax.swing.ListCellRenderer { _, row, _, selected, _ ->
-            JBLabel("${row.label}   ${row.state}${row.linkText?.let { "   $it" } ?: ""}").apply {
+        cellRenderer = javax.swing.ListCellRenderer { list, row, _, selected, _ ->
+            JBLabel().apply {
                 font = mono
                 isOpaque = true
+                val metrics = getFontMetrics(font)
+                val room = (list.width - JBUI.scale(8)).coerceAtLeast(JBUI.scale(40))
+                text = io.yamsergey.dta.studio.ui.ClassNameFit.end(instanceLine(row), { metrics.stringWidth(it) }, room)
                 background = if (selected) JBUI.CurrentTheme.List.background(true, true) else JBUI.CurrentTheme.List.background(false, false)
             }
         }
+        toolTipText = ""
     }
     private val instanceHeader = JBLabel(" ").apply { font = mono.deriveFont(Font.BOLD); name = "memory.instances.header" }
     private val instanceSummary = WrappingText("", JBColor.GRAY)
