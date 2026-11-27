@@ -72,7 +72,7 @@ class NodeDetailPane(
     private val chainView = io.yamsergey.dta.studio.ui.CallChainView(openSource) { lastShown?.let { (d, n) -> show(d, n) } }
 
     /** A property's value on one line: ends in an ellipsis at the pane's edge, the whole in the tooltip, copied from a right-click. */
-    private fun valueLabel(label: String, value: String) = io.yamsergey.dta.studio.ui.FitLabel(asClass = label == "Class").apply {
+    private fun valueLabel(label: String, value: String) = io.yamsergey.dta.studio.ui.FitLabel(asClass = label == "Class", asResource = label == "Resource id").apply {
         show(value)
         componentPopupMenu = javax.swing.JPopupMenu().apply {
             add(javax.swing.JMenuItem("Copy").apply {

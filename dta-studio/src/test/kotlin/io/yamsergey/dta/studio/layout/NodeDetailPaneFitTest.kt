@@ -53,4 +53,16 @@ class NodeDetailPaneFitTest : BasePlatformTestCase() {
         assertTrue("nothing past the edge", row.items.filter { it.isVisible }.all { it.x + it.width <= row.width })
         assertEquals(path.joinToString(" › "), row.toolTipText)
     }
+
+    /** V3: a resource id keeps the id after ":id/" whole. */
+    fun `test a resource id keeps its id whole`() {
+        val p = pane(220)
+        val id = "io.yamsergey.dta.fixture.channel:id/form_submit"
+        p.show(NodeDetail("t", listOf("a"), listOf("Resource id" to id), null, emptyList(), emptyList(), emptyList()), null)
+        lay(p)
+        val l = all(p).filterIsInstance<io.yamsergey.dta.studio.ui.FitLabel>().single()
+        l.setBounds(0, 0, 140, 20)
+        assertTrue(l.text, l.text.endsWith(":id/form_submit") || l.text.endsWith("/form_submit"))
+        assertEquals(id, l.toolTipText)
+    }
 }

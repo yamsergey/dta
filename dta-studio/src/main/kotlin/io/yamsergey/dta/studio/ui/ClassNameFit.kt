@@ -42,6 +42,23 @@ object ClassNameFit {
         return head
     }
 
+    /**
+     * A resource id (`package:id/name`): the id after the last `/` is the identifying part and stays whole; the
+     * package before it gives way from its start (`…channel:id/name`). Only when the id alone is too wide does it end in an ellipsis.
+     */
+    fun resource(full: String, measure: (String) -> Int, width: Int): String {
+        if (measure(full) <= width) return full
+        val cut = full.lastIndexOf('/') + 1
+        if (cut <= 0) return end(full, measure, width)
+        val head = full.substring(0, cut)
+        val tail = full.substring(cut)
+        for (n in head.length - 1 downTo 0) {
+            val candidate = "…" + head.takeLast(n) + tail
+            if (measure(candidate) <= width) return candidate
+        }
+        return if (measure("…/$tail") <= width) "…/$tail" else end(tail, measure, width)
+    }
+
     /** [text] cut at its end with an ellipsis so it fits [width]; whole when it fits. */
     fun end(text: String, measure: (String) -> Int, width: Int): String {
         if (measure(text) <= width) return text
