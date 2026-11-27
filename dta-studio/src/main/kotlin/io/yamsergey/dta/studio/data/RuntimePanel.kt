@@ -211,7 +211,7 @@ class RuntimePanel(
         // D-122: a list read for an earlier run of the app is read again first.
         if (reload || root.childCount == 0) {
             viewModelsWanted = true
-            load()
+            loadSettled()
         } else {
             selectViewModels()
         }
@@ -223,46 +223,76 @@ class RuntimePanel(
         tree.selectionPath = javax.swing.tree.TreePath(arrayOf<Any>(root, node))
     }
 
+    /** What one read of the app found; equal answers are equal reads (the settle rule compares them). */
+    private data class Snapshot(val nav: Result<NavigationState>, val vms: Result<ViewModelList>, val fns: Result<FunctionList>)
+
+    private suspend fun read() = Snapshot(
+        runCatching { decode(NavigationState.serializer(), call("runtime.navigation", EMPTY_PARAMS)) },
+        runCatching { decode(ViewModelList.serializer(), call("runtime.viewmodels", EMPTY_PARAMS)) },
+        runCatching { decode(FunctionList.serializer(), call("runtime.functions", EMPTY_PARAMS)) },
+    )
+
+    private var reading: kotlinx.coroutines.Job? = null
+
     /** Reads navigation hosts, ViewModels and functions again and rebuilds the tree. */
-    fun load() {
+    fun load() = start(settle = false)
+
+    /**
+     * D-122: for an app that has just connected or been chosen: its first answers are partial (the screen is not up), so it reads
+     * again until two answers in a row agree. A later load supersedes this one.
+     */
+    fun loadSettled() = start(settle = true)
+
+    private fun start(settle: Boolean) {
         // D-103: nothing of the previous app stays; DI, when it was open, is read again for this one.
         val reopenDi = diOpen
         diOpen = false
         diView.clear()
         cards.show(right, EMPTY)
-        scope.launch {
-            val nav = runCatching { decode(NavigationState.serializer(), call("runtime.navigation", EMPTY_PARAMS)) }
-            val vms = runCatching { decode(ViewModelList.serializer(), call("runtime.viewmodels", EMPTY_PARAMS)) }
-            val fns = runCatching { decode(FunctionList.serializer(), call("runtime.functions", EMPTY_PARAMS)) }
-            ui.invoke(Runnable {
-                root.removeAllChildren()
-                for (section in Section.entries) {
-                    val node = DefaultMutableTreeNode(section)
-                    when (section) {
-                        Section.NAVIGATION -> nav.getOrNull()?.hosts?.forEach { h ->
-                            node.add(DefaultMutableTreeNode(Item(section, h.backStack.lastOrNull()?.let { it.route ?: it.label } ?: h.id, "${h.kind} · ${Units.count(h.backStack.size, "entry", "entries")}", host = h)))
-                        }
-                        Section.VIEWMODELS -> vms.getOrNull()?.viewModels?.forEach { v ->
-                            node.add(DefaultMutableTreeNode(Item(section, v.className.substringAfterLast('.'), v.owner ?: "", vm = v)))
-                        }
-                        else -> Unit
-                    }
-                    root.add(node)
-                }
-                functions = fns.getOrNull()
-                treeModel.reload()
-                for (i in 0 until tree.rowCount) tree.expandRow(i)
-                status.text = listOfNotNull(nav.exceptionOrNull(), vms.exceptionOrNull()).firstOrNull()?.message
-                    ?: (nav.getOrNull()?.completeness.orEmpty() + vms.getOrNull()?.completeness.orEmpty()).firstOrNull()?.reason
-                    ?: "${Units.count(nav.getOrNull()?.hosts?.size ?: 0, "navigation host")}, ${Units.count(vms.getOrNull()?.viewModels?.size ?: 0, "ViewModel")}."
-                if (viewModelsWanted) {
-                    viewModelsWanted = false
-                    selectViewModels()
-                } else if (reopenDi) {
-                    root.children().asSequence().map { it as DefaultMutableTreeNode }.firstOrNull { it.userObject == Section.DI }?.let { tree.selectionPath = javax.swing.tree.TreePath(arrayOf<Any>(root, it)) }
-                }
-            })
+        reading?.cancel()
+        reading = scope.launch {
+            if (settle) settle(::read, { show(it, reopenDi) }, everyMs = SETTLE_EVERY_MS, maxReads = SETTLE_MAX_READS, same = { a, b -> a.toComparable() == b.toComparable() })
+            else show(read(), reopenDi)
         }
+    }
+
+    /** Failures compare by their message, not by identity. */
+    private fun Snapshot.toComparable() = Triple(
+        nav.getOrNull() ?: nav.exceptionOrNull()?.message,
+        vms.getOrNull() ?: vms.exceptionOrNull()?.message,
+        fns.getOrNull() ?: fns.exceptionOrNull()?.message,
+    )
+
+    private fun show(s: Snapshot, reopenDi: Boolean) {
+        val nav = s.nav; val vms = s.vms; val fns = s.fns
+        ui.invoke(Runnable {
+            root.removeAllChildren()
+            for (section in Section.entries) {
+                val node = DefaultMutableTreeNode(section)
+                when (section) {
+                    Section.NAVIGATION -> nav.getOrNull()?.hosts?.forEach { h ->
+                        node.add(DefaultMutableTreeNode(Item(section, h.backStack.lastOrNull()?.let { it.route ?: it.label } ?: h.id, "${h.kind} · ${Units.count(h.backStack.size, "entry", "entries")}", host = h)))
+                    }
+                    Section.VIEWMODELS -> vms.getOrNull()?.viewModels?.forEach { v ->
+                        node.add(DefaultMutableTreeNode(Item(section, v.className.substringAfterLast('.'), v.owner ?: "", vm = v)))
+                    }
+                    else -> Unit
+                }
+                root.add(node)
+            }
+            functions = fns.getOrNull()
+            treeModel.reload()
+            for (i in 0 until tree.rowCount) tree.expandRow(i)
+            status.text = listOfNotNull(nav.exceptionOrNull(), vms.exceptionOrNull()).firstOrNull()?.message
+                ?: (nav.getOrNull()?.completeness.orEmpty() + vms.getOrNull()?.completeness.orEmpty()).firstOrNull()?.reason
+                ?: "${Units.count(nav.getOrNull()?.hosts?.size ?: 0, "navigation host")}, ${Units.count(vms.getOrNull()?.viewModels?.size ?: 0, "ViewModel")}."
+            if (viewModelsWanted) {
+                viewModelsWanted = false
+                selectViewModels()
+            } else if (reopenDi) {
+                root.children().asSequence().map { it as DefaultMutableTreeNode }.firstOrNull { it.userObject == Section.DI }?.let { tree.selectionPath = javax.swing.tree.TreePath(arrayOf<Any>(root, it)) }
+            }
+        })
     }
 
     /** Whether the DI section is the one open (so a new app's DI is read again). */
@@ -397,6 +427,9 @@ class RuntimePanel(
     private fun <T> decode(s: KSerializer<T>, json: JsonObject): T = DtaJson.decodeFromJsonElement(s, json)
 
     companion object {
+        /** D-122: how often and how many times a just-connected app is read while its answers still change. */
+        private const val SETTLE_EVERY_MS = 700L
+        private const val SETTLE_MAX_READS = 10
         private const val EMPTY = "empty"
         private const val TEXT = "text"
         private const val PROPS = "props"

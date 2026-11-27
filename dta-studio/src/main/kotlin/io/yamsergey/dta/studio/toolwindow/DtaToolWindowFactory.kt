@@ -84,7 +84,7 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         val runtimeRun = io.yamsergey.dta.studio.data.RunFreshness(service.context.appConnections, chosenApp, service.scope) {
             javax.swing.SwingUtilities.invokeLater { runtimeTab.refresh() }
         }
-        runtimeTab = io.yamsergey.dta.studio.data.FreshTab(runtimeRun, { tabs.selectedComponent === runtimePanel }, chosenApp) { runtimePanel.load() }
+        runtimeTab = io.yamsergey.dta.studio.data.FreshTab(runtimeRun, { tabs.selectedComponent === runtimePanel }, chosenApp) { runtimePanel.loadSettled() }
         openViewModels = {
             // The tab's own loading is skipped: the panel reads once, for this (again when it was read for an earlier run).
             val st = controller.state.value
