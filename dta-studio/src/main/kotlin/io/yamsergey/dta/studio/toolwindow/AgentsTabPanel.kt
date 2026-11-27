@@ -161,43 +161,7 @@ class AgentsTabPanel(
         body.add(left(connect.commandView, top = 6))
     }
 
-    private fun table(view: AgentsView.Running): JComponent {
-        val columns = if (narrow) arrayOf("Agent", "How", "Since") else arrayOf("Agent", "How", "Version", "Since")
-        val data = view.rows.map { r -> if (narrow) arrayOf<Any>(r.name, r.howShort, r.since) else arrayOf<Any>(r.name, r.how, r.version, r.since) }.toTypedArray()
-        val model = object : DefaultTableModel(data, columns as Array<Any>) { override fun isCellEditable(row: Int, column: Int) = false }
-        val table = JBTable(model).apply {
-            setShowGrid(false)
-            rowSelectionAllowed = false
-            rowHeight = JBUI.scale(24)
-            val plain = object : DefaultTableCellRenderer() {
-                override fun getTableCellRendererComponent(t: JTable, v: Any?, sel: Boolean, focus: Boolean, row: Int, col: Int): Component {
-                    super.getTableCellRendererComponent(t, v, false, false, row, col)
-                    val name = columns[col]
-                    // App data and names are mono; the way and the time are muted.
-                    font = if (name == "How") JBUI.Fonts.label() else mono()
-                    foreground = if (name == "Agent") JBColor.foreground() else JBColor.GRAY
-                    border = JBUI.Borders.empty(0, 6)
-                    horizontalAlignment = SwingConstants.LEFT
-                    // Truncation rules, rule 3: a name ends in …, the whole name is in the tooltip (never a hard cut).
-                    val whole = v?.toString().orEmpty()
-                    val metrics = getFontMetrics(font)
-                    val room = t.columnModel.getColumn(col).width - JBUI.scale(12)
-                    text = io.yamsergey.dta.studio.ui.ClassNameFit.end(whole, { metrics.stringWidth(it) }, room)
-                    toolTipText = whole
-                    return this
-                }
-            }
-            columnModel.columns.toList().forEach { it.cellRenderer = plain }
-            tableHeader.reorderingAllowed = false
-        }
-        return JPanel(BorderLayout()).apply {
-            alignmentX = LEFT_ALIGNMENT
-            add(table.tableHeader, BorderLayout.NORTH)
-            add(table, BorderLayout.CENTER)
-            border = JBUI.Borders.emptyTop(2)
-            maximumSize = java.awt.Dimension(Int.MAX_VALUE, preferredSize.height)
-        }
-    }
+    private fun table(view: AgentsView.Running): JComponent = AgentsTable(view.rows, narrow).component
 
     private fun mono(): Font = JBUI.Fonts.create(Font.MONOSPACED, JBUI.Fonts.label().size)
 
