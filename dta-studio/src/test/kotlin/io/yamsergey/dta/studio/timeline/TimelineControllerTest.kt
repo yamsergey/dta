@@ -183,4 +183,48 @@ class TimelineSavedFiltersTest {
         timeline.removeSaved(words.single())
         await { daemon.ops.savedWords.isEmpty() && it.savedError == null }
     }
+
+    /**
+     * D-126: Show them then Hide them again asks twice; the first answer (opt-out on) can come after the second (off). It must not
+     * be shown: it would say nothing is hidden while the tab says Hide them again.
+     */
+    @Test
+    fun `a late answer to Show them does not undo Hide them again`() = runBlocking<Unit> {
+        listShown()
+        await { it.view.hiddenEntries.isNotEmpty() }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        daemon.ops.hiddenGate = { ignore -> if (ignore) release.await() }
+        val answered = daemon.ops.hiddenAnswered.get()
+        val asked = daemon.ops.hiddenAsks.get()
+        timeline.setShowHidden(true)
+        // The read of Show them is at the daemon (held there) before Hide them again is pressed.
+        withTimeout(8_000) { while (daemon.ops.hiddenAsks.get() < asked + 1) kotlinx.coroutines.delay(10) }
+        timeline.setShowHidden(false)
+        withTimeout(8_000) { while (daemon.ops.hiddenAnswered.get() < answered + 1) kotlinx.coroutines.delay(10) }
+        release.complete(Unit)
+        withTimeout(8_000) { while (daemon.ops.hiddenAnswered.get() < answered + 2) kotlinx.coroutines.delay(10) }
+        kotlinx.coroutines.delay(500)
+        val s = timeline.state.value
+        assertEquals(false, s.showHidden)
+        assertEquals(setOf("beacon"), s.view.hiddenEntries, "the answer of Hide them again stands")
+        assertTrue(s.listSaved?.ignored != true, "not the answer of Show them: ${s.listSaved}")
+    }
+
+    @Test
+    fun `a late sequence answer to Show them does not replace the one of Hide them again`() = runBlocking<Unit> {
+        listShown()
+        await { it.view.hiddenEntries.isNotEmpty() }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        daemon.ops.sequenceWhen = { ignore -> io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), if (ignore) 99 else 1, emptyList()) }
+        daemon.ops.sequenceGate = { ignore -> if (ignore) release.await() }
+        val answered = daemon.ops.sequenceAnswered.get()
+        timeline.setShowHidden(true)
+        withTimeout(8_000) { while (daemon.ops.sequenceIgnored.lastOrNull() != true) kotlinx.coroutines.delay(10) }
+        timeline.setShowHidden(false)
+        withTimeout(8_000) { while (daemon.ops.sequenceAnswered.get() < answered + 1) kotlinx.coroutines.delay(10) }
+        release.complete(Unit)
+        withTimeout(8_000) { while (daemon.ops.sequenceAnswered.get() < answered + 2) kotlinx.coroutines.delay(10) }
+        kotlinx.coroutines.delay(500)
+        assertEquals(1, timeline.state.value.sequence.page?.total, "the answer of Hide them again stands")
+    }
 }
