@@ -33,20 +33,27 @@ class AgentRedactionController(
      * D-121: the setting is the daemon's: Settings, a CLI or another IDE change it while the Agents tab shows it. Reads it again
      * every [intervalMs] until the returned job is cancelled (the tab does while it is shown).
      */
-    fun watch(intervalMs: Long): kotlinx.coroutines.Job = scope.launch { }
+    fun watch(intervalMs: Long): kotlinx.coroutines.Job = scope.launch {
+        while (true) {
+            runOnce { c -> c.call("agents.redaction") }
+            kotlinx.coroutines.delay(intervalMs)
+        }
+    }
 
     fun set(on: Boolean) = run { c -> c.call("agents.redaction.set", JsonObject(mapOf("redaction" to JsonPrimitive(on)))) }
 
     private fun run(call: suspend (DaemonClient) -> io.yamsergey.dta.protocol.ops.Selected) {
-        scope.launch {
-            var c = client()
-            val until = System.currentTimeMillis() + waitMs
-            while (c == null && System.currentTimeMillis() < until) { kotlinx.coroutines.delay(200); c = client() }
-            if (c == null) { mutable.value = mutable.value.copy(error = "No DTA daemon connected: the setting is read and changed there."); return@launch }
-            mutable.value = runCatching { call(c).result.jsonObject["redaction"]?.jsonPrimitive?.booleanOrNull }.fold(
-                { State(on = it ?: mutable.value.on) },
-                { mutable.value.copy(error = it.message ?: it.javaClass.simpleName) },
-            )
-        }
+        scope.launch { runOnce(call) }
+    }
+
+    private suspend fun runOnce(call: suspend (DaemonClient) -> io.yamsergey.dta.protocol.ops.Selected) {
+        var c = client()
+        val until = System.currentTimeMillis() + waitMs
+        while (c == null && System.currentTimeMillis() < until) { kotlinx.coroutines.delay(200); c = client() }
+        if (c == null) { mutable.value = mutable.value.copy(error = "No DTA daemon connected: the setting is read and changed there."); return }
+        mutable.value = runCatching { call(c).result.jsonObject["redaction"]?.jsonPrimitive?.booleanOrNull }.fold(
+            { State(on = it ?: mutable.value.on) },
+            { if (it is kotlinx.coroutines.CancellationException) throw it else mutable.value.copy(error = it.message ?: it.javaClass.simpleName) },
+        )
     }
 }
