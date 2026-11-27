@@ -189,10 +189,19 @@ class DtaToolWindowFactory : ToolWindowFactory, DumbAware {
         toolWindow.setTitleActions(listOf(io.yamsergey.dta.studio.settings.OpenDtaSettingsAction(), io.yamsergey.dta.studio.inject.ToggleInjectionAction()))
         (toolWindow as? com.intellij.openapi.wm.ex.ToolWindowEx)?.setTabActions(HeaderBar(bar))
         // Room left beside the mascot and the title actions (the checkbox, options, hide).
-        val refit = { bar.fit(toolWindow.component.width - com.intellij.util.ui.JBUI.scale(TITLE_RESERVED)) }
-        bar.onChanged = refit
+        // D-108: the room is what the header leaves before its own actions (measured), the constant only until it is laid out.
+        var lastRoom = -1
+        val refit = { force: Boolean ->
+            val room = HeaderRoom.available(bar) ?: (toolWindow.component.width - com.intellij.util.ui.JBUI.scale(TITLE_RESERVED))
+            if (force || room != lastRoom) { lastRoom = room; bar.fit(room) }
+        }
+        bar.onChanged = { refit(true) }
         toolWindow.component.addComponentListener(object : java.awt.event.ComponentAdapter() {
-            override fun componentResized(e: java.awt.event.ComponentEvent?) = refit()
+            override fun componentResized(e: java.awt.event.ComponentEvent?) = refit(false)
+        })
+        bar.addHierarchyBoundsListener(object : java.awt.event.HierarchyBoundsAdapter() {
+            override fun ancestorResized(e: java.awt.event.HierarchyEvent?) = refit(false)
+            override fun ancestorMoved(e: java.awt.event.HierarchyEvent?) = refit(false)
         })
 
         // Feature 056: the tab follows the switch; the connected app is told, so it records (or not) from its next start.

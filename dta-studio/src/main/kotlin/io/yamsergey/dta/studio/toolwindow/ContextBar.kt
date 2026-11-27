@@ -80,7 +80,7 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
         val others = base + (if (shown.text.isEmpty()) 0 else connection.preferredSize.width + gap)
         devices.preferredSize = null
         apps.preferredSize = null
-        val room = (available - others).coerceAtLeast(JBUI.scale(160))
+        val room = (available - others).coerceAtLeast(JBUI.scale(60))
         val d = devices.preferredSize
         val a = apps.preferredSize
         if (d.width + a.width > room) {
