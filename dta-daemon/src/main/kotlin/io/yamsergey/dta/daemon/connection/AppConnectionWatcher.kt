@@ -35,6 +35,8 @@ class AppConnectionWatcher(
     private val interval: Duration = 1.seconds,
     /** D-074: the socket id discovery last saw for an app (a new one is a new process). */
     private val socketOf: (ConnectionKey) -> String? = { null },
+    /** D-143: the package in front on [serial] (a change of it is told as a `foreground` event); null: not known. */
+    private val foreground: (serial: String) -> String? = { null },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     /** What each watcher watches: a device, or every device ([ALL]). */

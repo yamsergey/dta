@@ -235,4 +235,27 @@ class AppConnectionEventsTest {
         assertEquals(listOf("emulator-5556"), firstForOther.await().map { it.device })
         assertEquals("connected", forAll.await().state)
     }
+
+    /**
+     * D-143: an app brought to the front without a new process (am start without -S, a task switch) changes no connection; the
+     * daemon, which does the looking, tells the plugin which package is in front now.
+     */
+    @Test
+    fun `a change of the package in front is told as a foreground event, the first look says nothing`() = runBlocking {
+        val h = Harness()
+        val front = java.util.concurrent.atomic.AtomicReference<String?>("com.example.plain")
+        val watcher = AppConnectionWatcher(instances = { emptyList() }, manager = h.manager, interval = 20.milliseconds, foreground = { front.get() })
+        val events = withTimeout(5.seconds) {
+            val collected = async { watcher.events("emulator-5554").take(2).toList() }
+            kotlinx.coroutines.delay(150)
+            front.set("com.example.shop")
+            kotlinx.coroutines.delay(150)
+            front.set("com.android.settings")
+            collected.await()
+        }
+        assertEquals(
+            listOf(AppConnectionEvent("emulator-5554", "com.example.shop", "foreground"), AppConnectionEvent("emulator-5554", "com.android.settings", "foreground")),
+            events,
+        )
+    }
 }
