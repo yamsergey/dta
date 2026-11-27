@@ -35,7 +35,8 @@ class NetworkRecorderTest {
     lateinit var dir: File
 
     private var now = 1_000L
-    private val store by lazy { NetworkStore(StorageDir(dir), pid = 7, clock = { now }) }
+    /** D-120: the earlier runs are read on the store's writer thread; what reads the journal waits for that (a journal read while it reads does not flush). */
+    private val store by lazy { NetworkStore(StorageDir(dir), pid = 7, clock = { now }).also { assertTrue(it.awaitLoaded()) } }
     private val events = mutableListOf<NetworkEntryEvent>()
     private val recorder by lazy {
         NetworkRecorder(store, clock = { now }) { name, data: JsonElement? ->
@@ -418,5 +419,27 @@ class NetworkRecorderTest {
         assertEquals(text, payload.wholeText())
         assertEquals(text.length.toLong(), store.bodySize(m, BodyPart.MESSAGE))
         assertEquals(text.substring(10, 20), String(store.openBodyRange(m, BodyPart.MESSAGE, 10, 10)!!.readBytes()))
+    }
+
+    /** D-120: while the earlier runs are read, a journal page is not the end and holds only what is on disk; the queued records come once it has read them. */
+    @Test
+    fun `a journal read while the earlier runs are read is not the end, and holds what the disk has`() {
+        val reading = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val slow = NetworkStore(StorageDir(File(dir, "slow")), pid = 8, clock = { now }, beforeLoad = { reading.countDown(); release.await() })
+        try {
+            assertTrue(reading.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val r = NetworkRecorder(slow, clock = { now }) { _, _ -> }
+            val id = r.wsStarted("okhttp3-ws", "ws://h/ws", emptyList(), initiator)
+            r.wsOpened(id)
+            r.wsClosed(id, 1000, "bye")
+            val during = slow.journal(null, 100)
+            assertEquals(false, during.end, "not the end while it reads")
+            assertTrue(during.records.none { it.id == id }, "the queued records are not on disk yet")
+            release.countDown()
+            assertTrue(slow.awaitLoaded())
+            val last = slow.journal(null, 100).records.last { it.id == id } as WsConnectionEntry
+            assertEquals(WsState.CLOSED, last.state)
+        } finally { release.countDown(); slow.close() }
     }
 }
