@@ -351,7 +351,7 @@ class MemoryPanel(
                     showRows()
                     val info = l.snapshots.firstOrNull { it.id == b }
                     statement.text = info?.let { MemoryRows.statement("B", it, originAll) } ?: ""
-                    leftOut.text = MemoryRows.leftOut(c.comparison)?.let { "$it." } ?: ""
+                    leftOut.text = (listOfNotNull(MemoryRows.leftOut(c.comparison)?.let { "$it." }) + c.notes).joinToString("\n")
                     if (keepStatus) keepStatus = false else say("")
                     instances = null; instancesPanel().isVisible = false
                 }, { say(MemoryRows.refusal(it)) })
