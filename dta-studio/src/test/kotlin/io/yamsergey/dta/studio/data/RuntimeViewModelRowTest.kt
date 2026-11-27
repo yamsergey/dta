@@ -47,4 +47,24 @@ class RuntimeViewModelRowTest : BasePlatformTestCase() {
         val (_, shownAndTip) = row(1200)
         assertTrue(shownAndTip, owner in shownAndTip.substringBefore("\u0000"))
     }
+
+    /** The renderer must not ask the tree for row geometry: the tree asks the renderer for it (StackOverflowError otherwise). */
+    fun testTheTreeLaysOutAndSwitchesLookWithAViewModelRow() {
+        val p = RuntimePanel(project, CoroutineScope(Dispatchers.Unconfined), ui = { it.run() }) { op, _ -> answer(op) }
+        p.load()
+        p.tree.rowHeight = 0 // variable row heights: the tree measures rows with the renderer
+        p.tree.setSize(220, 300)
+        p.tree.invalidate()
+        val image = java.awt.image.BufferedImage(220, 300, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        p.tree.paint(image.createGraphics())
+        for (i in 0 until p.tree.rowCount) assertNotNull(p.tree.getRowBounds(i))
+        assertTrue(p.tree.preferredSize.width > 0)
+        p.tree.updateUI()
+        for (i in 0 until p.tree.rowCount) assertNotNull(p.tree.getRowBounds(i))
+        // A cold layout cache: asking the renderer first must not send it back to the tree's geometry.
+        p.tree.updateUI()
+        p.tree.rowHeight = 0
+        val node = (p.tree.model.root as DefaultMutableTreeNode).depthFirstEnumeration().toList().map { it as DefaultMutableTreeNode }.first { it.userObject.toString().contains("SavedStateHandlesVM") }
+        p.tree.cellRenderer.getTreeCellRendererComponent(p.tree, node, false, false, true, p.tree.getRowForPath(TreePath(node.path)), false)
+    }
 }
