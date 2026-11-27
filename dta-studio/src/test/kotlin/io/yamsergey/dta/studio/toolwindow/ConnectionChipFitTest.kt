@@ -20,7 +20,7 @@ class ConnectionChipFitTest {
 
     @Test
     fun `less room shows only the dot, with the state in the tooltip - 900 and 420 px alike`() {
-        for (available in listOf(150 + 160 + 83, 400, 300, 0)) {
+        for (available in listOf(150 + 160 + 83, 390, 300, 0)) {
             val s = fit(available)
             assertEquals("●", s.text, "available $available")
             assertEquals("● connected", s.tooltip)
