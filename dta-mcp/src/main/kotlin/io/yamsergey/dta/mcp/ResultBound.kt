@@ -25,6 +25,9 @@ class ResultBound(private val maxBytes: Int = DEFAULT_MAX_BYTES) {
             result != null && result["entries"] is JsonArray -> cutList(selected, result, "entries", "use limit with before (the page cursor), sinceMs, or narrower filters")
             result != null && result["windows"] is JsonArray -> cutTree(selected, result)
             result != null && result["matches"] is JsonArray -> cutList(selected, result, "matches", "narrow the filter (text, type, resourceId) or search under a rootId")
+            result != null && (result["comparison"] as? JsonObject)?.get("rows") is JsonArray -> cutNested(selected, result, "comparison", "rows", "narrow with origin, package or a smaller top; the rows are the biggest changes first, so the ones kept are the largest")
+            result != null && result["instances"] is JsonArray -> cutList(selected, result, "instances", "call again with offset = the number of instances kept, and a smaller limit")
+            result != null && (result["fields"] as? JsonObject)?.get("fields") is JsonArray -> cutNested(selected, result, "fields", "fields", "leave values off (names, types and lengths only), or read a smaller object")
             result != null && result["lines"] is JsonArray -> cutList(selected, result, "lines", "call again with since set to the last line's seq")
             else -> {
                 val text = full.take(maxBytes / 2)
@@ -52,6 +55,20 @@ class ResultBound(private val maxBytes: Int = DEFAULT_MAX_BYTES) {
             val keptIds = if (paged) kept.mapNotNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.content }.toSet() else emptySet()
             val perRow = if (paged) BY_ROW.mapNotNull { k -> (result[k] as? JsonObject)?.let { m -> k to JsonObject(m.filterKeys { it in keptIds }) } }.toMap() else emptyMap()
             val cut = JsonObject(result + (key to JsonArray(kept)) + perRow + (if (next != null) mapOf("next" to next) else emptyMap()))
+            text = encode(Selected(selected.selection, cut), truncated("${items.size - keep} of ${items.size} $key (the last ones)", how))
+        } while (text.toByteArray().size > maxBytes && keep > 0)
+        return text
+    }
+
+    /** A list inside one object of the result (`comparison.rows`, `fields.fields`): the same cut, the sibling keys stay. */
+    private fun cutNested(selected: Selected, result: JsonObject, outer: String, key: String, how: String): String {
+        val inner = result[outer] as JsonObject
+        val items = inner[key] as JsonArray
+        var keep = items.size
+        var text: String
+        do {
+            keep = if (keep > 64) keep * 3 / 4 else keep - 1
+            val cut = JsonObject(result + (outer to JsonObject(inner + (key to JsonArray(items.take(keep.coerceAtLeast(0)))))))
             text = encode(Selected(selected.selection, cut), truncated("${items.size - keep} of ${items.size} $key (the last ones)", how))
         } while (text.toByteArray().size > maxBytes && keep > 0)
         return text
