@@ -38,7 +38,13 @@ class AgentSettings(private val home: File?, redaction: Boolean? = null) {
             Files.move(tmp.toPath(), settingsFile.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         }
         redaction = on
+        listeners.forEach { runCatching { it(on) } }
     }
+
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Boolean) -> Unit>()
+
+    /** D-121: told the new value after each [setRedaction] (the server pushes it to the plugin's connections that watch it). */
+    fun onChange(listener: (Boolean) -> Unit) { listeners += listener }
 
     /** The fingerprint key: read from the home, or made there on first need. */
     val key: FingerprintKey by lazy { loadOrCreateKey() }

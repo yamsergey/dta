@@ -30,21 +30,30 @@ class AgentRedactionController(
     fun refresh() = run { c -> c.call("agents.redaction") }
 
     /**
-     * D-121: the setting is the daemon's: Settings, a CLI or another IDE change it while the Agents tab shows it. Reads it again
-     * every [intervalMs] until the returned job is cancelled (the tab does while it is shown).
+     * D-121: the setting is the daemon's: Settings or another IDE changes it while the Agents tab shows it. Follows the daemon's
+     * `agents.redaction.watch` (its first answer, then each change pushed) until the returned job is cancelled; follows each
+     * new connection after the daemon went away.
      */
-    fun watch(intervalMs: Long): kotlinx.coroutines.Job = scope.launch {
+    fun follow(): kotlinx.coroutines.Job = scope.launch {
         while (true) {
-            runOnce { c -> c.call("agents.redaction") }
-            kotlinx.coroutines.delay(intervalMs)
+            var c = client()
+            val until = System.currentTimeMillis() + waitMs
+            while (c == null && System.currentTimeMillis() < until) { kotlinx.coroutines.delay(200); c = client() }
+            if (c == null) { mutable.value = mutable.value.copy(error = "No DTA daemon connected: the setting is read and changed there."); kotlinx.coroutines.delay(1_000); continue }
+            try {
+                c.redactionEvents().collect { element ->
+                    val on = (element["redaction"] ?: element["selection"]?.let { io.yamsergey.dta.protocol.rpc.DtaJson.decodeFromJsonElement(io.yamsergey.dta.protocol.ops.Selected.serializer(), it).result.jsonObject["redaction"] })
+                        ?.jsonPrimitive?.booleanOrNull
+                    if (on != null) mutable.value = State(on = on)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutable.value = mutable.value.copy(error = e.message ?: e.javaClass.simpleName)
+            }
+            kotlinx.coroutines.delay(1_000)
         }
     }
-
-    /**
-     * D-121: the setting is the daemon's: Settings or another IDE changes it while the Agents tab shows it. Follows the daemon's
-     * `agents.redaction.watch` until the returned job is cancelled.
-     */
-    fun follow(): kotlinx.coroutines.Job = scope.launch { }
 
     fun set(on: Boolean) = run { c -> c.call("agents.redaction.set", JsonObject(mapOf("redaction" to JsonPrimitive(on)))) }
 

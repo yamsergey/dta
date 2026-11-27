@@ -60,22 +60,6 @@ class AgentRedactionControllerTest {
         assertNull(c.state.value.on)
     }
 
-    /** D-121: the tab's controller is not the Settings page's; a change made there shows in the tab without reopening it. */
-    @Test
-    fun `a change made by another client shows while it is watched, and stops showing when the watch ends`() = runBlocking<Unit> {
-        val tab = AgentRedactionController({ ide.value }, scope)
-        val watch = tab.watch(50)
-        until { tab.state.value.on == true }
-        val settingsPage = AgentRedactionController({ ide.value }, scope)
-        settingsPage.set(false)
-        until { tab.state.value.on == false }
-        watch.cancel()
-        settingsPage.set(true)
-        until { settingsPage.state.value.on == true }
-        kotlinx.coroutines.delay(300)
-        assertEquals(false, tab.state.value.on, "no watch, no read")
-    }
-
     /** D-121 (push, 2026-11-27): the tab's controller follows the daemon's change event: no poll. */
     @Test
     fun `a change made by another client shows on the daemon's event, and stops showing when the follow ends`() = runBlocking<Unit> {
