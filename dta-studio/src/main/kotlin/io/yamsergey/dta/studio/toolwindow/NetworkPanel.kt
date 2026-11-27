@@ -163,13 +163,12 @@ class NetworkPanel(
     }
     private val typing = javax.swing.Timer(250) { network.setQuery(query.text) }.apply { isRepeats = false }
     private val caption = SteadyLabel().apply { foreground = com.intellij.ui.JBColor.GRAY }
-    /** Feature 071 (boards 1–7): the spinner while a search reads its scope, and the caption's link (Stop / Include archive). */
+    /** Feature 071 (boards 1–7): the spinner while a search reads its scope, and the caption's link (Stop). */
     private val spinner = JBLabel(com.intellij.ui.AnimatedIcon.Default()).apply { isVisible = false }
     private var captionAction: io.yamsergey.dta.present.network.ScopeCaption.Action? = null
     private val captionLink = com.intellij.ui.components.ActionLink("") {
         when (captionAction) {
             io.yamsergey.dta.present.network.ScopeCaption.Action.STOP -> network.stopSearch()
-            io.yamsergey.dta.present.network.ScopeCaption.Action.INCLUDE_ARCHIVE -> network.setArchiveOn(true)
             null -> Unit
         }
     }.apply { isVisible = false }
@@ -182,14 +181,11 @@ class NetworkPanel(
     private val runAllHint = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply {
         isOpaque = false
         border = JBUI.Borders.empty(0, 8, 2, 8)
-        add(JBLabel(io.yamsergey.dta.present.network.ScopeCaption.RUN_ALL_HINT, AllIcons.General.Information, javax.swing.SwingConstants.LEFT).apply { foreground = com.intellij.ui.JBColor.GRAY })
-        add(com.intellij.ui.components.ActionLink(io.yamsergey.dta.present.network.ScopeCaption.TURN_ON_ARCHIVE) { network.setArchiveOn(true) })
+        add(JBLabel(io.yamsergey.dta.present.network.ScopeCaption.RUN_ALL_HINT_TAB, AllIcons.General.Information, javax.swing.SwingConstants.LEFT).apply { foreground = com.intellij.ui.JBColor.GRAY })
         isVisible = false
     }
     /** Feature 071 (board 4): the app started again; the previous run is named, with the way to include it. */
-    private val restartBanner = io.yamsergey.dta.studio.ui.BannerPanel().apply {
-        onAction { network.setArchiveOn(true) }
-    }
+    private val restartBanner = io.yamsergey.dta.studio.ui.BannerPanel()
     private val statements = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0))
     /** Feature 061: browser capture, while a browser switch is on. */
     private val webStatus = WebStatusRow(context, scope)
@@ -204,9 +200,11 @@ class NetworkPanel(
         override fun toString() = label
     }
     private val liveChoice = SourceChoice(null, LIVE, "the app now")
-    private val sources = javax.swing.DefaultComboBoxModel(arrayOf(liveChoice))
+    /** D-106: this computer's whole history for the app, the archive included (the Archive switch on). */
+    private val allChoice = SourceChoice(io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING, "All", "every run and the archive kept on this computer")
+    private val sources = javax.swing.DefaultComboBoxModel(arrayOf(liveChoice, allChoice))
     private val source = com.intellij.openapi.ui.ComboBox(sources).apply {
-        toolTipText = "Live: the app's traffic now. Below it: the app's sessions kept on this computer after the device cleared or lost them (delete them in the Daemon tab)."
+        toolTipText = "Live: the app's traffic now. All: this computer's whole history for the app, earlier runs and the archive included. Below them: the app's sessions kept on this computer after the device cleared or lost them (delete them in the Daemon tab)."
         // The closed switch fits a session's time; the open list (the IDE's popup) is as wide as its rows.
         // D-024: the closed switch as wide as its choice ("Live" is short), so the view row keeps the script control beside it.
         prototypeDisplayValue = liveChoice
@@ -245,6 +243,7 @@ class NetworkPanel(
                 try {
                     sources.removeAllElements()
                     sources.addElement(liveChoice)
+                    sources.addElement(allChoice)
                     items.forEach { sources.addElement(SourceChoice(it.scope, it.label, it.meta, it.enabled)) }
                     selectSource(keep)
                 } finally {
@@ -391,8 +390,8 @@ class NetworkPanel(
             (source.selectedItem as? SourceChoice)?.let { if (source.prototypeDisplayValue != it) source.prototypeDisplayValue = it }
             if (updatingSources) return@addActionListener
             val chosen = source.selectedItem as? SourceChoice ?: return@addActionListener
-            if (!chosen.enabled) { selectSource(last.archive); return@addActionListener }
-            if (chosen.scope != last.archive) network.setArchive(chosen.scope)
+            if (!chosen.enabled) { selectSource(network.sourceChoice()); return@addActionListener }
+            if (chosen.scope != network.sourceChoice()) network.chooseSource(chosen.scope)
         }
         table.selectionModel.addListSelectionListener { e ->
             if (e.valueIsAdjusting || model.updating) return@addListSelectionListener
@@ -460,9 +459,10 @@ class NetworkPanel(
             s.hits.total != previous.hits.total || s.applied.finds != previous.applied.finds || s.archive != previous.archive) strip.updateActionsAsync()
 
         // Set from the archive browser too: the switch follows the state.
-        if ((source.selectedItem as? SourceChoice)?.scope != s.archive) {
+        val wanted = s.archive ?: if (s.archiveOn) io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING else null
+        if ((source.selectedItem as? SourceChoice)?.scope != wanted) {
             updatingSources = true
-            try { selectSource(s.archive) } finally { updatingSources = false }
+            try { selectSource(wanted) } finally { updatingSources = false }
         }
         // Read ahead for the app shown (the open list does not grow while open); refreshed again on each opening.
         context.state.value.let { st -> if (st.app != null && sessionsFor != st.device to st.app) loadSessions() }
@@ -500,13 +500,13 @@ class NetworkPanel(
         if (!s.online) caption.text = ""
         if (s.findHeld && words != null) caption.text = words.text + " · more as you scroll"
         spinner.isVisible = words?.searching == true
-        captionAction = words?.action?.takeIf { s.online }?.takeUnless { it == io.yamsergey.dta.present.network.ScopeCaption.Action.INCLUDE_ARCHIVE && (s.archiveOn || s.archive != null) }
+        captionAction = words?.action?.takeIf { s.online }
         captionLink.text = captionAction?.let { io.yamsergey.dta.present.network.ScopeCaption.label(it) }.orEmpty()
         captionLink.isVisible = captionAction != null
         if (archiveBox.isSelected != s.archiveOn) archiveBox.isSelected = s.archiveOn
         archiveBox.isEnabled = s.archive == null
         runAllHint.isVisible = !s.archiveOn && s.archive == null && s.applied.parsed.filter.runs == io.yamsergey.dta.protocol.network.RunScope.ALL && s.applied.parsed.problems.isEmpty()
-        restartBanner.show(s.restart?.let { io.yamsergey.dta.present.context.Banner(io.yamsergey.dta.present.StatementKind.PROCESS_ENDED, it, "Include archive".takeUnless { s.archiveOn }) })
+        restartBanner.show(s.restart?.let { io.yamsergey.dta.present.context.Banner(io.yamsergey.dta.present.StatementKind.PROCESS_ENDED, it) })
         if (s.hits != previous.hits) table.repaint()
         statements.removeAll()
         s.saved.problem?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.text(io.yamsergey.dta.present.StatementKind.DEGRADED) }) }
