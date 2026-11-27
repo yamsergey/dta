@@ -173,7 +173,13 @@ class MemoryPanel(
     }
     /** Never less than three whole rows, however little height the table pane leaves (V1 of the 2026-11-27 recheck). */
     internal val instanceScroll = object : JBScrollPane(instanceList) {
-        private fun rows(n: Int) = n * instanceList.getFontMetrics(instanceList.font).height.coerceAtLeast(1) + insets.top + insets.bottom
+        /** The row height as the list draws it (the renderer's, on this font and look: 25 px in the IDE, not the font's 17). */
+        private fun rowHeight(): Int {
+            val sample = (if (instanceModel.isEmpty) null else instanceModel.getElementAt(0)) ?: MemoryRows.InstanceRow("@0", "alive", null, null, null, 0L)
+            val c = instanceList.cellRenderer.getListCellRendererComponent(instanceList, sample, 0, false, false)
+            return maxOf(c.preferredSize.height, instanceList.getFontMetrics(instanceList.font).height, 1)
+        }
+        private fun rows(n: Int) = n * rowHeight() + insets.top + insets.bottom
         override fun getMinimumSize() = java.awt.Dimension(0, rows(3))
         override fun getPreferredSize() = java.awt.Dimension(super.getPreferredSize().width, maxOf(rows(3), minOf(rows(8), super.getPreferredSize().height)))
     }

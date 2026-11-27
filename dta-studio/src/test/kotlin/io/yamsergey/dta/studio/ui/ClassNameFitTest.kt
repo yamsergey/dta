@@ -83,7 +83,11 @@ class ClassNameFitTest {
         assertEquals(id, ClassNameFit.resource(id, m, 100))
         val cut = ClassNameFit.resource(id, m, 30)
         assertTrue(cut.startsWith("…") && cut.endsWith(":id/form_submit") && cut.length <= 30, cut)
-        assertEquals("…/form_submit", ClassNameFit.resource(id, m, 13))
-        assertEquals("form_sub…", ClassNameFit.resource(id, m, 9))
+        // Short of room the ":id/" with the name stays, the package goes entirely.
+        assertEquals("…:id/form_submit", ClassNameFit.resource(id, m, 16))
+        assertEquals("…:id/views_title", ClassNameFit.resource("io.yamsergey.dta.fixture.channel:id/views_title", m, 16))
+        // Not even that fits: the name ends in an ellipsis, ":id/" stays (was "…/views_title" in the IDE at 420).
+        assertEquals("…:id/form_su…", ClassNameFit.resource(id, m, 13))
+        assertEquals("…:id/for…", ClassNameFit.resource(id, m, 9))
     }
 }
