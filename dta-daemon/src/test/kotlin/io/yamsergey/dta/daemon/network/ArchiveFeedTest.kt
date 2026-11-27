@@ -100,14 +100,16 @@ class ArchiveFeedTest {
 
     /** A channel whose journal pages take [ms] each: catching up takes a while. */
     private class SlowPages(private val ms: Long) : FakeJournalApp() {
+        /** Journal pages asked so far (D-125: a test waits for a count, not for a time). */
+        @Volatile var served = 0
         override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
-            if (method == "network_journal") kotlinx.coroutines.delay(ms)
+            if (method == "network_journal") { served++; kotlinx.coroutines.delay(ms) }
             return super.requestFull(method, params, timeout)
         }
     }
 
     /**
-     * D-125: a channel whose journal pages come until [gateAt] of them were served, then waits for [release]: the test reads the
+     * D-125: a channel whose journal pages come until [gateAt] of them were served, then the next one waits for [release] (the others go on): the test reads the
      * catch-up's state at a known place, not after a sleep that a slow machine can miss.
      */
     private class GatedPages : FakeJournalApp() {
@@ -117,7 +119,7 @@ class ArchiveFeedTest {
         val release = kotlinx.coroutines.CompletableDeferred<Unit>()
         override suspend fun requestFull(method: String, params: kotlinx.serialization.json.JsonObject?, timeout: kotlin.time.Duration?): io.yamsergey.dta.daemon.connection.RpcResult {
             if (method == "network_journal") {
-                if (++served > gateAt) { blocked.complete(Unit); release.await() }
+                if (++served == gateAt + 1) { blocked.complete(Unit); release.await() }
             }
             return super.requestFull(method, params, timeout)
         }
@@ -125,17 +127,20 @@ class ArchiveFeedTest {
 
     @Test
     fun `while it catches up, the history says how far it is at once, without waiting for it`() = runBlocking<Unit> {
-        val app = SlowPages(ms = 300)
+        val app = GatedPages()
         repeat(3_000) { http(app, 10) }
         val host = index(app)
         host.pageSize = 500
+        // D-125: the catch-up serves two pages and waits: the history is asked there, not after a sleep.
+        app.gateAt = 2
         val catching = this.async(kotlinx.coroutines.Dispatchers.IO) { host.list(NetworkQuery(limit = 1)) }
-        kotlinx.coroutines.delay(800)
+        withTimeout(10_000) { app.blocked.await() }
         val started = System.currentTimeMillis()
         val h = host.history()
         assertTrue(System.currentTimeMillis() - started < 200, "answered at once")
         val behind = h.device?.catchingUp
         assertTrue(behind != null && behind in 1..2_999, "how far: $behind")
+        app.release.complete(Unit)
         catching.await()
         repeat(5) { host.list(NetworkQuery(limit = 1)) }
         assertEquals(null, host.history().device?.catchingUp, "caught up")
@@ -184,7 +189,8 @@ class ArchiveFeedTest {
         val host = index(app)
         host.pageSize = 500
         val catching = this.async(kotlinx.coroutines.Dispatchers.IO) { host.openFeed() }
-        kotlinx.coroutines.delay(450)
+        // D-125: asked once the catch-up has asked four pages (of 40, 100 ms each), not after a sleep that a late start can miss.
+        withTimeout(10_000) { while (app.served < 4) kotlinx.coroutines.delay(10) }
         for (ask in listOf<suspend () -> Unit>(
             { assertTrue((host.list(NetworkQuery(limit = 1)).coverage.hostLagRecords ?: 0) in 1..19_999, "behind is said") },
             { host.search(NetworkQuery(q = "tick", limit = 1)) },
