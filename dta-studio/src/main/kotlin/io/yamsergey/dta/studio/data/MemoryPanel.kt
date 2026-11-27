@@ -70,6 +70,7 @@ class MemoryPanel(
     private val status = WrappingText("", JBColor.GRAY).apply { name = "memory.status" }
     private val statement = WrappingText("", JBColor.GRAY).apply { name = "memory.statement" }
     private val earlier = WrappingText("", JBColor.GRAY).apply { name = "memory.earlier" }
+    internal val leftOutArea get() = leftOut
     private val leftOut = WrappingText("", JBColor.GRAY).apply { name = "memory.leftOut" }
     private val notKnown = WrappingText(MemoryRows.NOT_KNOWN, JBColor.GRAY)
     private val cards = CardLayout()
@@ -244,9 +245,9 @@ class MemoryPanel(
         splitter.firstComponent = tablePane
         splitter.secondComponent = instances
         content.add(JPanel(BorderLayout()).apply {
-            add(JPanel(BorderLayout()).apply { add(pickers, BorderLayout.NORTH); add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(statement)), BorderLayout.CENTER) }, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply { add(pickers, BorderLayout.NORTH); add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(statement), maxLines = 3), BorderLayout.CENTER) }, BorderLayout.NORTH)
             add(splitter, BorderLayout.CENTER)
-            add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(leftOut, notKnown)), BorderLayout.SOUTH)
+            add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(leftOut, notKnown), maxLines = 3), BorderLayout.SOUTH)
         }, CONTENT)
         cards.show(content, EMPTY)
         layoutPickers()

@@ -57,4 +57,33 @@ class CappedBlockTest : BasePlatformTestCase() {
         assertEquals("the second text starts on a line boundary", 0, note.y % line)
         assertEquals("content is whole lines", 0, block.viewport.view.preferredSize.height % line)
     }
+
+    /**
+     * D-148, the IDE's numbers: the LaF puts a 1 px border back (insets 1/1/1/1), so a cap of 2 lines gave a 32 px viewport; the text area's
+     * caret scrolled the 3-line text to its end (position 19 = 51 - 32); the left-out block took 25% of 482 px for 204 px of text.
+     */
+    fun testTheRealIdeBlockViewportIsWholeLinesAtTheTopWithALineCap() {
+        val text = WrappingText((1..3).joinToString("\n") { "statement line $it" }, java.awt.Color.GRAY)
+        val block = CappedBlock(listOf(text), 0.25, maxLines = 2)
+        block.border = com.intellij.util.ui.JBUI.Borders.empty(1) // what the LaF installs (DarculaScrollPaneBorder: insets 1)
+        val parent = JPanel(BorderLayout()).apply { add(block, BorderLayout.NORTH); setSize(358, 148) }
+        parent.doLayout(); block.setSize(block.preferredSize); block.doLayout(); (block.viewport.view as java.awt.Container).doLayout()
+        val line = text.getFontMetrics(text.font).height
+        assertEquals("viewport ${block.viewport.extentSize.height} px is two whole lines of $line", 2 * line, block.viewport.extentSize.height)
+        // The text was set after the layout (as the panel does): nothing scrolls it to its end.
+        text.text = (1..6).joinToString("\n") { "new statement line $it" }
+        com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+        assertEquals("position ${block.viewport.viewPosition.y}", 0, block.viewport.viewPosition.y % line)
+        assertEquals("a new text opens at its top", 0, block.viewport.viewPosition.y)
+    }
+
+    fun testALineCapHoldsWhateverTheParentHeightIs() {
+        val text = WrappingText((1..12).joinToString("\n") { "left out $it" }, java.awt.Color.GRAY)
+        val block = CappedBlock(listOf(text), 0.25, maxLines = 3)
+        block.border = com.intellij.util.ui.JBUI.Borders.empty(1)
+        val parent = JPanel(BorderLayout()).apply { add(block, BorderLayout.SOUTH); setSize(358, 482) }
+        parent.doLayout()
+        val line = text.getFontMetrics(text.font).height
+        assertEquals(3 * line + 2, block.preferredSize.height)
+    }
 }

@@ -234,4 +234,27 @@ class MemoryPanelTest : BasePlatformTestCase() {
             assertTrue("table viewport ${viewport.height} px of $h, two rows are ${2 * p.table.rowHeight}", viewport.height >= 2 * p.table.rowHeight)
         }
     }
+
+    /**
+     * D-148 with the IDE's numbers (404 x 583, rows 19 / list rows 24, 12 lines left out): the splitter has room for the table's header and two rows
+     * (min 65) and the instances (min 167) with the divider, so "Read fields" is not half-cut and the table shows its two rows.
+     */
+    fun testTheSplitterGetsItsMinimumsWithALongLeftOutBlock() {
+        snapshots = true
+        for (h in listOf(583, 620)) {
+            val p = panel()
+            p.instanceList.fixedCellHeight = 24
+            p.table.rowHeight = 19
+            p.table.tableHeader.preferredSize = java.awt.Dimension(100, 25)
+            p.setSize(404, h)
+            layout(p)
+            p.load()
+            p.table.setRowSelectionInterval(0, 0)
+            p.leftOutArea.text = (1..12).joinToString("\n") { "left out line $it" }
+            repeat(4) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+            val first = p.splitter.firstComponent; val second = p.splitter.secondComponent
+            assertTrue("table part ${first.height} px of its minimum ${first.minimumSize.height} at $h", first.height >= first.minimumSize.height)
+            assertTrue("instances part ${second.height} px of its minimum ${second.minimumSize.height} at $h", second.height >= second.minimumSize.height)
+        }
+    }
 }

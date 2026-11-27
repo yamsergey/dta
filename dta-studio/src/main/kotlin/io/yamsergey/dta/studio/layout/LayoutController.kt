@@ -263,7 +263,8 @@ class LayoutController(
         return old.copy(tree = tree, capture = full, selected = selected, note = reselected?.note, search = search, expanded = expanded, loading = false, error = null, hover = null, pick = null)
     }
 
-    fun select(path: List<Int>?) = mutable.update { it.copy(selected = path, note = null, expanded = it.expanded + ancestors(path), pick = null) }
+    /** A selection made anywhere (the tree, an agent) ends the hover: the pointer is not on what was selected, and its old label must not stay under the picture (D-158). */
+    fun select(path: List<Int>?) = mutable.update { it.copy(selected = path, note = null, expanded = it.expanded + ancestors(path), pick = null, hover = null) }
 
     /** Shows or hides the screen pane; showing it recaptures when the capture has no picture. */
     fun setScreenShown(on: Boolean) {
