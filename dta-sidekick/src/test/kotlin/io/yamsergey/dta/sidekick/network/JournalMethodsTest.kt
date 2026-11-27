@@ -28,7 +28,8 @@ class JournalMethodsTest {
     lateinit var dir: File
 
     private var now = 1_000L
-    private val store by lazy { NetworkStore(StorageDir(dir), pid = 7, clock = { now++ }) }
+    /** D-127: the earlier runs are read on the store's writer thread; an acknowledgement is refused ("reading") until that is done. */
+    private val store by lazy { NetworkStore(StorageDir(dir), pid = 7, clock = { now++ }).also { assertTrue(it.awaitLoaded()) } }
     private val methods by lazy { NetworkMethods(store, { emptyList() }) { CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE) } }
 
     @AfterEach
@@ -125,5 +126,22 @@ class JournalMethodsTest {
         assertEquals("{\"price\": 12}".repeat(30), bodies.getValue(small.id).text)
         assertContentEquals(byteArrayOf(0, 1, 2, -1), bodies.getValue(binary.id).bytes())
         assertTrue(large.id !in bodies && whole.id !in bodies)
+    }
+
+    /** D-127: while the store reads the earlier runs it refuses an acknowledgement ("reading"); once it has, it accepts. */
+    @Test
+    fun `an acknowledgement waits for the earlier runs to be read`() {
+        val reading = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val slow = NetworkStore(StorageDir(File(dir, "slow")), pid = 8, clock = { now++ }, beforeLoad = { reading.countDown(); release.await() })
+        try {
+            assertTrue(reading.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val m = NetworkMethods(slow, { emptyList() }) { CapabilityStatus("network", CapabilityStatus.Status.AVAILABLE) }
+            val ack = params("journalId" to slow.identity().journalId, "hostId" to "h", "through" to "1:1")
+            assertEquals("reading", m.archived(ack).reason)
+            release.countDown()
+            assertTrue(slow.awaitLoaded())
+            assertTrue(m.archived(ack).accepted)
+        } finally { release.countDown(); slow.close() }
     }
 }
