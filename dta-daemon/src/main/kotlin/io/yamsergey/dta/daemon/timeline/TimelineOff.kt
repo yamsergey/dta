@@ -10,6 +10,6 @@ import io.yamsergey.dta.protocol.timeline.TimelineSwitch
  */
 object TimelineOff {
     fun require(switch: TimelineSwitch) {
-        // not refused yet
+        if (!switch.on) throw ClientException(ClientErrorCodes.NOT_AVAILABLE, TimelineSwitch.OFF_REASON)
     }
 }
