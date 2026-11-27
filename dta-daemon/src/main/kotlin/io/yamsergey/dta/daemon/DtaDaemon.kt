@@ -330,6 +330,8 @@ class DtaDaemon(
             check(r.exitCode == 0 && r.stdout.isNotEmpty()) { r.stderr.trim().ifEmpty { "screencap exited with ${r.exitCode}" } }
             io.yamsergey.dta.daemon.layout.ScreenDiff.png(r.stdout)
         },
+        // D-149: what each step of a screen capture cost, on the daemon's stderr, only with DTA_DEBUG=1.
+        log = if (System.getenv("DTA_DEBUG") == "1") { line -> System.err.println("${java.time.Instant.now()} $line") } else null,
     )
 
     /** Network history of [pkg]: HTTP and WebSocket entries in one list (feature 004). */

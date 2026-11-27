@@ -51,7 +51,7 @@ class ScreenCaptureTest {
         private val policy: String = "policy-on",
         images: List<() -> ByteArray> = listOf({ png() }, { png() }),
     ) {
-        val log = mutableListOf<String>()
+        val log: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf<String>())
         private val windows = windows.toMutableList()
         private val images = images.toMutableList()
         val capture = ScreenCapture(
@@ -75,7 +75,11 @@ class ScreenCaptureTest {
         val b = png(spot = Rect(0, 0, 1, 1))
         val d = Device(images = listOf({ png() }, { b }))
         val c = d.run()
-        assertEquals(listOf("dumpsys window windows", "dumpsys window policy", "screencap", "tree", "screencap", "dumpsys window windows"), d.log)
+        // D-149: the two dumpsys before the tree, and image B with the last dumpsys after it, run together: their order within a group is not fixed
+        assertEquals(setOf("dumpsys window windows", "dumpsys window policy"), d.log.take(2).toSet())
+        assertEquals(listOf("screencap", "tree"), d.log.subList(2, 4))
+        assertEquals(setOf("screencap", "dumpsys window windows"), d.log.drop(4).toSet())
+        assertEquals(6, d.log.size)
         val image = assertNotNull(c.screenImage)
         assertEquals(ScreenImageState.PRESENT, image.state)
         assertEquals(1080 to 2400, image.widthPx to image.heightPx)
@@ -169,5 +173,63 @@ class ScreenCaptureTest {
         assertEquals(file.length(), image.file!!.sizeBytes)
         assertEquals(64, image.file!!.sha256.length)
         assertEquals(1080 to 2400, ScreenDiff.size(file.readBytes()))
+    }
+
+    /**
+     * D-149: the host commands around the tree do not depend on each other where they can start together: the two dumpsys before the
+     * tree, the second screencap and the last dumpsys after it. Each command takes 120 ms here; the most that ran at once is counted
+     * (a sequential capture never has two), and the order of the steps that do depend on each other stays: image A after the
+     * windows and policy, the tree after image A.
+     */
+    @Test
+    fun `independent host commands start together, dependent ones keep their order`() {
+        val running = java.util.concurrent.atomic.AtomicInteger()
+        val most = java.util.concurrent.atomic.AtomicInteger()
+        val phases = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val peaks = java.util.Collections.synchronizedList(mutableListOf<Int>())
+        fun command(name: String): Int {
+            val now = running.incrementAndGet()
+            most.updateAndGet { maxOf(it, now) }
+            phases += "start $name"
+            Thread.sleep(120)
+            running.decrementAndGet()
+            phases += "end $name"
+            return now
+        }
+        val windows = mutableListOf("portrait", "portrait")
+        val capture = ScreenCapture(
+            dumpsys = { _, args -> command("dumpsys ${args.last()}"); if (args == listOf("window", "policy")) res("policy-on") else res(synchronized(windows) { windows.removeAt(0) }) },
+            screencap = { _ -> command("screencap"); png() },
+            clock = { 1_000L },
+        )
+        runBlocking {
+            capture.capture("emulator-5554", pkg, null) {
+                peaks += most.getAndSet(0)   // the peak before the tree: the two dumpsys together
+                phases += "tree"
+                tree
+            }
+        }
+        peaks += most.get()
+        // the order that matters: A starts after both before-commands ended, the tree after A ended
+        val log = phases.toList()
+        assertTrue(log.indexOf("start screencap") > log.indexOf("end dumpsys windows") && log.indexOf("start screencap") > log.indexOf("end dumpsys policy"), "image A after the windows and the policy: $log")
+        assertTrue(log.indexOf("tree") > log.indexOf("end screencap"), "the tree after image A: $log")
+        assertTrue(peaks[0] >= 2, "before the tree: windows and policy ran at once, peak ${peaks[0]}")
+        assertTrue(peaks[1] >= 2, "after the tree: image B and the windows ran at once, peak ${peaks[1]}")
+    }
+
+    /** D-149 (b): a capture says what each step cost, in one line, when asked to. */
+    @Test
+    fun `a capture logs one line with the time of each step`() {
+        val lines = mutableListOf<String>()
+        val capture = ScreenCapture(
+            dumpsys = { _, args -> if (args == listOf("window", "policy")) res("policy-on") else res("portrait") },
+            screencap = { _ -> png() },
+            clock = { 1_000L },
+            log = { lines += it },
+        )
+        runBlocking { capture.capture("emulator-5554", pkg, null) { tree } }
+        val line = lines.single()
+        for (step in listOf("dumpsys windows+policy", "screencap A", "tree", "screencap B + dumpsys windows", "total")) assertTrue(step in line, "$step in: $line")
     }
 }

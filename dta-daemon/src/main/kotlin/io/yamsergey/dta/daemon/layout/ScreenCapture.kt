@@ -1,5 +1,8 @@
 package io.yamsergey.dta.daemon.layout
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+
 import io.yamsergey.dta.protocol.layout.AlignmentKind
 import io.yamsergey.dta.protocol.layout.CaptureSource
 import io.yamsergey.dta.protocol.layout.DegradationCodes
@@ -26,10 +29,21 @@ class ScreenCapture(
     /** `adb exec-out screencap -p` bytes; throws with the reason when it fails. */
     private val screencap: (serial: String) -> ByteArray,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** D-149: one line per capture saying what each step cost (the daemon passes it only when DTA_DEBUG=1). */
+    private val log: ((String) -> Unit)? = null,
 ) {
     suspend fun capture(serial: String, pkg: String?, output: String?, tree: suspend () -> LayoutCapture): LayoutCapture {
-        val before = runCatching { WindowDump.parse(dumpsys(serial, WINDOWS)) }
-        val policy = runCatching { WindowDump.policy(dumpsys(serial, POLICY)) }.getOrNull()
+        val t0 = System.nanoTime()
+        fun ms() = (System.nanoTime() - t0) / 1_000_000
+        // D-149: the two dumpsys do not depend on each other: they run together (each is an adb process of its own).
+        val (beforeRaw, policyRaw) = kotlinx.coroutines.coroutineScope {
+            val w = async(Dispatchers.IO) { runCatching { dumpsys(serial, WINDOWS) } }
+            val p = async(Dispatchers.IO) { runCatching { dumpsys(serial, POLICY) } }
+            w.await() to p.await()
+        }
+        val before = beforeRaw.mapCatching { WindowDump.parse(it) }
+        val policy = policyRaw.mapCatching { WindowDump.policy(it) }.getOrNull()
+        val tWindows = ms()
         val statements = mutableListOf<DegradationMarker>()
         val windowsBefore = before.getOrNull()?.let { WindowDump.screenWindows(it, pkg) }
 
@@ -46,9 +60,17 @@ class ScreenCapture(
         }
 
         val imageA = if (skip == null) runCatching { screencap(serial) } else null
+        val tImageA = ms()
         val captured = tree()
-        val imageB = if (skip == null && imageA?.isSuccess == true) runCatching { screencap(serial) } else null
-        val after = runCatching { WindowDump.parse(dumpsys(serial, WINDOWS)) }.getOrNull()
+        val tTree = ms()
+        // D-149: image B and the windows after the tree do not depend on each other: together.
+        val (imageB, afterRaw) = kotlinx.coroutines.coroutineScope {
+            val b = async(Dispatchers.IO) { if (skip == null && imageA?.isSuccess == true) runCatching { screencap(serial) } else null }
+            val a = async(Dispatchers.IO) { runCatching { dumpsys(serial, WINDOWS) } }
+            b.await() to a.await()
+        }
+        val after = afterRaw.mapCatching { WindowDump.parse(it) }.getOrNull()
+        log?.invoke("screen capture ${pkg ?: "-"}: dumpsys windows+policy ${tWindows} ms, screencap A +${tImageA - tWindows} ms${if (skip != null) " (skipped: ${skip.second})" else ""}, tree +${tTree - tImageA} ms, screencap B + dumpsys windows +${ms() - tTree} ms, total ${ms()} ms")
         val windows = after?.let { WindowDump.screenWindows(it, pkg) } ?: windowsBefore.orEmpty()
 
         val aligned = ScreenAlignment.align(captured.windows, windows, absolute = captured.source == CaptureSource.UIAUTOMATOR)
