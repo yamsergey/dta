@@ -104,7 +104,8 @@ class AgentsTabModel(
     }
 
     companion object {
-        const val MASK = "••••••••••••••••"
+        /** Truncation rules, rule 3: 8 dots whatever the credential's length, one unbreakable piece. */
+        const val MASK = "••••••••"
         const val UNNAMED = "unnamed client"
         const val NONE = "—"
         const val FOLD_BELOW_MS = 1_000L
@@ -112,7 +113,10 @@ class AgentsTabModel(
         private val HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm")
 
         /** The command or configuration as the screen shows it: the credential masked. */
-        fun shown(agent: Agent, url: String): String = AgentConfigs.render(agent, url, MASK).text
+        fun shown(agent: Agent, url: String): String = AgentConfigs.render(agent, url, MASK).let { c ->
+            // A one-line shell command breaks only at its own " \" continuations (what Copy puts in the clipboard is one line).
+            if (c.where == null) c.text.replace(" dta ", " dta \\\n  ").replace(" --header", " \\\n  --header") else c.text
+        }
 
         /** What Copy command puts in the clipboard. */
         fun toCopy(agent: Agent, url: String, credential: String): String = AgentConfigs.render(agent, url, credential).text
