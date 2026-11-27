@@ -170,4 +170,47 @@ class ScreenCaptureTest {
         assertEquals(64, image.file!!.sha256.length)
         assertEquals(1080 to 2400, ScreenDiff.size(file.readBytes()))
     }
+
+    /**
+     * D-149: the host commands around the tree do not depend on each other where they can start together: the two dumpsys before the
+     * tree, the second screencap and the last dumpsys after it. Each command takes 120 ms here; the most that ran at once is counted
+     * (a sequential capture never has two), and the order of the steps that do depend on each other stays: image A after the
+     * windows and policy, the tree after image A.
+     */
+    @Test
+    fun `independent host commands start together, dependent ones keep their order`() {
+        val running = java.util.concurrent.atomic.AtomicInteger()
+        val most = java.util.concurrent.atomic.AtomicInteger()
+        val phases = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val peaks = java.util.Collections.synchronizedList(mutableListOf<Int>())
+        fun command(name: String): Int {
+            val now = running.incrementAndGet()
+            most.updateAndGet { maxOf(it, now) }
+            phases += "start $name"
+            Thread.sleep(120)
+            running.decrementAndGet()
+            phases += "end $name"
+            return now
+        }
+        val windows = mutableListOf("portrait", "portrait")
+        val capture = ScreenCapture(
+            dumpsys = { _, args -> command("dumpsys ${args.last()}"); if (args == listOf("window", "policy")) res("policy-on") else res(synchronized(windows) { windows.removeAt(0) }) },
+            screencap = { _ -> command("screencap"); png() },
+            clock = { 1_000L },
+        )
+        runBlocking {
+            capture.capture("emulator-5554", pkg, null) {
+                peaks += most.getAndSet(0)   // the peak before the tree: the two dumpsys together
+                phases += "tree"
+                tree
+            }
+        }
+        peaks += most.get()
+        // the order that matters: A starts after both before-commands ended, the tree after A ended
+        val log = phases.toList()
+        assertTrue(log.indexOf("start screencap") > log.indexOf("end dumpsys windows") && log.indexOf("start screencap") > log.indexOf("end dumpsys policy"), "image A after the windows and the policy: $log")
+        assertTrue(log.indexOf("tree") > log.indexOf("end screencap"), "the tree after image A: $log")
+        assertTrue(peaks[0] >= 2, "before the tree: windows and policy ran at once, peak ${peaks[0]}")
+        assertTrue(peaks[1] >= 2, "after the tree: image B and the windows ran at once, peak ${peaks[1]}")
+    }
 }
