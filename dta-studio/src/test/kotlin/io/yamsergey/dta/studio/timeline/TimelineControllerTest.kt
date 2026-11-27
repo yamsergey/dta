@@ -229,4 +229,25 @@ class TimelineSavedFiltersTest {
         kotlinx.coroutines.delay(500)
         assertEquals(1, timeline.state.value.sequence.page?.total, "the answer of Hide them again stands")
     }
+
+    /** D-126: two reads of the app's state (a process end tells both); the older answer coming after the newer one is not shown. */
+    @Test
+    fun `a late answer of an earlier state read does not replace the later one`() = runBlocking<Unit> {
+        listShown()
+        await { it.view.hiddenEntries.isNotEmpty() }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val base = daemon.ops.stateCalls.get()
+        fun source(n: Int) = io.yamsergey.dta.protocol.timeline.SourceStatus("call$n", io.yamsergey.dta.protocol.ui.SourceState.OFF, "x")
+        daemon.ops.stateAnswer = { n -> io.yamsergey.dta.protocol.timeline.CurrentState(emptyList(), listOf(source(n))) }
+        daemon.ops.stateGate = { n -> if (n == base + 1) release.await() }
+        fun ended(seq: Long) = TimelineEvent("1:$seq", seq, 2_000 + seq, 2_000 + seq, Sources.TIMELINE, Kinds.PROCESS_ENDED)
+        daemon.ops.pushTimeline(ended(10))
+        withTimeout(8_000) { while (daemon.ops.stateCalls.get() < base + 1) kotlinx.coroutines.delay(10) }
+        daemon.ops.pushTimeline(ended(11))
+        await { it.view.sources.any { s -> s.name == "call${base + 2}" } }
+        release.complete(Unit)
+        withTimeout(8_000) { while (daemon.ops.stateCalls.get() < base + 2) kotlinx.coroutines.delay(10) }
+        kotlinx.coroutines.delay(500)
+        assertEquals(listOf("call${base + 2}"), timeline.state.value.view.sources.map { it.name }, "the later read's answer stands")
+    }
 }

@@ -282,7 +282,18 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override fun timelineFlowRemove(serial: String, pkg: String, flow: String) = flowStore.remove(serial, pkg, flow)
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean, ignoreSavedFilters: Boolean) =
         io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
-    override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)
+    /** D-126: `state.current` call number n answers [stateAnswer] (n), and waits for [stateGate] (n) first. */
+    @Volatile var stateAnswer: ((Int) -> io.yamsergey.dta.protocol.timeline.CurrentState)? = null
+    @Volatile var stateGate: (suspend (Int) -> Unit)? = null
+    val stateCalls = java.util.concurrent.atomic.AtomicInteger()
+    val stateAnswered = java.util.concurrent.atomic.AtomicInteger()
+    override suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState {
+        val n = stateCalls.incrementAndGet()
+        val answer = stateAnswer?.invoke(n) ?: timeline.facets.current(timeline.sources)
+        stateGate?.invoke(n)
+        stateAnswered.incrementAndGet()
+        return answer
+    }
     var timelineOn = false
     override suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch {
         on?.let { timelineOn = it }
