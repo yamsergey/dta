@@ -173,11 +173,15 @@ class LayoutController(
                     val state = (data["state"] as? JsonPrimitive)?.content
                     synchronized(policy) {
                         if (state != null) {
+                            val was = policy.signal
                             policy.signal = when (state) {
                                 io.yamsergey.dta.protocol.layout.ScreenSignal.WATCHING -> RefreshPolicy.Signal.WATCHING
                                 io.yamsergey.dta.protocol.layout.ScreenSignal.UNSUPPORTED -> RefreshPolicy.Signal.UNSUPPORTED
                                 else -> RefreshPolicy.Signal.RECONNECTING
                             }
+                            // D-155: the app is reachable again after it was not (a new process: `am start -S`). Its screen was drawn before the
+                            // watch was armed, so no change will be signalled: the shown capture is the old process's. Reaching it again is a change.
+                            if (was == RefreshPolicy.Signal.RECONNECTING && policy.signal == RefreshPolicy.Signal.WATCHING) policy.changed(clock(), listOf("the app is reachable again"))
                         } else {
                             // D-149: when the signal reached this computer, not the device's `at` (another clock: an emulator's was 359 ms ahead,
                             // which added that much to the debounce, and a clock behind made the change look older than the last capture).
