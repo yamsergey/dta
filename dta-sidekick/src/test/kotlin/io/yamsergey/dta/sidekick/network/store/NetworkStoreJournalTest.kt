@@ -70,7 +70,7 @@ class NetworkStoreJournalTest {
 
     @Test
     fun `the journal pages every record in order, across segments, and says where it ended`() {
-        val s = NetworkStore(StorageDir(dir), pid = 42, clock = { now++ }, bounds = StoreBounds(segmentBytes = 600)).also { opened += it }
+        val s = NetworkStore(StorageDir(dir), pid = 42, clock = { now++ }, bounds = StoreBounds(segmentBytes = 600)).also { opened += it; assertTrue(it.awaitLoaded()) }
         val ids = List(12) { http(s).also(s::upsert).id }
         val seen = mutableListOf<String>()
         var cursor: String? = null
