@@ -138,7 +138,7 @@ class RuntimePanel(
                             val ui = t.ui as? javax.swing.plaf.basic.BasicTreeUI
                             val level = (value as? DefaultMutableTreeNode)?.level ?: 1
                             val x = ((level - (if (t.isRootVisible) 0 else 1)) * ((ui?.leftChildIndent ?: 0) + (ui?.rightChildIndent ?: 0))) + JBUI.scale(20)
-                            val room = t.width - x - metrics.stringWidth(o.label) - JBUI.scale(24)
+                            val room = io.yamsergey.dta.studio.ui.VisibleWidth.of(t) - x - metrics.stringWidth(o.label) - JBUI.scale(24)
                             append(io.yamsergey.dta.studio.ui.ClassNameFit.end("  " + o.detail, { metrics.stringWidth(it) }, room.coerceAtLeast(metrics.stringWidth("  …"))), SimpleTextAttributes.GRAYED_ATTRIBUTES)
                         }
                     }

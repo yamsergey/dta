@@ -23,6 +23,11 @@ class ClassNameLabel : JLabel() {
         fullName = name
         val metrics = getFontMetrics(font)
         fit = ClassNameFit.fit(name, { metrics.stringWidth(it) }, (room - insets.left - insets.right).coerceAtLeast(0))
+        // Last resort, when even the whole simple name does not fit: an ellipsis inside it, never a clip without one.
+        val room2 = (room - insets.left - insets.right).coerceAtLeast(0)
+        if (metrics.stringWidth(fit.text) > room2) {
+            fit = ClassNameFit.Fit("", ClassNameFit.end(fit.text, { metrics.stringWidth(it) }, room2))
+        }
         text = fit.text
         toolTipText = name
         strong = com.intellij.util.ui.UIUtil.getTableForeground(selected, selected)
