@@ -258,6 +258,22 @@ class LayoutControllerTest {
         assertEquals(listOf(0, 0), await { it.selected == listOf(0, 0) }.selected)
     }
 
+    /** D-158: the caption under the picture said the element last hovered after a CLI select of another element. */
+    @Test
+    fun `a selection made elsewhere clears the hover, so the caption is not an old label`() = runBlocking<Unit> {
+        daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260)), placed(3, "Back", Rect(400, 200, 600, 260))), toast)
+        session.start()
+        await { it.app == "com.example.shop" }
+        layout.setActive(true)
+        await { it.tree?.screen != null }
+        layout.hover(150.0, 230.0)
+        await { it.hover != null }
+        // An agent selects the other element (the plugin selects the tree's row): the pointer is not on it, the old label goes.
+        layout.select(listOf(0, 1))
+        val after = await { it.selected == listOf(0, 1) }
+        assertNull(after.hover, "hover after the selection moved: ${after.hover}")
+    }
+
     @Test
     fun `hovering names what is under the pointer, a window that is not the app's included`() = runBlocking<Unit> {
         daemon.ops.screenCapture = withScreen(screen(placed(2, "Pay", Rect(100, 200, 300, 260))), toast)
