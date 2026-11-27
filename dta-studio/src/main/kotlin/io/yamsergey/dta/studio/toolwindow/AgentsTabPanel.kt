@@ -152,12 +152,11 @@ class AgentsTabPanel(
         }
 
         body.add(heading("Connect an agent"))
-        body.add(left(JPanel(LineOrStack(JBUI.scale(8), lastAtEdge = false)).apply {
-            isOpaque = false
-            add(connect.agent)
-            add(ActionLink("Copy command") { connect.copyCommand() }.apply { name = "agents.copy" })
-            add(JBLabel("Copy the command or the prompt from the strip at the left.").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() })
-        }))
+        body.add(left(ConnectRow.build(
+            connect.agent,
+            ActionLink("Copy command") { connect.copyCommand() }.apply { name = "agents.copy" },
+            JBLabel("Copy the command or the prompt from the strip at the left.").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() },
+        )))
         body.add(left(connect.commandView, top = 6))
     }
 
