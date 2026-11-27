@@ -121,6 +121,21 @@ class LayoutControllerTest {
         assertTrue(daemon.ops.layoutRequests.all { it.second == DetailLevel.COMPOSITION })
     }
 
+    /** V4 (D-143): the line that Auto cannot follow a capture of an app without DTA goes when the app with DTA is captured again. */
+    @Test
+    fun `the line that auto cannot follow goes when the app's own capture comes back`() = runBlocking<Unit> {
+        shown()
+        layout.setRefreshMode(io.yamsergey.dta.present.layout.RefreshPolicy.Mode.AUTO)
+        daemon.ops.capture = screen(button(2, "Pay")).copy(source = CaptureSource.UIAUTOMATOR)
+        layout.refresh()
+        val stuck = await { it.reason.first.startsWith("Auto cannot follow") }
+        assertTrue("no DTA inside" in stuck.reason.first, stuck.reason.first)
+        daemon.ops.capture = screen(button(2, "Pay"))
+        layout.refresh()
+        val back = await { !it.loading && !it.reason.first.startsWith("Auto cannot follow") }
+        assertTrue(back.reason.first.startsWith("Follows the app"), back.reason.first)
+    }
+
     @Test
     fun `a hidden view watches nothing`() = runBlocking<Unit> {
         shown()

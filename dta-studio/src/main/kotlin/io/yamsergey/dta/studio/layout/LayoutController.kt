@@ -232,7 +232,9 @@ class LayoutController(
                     } == true
                     synchronized(policy) {
                         policy.captureDone(at, mainMs)
+                        // The app's own capture (sidekick) ends what a capture by uiautomator said (D-143): the app has DTA.
                         if (result["source"]?.let { (it as JsonPrimitive).content } == "uiautomator") policy.signal = RefreshPolicy.Signal.NO_DTA
+                        else if (policy.signal == RefreshPolicy.Signal.NO_DTA && context.state.value.connection != io.yamsergey.dta.present.context.Connection.NO_DTA) policy.signal = RefreshPolicy.Signal.WAITING
                         if (moving && policy.mode == RefreshPolicy.Mode.AUTO) policy.changed(at, listOf("during the capture"))
                     }
                     val full = LayoutTree.of(result)
