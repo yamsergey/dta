@@ -181,6 +181,7 @@ class MemoryPanel(
     /** The last message shown (what tests read). */
     internal val statusLine: String get() = status.text
     internal val statementLine: String get() = statement.text
+    internal val leftOutLine: String get() = leftOut.text
     internal val hasSnapshots: Boolean get() = list?.snapshots?.isNotEmpty() == true
     internal val rowCount: Int get() = tableModel.rowCount
     internal fun cell(row: Int, col: Int): String = tableModel.rows[row].cells[col]

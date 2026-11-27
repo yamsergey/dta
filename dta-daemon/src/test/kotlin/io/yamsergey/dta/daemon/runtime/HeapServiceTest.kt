@@ -136,6 +136,16 @@ class HeapServiceTest {
         assertFailsWith<IllegalArgumentException> { service.compare(app, "a", "b", "nonsense", null, null) }
     }
 
+    @Test fun compareCarriesTheNotesOfB() = runBlocking<Unit> {
+        val f = Fake(ok(n = 1).copy(notes = listOf("3 objects of DTA itself left out (96 bytes)")))
+        service.snapshot(app, f, "a", false, null)
+        now += 3000
+        service.snapshot(app, f, "b", false, null)
+        val c = service.compare(app, "a", "b", null, null, null)
+        assertTrue(c.notes.any { it.contains("of DTA itself left out") }, c.notes.toString())
+        assertTrue(service.compare(app, "empty", "b", "all", null, null).notes.any { it.contains("of DTA itself left out") })
+    }
+
     @Test fun compareRefusalsCarryTheReason() = runBlocking<Unit> {
         val e = assertFailsWith<HeapRefusal> { service.compare(app, "x", "y", null, null, null) }
         assertTrue(e.message!!.contains("no snapshot"))

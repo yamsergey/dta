@@ -25,7 +25,7 @@ class MemoryPanelTest : BasePlatformTestCase() {
                 "runtime.heap.snapshot" -> { snapshots = true; """{"snapshot":{"id":"s2","name":"after","run":"r1","takenAtMs":2,"pauseMs":38,"gcBefore":false,"totals":{"objects":40,"bytes":400},"classCount":1,"top":[]},"pauseMs":38}""" }
                 "runtime.heap.compare" -> """{"comparison":{"a":"s1","b":"s2","run":"r1","rows":[
                     {"className":"io.x.broker.ui.OrderActivity","origin":"app","countA":1,"countB":4,"bytesA":400,"bytesB":1600,"change":"grew"}],
-                    "filters":{},"leftOut":{},"unchangedClasses":3,"totalsDeltaObjects":3,"totalsDeltaBytes":1200},"leftOut":"no changed class left out by the filters"}"""
+                    "filters":{},"leftOut":{},"unchangedClasses":3,"totalsDeltaObjects":3,"totalsDeltaBytes":1200},"leftOut":"no changed class left out by the filters","notes":["3 objects of DTA itself left out (96 bytes)"]}"""
                 "runtime.heap.instances" -> """{"className":"io.x.broker.ui.OrderActivity","total":2,"offset":0,"instances":[
                     {"id":4294967297,"className":"io.x.broker.ui.OrderActivity","bytes":400,"link":{"kind":"activity","ref":"7a3c01"},"state":"resumed"},
                     {"id":4294967298,"className":"io.x.broker.ui.OrderActivity","bytes":400,"link":{"kind":"activity","ref":"5e12f4"},"state":"destroyed"}],"note":"now"}"""
@@ -65,6 +65,13 @@ class MemoryPanelTest : BasePlatformTestCase() {
         val compare = calls.last { it.first == "runtime.heap.compare" }.second
         assertEquals("s1", compare["a"]!!.jsonPrimitive.content)
         assertEquals("app", compare["origin"]!!.jsonPrimitive.content)
+    }
+
+    fun testTheSnapshotNotesAreShownBesideTheRows() {
+        snapshots = true
+        val p = panel()
+        p.load()
+        assertTrue(p.leftOutLine, p.leftOutLine.contains("3 objects of DTA itself left out (96 bytes)"))
     }
 
     fun testAClassShowsItsInstancesWithLinks() {

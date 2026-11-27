@@ -305,5 +305,7 @@ data class HeapCompareAnswer(
     val comparison: HeapComparison,
     /** What the filters left out, in words. */
     val leftOut: String,
+    /** The notes of snapshot b (pause, boot image, "N objects of DTA itself left out"): what the rows do not show. */
+    @EncodeDefault val notes: List<String> = emptyList(),
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
