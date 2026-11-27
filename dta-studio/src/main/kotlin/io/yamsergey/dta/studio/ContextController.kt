@@ -29,7 +29,7 @@ import kotlinx.serialization.json.put
  * One project's context (FR-001, FR-002): the daemon session's state, the device and app, and
  * the app's connection as `apps.watch` reports it. Devices and apps are asked for when the
  * daemon connects, when the person opens a picker, and when a watched app connects; nothing is
- * polled (constitution II).
+ * polled (constitution II). The package in front is the daemon's to look at: it says `foreground` when it changes (D-143).
  */
 class ContextController(
     private val session: StateFlow<DaemonSession.State>,
@@ -132,6 +132,8 @@ class ContextController(
     }
 
     private fun onAppEvent(data: JsonObject, watched: String?) {
+        // D-143: the package in front changed with no new process (no connection event says so): the apps are read again.
+        if ((data["state"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "foreground") { refreshApps(); return }
         if (watched == null) {
             if (data["selection"] == null) {
                 val event = DtaJson.decodeFromJsonElement(AppConnectionEvent.serializer(), JsonObject(data - "subscription"))

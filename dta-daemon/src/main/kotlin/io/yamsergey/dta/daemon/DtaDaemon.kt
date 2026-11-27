@@ -204,6 +204,7 @@ class DtaDaemon(
         },
         manager = connections,
         socketOf = { sidekickSockets[it] },
+        foreground = { foregroundDetector.foregroundPackage(it) },
     )
 
     /** App connection state changes on [serial] (every device when null), for as long as collected. */
