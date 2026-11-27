@@ -95,7 +95,7 @@ class HeapService(private val store: HeapSnapshotStore = HeapSnapshotStore()) {
         require(top == null || top >= 0) { "top must not be negative" }
         val filter = HeapFilter(o, packagePrefix?.takeIf { it.isNotBlank() }, top ?: 30)
         return when (val r = store.compare(app, a, b, filter)) {
-            is HeapCompareResult.Ok -> HeapCompareAnswer(r.comparison, r.comparison.leftOut.describe())
+            is HeapCompareResult.Ok -> HeapCompareAnswer(r.comparison, r.comparison.leftOut.describe(), store.get(app, b)?.notes.orEmpty())
             is HeapCompareResult.Refused -> throw HeapRefusal(r.reason)
         }
     }

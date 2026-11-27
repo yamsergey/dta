@@ -41,6 +41,7 @@ object HeapText {
             append("\n  ${it.className}  ${it.change.name.lowercase()}  count ${it.countA} → ${it.countB} (${signed(it.deltaCount)})  ${Units.bytes(it.bytesA)} → ${Units.bytes(it.bytesB)} (${signedBytes(it.deltaBytes)})")
         }
         append("\n").append(a.leftOut).append(".")
+        a.notes.forEach { append("\n").append(it) }
         a.notKnown.forEach { append("\nNot known: ").append(it) }
     }
 

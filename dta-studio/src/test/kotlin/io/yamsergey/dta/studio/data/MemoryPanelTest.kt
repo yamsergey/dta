@@ -14,6 +14,8 @@ class MemoryPanelTest : BasePlatformTestCase() {
     private val calls = mutableListOf<Pair<String, JsonObject>>()
     private var snapshots = false
     private var refuse: String? = null
+    private var pauseB = 38
+    private var notes = """"3 objects of DTA itself left out (96 bytes)""""
 
     private fun answer(op: String, p: JsonObject): JsonObject {
         refuse?.let { if (op == "runtime.heap.snapshot") throw RuntimeException(it) }
@@ -21,11 +23,11 @@ class MemoryPanelTest : BasePlatformTestCase() {
             when (op) {
                 "runtime.memory" -> """{"javaUsedBytes":43200000,"javaMaxBytes":201326592,"javaFreeBytes":1,"nativeAllocatedBytes":19300000,"nativeHeapBytes":2,"pssKb":98304,"gcCount":14,"gcTimeMs":210,"gcRun":false}"""
                 "runtime.heap.snapshots" -> if (!snapshots) """{"notKnown":[]}""" else
-                    """{"run":"r1","snapshots":[{"id":"s1","name":"before","takenAtMs":1,"pauseMs":21,"objects":10,"bytes":100},{"id":"s2","name":"after","takenAtMs":2,"pauseMs":38,"objects":40,"bytes":400}]}"""
+                    """{"run":"r1","snapshots":[{"id":"s1","name":"before","takenAtMs":1,"pauseMs":21,"objects":10,"bytes":100},{"id":"s2","name":"after","takenAtMs":2,"pauseMs":$pauseB,"objects":40,"bytes":400}]}"""
                 "runtime.heap.snapshot" -> { snapshots = true; """{"snapshot":{"id":"s2","name":"after","run":"r1","takenAtMs":2,"pauseMs":38,"gcBefore":false,"totals":{"objects":40,"bytes":400},"classCount":1,"top":[]},"pauseMs":38}""" }
                 "runtime.heap.compare" -> """{"comparison":{"a":"s1","b":"s2","run":"r1","rows":[
                     {"className":"io.x.broker.ui.OrderActivity","origin":"app","countA":1,"countB":4,"bytesA":400,"bytesB":1600,"change":"grew"}],
-                    "filters":{},"leftOut":{},"unchangedClasses":3,"totalsDeltaObjects":3,"totalsDeltaBytes":1200},"leftOut":"no changed class left out by the filters"}"""
+                    "filters":{},"leftOut":{},"unchangedClasses":3,"totalsDeltaObjects":3,"totalsDeltaBytes":1200},"leftOut":"no changed class left out by the filters","notes":[$notes]}"""
                 "runtime.heap.instances" -> """{"className":"io.x.broker.ui.OrderActivity","total":2,"offset":0,"instances":[
                     {"id":4294967297,"className":"io.x.broker.ui.OrderActivity","bytes":400,"link":{"kind":"activity","ref":"7a3c01"},"state":"resumed"},
                     {"id":4294967298,"className":"io.x.broker.ui.OrderActivity","bytes":400,"link":{"kind":"activity","ref":"5e12f4"},"state":"destroyed"}],"note":"now"}"""
@@ -67,6 +69,13 @@ class MemoryPanelTest : BasePlatformTestCase() {
         assertEquals("app", compare["origin"]!!.jsonPrimitive.content)
     }
 
+    fun testTheSnapshotNotesAreShownBesideTheRows() {
+        snapshots = true
+        val p = panel()
+        p.load()
+        assertTrue(p.leftOutLine, p.leftOutLine.contains("3 objects of DTA itself left out (96 bytes)"))
+    }
+
     fun testAClassShowsItsInstancesWithLinks() {
         snapshots = true
         val p = panel()
@@ -87,6 +96,22 @@ class MemoryPanelTest : BasePlatformTestCase() {
     }
 
     private fun layout(c: java.awt.Component) { c.doLayout(); (c as? java.awt.Container)?.components?.forEach(::layout) }
+
+    /** D-138: the long lines around the table (pause statement, left out, notes) never take the table's height. */
+    fun testAtNarrowWidthLongStatementsLeaveTheTableItsHeight() {
+        snapshots = true
+        pauseB = 850
+        notes = (1..4).joinToString(",") { "\"note $it: this snapshot was walked while the app was busy and counts objects reachable or not, boot image and zygote included\"" }
+        for (h in listOf(700, 500, 400)) {
+            val p = panel()
+            p.setSize(420, h)
+            layout(p)
+            p.load()
+            repeat(3) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+            val viewport = p.table.parent
+            assertTrue("table viewport ${viewport.height} px of $h", viewport.height >= 60)
+        }
+    }
 
     fun testAtNarrowWidthTheSizeColumnStaysVisible() {
         snapshots = true

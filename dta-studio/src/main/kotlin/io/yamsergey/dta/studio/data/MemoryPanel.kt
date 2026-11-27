@@ -181,6 +181,7 @@ class MemoryPanel(
     /** The last message shown (what tests read). */
     internal val statusLine: String get() = status.text
     internal val statementLine: String get() = statement.text
+    internal val leftOutLine: String get() = leftOut.text
     internal val hasSnapshots: Boolean get() = list?.snapshots?.isNotEmpty() == true
     internal val rowCount: Int get() = tableModel.rowCount
     internal fun cell(row: Int, col: Int): String = tableModel.rows[row].cells[col]
@@ -220,9 +221,9 @@ class MemoryPanel(
         splitter.firstComponent = tablePane
         splitter.secondComponent = instances
         content.add(JPanel(BorderLayout()).apply {
-            add(JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); add(pickers); add(statement); statement.alignmentX = Component.LEFT_ALIGNMENT }, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply { add(pickers, BorderLayout.NORTH); add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(statement)), BorderLayout.CENTER) }, BorderLayout.NORTH)
             add(splitter, BorderLayout.CENTER)
-            add(JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); add(leftOut); add(notKnown) }, BorderLayout.SOUTH)
+            add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(leftOut, notKnown)), BorderLayout.SOUTH)
         }, CONTENT)
         cards.show(content, EMPTY)
         layoutPickers()
@@ -350,7 +351,7 @@ class MemoryPanel(
                     showRows()
                     val info = l.snapshots.firstOrNull { it.id == b }
                     statement.text = info?.let { MemoryRows.statement("B", it, originAll) } ?: ""
-                    leftOut.text = MemoryRows.leftOut(c.comparison)?.let { "$it." } ?: ""
+                    leftOut.text = (listOfNotNull(MemoryRows.leftOut(c.comparison)?.let { "$it." }) + c.notes).joinToString("\n")
                     if (keepStatus) keepStatus = false else say("")
                     instances = null; instancesPanel().isVisible = false
                 }, { say(MemoryRows.refusal(it)) })

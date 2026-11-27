@@ -61,6 +61,12 @@ class HeapTextTest {
         assertTrue(t.contains("boot image") && t.contains("did not allocate"))
     }
 
+    @Test fun compareShowsTheNotesOfB() {
+        val c = HeapComparison("s1", "s2", "r1", emptyList(), HeapFilter(), HeapLeftOut(), 5, 3, 30)
+        val t = HeapText.compare(HeapCompareAnswer(c, c.leftOut.describe(), listOf("3 objects of DTA itself left out (96 bytes)")))
+        assertTrue(t.contains("3 objects of DTA itself left out (96 bytes)"), t)
+    }
+
     @Test fun instancesStateLiveNowLinksAndWhatStepOneDoesNotKnow() {
         val a = io.yamsergey.dta.protocol.data.HeapInstancesAnswer(
             "com.x.Leak", 2, 0,
