@@ -164,15 +164,17 @@ class TimelineSavedFiltersTest {
 
     @Test
     fun `Show them shows everything and asks with the opt-out, Hide them again hides again`() = runBlocking<Unit> {
+        daemon.ops.sequenceWhen = { ignore -> io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), if (ignore) 99 else 1, emptyList()) }
         listShown()
         await { it.view.hiddenEntries.isNotEmpty() }
         timeline.setShowHidden(true)
         val shown = await { it.showHidden && it.view.shown.size == 3 }
         assertEquals(io.yamsergey.dta.present.timeline.TimelineSavedBar.Action.HIDE, shown.listBar.action)
+        // D-126: the page says which ask it answers (99 with the opt-out, 1 without); the latest read's answer is the one shown.
         timeline.setShowSequence(true)
-        await { daemon.ops.sequenceIgnored.lastOrNull() == true }
+        await { it.sequence.page?.total == 99 }
         timeline.setShowHidden(false)
-        await { !it.showHidden && daemon.ops.sequenceIgnored.lastOrNull() == false }
+        await { !it.showHidden && it.sequence.page?.total == 1 }
     }
 
     @Test
@@ -182,5 +184,70 @@ class TimelineSavedFiltersTest {
         await { it.view.events.size == 3 }
         timeline.removeSaved(words.single())
         await { daemon.ops.savedWords.isEmpty() && it.savedError == null }
+    }
+
+    /**
+     * D-126: Show them then Hide them again asks twice; the first answer (opt-out on) can come after the second (off). It must not
+     * be shown: it would say nothing is hidden while the tab says Hide them again.
+     */
+    @Test
+    fun `a late answer to Show them does not undo Hide them again`() = runBlocking<Unit> {
+        listShown()
+        await { it.view.hiddenEntries.isNotEmpty() }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        daemon.ops.hiddenGate = { ignore -> if (ignore) release.await() }
+        val answered = daemon.ops.hiddenAnswered.get()
+        val asked = daemon.ops.hiddenAsks.get()
+        timeline.setShowHidden(true)
+        // The read of Show them is at the daemon (held there) before Hide them again is pressed.
+        withTimeout(8_000) { while (daemon.ops.hiddenAsks.get() < asked + 1) kotlinx.coroutines.delay(10) }
+        timeline.setShowHidden(false)
+        withTimeout(8_000) { while (daemon.ops.hiddenAnswered.get() < answered + 1) kotlinx.coroutines.delay(10) }
+        release.complete(Unit)
+        withTimeout(8_000) { while (daemon.ops.hiddenAnswered.get() < answered + 2) kotlinx.coroutines.delay(10) }
+        kotlinx.coroutines.delay(500)
+        val s = timeline.state.value
+        assertEquals(false, s.showHidden)
+        assertEquals(setOf("beacon"), s.view.hiddenEntries, "the answer of Hide them again stands")
+        assertTrue(s.listSaved?.ignored != true, "not the answer of Show them: ${s.listSaved}")
+    }
+
+    @Test
+    fun `a late sequence answer to Show them does not replace the one of Hide them again`() = runBlocking<Unit> {
+        listShown()
+        await { it.view.hiddenEntries.isNotEmpty() }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        daemon.ops.sequenceWhen = { ignore -> io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), if (ignore) 99 else 1, emptyList()) }
+        daemon.ops.sequenceGate = { ignore -> if (ignore) release.await() }
+        val answered = daemon.ops.sequenceAnswered.get()
+        timeline.setShowHidden(true)
+        withTimeout(8_000) { while (daemon.ops.sequenceIgnored.lastOrNull() != true) kotlinx.coroutines.delay(10) }
+        timeline.setShowHidden(false)
+        withTimeout(8_000) { while (daemon.ops.sequenceAnswered.get() < answered + 1) kotlinx.coroutines.delay(10) }
+        release.complete(Unit)
+        withTimeout(8_000) { while (daemon.ops.sequenceAnswered.get() < answered + 2) kotlinx.coroutines.delay(10) }
+        kotlinx.coroutines.delay(500)
+        assertEquals(1, timeline.state.value.sequence.page?.total, "the answer of Hide them again stands")
+    }
+
+    /** D-126: two reads of the app's state (a process end tells both); the older answer coming after the newer one is not shown. */
+    @Test
+    fun `a late answer of an earlier state read does not replace the later one`() = runBlocking<Unit> {
+        listShown()
+        await { it.view.hiddenEntries.isNotEmpty() }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val base = daemon.ops.stateCalls.get()
+        fun source(n: Int) = io.yamsergey.dta.protocol.timeline.SourceStatus("call$n", io.yamsergey.dta.protocol.ui.SourceState.OFF, "x")
+        daemon.ops.stateAnswer = { n -> io.yamsergey.dta.protocol.timeline.CurrentState(emptyList(), listOf(source(n))) }
+        daemon.ops.stateGate = { n -> if (n == base + 1) release.await() }
+        fun ended(seq: Long) = TimelineEvent("1:$seq", seq, 2_000 + seq, 2_000 + seq, Sources.TIMELINE, Kinds.PROCESS_ENDED)
+        daemon.ops.pushTimeline(ended(10))
+        withTimeout(8_000) { while (daemon.ops.stateCalls.get() < base + 1) kotlinx.coroutines.delay(10) }
+        daemon.ops.pushTimeline(ended(11))
+        await { it.view.sources.any { s -> s.name == "call${base + 2}" } }
+        release.complete(Unit)
+        withTimeout(8_000) { while (daemon.ops.stateCalls.get() < base + 2) kotlinx.coroutines.delay(10) }
+        kotlinx.coroutines.delay(500)
+        assertEquals(listOf("call${base + 2}"), timeline.state.value.view.sources.map { it.name }, "the later read's answer stands")
     }
 }

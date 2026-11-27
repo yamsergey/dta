@@ -252,14 +252,27 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     var sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 0, emptyList())
     /** Feature 065: what `timeline.hidden` answers; an opt-out answers nothing hidden. */
     @Volatile var hidden = io.yamsergey.dta.protocol.timeline.TimelineHidden()
+    /** D-126: held before a `timeline.hidden` / `timeline.sequence` answers (with its opt-out), so a test orders two reads as it needs. */
+    @Volatile var hiddenGate: (suspend (Boolean) -> Unit)? = null
+    @Volatile var sequenceGate: (suspend (Boolean) -> Unit)? = null
+    /** What `timeline.sequence` answers for an opt-out, in place of [sequence]. */
+    @Volatile var sequenceWhen: ((Boolean) -> io.yamsergey.dta.protocol.timeline.SequencePage)? = null
+    val hiddenAnswered = java.util.concurrent.atomic.AtomicInteger()
+    val sequenceAnswered = java.util.concurrent.atomic.AtomicInteger()
     override suspend fun timelineHidden(serial: String, pkg: String, ignoreSavedFilters: Boolean): io.yamsergey.dta.protocol.timeline.TimelineHidden {
         hiddenAsks.incrementAndGet()
-        return if (ignoreSavedFilters) io.yamsergey.dta.protocol.timeline.TimelineHidden(hidden.saved?.copy(ignored = true, hidden = null)) else hidden
+        hiddenGate?.invoke(ignoreSavedFilters)
+        val answer = if (ignoreSavedFilters) io.yamsergey.dta.protocol.timeline.TimelineHidden(hidden.saved?.copy(ignored = true, hidden = null)) else hidden
+        hiddenAnswered.incrementAndGet()
+        return answer
     }
     override suspend fun timelineSequence(serial: String, pkg: String, limit: Int, q: String?, sinceMs: Long?, flow: String?, ignoreSavedFilters: Boolean, redact: Boolean): io.yamsergey.dta.protocol.timeline.SequencePage {
         sequenceIgnored += ignoreSavedFilters
         sequenceRedacted += redact
-        return sequence
+        sequenceGate?.invoke(ignoreSavedFilters)
+        val answer = sequenceWhen?.invoke(ignoreSavedFilters) ?: sequence
+        sequenceAnswered.incrementAndGet()
+        return answer
     }
     private val flowStore by lazy { io.yamsergey.dta.daemon.timeline.FlowStore(java.nio.file.Files.createTempDirectory("test-flows").toFile()) }
     override suspend fun timelineFlowStart(serial: String, pkg: String, name: String?) = flowStore.start(serial, pkg, name, sequence.steps.lastOrNull()?.wallMs)
@@ -269,7 +282,18 @@ class CannedOperations(var deviceList: List<DeviceInfo> = listOf(DeviceInfo("emu
     override fun timelineFlowRemove(serial: String, pkg: String, flow: String) = flowStore.remove(serial, pkg, flow)
     override suspend fun timelineCauses(serial: String, pkg: String, event: String, direction: io.yamsergey.dta.protocol.timeline.ChainDirection, depth: Int, inferred: Boolean, ignoreSavedFilters: Boolean) =
         io.yamsergey.dta.daemon.timeline.CauseGraph(timeline.kept()).walk(event, direction, depth, inferred)
-    override suspend fun stateCurrent(serial: String, pkg: String) = timeline.facets.current(timeline.sources)
+    /** D-126: `state.current` call number n answers [stateAnswer] (n), and waits for [stateGate] (n) first. */
+    @Volatile var stateAnswer: ((Int) -> io.yamsergey.dta.protocol.timeline.CurrentState)? = null
+    @Volatile var stateGate: (suspend (Int) -> Unit)? = null
+    val stateCalls = java.util.concurrent.atomic.AtomicInteger()
+    val stateAnswered = java.util.concurrent.atomic.AtomicInteger()
+    override suspend fun stateCurrent(serial: String, pkg: String): io.yamsergey.dta.protocol.timeline.CurrentState {
+        val n = stateCalls.incrementAndGet()
+        val answer = stateAnswer?.invoke(n) ?: timeline.facets.current(timeline.sources)
+        stateGate?.invoke(n)
+        stateAnswered.incrementAndGet()
+        return answer
+    }
     var timelineOn = false
     override suspend fun timelineEnabled(serial: String, pkg: String, on: Boolean?): io.yamsergey.dta.protocol.timeline.TimelineSwitch {
         on?.let { timelineOn = it }
