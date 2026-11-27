@@ -256,15 +256,14 @@ class EntryDetailPane(
     private fun renderHeader(detail: EntryDetail, gone: Boolean) {
         header.removeAll()
         detail.summary.firstOrNull()?.let { first ->
-            val title = JBLabel(first.value).apply { font = font.deriveFont(Font.BOLD); setCopyable(true) }
             val id = shown
             val menu = copyMenu
             if (menu != null && id != null) {
                 val type = (raw?.get("entry") as? JsonObject)?.get("type")?.let { (it as JsonPrimitive).content }
                 lateinit var link: ActionLink
                 link = ActionLink("Copy ▾") { menu.show(id, type, link, 0, link.height) }
-                header.add(row(listOf(title, link)))
-            } else header.add(title.left())
+                header.add(EntryTitleRow(first.value, link))
+            } else header.add(EntryTitleRow(first.value, null))
         }
         val statements = listOfNotNull(
             if (gone) Statement(StatementKind.EVICTED, word = "no longer in the list", detail = "no longer in the list") else null,

@@ -8,7 +8,7 @@ import java.awt.Dimension
  * and the whole text is its tooltip (truncation rule: nothing hard-cut, nothing cut without the full text on hover).
  * With [asClass] the text is a class name: the simple name stays whole and the package shrinks first ([ClassNameFit]).
  */
-class FitLabel(private val asClass: Boolean = false, private val asResource: Boolean = false) : JBLabel() {
+class FitLabel(private val asClass: Boolean = false, private val asResource: Boolean = false, private val asMiddle: Boolean = false) : JBLabel() {
     private var full: String = ""
 
     fun show(text: String) {
@@ -26,10 +26,10 @@ class FitLabel(private val asClass: Boolean = false, private val asResource: Boo
     }
 
     private fun refit() {
-        if (!(asClass || asResource) || full.isEmpty() || width <= 0) return
+        if (!(asClass || asResource || asMiddle) || full.isEmpty() || width <= 0) return
         val metrics = getFontMetrics(font)
         val room = (width - insets.left - insets.right).coerceAtLeast(0)
-        val fit = if (asResource) ClassNameFit.resource(full, { metrics.stringWidth(it) }, room) else ClassNameFit.fit(full, { metrics.stringWidth(it) }, room).text
+        val fit = if (asMiddle) ClassNameFit.middle(full, { metrics.stringWidth(it) }, room) else if (asResource) ClassNameFit.resource(full, { metrics.stringWidth(it) }, room) else ClassNameFit.fit(full, { metrics.stringWidth(it) }, room).text
         if (fit != text) super.setText(fit)
     }
 }

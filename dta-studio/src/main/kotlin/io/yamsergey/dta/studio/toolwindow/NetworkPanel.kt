@@ -419,7 +419,13 @@ class NetworkPanel(
             // At most one repaint per 100 ms however fast entries arrive (SC-002): a StateFlow keeps only the latest.
             network.state.collect { s ->
                 // The latest state, not the one collected: a click handled meanwhile must not be undone by an older selection.
-                withContext(Dispatchers.Main) { show(network.state.value) }
+                // One state that cannot be drawn must not end the loop: the tab would stop following (a label stale for good, D-153).
+                withContext(Dispatchers.Main) {
+                    try { show(network.state.value) } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        com.intellij.openapi.diagnostic.Logger.getInstance(NetworkPanel::class.java).warn("Network tab could not draw a state", e)
+                    }
+                }
                 delay(100)
             }
         }
@@ -508,13 +514,10 @@ class NetworkPanel(
         s.error?.let { statements.add(JBLabel(it).apply { foreground = DtaColors.of("status-server") }) }
         newBar.text = if (s.list.newCount > 0) "${s.list.newCount} new ${if (model.order == ListOrder.NEWEST_FIRST) "above" else "below"} — G to follow" else ""
         newBar.isVisible = s.list.newCount > 0
-        empty.text = when {
-            s.app == null || !s.online -> ""
-            s.loading -> "Loading…"
-            s.list.rows.isEmpty() && s.saved.saved.isEmpty() && s.applied.text.isBlank() && s.kind == io.yamsergey.dta.present.network.KindChoice.ALL -> "No traffic yet. Requests appear here as the app makes them."
-            s.list.rows.isEmpty() -> "Nothing matches these filters."
-            else -> ""
-        }
+        empty.text = NetworkEmptyHint.of(
+            hasApp = s.app != null, online = s.online, loading = s.loading, rowsEmpty = s.list.rows.isEmpty(),
+            noSaved = s.saved.saved.isEmpty(), noFilter = s.applied.text.isBlank(), allKinds = s.kind == io.yamsergey.dta.present.network.KindChoice.ALL,
+        )
         val target = JsonObject(listOfNotNull(s.device?.let { "device" to JsonPrimitive(it) }, s.app?.let { "app" to JsonPrimitive(it) }).toMap())
         val selectedRow = s.list.selectedId?.let(model::indexOf)
         // Reached by a link (025): bring the row into view; one the filters hide is still shown, saying so.
