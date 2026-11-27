@@ -433,6 +433,21 @@ class NetworkController(private val context: ContextController, private val scop
         requery()
     }
 
+    /**
+     * D-106: the source list's choice. null: Live (the current run); [io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING]:
+     * All, the whole history (the archive switch on); anything else: an archived session's scope.
+     */
+    fun chooseSource(scope: String?) {
+        val everything = io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING
+        if (scope == everything || scope == null) {
+            if (mutable.value.archive != null) setArchive(null)
+            setArchiveOn(scope == everything)
+        } else if (mutable.value.archive != scope) setArchive(scope)
+    }
+
+    /** The source list's current choice: see [chooseSource]. */
+    fun sourceChoice(): String? = mutable.value.let { it.archive ?: if (it.archiveOn) io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING else null }
+
     /** Feature 071: the Stop link — the search ends here and on the daemon, and says stopped, never done. */
     fun stopSearch() {
         val stream = findStream ?: return

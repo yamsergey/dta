@@ -18,10 +18,11 @@ import java.util.Locale
  * with the archive switch. One wording for every client (constitution VI).
  */
 object ScopeCaption {
-    /** What a caption offers beside its words. */
-    enum class Action { STOP, INCLUDE_ARCHIVE }
+    /** What a caption offers beside its words (D-106: the archive is no link any more; the source list's "All" is the way). */
+    enum class Action { STOP }
 
-    data class Caption(val text: String, val action: Action? = null, val searching: Boolean = false)
+    /** [earlier]: the words say earlier runs are in the archive (the tab points to the source "All", the CLI to `--archive`). */
+    data class Caption(val text: String, val action: Action? = null, val searching: Boolean = false, val earlier: Boolean = false)
 
     /**
      * The line under the list. [shown]: rows shown; [filtered]: a filter or search is on; [state]: a
@@ -34,18 +35,18 @@ object ScopeCaption {
         val savedOn = saved?.takeIf { !it.ignored && it.words.isNotEmpty() }?.words?.size
         val savedText = savedOn?.let { " · $it saved filter${if (it == 1) "" else "s"} on" }.orEmpty()
         val more = !on && (scope?.outside ?: 0) > 0 && scope?.explicit == null
-        val earlier = if (more) " · earlier runs are in the archive" else ""
+        val earlier = if (more) " · earlier runs are in the archive$ALL_POINTER" else ""
         if (scope?.explicit != null) {
             return Caption("${grouped(shown)} shown · ${grouped(total)} in the archived part$savedText", searching = state == FindState.SEARCHING || state == FindState.WAITING)
         }
         return when (state) {
             FindState.SEARCHING -> Caption("Searching ${if (on) "all history" else "this run"} · ${grouped(shown)} shown · ${grouped(total)} $where$savedText", Action.STOP, searching = true)
             FindState.WAITING -> Caption("Waiting for another search to end · ${grouped(shown)} shown · ${grouped(total)} $where$savedText", Action.STOP, searching = true)
-            FindState.STOPPED -> Caption("Search stopped · ${grouped(shown)} shown · ${grouped(total)} $where$savedText", if (more) Action.INCLUDE_ARCHIVE else null)
+            FindState.STOPPED -> Caption("Search stopped · ${grouped(shown)} shown · ${grouped(total)} $where$savedText", earlier = false)
             FindState.FAILED -> Caption("Search failed${error?.let { ": $it" }.orEmpty()} · ${grouped(shown)} shown$savedText")
             else -> when {
-                !filtered && savedOn == null -> Caption("${grouped(total)} ${if ((total).toLong() == 1L) "entry" else "entries"} $where$earlier", if (more) Action.INCLUDE_ARCHIVE else null)
-                else -> Caption("${grouped(shown)} shown · ${grouped(total)} $where$earlier$savedText", if (more) Action.INCLUDE_ARCHIVE else null)
+                !filtered && savedOn == null -> Caption("${grouped(total)} ${if ((total).toLong() == 1L) "entry" else "entries"} $where$earlier", earlier = more)
+                else -> Caption("${grouped(shown)} shown · ${grouped(total)} $where$earlier$savedText", earlier = more)
             }
         }
     }
@@ -53,12 +54,14 @@ object ScopeCaption {
     /** The link's words for [action]. */
     fun label(action: Action): String = when (action) {
         Action.STOP -> "Stop"
-        Action.INCLUDE_ARCHIVE -> "Include archive"
     }
 
     /** Board 5: the line's hint when `run:all` is in it while the switch is off, and its link. */
     const val RUN_ALL_HINT = io.yamsergey.dta.protocol.network.NetworkQuery.RUN_ALL_HINT
-    const val TURN_ON_ARCHIVE = "Turn on Archive"
+    /** What the caption says after "earlier runs are in the archive": where the tab shows them (the source list). */
+    const val ALL_POINTER = " (source: All)"
+    /** Board 5 in the tab (D-106): no link; the source list's "All" widens it. */
+    const val RUN_ALL_HINT_TAB = "run:all reads only this run. Earlier runs: source All."
 
     /** Board 4: the app started again; [previous] is the run that ended. */
     fun restarted(current: ScopeRun, previous: ScopeRun?, zone: ZoneId = ZoneId.systemDefault()): String = buildString {
@@ -82,10 +85,8 @@ object ScopeCaption {
         "Archived history" + (epoch.closedMs?.let { " · ${reason(epoch.reason)} ${day(it, zone)}" } ?: "") + " · ${grouped(epoch.entries)} ${if ((epoch.entries).toLong() == 1L) "entry" else "entries"}"
 
     /** The CLI's caption: the tab's words, with the switch named where the tab offers a link. */
-    fun cli(caption: Caption): String = when (caption.action) {
-        Action.INCLUDE_ARCHIVE -> caption.text + " (--archive includes them)"
-        else -> caption.text
-    }
+    fun cli(caption: Caption): String =
+        if (caption.earlier) caption.text.replace(ALL_POINTER, "") + " (--archive includes them)" else caption.text
 
     private fun end(e: RunEnd) = when (e) { RunEnd.PROCESS_ENDED -> "process-ended" }
 

@@ -27,8 +27,8 @@ class ScopeCaptionTest {
     }
 
     @Test
-    fun `board 2 - done, earlier runs named, with Include archive`() {
-        assertEquals(ScopeCaption.Caption("37 shown · 48 210 in this run · earlier runs are in the archive", Action.INCLUDE_ARCHIVE), ScopeCaption.of(off, 37, filtered = true, FindState.DONE))
+    fun `board 2 - done, earlier runs named, pointing to the source All, no link`() {
+        assertEquals(ScopeCaption.Caption("37 shown · 48 210 in this run · earlier runs are in the archive (source: All)", earlier = true), ScopeCaption.of(off, 37, filtered = true, FindState.DONE))
         assertEquals(ScopeCaption.Caption("37 shown · 48 210 in this run"), ScopeCaption.of(off.copy(outside = null), 37, filtered = true, FindState.DONE))
     }
 
@@ -43,14 +43,19 @@ class ScopeCaptionTest {
     fun `board 4 - the app restarted, the previous run named`() {
         val previous = ScopeRun("r8", 8_412, startedMs = at(2026, 11, 21, 18, 2), endedMs = at(2026, 11, 21, 23, 59, 51), ended = RunEnd.PROCESS_ENDED)
         assertEquals("The app restarted at 00:00:03. Previous run: 8 412 entries, ended 23:59:51 (process-ended).", ScopeCaption.restarted(run, previous, zone))
-        assertEquals(ScopeCaption.Caption("5 entries in this run · earlier runs are in the archive", Action.INCLUDE_ARCHIVE), ScopeCaption.of(off.copy(entries = 5), 5, filtered = false))
+        assertEquals(ScopeCaption.Caption("5 entries in this run · earlier runs are in the archive (source: All)", earlier = true), ScopeCaption.of(off.copy(entries = 5), 5, filtered = false))
     }
 
     @Test
     fun `board 5 - run all with the switch off`() {
         assertEquals("run:all reads only this run while Archive is off.", ScopeCaption.RUN_ALL_HINT)
-        assertEquals("Turn on Archive", ScopeCaption.TURN_ON_ARCHIVE)
-        assertEquals(ScopeCaption.Caption("3 shown · 48 210 in this run · earlier runs are in the archive", Action.INCLUDE_ARCHIVE), ScopeCaption.of(off, 3, filtered = true))
+        assertEquals("run:all reads only this run. Earlier runs: source All.", ScopeCaption.RUN_ALL_HINT_TAB)
+        assertEquals(ScopeCaption.Caption("3 shown · 48 210 in this run · earlier runs are in the archive (source: All)", earlier = true), ScopeCaption.of(off, 3, filtered = true))
+    }
+
+    @Test
+    fun `there is no Include archive action any more (D-106)`() {
+        assertEquals(listOf(Action.STOP), Action.values().toList())
     }
 
     @Test
@@ -61,7 +66,7 @@ class ScopeCaptionTest {
     }
 
     @Test
-    fun `the CLI names the switch where the tab has a link`() {
+    fun `the CLI names its switch where the tab points to the source All`() {
         assertEquals("37 shown · 48 210 in this run · earlier runs are in the archive (--archive includes them)", ScopeCaption.cli(ScopeCaption.of(off, 37, filtered = true, FindState.DONE)))
         assertEquals("No caption action", ScopeCaption.cli(ScopeCaption.Caption("No caption action")))
     }
@@ -69,7 +74,7 @@ class ScopeCaptionTest {
     @Test
     fun `whole history without filters, and saved filters said`() {
         assertEquals("1 251 760 entries in the history", ScopeCaption.of(on, 500, filtered = false).text)
-        assertEquals("9 shown · 48 210 in this run · earlier runs are in the archive · 1 saved filter on",
+        assertEquals("9 shown · 48 210 in this run · earlier runs are in the archive (source: All) · 1 saved filter on",
             ScopeCaption.of(off, 9, filtered = false, saved = io.yamsergey.dta.protocol.network.SavedFiltersApplied(listOf("-url:/health"))).text)
     }
 }

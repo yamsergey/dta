@@ -512,6 +512,26 @@ class NetworkControllerTest {
         assertEquals(true, exported().archive, "on: everything this computer keeps, as the list")
     }
 
+    /** D-106: the source list's "All" is the archive switch on (this computer's whole history); Live puts it off. */
+    @Test
+    fun `choosing All in the source list gives the archive scope, Live takes it back (D-106)`() = runBlocking<Unit> {
+        network.uiContext = kotlinx.coroutines.Dispatchers.Unconfined
+        session.start()
+        await { it.list.rows.size == 3 && it.watching }
+        assertEquals(null, network.sourceChoice())
+        network.chooseSource(io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING)
+        await { it.archiveOn && it.archive == null }
+        assertEquals(io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING, network.sourceChoice())
+        network.chooseSource(null)
+        await { !it.archiveOn && it.archive == null }
+        assertEquals(null, network.sourceChoice())
+        network.chooseSource("e1")
+        await { it.archive == "e1" }
+        assertEquals("e1", network.sourceChoice())
+        network.chooseSource(io.yamsergey.dta.present.network.ArchiveSessions.EVERYTHING)
+        await { it.archiveOn && it.archive == null }
+    }
+
     /** 072 FR-013: the plugin's export is masked by default; "Export HAR with Secrets…" asks `unredacted`. */
     @Test
     fun `export is masked unless it is asked with secrets, and there is no Redact switch state`() = runBlocking<Unit> {

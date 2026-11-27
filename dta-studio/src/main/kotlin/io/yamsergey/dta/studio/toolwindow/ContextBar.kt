@@ -23,6 +23,8 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
     private val apps = ComboBox<String>()
     private val connection = JBLabel()
     private var updating = false
+    private var chipText = ""
+    private var chipReason: String? = null
     /** What the bar's owner does when its contents' widths changed. */
     var onChanged: () -> Unit = {}
 
@@ -51,9 +53,12 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
             updating = false
         }
         val line = state.connectionLine
-        connection.text = line?.text ?: ""
+        chipText = line?.text ?: ""
+        chipReason = line?.reason
         connection.foreground = line?.let { if (it.token == "ink-muted") com.intellij.ui.JBColor.GRAY else DtaColors.of(it.token) }
-        connection.toolTipText = line?.reason
+        // Whole until fit() says the room is short (D-108); the owner's onChanged fits again.
+        connection.text = chipText
+        connection.toolTipText = ConnectionChipFit.of(chipText, chipReason, 0, 0, 0, 0, Int.MAX_VALUE).tooltip
         onChanged()
         revalidate()
         repaint()
@@ -65,7 +70,14 @@ class ContextBar(private val controller: ContextController) : JPanel(FlowLayout(
      */
     fun fit(available: Int) {
         val gap = JBUI.scale(8)
-        val others = components.filter { it !== devices && it !== apps }.sumOf { it.preferredSize.width + gap } + 2 * gap
+        // D-108: the chip's text whole, or only its dot when the combos would have to give up their floor.
+        connection.text = chipText
+        val base = components.filter { it !== devices && it !== apps && it !== connection }.sumOf { it.preferredSize.width + gap } + 2 * gap
+        val fm = connection.getFontMetrics(connection.font)
+        val shown = ConnectionChipFit.of(chipText, chipReason, fm.stringWidth(chipText) + gap, fm.stringWidth(chipText.substringBefore(' ')) + gap, base, JBUI.scale(160), available)
+        connection.text = shown.text
+        connection.toolTipText = shown.tooltip
+        val others = base + (if (shown.text.isEmpty()) 0 else connection.preferredSize.width + gap)
         devices.preferredSize = null
         apps.preferredSize = null
         val room = (available - others).coerceAtLeast(JBUI.scale(160))

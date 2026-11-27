@@ -16,6 +16,8 @@ import java.util.Locale
 object ArchiveSessions {
     const val MAX = 20
     const val ALL = "all"
+    /** D-106: the source choice "All": this computer's whole history for the app (the Archive switch on), not an archive scope. */
+    const val EVERYTHING = "everything"
 
     /** [scope] is the archive scope a choice sets (an epoch id, or [ALL]). */
     data class Item(val scope: String, val label: String, val meta: String, val enabled: Boolean = true)
