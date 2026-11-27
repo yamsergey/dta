@@ -111,6 +111,23 @@ class TimelineControllerTest {
         assertNotNull(s.app)
         assertNull(s.error)
     }
+
+    /**
+     * D-156 (017 FR-014): when the daemon is gone the tab no longer watches, and it says why instead of keeping a stale list with no
+     * word of its own (the Network tab clears its list for the same reason, D-083): the list is cleared and the error says the daemon is
+     * not connected, in the shared banner's words.
+     */
+    @Test
+    fun `when the daemon is gone the stale list is cleared and the tab says why`() = runBlocking<Unit> {
+        daemon.ops.timeline.ingest(TimelineRead(1, listOf(click, request, toast), lastSeq = 3))
+        session.start()
+        timeline.setActive(true)
+        await { it.view.events.size == 3 && it.watching }
+        daemon.close()
+        val gone = await { !it.watching && it.error != null }
+        assertTrue(gone.view.events.isEmpty(), "no stale list: ${gone.view.events.size} rows")
+        assertTrue("daemon" in gone.error!!.lowercase(), "the error names the daemon: ${gone.error}")
+    }
 }
 
 /** Feature 065 (T017): Network's saved filters in the Timeline tab. */
