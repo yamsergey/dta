@@ -83,9 +83,13 @@ class AppRunTool(private val runner: AppRunner, private val projects: () -> List
     companion object {
         const val NAME = "app_run"
 
-        /** The progress notification for the [n]th report of a call (0, 1, 2...). */
+        /**
+         * The progress notification for the [n]th report of a call (0, 1, 2...). MCP: the progress value MUST increase with each
+         * notification, so it is the report's number (the steps done repeat while the phases of a build go by, and the total of
+         * notifications is not known); the message says what runs, with the steps done.
+         */
         fun notification(token: Any, n: Int, p: Progress): io.modelcontextprotocol.spec.McpSchema.ProgressNotification =
-            io.modelcontextprotocol.spec.McpSchema.ProgressNotification(token, p.step.toDouble(), TOTAL.toDouble(), p.message)
+            io.modelcontextprotocol.spec.McpSchema.ProgressNotification(token, n.toDouble(), null, p.message)
         val TOTAL = StepName.entries.size
 
         const val DESCRIPTION =
