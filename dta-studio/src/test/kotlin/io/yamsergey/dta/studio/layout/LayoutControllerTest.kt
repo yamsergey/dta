@@ -143,6 +143,26 @@ class LayoutControllerTest {
         }
     }
 
+    /**
+     * D-155: after `am start -S` the signal to the old process ends (the state says reconnecting) and returns when the new process is
+     * reached. Its screen was drawn before the watch was armed, so no change is ever signalled and Auto kept the dead process's picture
+     * (1 of 5 runs, 41 s+). Getting the app back is a change of the screen: one capture follows.
+     */
+    @Test
+    fun `auto captures again when the signal comes back after reconnecting, with no change signalled`() = runBlocking<Unit> {
+        shown()
+        withTimeout(5_000) { while (daemon.ops.signalWatchers.get() == 0) kotlinx.coroutines.delay(20) }
+        layout.setRefreshMode(io.yamsergey.dta.present.layout.RefreshPolicy.Mode.AUTO)
+        kotlinx.coroutines.delay(1_100)
+        val before = daemon.ops.layoutRequests.size
+        daemon.ops.signal.tryEmit(io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update.State(io.yamsergey.dta.protocol.layout.ScreenSignal.RECONNECTING))
+        await { it.reason.first.startsWith("Auto is waiting") }
+        kotlinx.coroutines.delay(300)
+        assertEquals(before, daemon.ops.layoutRequests.size, "nothing is captured while the app is unreachable")
+        daemon.ops.signal.tryEmit(io.yamsergey.dta.daemon.layout.LayoutSignalWatch.Update.State(io.yamsergey.dta.protocol.layout.ScreenSignal.WATCHING))
+        withTimeout(4_000) { while (daemon.ops.layoutRequests.size == before) kotlinx.coroutines.delay(20) }
+    }
+
     /** V4 (D-143): the line that Auto cannot follow a capture of an app without DTA goes when the app with DTA is captured again. */
     @Test
     fun `the line that auto cannot follow goes when the app's own capture comes back`() = runBlocking<Unit> {
