@@ -112,6 +112,21 @@ class HeapSnapshotStoreTest {
         assertEquals(1, l.snapshots.size)
     }
 
+    @Test fun comparingAnEarlierRunsSnapshotWithTheNewRunsIsRefusedNamingTheRun() {
+        take("run1", run = "r1")
+        take("run2", run = "r2")
+        val bad = assertIs<HeapCompareResult.Refused>(store.compare(app, "run1", "run2"))
+        assertTrue(bad.reason.contains("earlier run") && bad.reason.contains("r1") && bad.reason.contains("not comparable"), bad.reason)
+        assertTrue(!bad.reason.contains("no snapshot 'run1'"), bad.reason)
+    }
+
+    @Test fun comparingWhileTheListedRunIsEarlierThanTheAppsRunIsRefusedAsAcrossRuns() {
+        take("run1", run = "r1")
+        store.runStarted(app, "r2")
+        val bad = assertIs<HeapCompareResult.Refused>(store.compare(app, "run1", "run2"))
+        assertTrue(bad.reason.contains("earlier run") && bad.reason.contains("r1") && bad.reason.contains("r2") && bad.reason.contains("not comparable"), bad.reason)
+    }
+
     @Test fun compareResolvesByIdOrNameAndExplainsUnknown() {
         take("before"); take("after")
         val ok = assertIs<HeapCompareResult.Ok>(store.compare(app, "before", "s2"))

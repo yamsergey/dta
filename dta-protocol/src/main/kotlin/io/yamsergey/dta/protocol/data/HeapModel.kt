@@ -1,5 +1,7 @@
 package io.yamsergey.dta.protocol.data
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -188,7 +190,7 @@ data class HeapInstancesAnswer(
     val instances: List<HeapInstance>,
     /** Said every time: live objects at call time, not at any snapshot. */
     val note: String,
-    val notKnown: List<String> = HeapLimits.NOT_KNOWN,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
 
 @Serializable
@@ -199,7 +201,7 @@ data class HeapFieldsAnswer(
     val note: String,
     /** Feature 072: for an agent, what was masked (or that nothing needed it); the daemon adds `forAgents` as for the other answers. */
     val redaction: io.yamsergey.dta.protocol.network.RedactionInfo? = null,
-    val notKnown: List<String> = HeapLimits.NOT_KNOWN,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
 
 /** What the sidekick answers to `runtime_heap_run`: the app run, and the namespaces the origin rule uses. */
@@ -277,7 +279,7 @@ data class HeapSnapshotAnswer(
     val warning: String? = null,
     /** The unnamed snapshot dropped to make room, when one was. */
     val dropped: String? = null,
-    val notKnown: List<String> = HeapLimits.NOT_KNOWN,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
 
 @Serializable
@@ -293,7 +295,7 @@ data class HeapListAnswer(
     val dropped: List<HeapDroppedInfo> = emptyList(),
     /** Set when the snapshots listed are of an earlier run than the app's current one. */
     val note: String? = null,
-    val notKnown: List<String> = HeapLimits.NOT_KNOWN,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )
 
 @Serializable
@@ -301,5 +303,5 @@ data class HeapCompareAnswer(
     val comparison: HeapComparison,
     /** What the filters left out, in words. */
     val leftOut: String,
-    val notKnown: List<String> = HeapLimits.NOT_KNOWN,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault val notKnown: List<String> = HeapLimits.NOT_KNOWN,
 )

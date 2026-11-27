@@ -47,6 +47,8 @@ class HeapSnapshotStore(
         var nextSeq = 1
         val snapshots = ArrayList<HeapSnapshot>()
         val dropped = ArrayList<DroppedInfo>()
+        /** Ids and names of the snapshots an earlier run held, so a reference to one is refused as across runs, not as unknown. */
+        var earlier: Pair<String, List<Pair<String, String?>>>? = null
         var inFlight: Long? = null
         var lastStartMs: Long? = null
     }
@@ -107,6 +109,7 @@ class HeapSnapshotStore(
         if (s.inFlight != ticket.id) return Completion.Refused("this walk is no longer the one in flight for ${ticket.app}")
         s.inFlight = null
         if (s.run != ticket.run) {
+            s.run?.let { old -> s.earlier = old to s.snapshots.map { it.id to it.name } }
             s.run = ticket.run
             s.snapshots.clear()
             s.dropped.clear()
@@ -155,6 +158,10 @@ class HeapSnapshotStore(
     @Synchronized fun compare(app: String, a: String, b: String, filter: HeapFilter = HeapFilter()): HeapCompareResult {
         val s = apps[app]
         if (s == null || s.run == null) return HeapCompareResult.Refused("no snapshot has been taken for $app; take one first")
+        val known = s.knownRun
+        if (known != null && known != s.run) {
+            return HeapCompareResult.Refused("the snapshots listed are of an earlier run (${s.run}); the app now runs $known, a new process: counts are not comparable across runs. Take a snapshot in the current run and compare within it")
+        }
         val sa = get(app, a) ?: if (a == EMPTY) emptyOf(s) else return HeapCompareResult.Refused(unknown(s, a))
         val sb = get(app, b) ?: return HeapCompareResult.Refused(unknown(s, b))
         return compareHeap(sa, sb, filter)
@@ -166,6 +173,11 @@ class HeapSnapshotStore(
     private fun emptyOf(s: AppState) = HeapSnapshot(id = EMPTY, run = s.run!!, takenAtMs = 0, pauseMs = 0, classes = emptyList(), totals = HeapTotals(0, 0))
 
     private fun unknown(s: AppState, ref: String): String {
+        s.earlier?.let { (run, snaps) ->
+            if (snaps.any { it.first == ref || it.second == ref }) {
+                return "snapshot '$ref' belongs to an earlier run ($run) of the app, a different process; it is gone from the store and counts are not comparable across runs (this run is ${s.run})"
+            }
+        }
         val dropped = s.dropped.firstOrNull { it.id == ref || it.name == ref }
         return if (dropped != null) "snapshot '$ref' was dropped to stay within ${maxSnapshots} snapshots; name snapshots to keep them"
         else "no snapshot '$ref' in run ${s.run}; list them to see the ids and names"
