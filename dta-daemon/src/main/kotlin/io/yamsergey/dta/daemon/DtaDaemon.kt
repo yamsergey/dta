@@ -252,8 +252,16 @@ class DtaDaemon(
     private val selections = io.yamsergey.dta.daemon.layout.SelectionStore()
 
     suspend fun layoutSelection(serial: String, pkg: String, fresh: Boolean = false): io.yamsergey.dta.protocol.layout.LayoutSelection {
+        // D-134 (055 FR-007): nobody may be watching the app (no connection event ends the selection then), so a read looks.
+        if (selections.read(serial, pkg).elements.isNotEmpty() && processGone(serial, pkg)) selections.ended(serial, pkg)
         if (fresh) layout(serial, pkg, detail = DetailLevel.LAYOUT)
         return selections.read(serial, pkg)
+    }
+
+    /** True only when adb answered and no process of [pkg] runs (`pidof` exits 1 with nothing said); an adb failure is not the app ending. */
+    private fun processGone(serial: String, pkg: String): Boolean {
+        val r = runCatching { runAdb(listOf("-s", serial, "shell", "pidof", pkg)) }.getOrNull() ?: return false
+        return r.exitCode == 1 && r.stdout.isBlank() && r.stderr.isBlank()
     }
 
     fun layoutSelections(serial: String, pkg: String): kotlinx.coroutines.flow.Flow<io.yamsergey.dta.protocol.layout.LayoutSelection> =
