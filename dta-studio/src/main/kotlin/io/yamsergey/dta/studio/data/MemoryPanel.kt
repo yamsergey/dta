@@ -148,6 +148,10 @@ class MemoryPanel(
         })
     }
 
+    /** The comparison table: never less than its header and two whole rows (D-148), so the instances below cannot squeeze it to a sliver. */
+    internal val tableScroll: JBScrollPane = object : JBScrollPane(table) {
+        override fun getMinimumSize() = java.awt.Dimension(0, table.tableHeader.preferredSize.height + 2 * table.rowHeight + insets.top + insets.bottom)
+    }
     private val instanceModel = DefaultListModel<MemoryRows.InstanceRow>()
     private fun instanceLine(row: MemoryRows.InstanceRow) = "${row.label}   ${row.state}${row.linkText?.let { "   $it" } ?: ""}"
     internal val instanceList = object : JBList<MemoryRows.InstanceRow>(instanceModel) {
@@ -228,9 +232,7 @@ class MemoryPanel(
             add(JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), JBUI.scale(2))).apply { add(originControl); add(packageField) })
         }
         // A table never asks for more than two rows to stay: the instances below it keep their three (the splitter honours both minimums).
-        val tablePane = object : JBScrollPane(table) {
-            override fun getMinimumSize() = java.awt.Dimension(0, minOf(super.getMinimumSize().height, JBUI.scale(60)))
-        }
+        val tablePane = tableScroll
         val instances = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(4, 10)

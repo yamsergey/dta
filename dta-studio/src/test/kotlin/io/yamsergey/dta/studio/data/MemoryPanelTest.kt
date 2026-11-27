@@ -213,4 +213,25 @@ class MemoryPanelTest : BasePlatformTestCase() {
             assertTrue("viewport ${p.instanceScroll.viewport.height} px at $h (3 rows = 72)", p.instanceScroll.viewport.height >= 72)
         }
     }
+
+    /** D-148: the real IDE geometry (404 x 583, 24 px list rows): the comparison table keeps two whole rows under its header in the narrow splitter. */
+    fun testTheTableKeepsTwoWholeRowsInTheRealNarrowGeometry() {
+        snapshots = true
+        pauseB = 850
+        notes = (1..2).joinToString(",") { "\"note $it: this snapshot was walked while the app was busy\"" }
+        for (h in listOf(583, 520)) {
+            val p = panel()
+            p.instanceList.fixedCellHeight = 24
+            p.table.rowHeight = 17
+            p.table.tableHeader.preferredSize = java.awt.Dimension(100, 25)
+            p.setSize(404, h)
+            layout(p)
+            p.load()
+            p.table.setRowSelectionInterval(0, 0)
+            repeat(4) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+            assertTrue("minimum ${p.tableScroll.minimumSize.height} px is under header + two rows", p.tableScroll.minimumSize.height >= 25 + 2 * 17)
+            val viewport = p.table.parent
+            assertTrue("table viewport ${viewport.height} px of $h, two rows are ${2 * p.table.rowHeight}", viewport.height >= 2 * p.table.rowHeight)
+        }
+    }
 }

@@ -68,6 +68,17 @@ class SearchStreamControllerTest {
         }
     }
 
+    /** D-153: the footer's "Loading…" follows state.loading; a streamed search and a search typed at once never leave it on. */
+    @Test
+    fun `the list is not loading once a search has its rows`() = runBlocking<Unit> {
+        daemon.ops.findWalk = { _, _ -> { _, onItem -> (3 downTo 1).forEach { onItem(FoundItem(http(it), listOf(hit("r1-1:$it")))) }; FindEnd(null, null) } }
+        session.start()
+        await { it.watching }
+        network.setQuery("token")
+        val done = await { it.find == FindState.DONE }
+        assertEquals(false, done.loading, "loading stays on after the rows came")
+    }
+
     @Test
     fun `a search streams its rows and hits while searching, then says done`() = runBlocking<Unit> {
         daemon.ops.findWalk = { _, _ -> { _, onItem -> (3 downTo 1).forEach { onItem(FoundItem(http(it), listOf(hit("r1-1:$it")))) }; FindEnd(null, null) } }

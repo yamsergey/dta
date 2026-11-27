@@ -64,6 +64,21 @@ object ClassNameFit {
         return if (room > 0) lead + end(tail, measure, room) else end(tail, measure, width)
     }
 
+    /**
+     * [text] cut in the middle so it fits [width], the start and the end both kept (a URL: the method and host, and the end of the path);
+     * the end gets the larger share. Whole when it fits.
+     */
+    fun middle(text: String, measure: (String) -> Int, width: Int): String {
+        if (measure(text) <= width) return text
+        for (drop in 1 until text.length) {
+            // Drop from the middle, a little left of centre, so the end keeps more.
+            val from = ((text.length - drop) * 2 / 5).coerceAtLeast(1)
+            val candidate = text.substring(0, from) + "…" + text.substring(from + drop)
+            if (measure(candidate) <= width) return candidate
+        }
+        return "…"
+    }
+
     /** [text] cut at its end with an ellipsis so it fits [width]; whole when it fits. */
     fun end(text: String, measure: (String) -> Int, width: Int): String {
         if (measure(text) <= width) return text
