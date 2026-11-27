@@ -30,11 +30,19 @@ class NodeDetailPane(
     init {
         // At the top of the viewport: short content keeps its rows together instead of BoxLayout
         // spreading them over the pane's height.
-        add(JBScrollPane(JPanel(BorderLayout()).apply { add(content, BorderLayout.NORTH) }), BorderLayout.CENTER)
+        // The view follows the viewport's width: a long value ends in an ellipsis in its row, it does not widen the pane (D-144).
+        val view = object : JPanel(BorderLayout()), javax.swing.Scrollable {
+            override fun getPreferredScrollableViewportSize() = preferredSize
+            override fun getScrollableUnitIncrement(r: java.awt.Rectangle?, o: Int, d: Int) = JBUI.scale(16)
+            override fun getScrollableBlockIncrement(r: java.awt.Rectangle?, o: Int, d: Int) = JBUI.scale(64)
+            override fun getScrollableTracksViewportWidth() = true
+            override fun getScrollableTracksViewportHeight() = false
+        }.apply { add(content, BorderLayout.NORTH) }
+        add(JBScrollPane(view).apply { horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER }, BorderLayout.CENTER)
         empty("Select a node to see its properties.")
     }
 
-    fun empty(text: String) = rebuild { add(JBLabel(text).apply { foreground = JBColor.GRAY }) }
+    fun empty(text: String) = rebuild { add(io.yamsergey.dta.studio.ui.WrappingText(text, JBColor.GRAY)) }
 
     fun show(detail: NodeDetail?, note: String?) {
         lastShown = detail to note
@@ -46,7 +54,7 @@ class NodeDetailPane(
             }.flatMap { listOf(it, JBLabel("›").apply { foreground = JBColor.GRAY }) }.dropLast(1).toTypedArray()))
             if (detail.statements.isNotEmpty()) add(row(*detail.statements.map { StatementMark(it) }.toTypedArray()))
             val form = FormBuilder.createFormBuilder()
-            detail.fields.forEach { (label, value) -> form.addLabeledComponent("$label:", JBLabel(value).apply { setCopyable(true) }) }
+            detail.fields.forEach { (label, value) -> form.addLabeledComponent("$label:", valueLabel(label, value)) }
             detail.source?.let { form.addLabeledComponent("Source:", chainView.sourceLink(it, callers = detail.callers)) }
             add(form.panel.left())
             if (detail.parameters.isNotEmpty()) {
@@ -65,6 +73,16 @@ class NodeDetailPane(
 
     private var lastShown: Pair<NodeDetail?, String?>? = null
     private val chainView = io.yamsergey.dta.studio.ui.CallChainView(openSource) { lastShown?.let { (d, n) -> show(d, n) } }
+
+    /** A property's value on one line: ends in an ellipsis at the pane's edge, the whole in the tooltip, copied from a right-click. */
+    private fun valueLabel(label: String, value: String) = io.yamsergey.dta.studio.ui.FitLabel(asClass = label == "Class").apply {
+        show(value)
+        componentPopupMenu = javax.swing.JPopupMenu().apply {
+            add(javax.swing.JMenuItem("Copy").apply {
+                addActionListener { com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(java.awt.datatransfer.StringSelection(value)) }
+            })
+        }
+    }
 
     private fun heading(text: String) = JBLabel(text).apply { font = font.deriveFont(Font.BOLD); border = JBUI.Borders.emptyTop(10) }.left()
 

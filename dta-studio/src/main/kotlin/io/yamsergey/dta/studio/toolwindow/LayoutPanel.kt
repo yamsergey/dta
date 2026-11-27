@@ -74,9 +74,7 @@ class LayoutPanel(
     }
     private val nodes = HashMap<List<Int>, DefaultMutableTreeNode>()
     private val banners = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
-    private val summary = object : JBLabel() {
-        override fun getMinimumSize() = java.awt.Dimension(0, super.getMinimumSize().height)
-    }.apply { foreground = JBColor.GRAY }
+    private val summary = io.yamsergey.dta.studio.ui.FitLabel().apply { foreground = JBColor.GRAY }
     /** Feature 057: Auto follows the app's screen changes, Manual waits for Refresh. */
     private val refreshMode = ComboBox(RefreshPolicy.Mode.entries.toTypedArray()).apply {
         renderer = io.yamsergey.dta.studio.ui.textRenderer { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }
@@ -93,9 +91,7 @@ class LayoutPanel(
     }
     private val hideContainers = JBCheckBox("Hide containers", true)
     /** US4: something without DTA is in front of the app. */
-    private val front = object : JBLabel() {
-        override fun getMinimumSize() = java.awt.Dimension(0, super.getMinimumSize().height)
-    }.apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8); isVisible = false }
+    private val front = io.yamsergey.dta.studio.ui.FitLabel().apply { foreground = JBColor.GRAY; border = JBUI.Borders.empty(2, 8); isVisible = false }
     private val search = SearchTextField(false).apply { textEditor.emptyText.text = "Search name, text, id, test tag" }
     private val position = JBLabel().apply { foreground = JBColor.GRAY }
     private val hide = JBCheckBox("Only matches")
@@ -233,9 +229,9 @@ class LayoutPanel(
             hideContainers.isSelected = s.hideContainers
             if (reason.text != s.reason.first) reason.text = s.reason.first
             reason.foreground = if (s.reason.second) DtaColors.of("caveat") else JBColor.GRAY
-            front.text = s.front ?: ""
+            front.show(s.front ?: "")
             front.isVisible = s.front != null
-            summary.text = summaryLine(s)
+            summary.show(summaryLine(s))
             if (s.search == null && search.text.isNotEmpty() && previous.search != null) search.text = ""
             hide.isSelected = s.hideNonMatching
             screenToggle.isSelected = s.screenShown
