@@ -124,9 +124,31 @@ class TimelineControllerTest {
         timeline.setActive(true)
         await { it.view.events.size == 3 && it.watching }
         daemon.close()
-        val gone = await { !it.watching && it.error != null }
+        // the subscription's own end may set the error before the context's change clears the list: wait for both
+        val gone = await { !it.watching && it.error != null && it.view.events.isEmpty() }
         assertTrue(gone.view.events.isEmpty(), "no stale list: ${gone.view.events.size} rows")
         assertTrue("daemon" in gone.error!!.lowercase(), "the error names the daemon: ${gone.error}")
+    }
+
+    /**
+     * D-156 (the Sequence view): with the daemon gone the page that was shown is cleared too (a stale "145 rows"), and the read that
+     * the stopping daemon failed leaves no long error of its own: the tab's error says why, in one short line.
+     */
+    @Test
+    fun `when the daemon is gone the sequence page is cleared and has no error of its own`() = runBlocking<Unit> {
+        daemon.ops.timeline.ingest(TimelineRead(1, listOf(click, request, toast), lastSeq = 3))
+        daemon.ops.sequence = io.yamsergey.dta.protocol.timeline.SequencePage(emptyList(), 9, emptyList())
+        session.start()
+        timeline.setActive(true)
+        timeline.setShowSequence(true)
+        await { it.sequence.page?.total == 9 && it.watching }
+        daemon.close()
+        val gone = await { !it.watching && it.error != null && it.sequence.page == null }
+        assertEquals(null, gone.sequence.page, "no stale page")
+        assertEquals(null, gone.sequenceError, "the tab's error says why, the sequence has none of its own")
+        kotlinx.coroutines.delay(500)
+        assertEquals(null, timeline.state.value.sequence.page)
+        assertEquals(null, timeline.state.value.sequenceError, "a read that failed as the daemon went does not come back as an error")
     }
 }
 

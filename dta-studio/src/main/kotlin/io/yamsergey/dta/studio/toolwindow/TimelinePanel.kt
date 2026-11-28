@@ -98,7 +98,8 @@ class TimelinePanel(
     private val sequence = SequenceComponent(onOpen = openNetwork, onOpenSource = openSource, onFlowMenu = { f, e -> flowLineMenu(f).show(e.component, e.x, e.y) })
     private val sequenceTitles = sequence.Titles()
     private val sequenceScroll = JBScrollPane(sequence).apply { horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER; border = JBUI.Borders.empty() }
-    private val sequenceNote = JBLabel().apply {
+    // D-156b: one line, whole or ending in an ellipsis with the whole text on hover (the truncation rule)
+    private val sequenceNote = io.yamsergey.dta.studio.ui.FitLabel().apply {
         foreground = DtaColors.of("caveat")
         border = JBUI.Borders.empty(2, 8)
         isVisible = false
@@ -493,13 +494,15 @@ class TimelinePanel(
         val page = v.page
         val input = page?.sources?.firstOrNull { it.name == Sources.INPUT && it.state != SourceState.ON }
         val note = listOfNotNull(
+            // no page and the tab cannot read (the daemon is gone): the tab's own error, short, instead of a stale page with no word
+            s.error?.takeIf { page == null }?.let { "No sequence: $it" },
             s.sequenceError?.let { "The sequence could not be read: $it" },
             input?.let { "Taps may be missing: ${it.reason ?: it.state.name.lowercase()}" },
             page?.socketsNote,
             page?.flowsNote,
             s.flowError?.let { "The flow: $it" },
         ).joinToString(" · ")
-        sequenceNote.text = note
+        sequenceNote.show(note)
         sequenceNote.isVisible = note.isNotEmpty()
         caption.text = listOfNotNull(v.caption.takeIf { it.isNotEmpty() }, s.sequenceBar.caption).joinToString(" · ")
         captionAction.text = v.action?.label.orEmpty()
