@@ -315,4 +315,27 @@ class MemoryPanelTest : BasePlatformTestCase() {
         repeat(4) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
         assertTrue("view ${p.boardScroll.viewport.view.height} in ${p.boardScroll.viewport.height}", p.boardScroll.viewport.view.height <= p.boardScroll.viewport.height)
     }
+
+    /** The board opens from the top and stays there: a selection in the table (or a row asked to be visible) scrolls only inside the table or the list. */
+    fun testASelectionDoesNotMoveTheOuterBoardScroll() {
+        snapshots = true
+        val p = panel()
+        p.instanceList.fixedCellHeight = 24
+        p.table.rowHeight = 19
+        p.setSize(404, 322)
+        layout(p); p.load()
+        repeat(3) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+        p.table.setRowSelectionInterval(0, 0)
+        repeat(3) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+        assertEquals("opened at the top", 0, p.boardScroll.viewport.viewPosition.y)
+        p.table.scrollRectToVisible(p.table.getCellRect(p.table.rowCount - 1, 0, true))
+        p.instanceList.scrollRectToVisible(java.awt.Rectangle(0, p.instanceList.height - 1, 1, 1))
+        p.instanceList.selectedIndex = p.instanceList.model.size - 1
+        // A text area in the board asks its enclosing viewport to show its caret (IntelliJ's JBTextArea does it directly).
+        p.leftOutArea.scrollRectToVisible(java.awt.Rectangle(0, p.leftOutArea.height - 1, 1, 1))
+        (p.splitter.parent as javax.swing.JComponent).scrollRectToVisible(java.awt.Rectangle(0, p.splitter.parent.height - 1, 1, 1))
+        p.boardScroll.viewport.scrollRectToVisible(java.awt.Rectangle(0, p.boardScroll.viewport.view.height - 1, 1, 1))
+        repeat(3) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+        assertEquals("the outer scroll after the table's and the list's own scrolling", 0, p.boardScroll.viewport.viewPosition.y)
+    }
 }
