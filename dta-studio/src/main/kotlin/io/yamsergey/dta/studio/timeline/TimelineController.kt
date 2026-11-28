@@ -205,7 +205,8 @@ class TimelineController(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            mutable.update { it.copy(sequenceError = e.message ?: e.javaClass.simpleName) }
+            // D-156b: a read that failed because the daemon is going away is the tab's error, not a long one of the sequence's
+            if (context.client != null) mutable.update { it.copy(sequenceError = e.message ?: e.javaClass.simpleName) }
         }
     }
 
@@ -267,6 +268,8 @@ class TimelineController(
             mutable.update {
                 it.copy(
                     view = io.yamsergey.dta.present.timeline.TimelineView(), chain = ChainView.EMPTY, loading = false, watching = false,
+                    // D-156b: the Sequence view's page is stale too; its read has no error of its own (the tab's error says why)
+                    sequence = it.sequence.copy(page = null, incoming = null), sequenceError = null,
                     error = context.state.value.banner?.text ?: "The DTA daemon is not connected: the timeline cannot be read.",
                 )
             }

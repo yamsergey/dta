@@ -124,7 +124,8 @@ class TimelineControllerTest {
         timeline.setActive(true)
         await { it.view.events.size == 3 && it.watching }
         daemon.close()
-        val gone = await { !it.watching && it.error != null }
+        // the subscription's own end may set the error before the context's change clears the list: wait for both
+        val gone = await { !it.watching && it.error != null && it.view.events.isEmpty() }
         assertTrue(gone.view.events.isEmpty(), "no stale list: ${gone.view.events.size} rows")
         assertTrue("daemon" in gone.error!!.lowercase(), "the error names the daemon: ${gone.error}")
     }
@@ -142,7 +143,7 @@ class TimelineControllerTest {
         timeline.setShowSequence(true)
         await { it.sequence.page?.total == 9 && it.watching }
         daemon.close()
-        val gone = await { !it.watching && it.error != null }
+        val gone = await { !it.watching && it.error != null && it.sequence.page == null }
         assertEquals(null, gone.sequence.page, "no stale page")
         assertEquals(null, gone.sequenceError, "the tab's error says why, the sequence has none of its own")
         kotlinx.coroutines.delay(500)
