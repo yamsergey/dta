@@ -282,4 +282,37 @@ class MemoryPanelTest : BasePlatformTestCase() {
             assertTrue("room $room px: '$text'", ok && !(text.contains("Ac") && !text.contains("Activities")))
         }
     }
+
+    /**
+     * A low tool window (Memory 322 px tall, rows 19 / list rows 24): nothing is squeezed below its minimum or drawn over another part;
+     * the board under the header scrolls instead. Above the sum of the minimums it is as before.
+     */
+    fun testALowPanelKeepsEveryPartItsMinimumAndScrolls() {
+        snapshots = true
+        for (w in listOf(404, 631)) {
+            val p = panel()
+            p.instanceList.fixedCellHeight = 24
+            p.table.rowHeight = 19
+            p.table.tableHeader.preferredSize = java.awt.Dimension(100, 25)
+            p.setSize(w, 322)
+            layout(p)
+            p.load()
+            p.table.setRowSelectionInterval(0, 0)
+            p.leftOutArea.text = (1..12).joinToString("\n") { "left out line $it" }
+            repeat(4) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+            val first = p.splitter.firstComponent; val second = p.splitter.secondComponent
+            assertTrue("$w x 322: table part ${first.height} px of its minimum ${first.minimumSize.height}; splitter ${p.splitter.height} (min ${p.splitter.minimumSize.height}), board min ${p.boardScroll.viewport.view.minimumSize.height}, view ${p.boardScroll.viewport.view.height}, viewport ${p.boardScroll.viewport.height}", first.height >= first.minimumSize.height)
+            assertTrue("$w x 322: instances part ${second.height} px of its minimum ${second.minimumSize.height}", second.height >= second.minimumSize.height)
+            assertTrue("$w x 322: the board scrolls (${p.boardScroll.viewport.view.height} px in ${p.boardScroll.viewport.height})", p.boardScroll.viewport.view.height > p.boardScroll.viewport.height)
+        }
+    }
+
+    fun testATallPanelHasNoScrollingBoard() {
+        snapshots = true
+        val p = panel()
+        p.setSize(404, 700)
+        layout(p); p.load(); p.table.setRowSelectionInterval(0, 0)
+        repeat(4) { layout(p); com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents() }
+        assertTrue("view ${p.boardScroll.viewport.view.height} in ${p.boardScroll.viewport.height}", p.boardScroll.viewport.view.height <= p.boardScroll.viewport.height)
+    }
 }
