@@ -171,7 +171,11 @@ class MemoryPanel(
                 isOpaque = true
                 val metrics = getFontMetrics(font)
                 val room = (io.yamsergey.dta.studio.ui.VisibleWidth.of(list) - JBUI.scale(8)).coerceAtLeast(JBUI.scale(40))
-                text = io.yamsergey.dta.studio.ui.ClassNameFit.end(instanceLine(row), { metrics.stringWidth(it) }, room)
+                // The link's label is whole or left out (the tooltip and the link under the list say it): never "Ac…".
+                val measure = { t: String -> metrics.stringWidth(t) }
+                val whole = instanceLine(row)
+                val base = "${row.label}   ${row.state}"
+                text = if (measure(whole) <= room) whole else io.yamsergey.dta.studio.ui.ClassNameFit.end(base, measure, room)
                 background = if (selected) JBUI.CurrentTheme.List.background(true, true) else JBUI.CurrentTheme.List.background(false, false)
             }
         }
