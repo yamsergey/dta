@@ -212,6 +212,7 @@ class MemoryPanel(
     internal val rowCount: Int get() = tableModel.rowCount
     internal fun cell(row: Int, col: Int): String = tableModel.rows[row].cells[col]
 
+    internal lateinit var boardScroll: io.yamsergey.dta.studio.ui.ScrollWhenShort
     internal val splitter = JBSplitter(false, "dta.memory.split", 0.62f)
 
     init {
@@ -248,11 +249,18 @@ class MemoryPanel(
         splitter.setHonorComponentsMinimumSize(true)
         splitter.firstComponent = tablePane
         splitter.secondComponent = instances
-        content.add(JPanel(BorderLayout()).apply {
-            add(JPanel(BorderLayout()).apply { add(pickers, BorderLayout.NORTH); add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(statement), maxLines = 3), BorderLayout.CENTER) }, BorderLayout.NORTH)
+        val north = JPanel(BorderLayout()).apply { add(pickers, BorderLayout.NORTH); add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(statement), maxLines = 3), BorderLayout.CENTER) }
+        val south = io.yamsergey.dta.studio.ui.CappedBlock(listOf(leftOut, notKnown), maxLines = 3)
+        val board = object : JPanel(BorderLayout()) {
+            // Its parts at the height they ask for above and below, the splitter at its minimum: a shorter board scrolls (ScrollWhenShort).
+            override fun getMinimumSize() = java.awt.Dimension(super.getMinimumSize().width, north.preferredSize.height + splitter.minimumSize.height + south.preferredSize.height)
+        }.apply {
+            add(north, BorderLayout.NORTH)
             add(splitter, BorderLayout.CENTER)
-            add(io.yamsergey.dta.studio.ui.CappedBlock(listOf(leftOut, notKnown), maxLines = 3), BorderLayout.SOUTH)
-        }, CONTENT)
+            add(south, BorderLayout.SOUTH)
+        }
+        boardScroll = io.yamsergey.dta.studio.ui.ScrollWhenShort(board)
+        content.add(boardScroll, CONTENT)
         cards.show(content, EMPTY)
         layoutPickers()
 
