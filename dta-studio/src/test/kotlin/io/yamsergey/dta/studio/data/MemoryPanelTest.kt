@@ -257,4 +257,29 @@ class MemoryPanelTest : BasePlatformTestCase() {
             assertTrue("instances part ${second.height} px of its minimum ${second.minimumSize.height} at $h", second.height >= second.minimumSize.height)
         }
     }
+
+    /** The rendered row of the first instance at [room] px, as the list's own renderer draws it. */
+    private fun rowText(p: MemoryPanel, room: Int): String {
+        p.instanceList.setSize(room, 200)
+        val c = p.instanceList.cellRenderer.getListCellRendererComponent(p.instanceList, p.instanceList.model.getElementAt(0), 0, false, false) as javax.swing.JLabel
+        return c.text
+    }
+
+    /** At 900 light the link column showed "Ac": a link label is whole or not shown (its tooltip and the link under the list say it), never a stub. */
+    fun testTheLinkTextOfAnInstanceRowIsWholeOrLeftOutNeverAStub() {
+        snapshots = true
+        val p = panel()
+        p.load()
+        p.table.setRowSelectionInterval(0, 0)
+        val metrics = p.instanceList.getFontMetrics(p.instanceList.font)
+        val line = (0 until 1).map { rowText(p, 1000) }.single()
+        assertTrue(line, line.endsWith("Activities ›"))
+        val base = line.substringBefore("   Activities ›")
+        // From a room that holds the id and the state but not the link, down to nothing: never a part of the link's word.
+        for (room in (metrics.stringWidth(base) + 8) until metrics.stringWidth(line) + 8 step 3) {
+            val text = rowText(p, room)
+            val ok = text == line || text == base || text.endsWith("…")
+            assertTrue("room $room px: '$text'", ok && !(text.contains("Ac") && !text.contains("Activities")))
+        }
+    }
 }
